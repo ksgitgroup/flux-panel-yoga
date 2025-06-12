@@ -122,6 +122,9 @@ logs/
 ._*
 .Spotlight-V100
 .Trashes
+__MACOSX/
+__MACOSX
+*.dmg
 ehthumbs.db
 Thumbs.db
 

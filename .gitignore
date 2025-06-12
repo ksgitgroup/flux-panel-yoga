@@ -1,0 +1,183 @@
+# ===========================================
+# Java / Spring Boot 相关
+# ===========================================
+
+# 编译输出
+java/target/
+java/build/
+java/out/
+java/bin/
+*.class
+*.war
+*.ear
+*.nar
+
+# Maven
+java/.mvn/
+java/mvnw
+java/mvnw.cmd
+
+# Gradle
+java/.gradle/
+java/gradle/
+java/gradlew
+java/gradlew.bat
+
+# IDE - IntelliJ IDEA
+java/.idea/
+java/*.iml
+java/*.ipr
+java/*.iws
+
+# IDE - Eclipse
+java/.project
+java/.classpath
+java/.settings/
+java/.metadata/
+
+# IDE - VSCode
+java/.vscode/
+
+# Spring Boot
+java/application-*.yml
+java/application-*.yaml
+java/application-*.properties
+!java/application.yml
+!java/application.yaml
+!java/application.properties
+
+# ===========================================
+# Vue / Node.js 前端相关
+# ===========================================
+
+# 依赖目录
+vue/node_modules/
+vue/npm-debug.log*
+vue/yarn-debug.log*
+vue/yarn-error.log*
+
+# 构建输出
+vue/dist/
+vue/build/
+
+
+# IDE
+vue/.vscode/
+vue/.idea/
+
+# 缓存
+vue/.cache/
+vue/.temp/
+
+# ===========================================
+# Go 相关
+# ===========================================
+
+# 编译输出
+go/main
+go/gost
+go/*.exe
+go/*.exe~
+go/*.dll
+go/*.so
+go/*.dylib
+
+# cmd目录下的可执行文件和配置
+go/cmd/**/gost
+go/cmd/**/gost.exe
+go/cmd/**/*.exe
+go/cmd/**/*.json
+go/cmd/**/main
+go/cmd/**/main.exe
+
+# Go modules
+go/go.sum
+
+# IDE
+go/.vscode/
+go/.idea/
+
+# ===========================================
+# 日志和数据文件
+# ===========================================
+
+# 应用日志
+applog/
+logs/
+*.log
+*.log.*
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# ===========================================
+# 系统和临时文件
+# ===========================================
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+*.tmp
+*.swp
+*.swo
+*~
+
+# Linux
+*~
+
+# ===========================================
+# 安全和配置
+# ===========================================
+
+# 配置文件（包含敏感信息）
+config/database.yml
+config/secrets.yml
+
+# SSL证书
+*.pem
+*.key
+*.crt
+*.csr
+
+# ===========================================
+# 版本控制和部署
+# ===========================================
+
+# Git
+.git/
+.gitconfig
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+
+# ===========================================
+# 其他
+# ===========================================
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+
+# 备份文件
+*.bak
+*.backup
+*.orig
+
+# 测试覆盖率
+coverage/
+*.cover
+
+# 文档生成
+docs/build/ 

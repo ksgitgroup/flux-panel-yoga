@@ -36,35 +36,6 @@ chmod +x deploy.sh
 ./deploy.sh start
 ```
 
-#### 自定义服务器地址部署
-
-```bash
-# 如果你的服务器不是localhost，可以自定义API地址
-VUE_APP_API_URL="http://your-server-ip:6365/api/v1" \
-VUE_APP_WS_URL="ws://your-server-ip:6365" \
-./deploy.sh start
-```
-
-#### 手动部署步骤
-
-```bash
-# 1. 确保Vue项目已打包到deployment/dist目录
-cd vue
-npm run build
-cp -r dist ../deployment/
-
-# 2. 进入部署目录
-cd ../deployment
-
-# 3. 启动所有服务
-docker-compose up -d
-
-# 4. 查看服务状态
-docker-compose ps
-
-# 5. 查看日志
-docker-compose logs -f
-```
 
 #### 常用管理命令
 
@@ -88,14 +59,6 @@ docker-compose logs -f
 ./deploy.sh clean
 ```
 
-#### 服务信息
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| 前端界面 | 80 | Vue.js Web管理界面 |
-| 后端API | 6365 | Spring Boot后端服务 |
-| MySQL | 3306 | 数据库服务 |
-| Redis | 6379 | 缓存服务 |
 
 #### 默认管理员账号
 
@@ -104,31 +67,6 @@ docker-compose logs -f
 
 > ⚠️ 首次登录后请立即修改默认密码！
 
-#### 访问地址
-
-- 前端管理界面: http://localhost
-- 后端API文档: http://localhost:6365
-- 数据库连接: localhost:3306 (用户名: gost, 密码: pwd)
-
-#### 故障排除
-
-```bash
-# 查看服务日志
-./deploy.sh logs
-
-# 检查端口占用
-netstat -tulpn | grep :80
-netstat -tulpn | grep :6365
-
-# 重新构建前端（如果前端有问题）
-./deploy.sh build
-./deploy.sh restart
-
-# 完全重启（如果数据库有问题）
-./deploy.sh stop
-./deploy.sh start
-```
----
 
 ## 免责声明
 

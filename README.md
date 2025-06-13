@@ -62,7 +62,7 @@ chmod +x deploy.sh
 
 #### 默认管理员账号
 
-- **用户名**: admin_user
+- **账号**: admin_user
 - **密码**: admin_user
 
 > ⚠️ 首次登录后请立即修改默认密码！

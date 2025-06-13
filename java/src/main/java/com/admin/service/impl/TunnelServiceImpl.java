@@ -69,6 +69,8 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     private static final String ERROR_IN_PORT_RANGE_INVALID = "入口端口开始不能大于结束端口";
     private static final String ERROR_OUT_PORT_RANGE_INVALID = "出口端口开始不能大于结束端口";
     private static final String ERROR_NO_AVAILABLE_TUNNELS = "暂无可用隧道";
+    private static final String ERROR_IN_NODE_IP_INVALID = "入口节点IP地址无效，请先安装节点端的gost（支持IPv4和IPv6）";
+    private static final String ERROR_OUT_NODE_IP_INVALID = "出口节点IP地址无效，请先安装节点端的gost（支持IPv4和IPv6）";
     
     /** 使用检查相关消息 */
     private static final String ERROR_FORWARDS_IN_USE = "该隧道还有 %d 个转发在使用，请先删除相关转发";
@@ -221,6 +223,11 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             return NodeValidationResult.error(ERROR_IN_NODE_NOT_FOUND);
         }
 
+        // 验证入口节点IP地址
+        if (!isValidNodeIp(inNode.getIp())) {
+            return NodeValidationResult.error(ERROR_IN_NODE_IP_INVALID);
+        }
+
         // 验证入口端口范围
         if (tunnelDto.getInPortSta() > tunnelDto.getInPortEnd()) {
             return NodeValidationResult.error(ERROR_IN_PORT_RANGE_INVALID);
@@ -306,6 +313,11 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             return R.err(ERROR_OUT_NODE_NOT_FOUND);
         }
         
+        // 验证出口节点IP地址
+        if (!isValidNodeIp(outNode.getIp())) {
+            return R.err(ERROR_OUT_NODE_IP_INVALID);
+        }
+        
         // 验证出口端口参数
         if (tunnelDto.getOutIpSta() == null || tunnelDto.getOutIpEnd() == null) {
             return R.err(ERROR_OUT_PORT_REQUIRED);
@@ -331,6 +343,115 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         long currentTime = System.currentTimeMillis();
         tunnel.setCreatedTime(currentTime);
         tunnel.setUpdatedTime(currentTime);
+    }
+
+    /**
+     * 验证节点IP地址是否有效
+     * 支持IPv4和IPv6格式
+     * 
+     * @param ip IP地址字符串
+     * @return IP地址是否有效
+     */
+    private boolean isValidNodeIp(String ip) {
+        if (StrUtil.isBlank(ip)) {
+            return false;
+        }
+        
+        // 验证IPv4格式
+        if (isValidIpv4(ip)) {
+            return true;
+        }
+        
+        // 验证IPv6格式
+        return isValidIpv6(ip);
+    }
+    
+    /**
+     * 验证IPv4地址格式
+     * 
+     * @param ip IP地址字符串
+     * @return 是否为有效的IPv4地址
+     */
+    private boolean isValidIpv4(String ip) {
+        if (StrUtil.isBlank(ip)) {
+            return false;
+        }
+        
+        String[] parts = ip.split("\\.");
+        if (parts.length != 4) {
+            return false;
+        }
+        
+        try {
+            for (String part : parts) {
+                int num = Integer.parseInt(part);
+                if (num < 0 || num > 255) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+    
+    /**
+     * 验证IPv6地址格式
+     * 
+     * @param ip IP地址字符串
+     * @return 是否为有效的IPv6地址
+     */
+    private boolean isValidIpv6(String ip) {
+        if (StrUtil.isBlank(ip)) {
+            return false;
+        }
+        
+        // 简化的IPv6验证，支持标准格式和压缩格式
+        try {
+            // 移除可能的端口号
+            if (ip.startsWith("[") && ip.contains("]:")) {
+                ip = ip.substring(1, ip.indexOf("]:"));
+            }
+            
+            // 检查是否包含非法字符
+            if (!ip.matches("^[0-9a-fA-F:]+$")) {
+                return false;
+            }
+            
+            // 处理双冒号压缩格式
+            if (ip.contains("::")) {
+                if (ip.indexOf("::") != ip.lastIndexOf("::")) {
+                    // 不能有多个双冒号
+                    return false;
+                }
+                // 展开双冒号
+                String[] parts = ip.split("::");
+                int leftParts = parts[0].isEmpty() ? 0 : parts[0].split(":").length;
+                int rightParts = parts.length > 1 && !parts[1].isEmpty() ? parts[1].split(":").length : 0;
+                int totalParts = leftParts + rightParts;
+                if (totalParts >= 8) {
+                    return false;
+                }
+            } else {
+                // 标准格式，必须有8个部分
+                String[] parts = ip.split(":");
+                if (parts.length != 8) {
+                    return false;
+                }
+                
+                // 验证每个部分都是有效的十六进制数
+                for (String part : parts) {
+                    if (part.length() > 4 || part.isEmpty()) {
+                        return false;
+                    }
+                    Integer.parseInt(part, 16); // 如果不是有效的十六进制会抛出异常
+                }
+            }
+            
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

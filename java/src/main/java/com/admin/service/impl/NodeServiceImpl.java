@@ -36,7 +36,7 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     // ========== 常量定义 ==========
     
     /** 节点默认状态：启用 */
-    private static final int NODE_STATUS_ACTIVE = 1;
+    private static final int NODE_STATUS_ACTIVE = 0;
     
     /** 成功响应消息 */
     private static final String SUCCESS_CREATE_MSG = "节点创建成功";

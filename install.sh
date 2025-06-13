@@ -27,7 +27,20 @@ fi
 INSTALL_DIR="/etc/gost"
 mkdir -p "$INSTALL_DIR"
 
+# 检查gost服务是否存在并运行
+if systemctl list-units --full -all | grep -Fq "gost.service"; then
+  echo "检测到已存在的gost服务"
+  if systemctl is-active --quiet gost; then
+    echo "停止运行中的gost服务..."
+    systemctl stop gost
+  fi
+  if systemctl is-enabled --quiet gost; then
+    echo "禁用gost服务自启动..."
+    systemctl disable gost
+  fi
+fi
 
+# 删除旧文件
 for FILE in gost config.json gost.json; do
   if [[ -f "$INSTALL_DIR/$FILE" ]]; then
     echo "删除已有文件: $INSTALL_DIR/$FILE"
@@ -88,6 +101,14 @@ EOF
 systemctl daemon-reexec
 systemctl daemon-reload
 systemctl enable gost
-systemctl restart gost
+systemctl start gost
 
-echo "安装完成，配置文件位于 $INSTALL_DIR，并设置为开机启动。"
+# 检查服务状态
+if systemctl is-active --quiet gost; then
+  echo "✅ 安装完成，gost服务已启动并设置为开机启动。"
+  echo "配置文件位于: $INSTALL_DIR"
+  echo "服务状态: $(systemctl is-active gost)"
+else
+  echo "❌ gost服务启动失败，请检查日志:"
+  echo "journalctl -u gost -f"
+fi

@@ -27,13 +27,12 @@
 
 ```bash
 # 1. 进入部署目录
+wget https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/deployment.zip
+unzip deployment.zip
 cd deployment
-
-# 2. 给脚本添加执行权限
 chmod +x deploy.sh
-
-# 3. 启动所有服务
-./deploy.sh start
+# SERVER_HOST是后端地址  就是服务器ip:6365  
+DB_NAME=gost DB_USER=gost DB_PASSWORD=yourpwd JWT_SECRET=yoursecret SERVER_HOST=your.server.ip:6365 ./deploy.sh start
 ```
 
 

@@ -44,9 +44,9 @@ DB_PASSWORD=${DB_PASSWORD:-$(generate_random)}
 read -p "JWT 密钥（留空则随机）: " JWT_SECRET
 JWT_SECRET=${JWT_SECRET:-$(generate_random)}
 
-echo "服务器地址ip:port，用于节点连接服务端，不能挂 CDN，端口默认 6365"
+
 while true; do
-  read -p "服务器地址ip:port（必填）: " SERVER_HOST
+  read -p "当前服务器IP地址（必填）: " SERVER_HOST
   if [ -n "$SERVER_HOST" ]; then
     break
   else
@@ -54,19 +54,21 @@ while true; do
   fi
 done
 
-read -p "前端服务端口 FRONTEND_PORT（留空默认 80: " FRONTEND_PORT
+read -p "前端服务端口 FRONTEND_PORT（留空默认 80）: " FRONTEND_PORT
 FRONTEND_PORT=${FRONTEND_PORT:-80}
 
+read -p "后端服务端口 BACKEND_PORT（留空默认 6365）: " BACKEND_PORT
+BACKEND_PORT=${BACKEND_PORT:-6365}
+SERVER_HOST_PORT="${SERVER_HOST}:${BACKEND_PORT}"
 cat > .env <<EOF
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 JWT_SECRET=$JWT_SECRET
-SERVER_HOST=$SERVER_HOST
+SERVER_HOST=$SERVER_HOST_PORT
 FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_PORT=$BACKEND_PORT
 EOF
-
-
 
 echo "🚀 启动 docker 服务..."
 $DOCKER_CMD up -d
@@ -77,5 +79,6 @@ echo "DB_NAME=$DB_NAME"
 echo "DB_USER=$DB_USER"
 echo "DB_PASSWORD=$DB_PASSWORD"
 echo "JWT_SECRET=$JWT_SECRET"
-echo "SERVER_HOST=$SERVER_HOST"
+echo "SERVER_HOST=$SERVER_HOST_PORT"
 echo "FRONTEND_PORT=$FRONTEND_PORT"
+echo "BACKEND_PORT=$BACKEND_PORT"

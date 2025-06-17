@@ -54,22 +54,28 @@ while true; do
   fi
 done
 
+read -p "前端服务端口 FRONTEND_PORT（留空默认 80: " FRONTEND_PORT
+FRONTEND_PORT=${FRONTEND_PORT:-80}
+
 cat > .env <<EOF
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 JWT_SECRET=$JWT_SECRET
 SERVER_HOST=$SERVER_HOST
+FRONTEND_PORT=$FRONTEND_PORT
 EOF
 
+
+
+echo "🚀 启动 docker 服务..."
+$DOCKER_CMD up -d
+
+echo "🎉 部署完成"
 echo "✅ .env 文件内容："
 echo "DB_NAME=$DB_NAME"
 echo "DB_USER=$DB_USER"
 echo "DB_PASSWORD=$DB_PASSWORD"
 echo "JWT_SECRET=$JWT_SECRET"
 echo "SERVER_HOST=$SERVER_HOST"
-
-echo "🚀 启动 docker 服务..."
-$DOCKER_CMD up -d
-
-echo "🎉 部署完成"
+echo "FRONTEND_PORT=$FRONTEND_PORT"

@@ -71,7 +71,15 @@
 #### 快速部署
 
 ```bash
+github
 curl -fsSL https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+
+gitee
+curl -fsSL https://gitee.com/bqlpfy/forward-panel/raw/master/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+
+节点端安装时可以手动将install.sh换成下方的连接
+https://gitee.com/bqlpfy/forward-panel/raw/master/install.sh
+
 ```
 
 

@@ -58,17 +58,25 @@ jobs:
             java:
               - 'springboot-backend/**'
 
-      - name: Set up JDK
+      - name: Set up JDK and Maven
         if: steps.java-changes.outputs.java == 'true'
         uses: actions/setup-java@v3
         with:
           java-version: 8
           distribution: 'temurin'
 
+      - name: Cache Maven dependencies
+        if: steps.java-changes.outputs.java == 'true'
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
       - name: Build Java JAR
         if: steps.java-changes.outputs.java == 'true'
         working-directory: ./springboot-backend
-        run: ./mvnw clean package -DskipTests
+        run: mvn clean package -DskipTests
 
       - name: Build Java Docker image
         if: steps.java-changes.outputs.java == 'true'

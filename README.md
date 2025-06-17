@@ -71,36 +71,7 @@
 #### 快速部署
 
 ```bash
-# 1. 进入部署目录
-wget https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/deployment.zip
-unzip deployment.zip
-cd deployment
-chmod +x deploy.sh
-# SERVER_HOST是后端地址  就是服务器ip:6365  
-DB_NAME=gost DB_USER=gost DB_PASSWORD=yourpwd JWT_SECRET=yoursecret SERVER_HOST=your.server.ip:6365 ./deploy.sh start
-```
-
-
-#### 常用管理命令
-
-```bash
-# 停止服务
-./deploy.sh stop
-
-# 重启服务
-./deploy.sh restart
-
-# 查看服务状态
-./deploy.sh status
-
-# 查看实时日志
-./deploy.sh logs
-
-# 重新构建前端镜像
-./deploy.sh build
-
-# 清理未使用的Docker资源
-./deploy.sh clean
+curl -fsSL https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh | bash
 ```
 
 

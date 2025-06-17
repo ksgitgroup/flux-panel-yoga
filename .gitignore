@@ -1,185 +1,248 @@
-# ===========================================
-# Java / Spring Boot 相关
-# ===========================================
+# ==========================================
+# 操作系统生成的文件
+# ==========================================
 
-# 编译输出
-java/target/
-java/build/
-java/out/
-java/bin/
-*.class
-*.war
-*.ear
-*.nar
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ==========================================
+# IDE 和编辑器配置文件
+# ==========================================
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Eclipse
+.metadata
+.classpath
+.project
+.settings/
+bin/
+tmp/
+*.swp
+*.bak
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ==========================================
+# Java / Maven / Spring Boot
+# ==========================================
 
 # Maven
-java/.mvn/
-java/mvnw
-java/mvnw.cmd
-
-# Gradle
-java/.gradle/
-java/gradle/
-java/gradlew
-java/gradlew.bat
-
-# IDE - IntelliJ IDEA
-java/.idea/
-java/*.iml
-java/*.ipr
-java/*.iws
-
-# IDE - Eclipse
-java/.project
-java/.classpath
-java/.settings/
-java/.metadata/
-
-# IDE - VSCode
-java/.vscode/
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
 
 # Spring Boot
-java/application-*.yml
-java/application-*.yaml
-java/application-*.properties
-!java/application.yml
-!java/application.yaml
-!java/application.properties
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+application-local.properties
+application-dev.properties
 
-# ===========================================
-# Vue / Node.js 前端相关
-# ===========================================
+# Java编译输出
+*.class
+
+# 日志文件
+logs/
+applog/
+*.log
+log/
+
+# ==========================================
+# Node.js / Vue.js / 前端
+# ==========================================
 
 # 依赖目录
-vue/node_modules/
-vue/npm-debug.log*
-vue/yarn-debug.log*
-vue/yarn-error.log*
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# 运行时数据
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Dependency directories
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # 构建输出
-vue/dist/
-vue/build/
+dist/
+build/
 
+# ==========================================
+# Go
+# ==========================================
 
-# IDE
-vue/.vscode/
-vue/.idea/
+# Go 二进制文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+gost
+your_app.exe
 
-# 缓存
-vue/.cache/
-vue/.temp/
+# Go 测试二进制文件
+*.test
 
-# ===========================================
-# Go 相关
-# ===========================================
+# Go 输出覆盖率
+*.out
 
-# 编译输出
-go/main
-go/gost
-go/*.exe
-go/*.exe~
-go/*.dll
-go/*.so
-go/*.dylib
+# Go 模块代理缓存
+go.work
+go.work.sum
 
-# cmd目录下的可执行文件和配置
-go/cmd/**/gost
-go/cmd/**/gost.exe
-go/cmd/**/*.exe
-go/cmd/**/*.json
-go/cmd/**/main
-go/cmd/**/main.exe
+# 编译器输出
+vendor/
 
-# Go modules
-go/go.sum
+# 流量统计或其他运行时生成的文件
+traffic/
 
-# IDE
-go/.vscode/
-go/.idea/
+# ==========================================
+# Docker
+# ==========================================
 
-# ===========================================
-# 日志和数据文件
-# ===========================================
+# Docker 本地配置
+.dockerignore.local
 
-# 应用日志
-applog/
-logs/
-*.log
-*.log.*
+# ==========================================
+# 数据库和配置文件
+# ==========================================
 
 # 数据库文件
 *.db
 *.sqlite
 *.sqlite3
 
-# ===========================================
-# 系统和临时文件
-# ===========================================
-
-# macOS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-__MACOSX/
-__MACOSX
-*.dmg
-ehthumbs.db
-Thumbs.db
-
-# Windows
-*.tmp
-*.swp
-*.swo
-*~
-
-# Linux
-*~
-
-# ===========================================
-# 安全和配置
-# ===========================================
-
-# 配置文件（包含敏感信息）
-config/database.yml
-config/secrets.yml
-
-# SSL证书
-*.pem
+# 配置文件中的敏感信息
+config-local.json
+secrets.json
 *.key
-*.crt
-*.csr
+*.pem
+*.p12
+*.pfx
 
-# ===========================================
-# 版本控制和部署
-# ===========================================
-
-# Git
-.git/
-.gitconfig
-
-# Docker
-.dockerignore
-docker-compose.override.yml
-
-
-# ===========================================
-# 其他
-# ===========================================
-
-# 压缩文件
-*.tar.gz
-*.rar
+# ==========================================
+# 备份和临时文件
+# ==========================================
 
 # 备份文件
 *.bak
 *.backup
 *.orig
+*.save
 
-# 测试覆盖率
-coverage/
-*.cover
+# 临时文件
+*.tmp
+*.temp
+.cache/
 
-# 文档生成
-docs/build/ 
+# ==========================================
+# 其他
+# ==========================================
+
+# 压缩文件
+*.7z
+*.dmg
+*.gz
+*.iso
+*.rar
+*.tar
+*.zip
+
+# 证书文件
+*.crt
+*.cert

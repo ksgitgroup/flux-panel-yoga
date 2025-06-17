@@ -1,0 +1,83 @@
+name: Build and Push Vue or Spring Boot Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'vue-frontend/**'
+      - 'springboot-backend/**'
+      - '.github/workflows/docker-build.yml'
+
+jobs:
+  build-vue:
+    if: contains(github.event.head_commit.message, '[skip vue]') == false
+    name: Build & Push Vue Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check for Vue changes
+        uses: dorny/paths-filter@v2
+        id: vue-changes
+        with:
+          filters: |
+            vue:
+              - 'vue-frontend/**'
+
+      - name: Set up Node.js
+        if: steps.vue-changes.outputs.vue == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Vue image
+        if: steps.vue-changes.outputs.vue == 'true'
+        run: docker build -t bqlpfy/vue-frontend ./vue-frontend
+
+      - name: Docker login
+        if: steps.vue-changes.outputs.vue == 'true'
+        run: echo "${{ secrets.DOCKER_HUB_TOKEN }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
+
+      - name: Push Vue image
+        if: steps.vue-changes.outputs.vue == 'true'
+        run: docker push bqlpfy/vue-frontend
+
+  build-java:
+    if: contains(github.event.head_commit.message, '[skip java]') == false
+    name: Build & Push Spring Boot Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check for Java changes
+        uses: dorny/paths-filter@v2
+        id: java-changes
+        with:
+          filters: |
+            java:
+              - 'springboot-backend/**'
+
+      - name: Set up JDK
+        if: steps.java-changes.outputs.java == 'true'
+        uses: actions/setup-java@v3
+        with:
+          java-version: 8
+          distribution: 'temurin'
+
+      - name: Build Java JAR
+        if: steps.java-changes.outputs.java == 'true'
+        working-directory: ./springboot-backend
+        run: ./mvnw clean package -DskipTests
+
+      - name: Build Java Docker image
+        if: steps.java-changes.outputs.java == 'true'
+        run: docker build -t bqlpfy/springboot-backend ./springboot-backend
+
+      - name: Docker login
+        if: steps.java-changes.outputs.java == 'true'
+        run: echo "${{ secrets.DOCKER_HUB_TOKEN }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
+
+      - name: Push Java image
+        if: steps.java-changes.outputs.java == 'true'
+        run: docker push bqlpfy/springboot-backend

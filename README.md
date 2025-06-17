@@ -71,7 +71,7 @@
 #### 快速部署
 
 ```bash
-curl -fsSL https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh | bash
+curl -fsSL https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 ```
 
 

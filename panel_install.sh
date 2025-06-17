@@ -72,4 +72,4 @@ echo "SERVER_HOST=$SERVER_HOST"
 echo "🚀 启动 docker 服务..."
 $DOCKER_CMD up -d
 
-echo "🎉 部署完成，访问地址：$SERVER_HOST"
+echo "🎉 部署完成"

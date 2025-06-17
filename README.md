@@ -71,6 +71,14 @@
 #### 快速部署
 
 ```bash
+
+如果以前安装过需要重新安装
+推荐先删除本地上次下载的文件
+    panel_install.sh
+    gost.sql
+    docker-compose.yml
+在执行下面的安装命令
+
 github
 curl -fsSL https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 

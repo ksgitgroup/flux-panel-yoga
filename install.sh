@@ -5,7 +5,7 @@ if [[ "$ARCH" != "x86_64" ]]; then
   echo "❌ 不支持的架构: $ARCH，仅支持 x86_64。"
   exit 1
 fi
-
+# gost下载地址
 DOWNLOAD_URL="https://github.com/bqlpfy/forward-panel/releases/download/gost/gost"
 
 while getopts "a:p:s:" opt; do

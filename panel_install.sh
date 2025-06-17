@@ -1,11 +1,14 @@
 #!/bin/bash
 set -e
 
-# 先检查 docker-compose 或 docker compose 命令
+# 解决 macOS 下 tr 可能出现的非法字节序列问题
+export LANG=en_US.UTF-8
+export LC_ALL=C
+
+# 检查 docker-compose 或 docker compose 命令
 if command -v docker-compose &> /dev/null; then
   DOCKER_CMD="docker-compose"
 elif command -v docker &> /dev/null; then
-  # docker 命令存在，再检查子命令 compose
   if docker compose version &> /dev/null; then
     DOCKER_CMD="docker compose"
   else
@@ -25,7 +28,7 @@ curl -L -o gost.sql https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/
 echo "✅ 下载完成"
 
 generate_random() {
-  tr -dc A-Za-z0-9 </dev/urandom | head -c16
+  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c16
 }
 
 read -p "数据库名（留空则随机）: " DB_NAME
@@ -61,11 +64,11 @@ EOF
 echo "✅ .env 文件内容（密码已隐藏）:"
 echo "DB_NAME=$DB_NAME"
 echo "DB_USER=$DB_USER"
-echo "DB_PASSWORD=******"
-echo "JWT_SECRET=******"
+echo "DB_PASSWORD=DB_PASSWORD"
+echo "JWT_SECRET=JWT_SECRET"
 echo "SERVER_HOST=$SERVER_HOST"
 
 echo "🚀 启动 docker 服务..."
 $DOCKER_CMD up -d
 
-echo "🎉 部署完成，前端访问地址：http://$SERVER_HOST"
+echo "🎉 部署完成，访问地址：服务器ip"

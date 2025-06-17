@@ -7,7 +7,7 @@ if [[ "$ARCH" != "x86_64" ]]; then
 fi
 
 # 固定gost下载地址
-DOWNLOAD_URL="https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/gost"
+DOWNLOAD_URL="https://github.com/bqlpfy/forward-panel/releases/download/gost/gost"
 
 while getopts "a:p:s:" opt; do
   case $opt in

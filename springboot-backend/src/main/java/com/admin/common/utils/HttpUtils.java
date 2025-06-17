@@ -174,6 +174,7 @@ public class HttpUtils implements ApplicationContextAware {
 
             return body;
         } catch (Exception e) {
+            e.printStackTrace();
             GostDto gostDto = new GostDto();
             gostDto.setCode(500);
             gostDto.setMsg("请求失败");
@@ -237,6 +238,7 @@ public class HttpUtils implements ApplicationContextAware {
             asyncSaveConfig(url, secret);
             return body;
         } catch (Exception e) {
+            e.printStackTrace();
             GostDto gostDto = new GostDto();
             gostDto.setCode(500);
             gostDto.setMsg("请求失败");
@@ -272,6 +274,7 @@ public class HttpUtils implements ApplicationContextAware {
             asyncSaveConfig(url, secret);
             return body;
         } catch (Exception e) {
+            e.printStackTrace();
             GostDto gostDto = new GostDto();
             gostDto.setCode(500);
             gostDto.setMsg("请求失败");

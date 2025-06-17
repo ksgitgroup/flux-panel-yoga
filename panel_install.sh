@@ -44,7 +44,7 @@ DB_PASSWORD=${DB_PASSWORD:-$(generate_random)}
 read -p "JWT 密钥（留空则随机）: " JWT_SECRET
 JWT_SECRET=${JWT_SECRET:-$(generate_random)}
 
-echo "服务器地址ip:port,用于节点连接服务端，不能挂cdn.端口默认6365"
+echo "服务器地址ip:port，用于节点连接服务端，不能挂 CDN，端口默认 6365"
 while true; do
   read -p "服务器地址ip:port（必填）: " SERVER_HOST
   if [ -n "$SERVER_HOST" ]; then
@@ -62,7 +62,7 @@ JWT_SECRET=$JWT_SECRET
 SERVER_HOST=$SERVER_HOST
 EOF
 
-echo "✅ .env 文件内容（密码已隐藏）:"
+echo "✅ .env 文件内容："
 echo "DB_NAME=$DB_NAME"
 echo "DB_USER=$DB_USER"
 echo "DB_PASSWORD=$DB_PASSWORD"
@@ -72,4 +72,4 @@ echo "SERVER_HOST=$SERVER_HOST"
 echo "🚀 启动 docker 服务..."
 $DOCKER_CMD up -d
 
-echo "🎉 部署完成，访问地址：服务器ip"
+echo "🎉 部署完成，访问地址：$SERVER_HOST"

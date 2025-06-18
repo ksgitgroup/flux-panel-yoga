@@ -257,6 +257,16 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 设置流量计算类型
         tunnel.setFlow(tunnelDto.getFlow());
         
+        // 设置协议类型（仅隧道转发需要）
+        if (tunnelDto.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+            // 隧道转发时，设置协议类型，默认为tls
+            String protocol = StrUtil.isNotBlank(tunnelDto.getProtocol()) ? tunnelDto.getProtocol() : "tls";
+            tunnel.setProtocol(protocol);
+        } else {
+            // 端口转发时，协议类型为null
+            tunnel.setProtocol(null);
+        }
+        
         return tunnel;
     }
 
@@ -308,6 +318,13 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 验证入口和出口不能是同一个节点
         if (tunnelDto.getInNodeId().equals(tunnelDto.getOutNodeId())) {
             return R.err(ERROR_SAME_NODE_NOT_ALLOWED);
+        }
+        
+        // 验证协议类型
+        String protocol = tunnelDto.getProtocol();
+        if (StrUtil.isNotBlank(protocol) && 
+            !protocol.equals("tls") && !protocol.equals("tcp") && !protocol.equals("mtls")) {
+            return R.err("协议类型只能为tls、tcp或mtls");
         }
         
         // 验证出口节点是否存在

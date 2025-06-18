@@ -92,13 +92,48 @@
             </div>
             
             <div class="info-row">
-              <div class="info-item">
-                <span class="label">入口地址:</span>
-                <span class="value">{{ forward.inIp}}:{{ forward.inPort }}</span>
+              <div class="info-item full-width">
+                <div class="address-item">
+                  <div class="label-with-copy">
+                    <span class="label">入口地址:</span>
+                    <el-button 
+                      size="mini" 
+                      type="text" 
+                      icon="el-icon-copy-document"
+                      @click="copyToClipboard(formatInAddress(forward.inIp, forward.inPort), '入口地址')"
+                      class="copy-btn"
+                      title="复制入口地址"
+                    ></el-button>
+                  </div>
+                  <div class="address-value">
+                    <span class="value address-text" :title="formatInAddress(forward.inIp, forward.inPort)">
+                      {{ formatInAddress(forward.inIp, forward.inPort) }}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div class="info-item">
-                <span class="label">目标地址:</span>
-                <span class="value">{{ forward.remoteAddr}}</span>
+            </div>
+            
+            <div class="info-row">
+              <div class="info-item full-width">
+                <div class="address-item">
+                  <div class="label-with-copy">
+                    <span class="label">目标地址:</span>
+                    <el-button 
+                      size="mini" 
+                      type="text" 
+                      icon="el-icon-copy-document"
+                      @click="copyToClipboard(forward.remoteAddr, '目标地址')"
+                      class="copy-btn"
+                      title="复制目标地址"
+                    ></el-button>
+                  </div>
+                  <div class="address-value">
+                    <span class="value address-text" :title="forward.remoteAddr">
+                      {{ forward.remoteAddr}}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
             
@@ -216,6 +251,7 @@ import {
   pauseForwardService,
   resumeForwardService
 } from "@/api";
+import { copyWithMessage } from "@/utils/clipboard";
 
 export default {
   name: "Forward",
@@ -570,6 +606,25 @@ export default {
       return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     },
     
+    // 格式化入口地址，IPv6需要用[]包裹
+    formatInAddress(ip, port) {
+      if (!ip || !port) return '';
+      
+      // 检查是否为IPv6地址
+      if (ip.includes(':')) {
+        // IPv6地址需要用方括号包裹
+        return `[${ip}]:${port}`;
+      } else {
+        // IPv4地址直接拼接
+        return `${ip}:${port}`;
+      }
+    },
+    
+    // 复制到剪贴板
+    async copyToClipboard(text, label = '内容') {
+      await copyWithMessage(text, label, this);
+    },
+    
     // 获取状态类型
     getStatusType(status) {
       switch (parseInt(status)) {
@@ -806,10 +861,12 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0; /* 确保flex子元素可以收缩 */
 }
 
 .info-item.full-width {
   flex: 1;
+  min-width: 0; /* 确保flex子元素可以收缩 */
 }
 
 .info-item:not(:last-child) {
@@ -898,6 +955,81 @@ export default {
 
 .el-switch.is-disabled .el-switch__label {
   color: #c0c4cc !important;
+}
+
+/* 地址项样式 */
+.address-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0; /* 确保flex子元素可以收缩 */
+}
+
+.label-with-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.address-value {
+  width: 100%;
+  min-width: 0; /* 确保flex子元素可以收缩 */
+}
+
+.address-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+  max-width: 100%; /* 确保不会超出容器 */
+  box-sizing: border-box;
+}
+
+.copy-btn {
+  flex-shrink: 0;
+  padding: 2px 6px !important;
+  margin: 0 !important;
+  min-width: auto !important;
+  height: 20px !important;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+}
+
+.copy-btn:hover {
+  opacity: 1;
+  color: #409EFF !important;
+}
+
+.copy-btn .el-icon-copy-document {
+  font-size: 12px;
+}
+
+/* 地址项悬停效果 */
+.address-item:hover .copy-btn {
+  opacity: 1;
+}
+
+/* 复制对话框样式 */
+::v-deep .copy-dialog .el-message-box__content {
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+::v-deep .copy-dialog .el-message-box__message p {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 10px 0;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 

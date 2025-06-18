@@ -16,7 +16,7 @@ public class GostUtil {
     public static GostDto SaveConfig(String addr, String secret) {
         JSONObject data = new JSONObject();
         data.put("format", "json");
-        String url = "http://" + addr + "/api/config?format=json";
+        String url = "https://" + addr + "/api/config?format=json";
         return HttpUtils.post(url, data, secret);
     }
 
@@ -181,9 +181,9 @@ public class GostUtil {
         return HttpUtils.post(url, data, secret);
     }
 
-    public static GostDto AddChains(String addr, String name, String remoteAddr, String secret) {
+    public static GostDto AddChains(String addr, String name, String remoteAddr, String secret, String protocol) {
         JSONObject dialer = new JSONObject();
-        dialer.put("type", "tls");
+        dialer.put("type", protocol);
 
         JSONObject connector = new JSONObject();
         connector.put("type", "relay");
@@ -212,9 +212,9 @@ public class GostUtil {
         return HttpUtils.post(url, data, secret);
     }
 
-    public static GostDto UpdateChains(String addr, String name, String remoteAddr, String secret) {
+    public static GostDto UpdateChains(String addr, String name, String remoteAddr, String secret, String protocol) {
         JSONObject dialer = new JSONObject();
-        dialer.put("type", "tls");
+        dialer.put("type", protocol);
 
         JSONObject connector = new JSONObject();
         connector.put("type", "relay");
@@ -249,7 +249,7 @@ public class GostUtil {
         return HttpUtils.delete(url, secret);
     }
 
-    public static GostDto AddRemoteService(String addr, String name, Integer out_port, String remoteAddr, String secret) {
+    public static GostDto AddRemoteService(String addr, String name, Integer out_port, String remoteAddr, String secret, String protocol) {
         JSONObject data = new JSONObject();
         data.put("name", name + "_tls");
         data.put("addr", ":" + out_port);
@@ -257,7 +257,7 @@ public class GostUtil {
         handler.put("type", "relay");
         data.put("handler", handler);
         JSONObject listener = new JSONObject();
-        listener.put("type", "tls");
+        listener.put("type", protocol);
         data.put("listener", listener);
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
@@ -388,6 +388,14 @@ public class GostUtil {
      * 构建API URL
      */
     private static String buildUrl(String addr, String endpoint) {
-        return "http://" + addr + API_BASE_URL + endpoint;
+        // 如果是IPv6地址（包含多个冒号且不包含方括号），需要用方括号包裹IP部分
+        if (!addr.contains("[") && addr.indexOf(':') != addr.lastIndexOf(':')) {
+            // 这是IPv6地址，找到最后一个冒号（端口分隔符）
+            int lastColonIndex = addr.lastIndexOf(':');
+            String ipPart = addr.substring(0, lastColonIndex);
+            String portPart = addr.substring(lastColonIndex);
+            addr = "[" + ipPart + "]" + portPart;
+        }
+        return "https://" + addr + API_BASE_URL + endpoint;
     }
 }

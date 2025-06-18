@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/go-gost/gost/traffic"
 	"log"
 	_ "net/http/pprof"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/go-gost/gost/traffic"
 
 	"github.com/go-gost/core/logger"
 	xlogger "github.com/go-gost/x/logger"

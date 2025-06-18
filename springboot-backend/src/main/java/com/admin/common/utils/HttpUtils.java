@@ -135,17 +135,11 @@ public class HttpUtils implements ApplicationContextAware {
     /**
      * 创建带超时配置的RestTemplate
      */
+    @SneakyThrows
     private static RestTemplate createRestTemplateWithTimeout() {
-        // 创建基础的RequestFactory
-        org.springframework.http.client.SimpleClientHttpRequestFactory factory =
-                new org.springframework.http.client.SimpleClientHttpRequestFactory();
-
-        // 设置连接超时和读取超时
-        factory.setConnectTimeout(TIMEOUT_MILLISECONDS);
-        factory.setReadTimeout(TIMEOUT_MILLISECONDS);
 
         // 创建RestTemplate
-        RestTemplate restTemplate = new RestTemplate(factory);
+        RestTemplate restTemplate = new RestTemplate(RestTemplateConfig.generateHttpRequestFactory());
         restTemplate.setErrorHandler(new NoOpResponseErrorHandler());
 
         return restTemplate;
@@ -203,6 +197,7 @@ public class HttpUtils implements ApplicationContextAware {
             asyncSaveConfig(url, secret);
             return body;
         } catch (Exception e) {
+            e.printStackTrace();
             GostDto gostDto = new GostDto();
             gostDto.setCode(500);
             gostDto.setMsg("请求失败");

@@ -72,4 +72,9 @@ public class Tunnel extends BaseEntity {
      * 流量计算类型（1 单向计算上传。2 双向）
      */
     private int flow;
+
+    /**
+     * 协议类型（隧道转发时使用：tls、tcp、mtls）
+     */
+    private String protocol;
 }

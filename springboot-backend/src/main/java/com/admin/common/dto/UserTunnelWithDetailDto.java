@@ -82,6 +82,8 @@ public class UserTunnelWithDetailDto {
      * 出站流量（字节）
      */
     private Long outFlow;
+
+    private Integer status;
     
 //    /**
 //     * 入口IP

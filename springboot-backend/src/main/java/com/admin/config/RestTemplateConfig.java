@@ -27,11 +27,16 @@ public class RestTemplateConfig {
         return new RestTemplate(factory);
     }
 
+    // 10秒超时配置
+    private static final int TIMEOUT_SECONDS = 10;
+    private static final int TIMEOUT_MILLISECONDS = TIMEOUT_SECONDS * 1000;
+
+
     @Bean
     public ClientHttpRequestFactory simpleClientHttpRequestFactory(){
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(15000);
-        factory.setReadTimeout(5000);
+        factory.setConnectTimeout(TIMEOUT_MILLISECONDS);
+        factory.setReadTimeout(TIMEOUT_MILLISECONDS);
         return factory;
     }
 

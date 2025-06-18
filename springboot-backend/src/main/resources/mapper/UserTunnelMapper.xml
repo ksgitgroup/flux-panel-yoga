@@ -15,6 +15,7 @@
             ut.flow_reset_time as flowResetTime,
             ut.exp_time as expTime,
             ut.speed_id as speedId,
+            ut.status as status,
             t.name as tunnelName,
             t.flow as tunnelFlow,
             t.in_ip as inIp,
@@ -24,6 +25,7 @@
             t.out_ip_sta as outIpSta,
             t.out_ip_end as outIpEnd,
             t.type,
+            t.protocol,
             sl.name as speedLimitName,
             sl.speed
         FROM user_tunnel ut

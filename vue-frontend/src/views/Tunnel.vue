@@ -44,6 +44,11 @@
             <div class="tunnel-badges">
               <el-tag v-if="tunnel.type === 1" type="primary" size="mini">端口转发</el-tag>
               <el-tag v-else type="warning" size="mini">隧道转发</el-tag>
+              <el-tag v-if="tunnel.type === 2 && tunnel.protocol" 
+                      :type="tunnel.protocol === 'tls' ? 'success' : tunnel.protocol === 'mtls' ? 'danger' : 'info'" 
+                      size="mini">
+                {{ tunnel.protocol.toUpperCase() }}
+              </el-tag>
               <el-tag v-if="tunnel.flow === 1" type="success" size="mini">单向计算</el-tag>
               <el-tag v-else type="info" size="mini">双向计算</el-tag>
             </div>
@@ -246,6 +251,17 @@
         <template v-if="tunnelForm.type === 2">
           <el-divider content-position="left">出口配置</el-divider>
 
+          <el-form-item label="协议类型" prop="protocol">
+            <el-radio-group v-model="tunnelForm.protocol">
+              <el-radio label="tls">TLS</el-radio>
+              <el-radio label="tcp">TCP</el-radio>
+              <el-radio label="mtls">mTLS</el-radio>
+            </el-radio-group>
+            <div class="form-hint">
+              TLS：传输层安全协议；TCP：传输控制协议；mTLS：双向TLS认证
+            </div>
+          </el-form-item>
+
           <el-form-item label="出口节点" prop="outNodeId">
             <el-select 
               v-model="tunnelForm.outNodeId" 
@@ -344,7 +360,8 @@ export default {
         outIpEnd: 65535,
         type: 1,
         flow: 1,  // 默认单向计算
-        status: 1  // 默认启用
+        status: 1,  // 默认启用
+        protocol: 'tls'
       },
       rules: {
         name: [
@@ -376,6 +393,9 @@ export default {
         ],
         outIpEnd: [
           { required: false, message: '请输入结束端口', trigger: 'blur' }
+        ],
+        protocol: [
+          { required: false, message: '请选择协议类型', trigger: 'change' }
         ]
       }
     };
@@ -475,16 +495,19 @@ export default {
         this.rules.outNodeId[0].required = true;
         this.rules.outIpSta[0].required = true;
         this.rules.outIpEnd[0].required = true;
+        this.rules.protocol[0].required = true;
       } else {
         // 端口转发时，出口字段不必填
         this.rules.outNodeId[0].required = false;
         this.rules.outIpSta[0].required = false;
         this.rules.outIpEnd[0].required = false;
+        this.rules.protocol[0].required = false;
         
         // 清空出口字段
         this.tunnelForm.outNodeId = null;
         this.tunnelForm.outIpSta = null;
         this.tunnelForm.outIpEnd = null;
+        this.tunnelForm.protocol = 'tls'; // 重置为默认值
       }
     },
 
@@ -547,7 +570,8 @@ export default {
         outIpEnd: 65535,
         type: 1,
         flow: 1,  // 默认单向计算
-        status: 1  // 默认启用
+        status: 1,  // 默认启用
+        protocol: 'tls'
       };
       if (this.$refs.tunnelForm) {
         this.$refs.tunnelForm.clearValidate();

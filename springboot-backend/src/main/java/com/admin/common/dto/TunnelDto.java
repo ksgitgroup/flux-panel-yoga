@@ -39,4 +39,7 @@ public class TunnelDto {
     
     @NotNull(message = "流量计算类型不能为空")
     private Integer flow;
+    
+    // 协议类型（隧道转发时使用：tls、tcp、mtls），默认为tls
+    private String protocol;
 } 

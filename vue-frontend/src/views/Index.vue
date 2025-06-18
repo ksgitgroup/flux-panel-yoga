@@ -834,6 +834,10 @@ export default {
   background: #ebeef5;
   border-radius: 4px;
   min-width: 120px;
+  width: 100%;
+  white-space: nowrap;        /* 不换行 */
+  overflow: hidden;           /* 超出隐藏 */
+  text-overflow: ellipsis;    /* 超出显示省略号 */
 }
 
 .address-source {

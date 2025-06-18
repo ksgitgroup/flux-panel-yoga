@@ -25,7 +25,8 @@
             t.out_ip AS outIp,
             t.out_ip_sta AS outIpSta,
             t.out_ip_end AS outIpEnd,
-            t.type
+            t.type,
+            t.protocol
         FROM 
             forward f
         LEFT JOIN 
@@ -57,7 +58,8 @@
             t.out_ip AS outIp,
             t.out_ip_sta AS outIpSta,
             t.out_ip_end AS outIpEnd,
-            t.type
+            t.type,
+            t.protocol
         FROM 
             forward f
         LEFT JOIN 

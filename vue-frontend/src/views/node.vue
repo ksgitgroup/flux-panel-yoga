@@ -131,7 +131,15 @@
                     <span>主机IP</span>
                   </div>
                   <div class="stat-content">
-                    <span class="ip-value">{{ node.connectionStatus === 'online' ? (node.ip || '-') : '-' }}</span>
+                    <el-tooltip 
+                      :content="node.connectionStatus === 'online' ? (node.ip || '-') : '-'"
+                      placement="top"
+                      :disabled="!node.ip || node.ip === '-'"
+                    >
+                      <span class="ip-value">
+                        {{ node.connectionStatus === 'online' ? (node.ip || '-') : '-' }}
+                      </span>
+                    </el-tooltip>
                   </div>
                 </div>
               </div>
@@ -213,7 +221,7 @@
         <el-form-item v-if="isEdit" label="节点IP" prop="ip">
           <el-input 
             v-model="nodeForm.ip" 
-            placeholder="请输入节点IP地址，如: 192.168.1.1 或 2001:db8::1"
+            placeholder="请输入节点IP地址或域名，如: 192.168.1.1、2001:db8::1 或 example.com"
             clearable
           ></el-input>
         </el-form-item>
@@ -226,15 +234,7 @@
           show-icon
           style="margin-bottom: 20px;">
         </el-alert>
-        
-        <el-alert
-          v-if="isEdit"
-          title="编辑模式下只能修改节点名称和IP，端口在创建后不可更改"
-          type="warning"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 20px;">
-        </el-alert>
+
       </el-form>
       
       <span slot="footer" class="dialog-footer">
@@ -253,6 +253,7 @@
 
 <script>
 import {createNode, updateNode, deleteNode, getNodeList, getNodeInstallCommand} from "@/api";
+import { copyWithMessage, copyWithFallback } from "@/utils/clipboard";
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
@@ -313,13 +314,16 @@ export default {
                 // IPv4格式验证
                 const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
                 
-                // IPv6格式验证（完整版，支持各种压缩格式）
+                // IPv6格式验证（完整版，支持各种压缩格式，不需要方括号）
                 const ipv6Regex = /^((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/;
                 
-                if (ipv4Regex.test(value) || ipv6Regex.test(value)) {
+                // 域名格式验证
+                const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+                
+                if (ipv4Regex.test(value) || ipv6Regex.test(value) || domainRegex.test(value)) {
                   callback();
                 } else {
-                  callback(new Error('请输入有效的IP地址（支持IPv4和IPv6格式，如: 192.168.1.1 或 2001:db8::1）'));
+                  callback(new Error('请输入有效的IP地址或域名（支持IPv4、IPv6和域名格式，如: 192.168.1.1、2001:db8::1 或 example.com）'));
                 }
               } else {
                 callback();
@@ -452,9 +456,9 @@ export default {
         this.$set(node, 'copyLoading', false);
         
         if (res.code === 0 && res.data) {
-          // 将命令复制到剪贴板
-          this.copyToClipboard(res.data);
-          this.$message.success('安装命令已复制到剪贴板');
+          // 对于异步获取的内容，使用带降级方案的复制方法
+          // 这样在Safari中如果自动复制失败，会显示手动复制对话框
+          copyWithFallback(res.data, '安装命令', this);
         } else {
           this.$message.error(res.msg || '获取安装命令失败');
         }
@@ -462,32 +466,6 @@ export default {
         this.$set(node, 'copyLoading', false);
         this.$message.error('网络错误，请重试');
       });
-    },
-
-    // 复制文本到剪贴板
-    copyToClipboard(text) {
-      // 创建一个临时的文本域元素
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-999999px';
-      textArea.style.top = '-999999px';
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      
-      try {
-        // 执行复制命令
-        document.execCommand('copy');
-      } catch (err) {
-        // 如果复制失败，尝试使用现代API
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(text);
-        }
-      }
-      
-      // 清理临时元素
-      document.body.removeChild(textArea);
     },
 
     
@@ -1066,7 +1044,9 @@ export default {
 .traffic-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
   gap: 10px;
+  width: 100%;
 }
 
 .traffic-stats.offline-stats {
@@ -1094,6 +1074,14 @@ export default {
   background: #fafafa;
   border-radius: 6px;
   padding: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0; /* 防止内容撑开容器 */
+  overflow: hidden; /* 防止内容溢出 */
 }
 
 .stat-header {
@@ -1161,6 +1149,12 @@ export default {
   font-weight: 600;
   color: #303133;
   font-family: monospace;
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 /* 空状态 */
@@ -1292,5 +1286,26 @@ export default {
   font-size: 11px;
   color: #007bff;
   font-weight: 500;
+}
+
+/* 复制对话框样式 */
+::v-deep .copy-dialog .el-message-box__content {
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+::v-deep .copy-dialog .el-message-box__message p {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 10px 0;
+  user-select: text;
+  -webkit-user-select: text;
 }
 </style>

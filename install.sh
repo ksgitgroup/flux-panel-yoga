@@ -76,6 +76,9 @@ cat > "$INSTALL_DIR/gost.json" <<EOF
         "metadata": {
           "pathPrefix": "/api"
         }
+      },
+      "listener": {
+        "type": "tls"
       }
     }
   ]

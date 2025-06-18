@@ -96,6 +96,7 @@ CREATE TABLE `tunnel` (
   `out_ip_end` int(10) NOT NULL,
   `type` int(10) NOT NULL,
   `flow` int(10) NOT NULL,
+  `protocol` varchar(10) DEFAULT 'tls' COMMENT '协议类型: tls, tcp, mtls',
   `created_time` bigint(20) NOT NULL,
   `updated_time` bigint(20) NOT NULL,
   `status` int(10) NOT NULL

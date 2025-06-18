@@ -11,12 +11,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/go-gost/gost/traffic"
 
 	"github.com/go-gost/core/logger"
 	xlogger "github.com/go-gost/x/logger"
+	"github.com/go-gost/x/traffic"
 	"github.com/judwhite/go-svc"
 )
 
@@ -115,33 +113,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("✅ 配置加载成功 - addr: %s", config.Addr)
+	fmt.Printf("✅ 配置加载成功 - addr: %s", config.Addr)
 
 	log := xlogger.NewLogger()
 	logger.SetDefault(log)
 
-	// 创建流量管理器
-	trafficMgr := traffic.NewTrafficManager()
+	// 使用内存流量管理器
+	trafficMgr := traffic.GetGlobalManager()
 	defer trafficMgr.Close()
 
-	// 设置全局流量管理器（供 handler 使用）
-	traffic.SetGlobalTrafficManager(trafficMgr)
+	fmt.Println("✅ 使用内存流量管理器")
+	logger.Default().Info("Using memory traffic manager")
 
-	// 设置流量记录器给 handler 使用
-	traffic.SetupTrafficRecorder(trafficMgr)
-
-	// 设置实时流量记录器
-	traffic.SetupRealtimeTrafficRecorder(trafficMgr)
-
-	fmt.Println("✅ 流量管理器已初始化（使用内存存储）")
-	logger.Default().Info("Traffic manager initialized (using memory storage)")
-
-	// 启动实时流量统计（每5秒收集一次）
-	traffic.StartRealtimeTrafficStatistics(5 * time.Second)
-
-	traffic.SetHTTPReportURL(config.Addr, config.Secret)
-	traffic.StartTrafficReporter(trafficMgr)
-	wsReporter := traffic.StartWebSocketReporterWithConfig(config.Addr, config.Secret)
+	SetHTTPReportURL(config.Addr, config.Secret)
+	StartTrafficReporter(trafficMgr)
+	wsReporter := StartWebSocketReporterWithConfig(config.Addr, config.Secret)
 	defer wsReporter.Stop()
 
 	p := &program{}

@@ -74,11 +74,13 @@ public class FlowController extends BaseController {
             return ERROR_RESPONSE;
         }
 
-        // 2. 过滤有效流量数据
-        List<FlowDto> validFlowData = filterValidFlowData(flowDataList);
-        if (validFlowData.isEmpty()) {
-            return SUCCESS_RESPONSE;
-        }
+        List<FlowDto> validFlowData = flowDataList;
+//        // 2. 过滤有效流量数据
+//        List<FlowDto> validFlowData = filterValidFlowData(flowDataList);
+//        if (validFlowData.isEmpty()) {
+//            return SUCCESS_RESPONSE;
+//        }
+
 
         // 3. 解析服务名称获取ID信息
         String[] serviceIds = parseServiceName(validFlowData.get(0).getN());

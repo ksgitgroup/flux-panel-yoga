@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net"
 	"time"
@@ -14,6 +12,7 @@ import (
 	"github.com/go-gost/core/handler"
 	"github.com/go-gost/core/hop"
 	md "github.com/go-gost/core/metadata"
+	"github.com/go-gost/core/observer/stats"
 	"github.com/go-gost/core/recorder"
 	ctxvalue "github.com/go-gost/x/ctx"
 	xnet "github.com/go-gost/x/internal/net"
@@ -25,6 +24,7 @@ import (
 	stats_wrapper "github.com/go-gost/x/observer/stats/wrapper"
 	xrecorder "github.com/go-gost/x/recorder"
 	"github.com/go-gost/x/registry"
+	"github.com/go-gost/x/traffic"
 )
 
 func init() {
@@ -33,18 +33,13 @@ func init() {
 	registry.HandlerRegistry().Register("forward", NewHandler)
 }
 
-// TrafficRecorder 流量记录器接口
-type TrafficRecorder interface {
-	RecordTraffic(ctx context.Context, service string, upload, download int64) error
-}
-
 type forwardHandler struct {
-	hop             hop.Hop
-	md              metadata
-	options         handler.Options
-	recorder        recorder.RecorderObject
-	certPool        tls_util.CertPool
-	trafficRecorder TrafficRecorder
+	hop            hop.Hop
+	md             metadata
+	options        handler.Options
+	recorder       recorder.RecorderObject
+	certPool       tls_util.CertPool
+	trafficManager traffic.Manager
 }
 
 func NewHandler(opts ...handler.Option) handler.Handler {
@@ -54,15 +49,9 @@ func NewHandler(opts ...handler.Option) handler.Handler {
 	}
 
 	return &forwardHandler{
-		options: options,
+		options:        options,
+		trafficManager: traffic.GetGlobalManager(),
 	}
-}
-
-// generateConnectionID 生成连接唯一标识
-func generateConnectionID() string {
-	bytes := make([]byte, 8)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
 }
 
 func (h *forwardHandler) Init(md md.Metadata) (err error) {
@@ -81,9 +70,6 @@ func (h *forwardHandler) Init(md md.Metadata) (err error) {
 		h.certPool = tls_util.NewMemoryCertPool()
 	}
 
-	// 获取全局流量记录器
-	h.trafficRecorder = GetGlobalTrafficRecorder()
-
 	return
 }
 
@@ -96,7 +82,6 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	defer conn.Close()
 
 	start := time.Now()
-	connID := generateConnectionID()
 
 	ro := &xrecorder.HandlerRecorderObject{
 		Service:    h.options.Service,
@@ -123,7 +108,6 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 		"local":  conn.LocalAddr().String(),
 		"sid":    ro.SID,
 		"client": ro.ClientIP,
-		"connID": connID,
 	})
 
 	network := "tcp"
@@ -132,15 +116,54 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	}
 	ro.Network = network
 
-	connStats := xstats.Stats{}
-	ccStats := xstats.Stats{}
-	conn = stats_wrapper.WrapConn(conn, &connStats)
+	connStats := xstats.NewStats(false) // false表示不在Get时清零
+	ccStats := xstats.NewStats(false)   // false表示不在Get时清零
+	conn = stats_wrapper.WrapConn(conn, connStats)
 
-	// 获取实时流量管理器并注册连接
-	rtm := GetGlobalRealtimeTrafficManager()
-	if rtm != nil {
-		rtm.RegisterConnection(connID+":conn", h.options.Service+":conn", &connStats)
-		defer rtm.UnregisterConnection(connID + ":conn")
+	// 启动定期上报流量的goroutine
+	trafficCtx, trafficCancel := context.WithCancel(context.Background())
+	defer trafficCancel()
+
+	if h.trafficManager != nil {
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+
+			// 记录上次的流量值
+			var lastConnOutput, lastConnInput, lastCCOutput, lastCCInput uint64
+
+			for {
+				select {
+				case <-ticker.C:
+					// 获取当前流量统计（不清零）
+					connOutput := connStats.Get(stats.KindInputBytes)
+					connInput := connStats.Get(stats.KindOutputBytes)
+					ccOutput := ccStats.Get(stats.KindOutputBytes)
+					ccInput := ccStats.Get(stats.KindInputBytes)
+
+					// 计算增量
+					connOutputDelta := connOutput - lastConnOutput
+					connInputDelta := connInput - lastConnInput
+					ccOutputDelta := ccOutput - lastCCOutput
+					ccInputDelta := ccInput - lastCCInput
+
+					if connInputDelta > 0 || connOutputDelta > 0 {
+						h.trafficManager.RecordTraffic(ctx, ro.Service+":conn", int64(connInputDelta), int64(connOutputDelta))
+					}
+					if ccOutputDelta > 0 || ccInputDelta > 0 {
+						h.trafficManager.RecordTraffic(ctx, ro.Service+":cc", int64(ccOutputDelta), int64(ccInputDelta))
+					}
+
+					// 更新上次的值
+					lastConnOutput = connOutput
+					lastConnInput = connInput
+					lastCCOutput = ccOutput
+					lastCCInput = ccInput
+				case <-trafficCtx.Done():
+					return
+				}
+			}
+		}()
 	}
 
 	defer func() {
@@ -148,7 +171,7 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 			ro.Err = err.Error()
 		}
 		ro.Duration = time.Since(start)
-
+		// 流量统计已经在定期上报中处理，这里不需要再次记录
 	}()
 
 	if !h.checkRateLimit(conn.RemoteAddr()) {
@@ -174,13 +197,7 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 			cc, err := h.options.Router.Dial(ctxvalue.ContextWithBuffer(ctx, &buf), "tcp", address)
 			ro.Route = buf.String()
 
-			cc = stats_wrapper.WrapConn(cc, &ccStats)
-
-			// 为目标连接也注册到实时流量统计
-			if rtm != nil && err == nil {
-				rtm.RegisterConnection(connID+":cc", h.options.Service+":cc", &ccStats)
-				// 注意：这里不能defer UnregisterConnection，因为dial函数可能被多次调用
-			}
+			cc = stats_wrapper.WrapConn(cc, ccStats)
 
 			return cc, err
 		}
@@ -256,13 +273,7 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 		marker.Reset()
 	}
 
-	cc = stats_wrapper.WrapConn(cc, &ccStats)
-
-	// 为目标连接注册到实时流量统计
-	if rtm != nil {
-		rtm.RegisterConnection(connID+":cc", h.options.Service+":cc", &ccStats)
-		defer rtm.UnregisterConnection(connID + ":cc")
-	}
+	cc = stats_wrapper.WrapConn(cc, ccStats)
 
 	defer cc.Close()
 

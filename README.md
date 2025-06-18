@@ -89,6 +89,24 @@ curl -fsSL https://gitee.com/bqlpfy/forward-panel/raw/master/panel_install.sh -o
 https://gitee.com/bqlpfy/forward-panel/raw/master/install.sh
 
 ```
+### 卸载
+
+```bash
+面板端
+    cd到compose所在位置执行下面的命令
+    改操作会删除所有数据 包括数据库文件
+    docker compose down --rmi all --volumes --remove-orphans
+    或
+    docker-compose down --rmi all --volumes --remove-orphans
+节点端
+    systemctl stop gost
+    systemctl disable gost
+    rm -f /etc/systemd/system/gost.service
+    rm -rf /etc/gost
+    systemctl daemon-reload
+
+```
+
 
 
 #### 默认管理员账号

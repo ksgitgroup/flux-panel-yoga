@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-gost/gost/traffic"
 
@@ -129,8 +130,14 @@ func main() {
 	// 设置流量记录器给 handler 使用
 	traffic.SetupTrafficRecorder(trafficMgr)
 
+	// 设置实时流量记录器
+	traffic.SetupRealtimeTrafficRecorder(trafficMgr)
+
 	fmt.Println("✅ 流量管理器已初始化（使用内存存储）")
 	logger.Default().Info("Traffic manager initialized (using memory storage)")
+
+	// 启动实时流量统计（每5秒收集一次）
+	traffic.StartRealtimeTrafficStatistics(5 * time.Second)
 
 	traffic.SetHTTPReportURL(config.Addr, config.Secret)
 	traffic.StartTrafficReporter(trafficMgr)

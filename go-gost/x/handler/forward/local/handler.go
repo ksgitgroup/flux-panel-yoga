@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net"
 	"time"
@@ -12,7 +14,6 @@ import (
 	"github.com/go-gost/core/handler"
 	"github.com/go-gost/core/hop"
 	md "github.com/go-gost/core/metadata"
-	"github.com/go-gost/core/observer/stats"
 	"github.com/go-gost/core/recorder"
 	ctxvalue "github.com/go-gost/x/ctx"
 	xnet "github.com/go-gost/x/internal/net"
@@ -57,6 +58,13 @@ func NewHandler(opts ...handler.Option) handler.Handler {
 	}
 }
 
+// generateConnectionID 生成连接唯一标识
+func generateConnectionID() string {
+	bytes := make([]byte, 8)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
 func (h *forwardHandler) Init(md md.Metadata) (err error) {
 	if err = h.parseMetadata(md); err != nil {
 		return
@@ -88,6 +96,7 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	defer conn.Close()
 
 	start := time.Now()
+	connID := generateConnectionID()
 
 	ro := &xrecorder.HandlerRecorderObject{
 		Service:    h.options.Service,
@@ -114,6 +123,7 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 		"local":  conn.LocalAddr().String(),
 		"sid":    ro.SID,
 		"client": ro.ClientIP,
+		"connID": connID,
 	})
 
 	network := "tcp"
@@ -126,21 +136,19 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	ccStats := xstats.Stats{}
 	conn = stats_wrapper.WrapConn(conn, &connStats)
 
+	// 获取实时流量管理器并注册连接
+	rtm := GetGlobalRealtimeTrafficManager()
+	if rtm != nil {
+		rtm.RegisterConnection(connID+":conn", h.options.Service+":conn", &connStats)
+		defer rtm.UnregisterConnection(connID + ":conn")
+	}
+
 	defer func() {
 		if err != nil {
 			ro.Err = err.Error()
 		}
 		ro.Duration = time.Since(start)
 
-		if h.trafficRecorder != nil {
-			connOutputBytes := connStats.Get(stats.KindOutputBytes)
-			connInputBytes := connStats.Get(stats.KindInputBytes)
-			ccOutputBytes := ccStats.Get(stats.KindOutputBytes)
-			ccInputBytes := ccStats.Get(stats.KindInputBytes)
-
-			h.trafficRecorder.RecordTraffic(ctx, ro.Service+":conn", int64(connOutputBytes), int64(connInputBytes))
-			h.trafficRecorder.RecordTraffic(ctx, ro.Service+":cc", int64(ccOutputBytes), int64(ccInputBytes))
-		}
 	}()
 
 	if !h.checkRateLimit(conn.RemoteAddr()) {
@@ -167,6 +175,12 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 			ro.Route = buf.String()
 
 			cc = stats_wrapper.WrapConn(cc, &ccStats)
+
+			// 为目标连接也注册到实时流量统计
+			if rtm != nil && err == nil {
+				rtm.RegisterConnection(connID+":cc", h.options.Service+":cc", &ccStats)
+				// 注意：这里不能defer UnregisterConnection，因为dial函数可能被多次调用
+			}
 
 			return cc, err
 		}
@@ -243,6 +257,12 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	}
 
 	cc = stats_wrapper.WrapConn(cc, &ccStats)
+
+	// 为目标连接注册到实时流量统计
+	if rtm != nil {
+		rtm.RegisterConnection(connID+":cc", h.options.Service+":cc", &ccStats)
+		defer rtm.UnregisterConnection(connID + ":cc")
+	}
 
 	defer cc.Close()
 

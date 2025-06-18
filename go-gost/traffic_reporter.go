@@ -36,13 +36,13 @@ func StartTrafficReporter(trafficMgr traffic.Manager) {
 		return
 	}
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 
 	go func() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
 			// 先获取流量统计（不清零）
 			stats, err := trafficMgr.GetAllServicesStats(ctx)

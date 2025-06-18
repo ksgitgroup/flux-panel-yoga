@@ -89,10 +89,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private static final String ERROR_PASSWORD_NOT_MATCH = "新密码和确认密码不匹配";
     private static final String SUCCESS_PASSWORD_UPDATE = "密码修改成功";
     
+    /** 默认账号密码 */
+    private static final String DEFAULT_USERNAME = "admin_user";
+    private static final String DEFAULT_PASSWORD = "admin_user";
+    
     /** 登录响应字段名 */
     private static final String LOGIN_TOKEN_FIELD = "token";
     private static final String LOGIN_NAME_FIELD = "name";
     private static final String LOGIN_ROLE_ID_FIELD = "role_id";
+    private static final String LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD = "requirePasswordChange";
 
     // ========== 依赖注入 ==========
     
@@ -141,10 +146,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         User user = validationResult.getUser();
         String token = JwtUtil.generateToken(user);
         
+        // 3. 检查是否使用默认账号密码
+        boolean requirePasswordChange = isDefaultCredentials(loginDto.getUsername(), loginDto.getPassword());
+        
         return R.ok(MapUtil.builder()
                 .put(LOGIN_TOKEN_FIELD, token)
                 .put(LOGIN_NAME_FIELD, user.getName())
                 .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
+                .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
                 .build());
     }
 
@@ -285,10 +294,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     /**
-     * 修改密码
-     * 验证当前密码、新密码确认、更新用户密码
+     * 修改账号密码
+     * 验证当前密码、新密码确认、用户名唯一性、更新用户账号密码
      * 
-     * @param changePasswordDto 修改密码数据传输对象
+     * @param changePasswordDto 修改账号密码数据传输对象
      * @return 修改结果响应
      */
     @Override
@@ -312,18 +321,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 return R.err(ERROR_CURRENT_PASSWORD_WRONG);
             }
 
-            // 4. 更新密码
+            // 4. 验证新用户名唯一性（如果与当前用户名不同）
+            if (!user.getUser().equals(changePasswordDto.getNewUsername())) {
+                R usernameValidationResult = validateUsernameUniqueness(changePasswordDto.getNewUsername(), user.getId());
+                if (usernameValidationResult.getCode() != 0) {
+                    return usernameValidationResult;
+                }
+            }
+
+            // 5. 更新用户名和密码
             User updateUser = new User();
             updateUser.setId(user.getId());
+            updateUser.setUser(changePasswordDto.getNewUsername());
             updateUser.setPwd(Md5Util.md5(changePasswordDto.getNewPassword()));
             updateUser.setUpdatedTime(System.currentTimeMillis());
             
             boolean result = this.updateById(updateUser);
-            return result ? R.ok(SUCCESS_PASSWORD_UPDATE) : R.err(ERROR_UPDATE_FAILED);
+            return result ? R.ok("账号密码修改成功") : R.err(ERROR_UPDATE_FAILED);
             
         } catch (Exception e) {
             e.printStackTrace();
-            return R.err("修改密码时发生错误：" + e.getMessage());
+            return R.err("修改账号密码时发生错误：" + e.getMessage());
         }
     }
 
@@ -350,6 +368,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         
         return LoginValidationResult.success(user);
+    }
+
+    /**
+     * 检查是否使用默认账号密码
+     * 
+     * @param username 用户名
+     * @param password 密码
+     * @return 是否是默认凭据
+     */
+    private boolean isDefaultCredentials(String username, String password) {
+        return DEFAULT_USERNAME.equals(username) && DEFAULT_PASSWORD.equals(password);
     }
 
     /**

@@ -104,6 +104,17 @@ export default {
           login(this.loginForm).then(res=>{
             this.loading = false
             if (res.code !== 0) return this.$message.error(res.msg)
+            
+            // 检查是否需要强制修改密码
+            if (res.data.requirePasswordChange) {
+              localStorage.setItem('token', res.data.token);
+              localStorage.setItem("role_id", res.data.role_id)
+              localStorage.setItem("name", res.data.name)
+              this.$message.warning('检测到您使用的是默认账号密码，为了安全请立即修改');
+              this.$router.push("/change-password");
+              return;
+            }
+            
             localStorage.setItem('token', res.data.token);
             localStorage.setItem("e", '/index')
             localStorage.setItem("role_id", res.data.role_id)

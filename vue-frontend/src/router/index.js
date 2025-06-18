@@ -5,6 +5,7 @@ import VueRouter from 'vue-router';
 
 import Home from "@/views/Home.vue";
 import Login from "@/views/Login.vue";
+import ChangeAccountPassword from "@/views/ChangePassword.vue";
 import Index from "@/views/Index";
 import User from "@/views/User";
 import Node from "@/views/node";
@@ -19,6 +20,7 @@ Vue.use(VueRouter);
 const routes = [
     {path: '/', redirect: '/login'},
     {path: '/login', component: Login},
+    {path: '/change-password', component: ChangeAccountPassword},
     {
         path: '/home', component: Home, redirect: '/index', children: [
             {path: '/index', component: Index},
@@ -38,7 +40,7 @@ const router = new VueRouter({
 })
 
 router.beforeEach((to, from, next) => {
-    if (to.path === '/login') return next();
+    if (to.path === '/login' || to.path === '/change-password') return next();
     const tokenStr = localStorage.getItem('token')
     if (!tokenStr) {
         return next('/login')

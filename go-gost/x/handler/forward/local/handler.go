@@ -126,7 +126,7 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 
 	if h.trafficManager != nil {
 		go func() {
-			ticker := time.NewTicker(1 * time.Second)
+			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
 
 			// 记录上次的流量值

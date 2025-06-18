@@ -118,7 +118,6 @@ func main() {
 	log := xlogger.NewLogger()
 	logger.SetDefault(log)
 
-	// 使用内存流量管理器
 	trafficMgr := traffic.GetGlobalManager()
 	defer trafficMgr.Close()
 

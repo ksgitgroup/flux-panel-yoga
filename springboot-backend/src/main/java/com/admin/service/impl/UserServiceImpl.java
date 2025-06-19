@@ -378,7 +378,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @return 是否是默认凭据
      */
     private boolean isDefaultCredentials(String username, String password) {
-        return DEFAULT_USERNAME.equals(username) && DEFAULT_PASSWORD.equals(password);
+        return DEFAULT_USERNAME.equals(username) || DEFAULT_PASSWORD.equals(password);
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.admin.common.utils;
 
+import com.admin.common.dto.GostConfigDto;
 import com.admin.common.dto.GostDto;
 import com.admin.common.task.SaveConfigAsync;
 import com.admin.config.RestTemplateConfig;
@@ -143,6 +144,32 @@ public class HttpUtils implements ApplicationContextAware {
         restTemplate.setErrorHandler(new NoOpResponseErrorHandler());
 
         return restTemplate;
+    }
+
+
+    @SneakyThrows
+    public static GostConfigDto get(String url, String secret) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        String auth = secret + ":" + secret;
+        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        headers.set("Authorization", "Basic " + encodedAuth);
+        RestTemplate restTemplate = createRestTemplateWithTimeout();
+        HttpEntity<Object> entity = new HttpEntity<>("", headers);
+        try {
+            ResponseEntity<GostConfigDto> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    GostConfigDto.class
+            );
+            return response.getBody();
+        } catch (Exception e) {
+            e.printStackTrace();
+            GostConfigDto gostDto = new GostConfigDto();
+            return gostDto;
+        }
     }
 
     @SneakyThrows

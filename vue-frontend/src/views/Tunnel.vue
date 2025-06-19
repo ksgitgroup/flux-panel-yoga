@@ -1,13 +1,6 @@
 <template>
   <div class="tunnel-container">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <h1 class="page-title">
-        <i class="el-icon-connection"></i>
-        隧道管理
-      </h1>
-      <div class="header-actions">
-        <el-button 
+    <el-button 
           type="primary" 
           icon="el-icon-plus" 
           @click="handleAdd"
@@ -15,20 +8,9 @@
         >
           新增隧道
         </el-button>
-        
-        <el-button 
-          type="success" 
-          icon="el-icon-refresh" 
-          @click="loadTunnels"
-          :loading="loading"
-        >
-          刷新
-        </el-button>
-      </div>
-    </div>
 
     <!-- 隧道卡片展示 -->
-    <div class="cards-container" v-loading="loading">
+    <div class="cards-container" v-loading="loading" style="margin-top: 10px;">
       <div class="cards-grid">
         <div 
           v-for="tunnel in tunnelList" 
@@ -52,6 +34,17 @@
               <el-tag v-if="tunnel.flow === 1" type="success" size="mini">单向计算</el-tag>
               <el-tag v-else type="info" size="mini">双向计算</el-tag>
             </div>
+
+
+            <el-button 
+            style="margin-left: 10px;"
+              size="small" 
+              type="danger" 
+              icon="el-icon-delete"
+              @click="handleDelete(tunnel)"
+            >
+              删除
+            </el-button>
           </div>
 
           <!-- 流程图 -->
@@ -61,7 +54,9 @@
               <div class="flow-icon">
                 <i class="el-icon-monitor"></i>
               </div>
-              <div class="flow-label">客户端</div>
+              <div class="flow-content">
+                <div class="flow-label">客户端</div>
+              </div>
             </div>
 
             <!-- 箭头 -->
@@ -74,15 +69,17 @@
               <div class="flow-icon">
                 <i class="el-icon-upload"></i>
               </div>
-              <div class="flow-label">入口</div>
-              <div class="flow-detail">
-                <div class="detail-item">
-                  <span class="label">IP:</span>
-                  <span class="value">{{ tunnel.inIp }}</span>
-                </div>
-                <div class="detail-item">
-                  <span class="label">端口:</span>
-                  <span class="value">{{ tunnel.inPortSta === tunnel.inPortEnd ? tunnel.inPortSta : `${tunnel.inPortSta}-${tunnel.inPortEnd}` }}</span>
+              <div class="flow-content">
+                <div class="flow-label">入口</div>
+                <div class="flow-detail">
+                  <div class="detail-item">
+                    <span class="label">IP:</span>
+                    <span class="value" :title="tunnel.inIp">{{ tunnel.inIp }}</span>
+                  </div>
+                  <div class="detail-item">
+                    <span class="label">端口:</span>
+                    <span class="value">{{ tunnel.inPortSta === tunnel.inPortEnd ? tunnel.inPortSta : `${tunnel.inPortSta}-${tunnel.inPortEnd}` }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -97,15 +94,19 @@
               <div class="flow-icon">
                 <i class="el-icon-download"></i>
               </div>
-              <div class="flow-label">出口</div>
-              <div class="flow-detail">
-                <div class="detail-item">
-                  <span class="label">IP:</span>
-                  <span class="value">{{ tunnel.outIp }}</span>
-                </div>
-                <div class="detail-item">
-                  <span class="label">端口:</span>
-                  <span class="value">{{ tunnel.outIpSta === tunnel.outIpEnd ? tunnel.outIpSta : `${tunnel.outIpSta}-${tunnel.outIpEnd}` }}</span>
+              <div class="flow-content">
+                <div class="flow-label" >出口</div>
+                <div class="flow-detail">
+                  
+                  <div class="detail-item">
+                    <span class="label">IP:</span>
+                    <span class="value" :title="tunnel.outIp">{{ tunnel.outIp }}</span>
+                  </div>
+
+                  <div class="detail-item">
+                    <span class="label">端口:</span>
+                    <span class="value">{{ tunnel.outIpSta === tunnel.outIpEnd ? tunnel.outIpSta : `${tunnel.outIpSta}-${tunnel.outIpEnd}` }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -120,10 +121,12 @@
               <div class="flow-icon">
                 <i class="el-icon-position"></i>
               </div>
-              <div class="flow-label">目标</div>
-              <div class="flow-detail">
-                <div class="detail-item">
-                  <span class="label">目标服务</span>
+              <div class="flow-content">
+                <div class="flow-label">目标</div>
+                <div class="flow-detail">
+                  <div class="detail-item">
+                    <span class="label">目标服务</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -136,18 +139,6 @@
               <span>{{ tunnel.createdTime | dateFormat }}</span>
             </div>
           </div>
-
-          <!-- 操作按钮 -->
-          <div class="tunnel-actions">
-            <el-button 
-              size="small" 
-              type="danger" 
-              icon="el-icon-delete"
-              @click="handleDelete(tunnel)"
-            >
-              删除
-            </el-button>
-          </div>
         </div>
       </div>
 
@@ -155,7 +146,6 @@
       <div v-if="!loading && tunnelList.length === 0" class="empty-state">
         <i class="el-icon-connection"></i>
         <p>暂无隧道数据</p>
-        <el-button type="primary" @click="handleAdd">创建第一个隧道</el-button>
       </div>
     </div>
 
@@ -763,6 +753,7 @@ export default {
   font-weight: 500;
   color: #606266;
   margin-bottom: 8px;
+  text-align: center;
 }
 
 .flow-detail {
@@ -844,38 +835,386 @@ export default {
   margin-bottom: 20px;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
+/* 中等屏幕优化 (768px - 1024px) */
+@media (max-width: 1024px) {
   .cards-grid {
-    grid-template-columns: 1fr;
-    gap: 15px;
+    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
   }
-  
-  .tunnel-flow {
-    flex-direction: column;
-    gap: 15px;
+}
+
+/* 平板优化 (480px - 768px) */
+@media (max-width: 768px) {
+  .tunnel-container {
+    padding: 15px;
   }
-  
-  .flow-arrow {
-    transform: rotate(90deg);
-  }
-  
+
   .page-header {
     flex-direction: column;
     align-items: stretch;
     gap: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  
+  .page-title {
+    font-size: 22px;
+    text-align: center;
   }
   
   .header-actions {
     justify-content: center;
   }
+
+  .cards-grid {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
   
   .tunnel-card {
-    padding: 15px;
+    padding: 20px;
+    min-height: auto;
+    border-radius: 10px;
+  }
+  
+  .tunnel-header {
+    margin-bottom: 15px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
   
   .tunnel-name {
-    margin-right: 80px;
+    font-size: 17px;
+    margin: 0;
+    width: 100%;
+  }
+  
+  .tunnel-badges {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  
+  /* 平板端流程图优化 */
+  .tunnel-flow {
+    padding: 18px 15px;
+    margin-bottom: 18px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .flow-item {
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+  
+  .flow-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+  
+  .flow-label {
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  
+     .detail-item {
+     font-size: 11px;
+     margin-bottom: 2px;
+     line-height: 1.3;
+   }
+   
+   .detail-item .value {
+     font-size: 12px;
+     display: inline-block;
+     max-width: 140px;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+     vertical-align: top;
+   }
+  
+  .flow-arrow {
+    font-size: 14px;
+    margin: 0 8px;
+  }
+  
+  .tunnel-meta {
+    margin-bottom: 12px;
+    font-size: 11px;
+    justify-content: center;
+  }
+}
+
+/* 手机端优化 (最大 480px) */
+@media (max-width: 480px) {
+  .tunnel-container {
+    padding: 10px;
+  }
+  
+  .page-header {
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+  }
+  
+  .page-title {
+    font-size: 18px;
+  }
+  
+  .header-actions {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  
+  .header-actions .el-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .tunnel-card {
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  
+  .tunnel-header {
+    margin-bottom: 12px;
+    gap: 10px;
+  }
+  
+  .tunnel-name {
+    font-size: 16px;
+  }
+  
+  .tunnel-badges {
+    gap: 4px;
+  }
+  
+  .tunnel-badges .el-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    height: auto;
+    line-height: 1.3;
+    border-radius: 3px;
+  }
+  
+  /* 手机端流程图 - 垂直布局 */
+  .tunnel-flow {
+    padding: 12px 8px;
+    margin-bottom: 12px;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+  
+  .flow-item {
+    min-width: auto;
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  
+  .flow-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+    margin-bottom: 0;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+  
+  .flow-content {
+    flex: 1;
+    text-align: left;
+  }
+  
+     .flow-label {
+     font-size: 12px;
+     font-weight: 600;
+     margin-bottom: 4px;
+     color: #303133;
+     text-align: left;
+   }
+  
+  .flow-detail {
+    text-align: left;
+  }
+  
+     .detail-item {
+     display: block;
+     font-size: 10px;
+     margin-bottom: 3px;
+     line-height: 1.4;
+   }
+   
+   .detail-item .label {
+     display: inline;
+     margin-right: 4px;
+     color: #666;
+   }
+   
+   .detail-item .value {
+     font-size: 11px;
+     font-weight: 500;
+     color: #409eff;
+     display: inline-block;
+     max-width: 120px;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+     vertical-align: top;
+     cursor: help;
+     border-bottom: 1px dotted transparent;
+     transition: border-color 0.2s;
+   }
+   
+   .detail-item .value:hover {
+     border-bottom-color: #409eff;
+   }
+  
+  .flow-arrow {
+    display: none; /* 垂直布局时隐藏箭头 */
+  }
+  
+  /* 删除按钮优化 */
+  .tunnel-header .el-button {
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    margin-left: 0;
+    margin-top: 8px;
+    align-self: flex-start;
+  }
+  
+  .tunnel-meta {
+    margin-bottom: 8px;
+    font-size: 10px;
+    justify-content: flex-start;
+  }
+  
+  .meta-item {
+    margin-right: 15px;
+  }
+  
+  .meta-item i {
+    margin-right: 3px;
+  }
+  
+  /* 空状态手机端优化 */
+  .empty-state {
+    padding: 30px 15px;
+  }
+  
+  .empty-state i {
+    font-size: 40px;
+    margin-bottom: 12px;
+  }
+  
+  .empty-state p {
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+}
+
+/* 超小屏幕优化 (最大 360px) */
+@media (max-width: 360px) {
+  .tunnel-container {
+    padding: 8px;
+  }
+  
+  .page-header {
+    padding: 12px;
+  }
+  
+  .tunnel-card {
+    padding: 12px;
+  }
+  
+  .tunnel-name {
+    font-size: 15px;
+  }
+  
+  .tunnel-badges .el-tag {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+  
+  .flow-item {
+    padding: 6px 10px;
+  }
+  
+  .flow-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+    margin-right: 8px;
+  }
+  
+  .flow-label {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  
+     .detail-item {
+     font-size: 9px;
+     margin-bottom: 2px;
+     line-height: 1.3;
+   }
+   
+   .detail-item .value {
+     font-size: 10px;
+     display: inline-block;
+     max-width: 100px;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+     vertical-align: top;
+   }
+}
+
+/* 横屏模式优化 */
+@media (max-width: 768px) and (orientation: landscape) {
+  .tunnel-flow {
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px;
+  }
+  
+  .flow-item {
+    flex-direction: column;
+    min-width: 80px;
+    width: auto;
+    padding: 8px;
+    margin-right: 8px;
+  }
+  
+  .flow-icon {
+    margin-right: 0;
+    margin-bottom: 4px;
+  }
+  
+  .flow-content {
+    text-align: center;
+  }
+  
+  .flow-detail {
+    text-align: center;
+  }
+  
+  .flow-arrow {
+    display: flex;
+    margin: 0 4px;
   }
 }
 </style>

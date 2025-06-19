@@ -1,13 +1,6 @@
 <template>
   <div class="node-container">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <h1 class="page-title">
-        <i class="el-icon-s-platform"></i>
-        节点管理
-      </h1>
-      <div class="header-actions">
-        <el-button
+    <el-button
           type="primary" 
           icon="el-icon-plus" 
           @click="handleAdd"
@@ -15,21 +8,9 @@
         >
           新增节点
         </el-button>
-        
-        <el-button 
-          type="success" 
-          icon="el-icon-refresh" 
-          @click="loadNodes"
-          :loading="loading"
-        >
-          刷新
-        </el-button>
-
-      </div>
-    </div>
 
     <!-- 节点卡片展示 -->
-    <div class="cards-container" v-loading="loading">
+    <div class="cards-container" v-loading="loading" style="margin-top: 10px;">
       <div class="cards-grid">
         <div 
           v-for="node in nodeList" 
@@ -63,7 +44,7 @@
                   <div class="chart-wrapper">
                     <v-chart 
                       :option="getCpuChartOption(node.connectionStatus === 'online' ? (node.systemInfo?.cpuUsage || 0) : 0, node.connectionStatus !== 'online')"
-                      style="height: 120px; width: 100%;"
+                      :style="chartStyle"
                     />
                   </div>
                 </div>
@@ -73,7 +54,7 @@
                   <div class="chart-wrapper">
                     <v-chart 
                       :option="getMemoryChartOption(node.connectionStatus === 'online' ? (node.systemInfo?.memoryUsage || 0) : 0, node.connectionStatus !== 'online')"
-                      style="height: 120px; width: 100%;"
+                      :style="chartStyle"
                     />
                   </div>
                 </div>
@@ -340,6 +321,21 @@ export default {
     };
   },
   
+  computed: {
+    // 动态图表样式
+    chartStyle() {
+      return {
+        height: this.isMobile ? '80px' : '120px',
+        width: '100%'
+      };
+    },
+    
+    // 检查是否为移动端
+    isMobile() {
+      return window.innerWidth <= 768;
+    }
+  },
+  
   filters: {
     dateFormat(timestamp) {
       if (!timestamp) return '-';
@@ -351,6 +347,8 @@ export default {
   mounted() {
     this.loadNodes();
     this.initWebSocket();
+    // 监听窗口大小变化
+    window.addEventListener('resize', this.handleResize);
   },
   
   // 组件激活时（如果使用keep-alive）
@@ -369,6 +367,8 @@ export default {
   // 组件销毁前
   beforeDestroy() {
     this.closeWebSocket();
+    // 移除窗口大小变化监听
+    window.removeEventListener('resize', this.handleResize);
   },
   
   // 路由离开守卫
@@ -870,6 +870,12 @@ export default {
       const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
       
       return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    },
+    
+    // 处理窗口大小变化
+    handleResize() {
+      // 触发计算属性重新计算
+      this.$forceUpdate();
     }
   }
 };
@@ -877,7 +883,7 @@ export default {
 
 <style scoped>
 .node-container {
-  padding: 20px;
+  padding: 5px;
   background-color: #f5f7fa;
   min-height: calc(100vh - 60px);
 }
@@ -1177,23 +1183,32 @@ export default {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
+  .node-container {
+    padding: 5px;
+  }
+  
   .cards-grid {
     grid-template-columns: 1fr;
-    gap: 15px;
+    gap: 10px;
   }
   
   .charts-container {
     grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
   }
   
   .traffic-stats {
     grid-template-columns: 1fr;
+    gap: 6px;
   }
   
   .page-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 15px;
+    gap: 10px;
+    padding: 15px 20px;
+    margin-bottom: 15px;
   }
   
   .header-actions {
@@ -1201,7 +1216,55 @@ export default {
   }
   
   .node-card {
-    padding: 15px;
+    padding: 12px;
+  }
+  
+  .node-header {
+    margin-bottom: 10px;
+  }
+  
+  .node-name {
+    font-size: 16px;
+  }
+  
+  .status-indicator {
+    margin-bottom: 10px;
+  }
+  
+  .chart-wrapper {
+    padding: 6px;
+  }
+  
+  .chart-title {
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  
+  .stat-item {
+    padding: 6px;
+    min-height: 45px;
+  }
+  
+  .stat-header {
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  
+  .traffic-value {
+    font-size: 12px;
+  }
+  
+  .speed-value {
+    font-size: 10px;
+  }
+  
+  .ip-value {
+    font-size: 11px;
+  }
+  
+  .node-actions {
+    padding-top: 10px;
+    gap: 6px;
   }
 }
 
@@ -1216,13 +1279,61 @@ export default {
 }
 
 @media (max-width: 480px) {
+  .node-container {
+    padding: 3px;
+  }
+  
+  .cards-grid {
+    gap: 8px;
+  }
+  
+  .node-card {
+    padding: 10px;
+  }
+  
+  .charts-container {
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  
+  .traffic-stats {
+    gap: 4px;
+  }
+  
+  .stat-item {
+    padding: 5px;
+    min-height: 40px;
+  }
+  
+  .chart-wrapper {
+    padding: 4px;
+  }
+  
   .node-actions {
     justify-content: center;
+    flex-direction: column;
+    gap: 5px;
   }
   
   .node-actions .el-button {
+    font-size: 11px;
+    padding: 5px 10px;
+    width: 100%;
+    margin: 0;
+  }
+  
+  .add-btn {
     font-size: 12px;
-    padding: 7px 12px;
+    padding: 8px 15px;
+  }
+  
+  .page-header {
+    padding: 10px 15px;
+    margin-bottom: 10px;
+  }
+  
+  .page-title {
+    font-size: 20px;
   }
 }
 

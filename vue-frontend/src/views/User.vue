@@ -28,98 +28,185 @@
     </div>
 
     <!-- 用户列表 -->
-    <div class="table-container">
-      <el-table 
-        :data="userList" 
-        v-loading="loading"
-        stripe
-        border
-        style="width: 100%"
-      >
-        <el-table-column prop="id" label="ID"></el-table-column>
-        <el-table-column prop="name" label="姓名"></el-table-column>
-        <el-table-column prop="user" label="用户名"></el-table-column>
-        <el-table-column label="流量统计" width="220">
-          <template slot-scope="scope">
-            <div class="flow-stats">
-              <div class="flow-item">
-                <span class="flow-label">总流量:</span>
-                <span class="flow-value">{{ formatFlow(scope.row.flow, 'gb') }}</span>
+    <div class="list-container">
+      <!-- 桌面端表格视图 -->
+      <div class="desktop-view">
+        <el-table 
+          :data="userList" 
+          v-loading="loading"
+          stripe
+          border
+          style="width: 100%"
+        >
+          <el-table-column prop="id" label="ID" width="60"></el-table-column>
+          <el-table-column prop="name" label="姓名" min-width="100"></el-table-column>
+          <el-table-column prop="user" label="用户名" min-width="120"></el-table-column>
+          <el-table-column label="流量统计" width="200">
+            <template slot-scope="scope">
+              <div class="flow-stats">
+                <div class="flow-item">
+                  <span class="flow-label">总量:</span>
+                  <span class="flow-value">{{ formatFlow(scope.row.flow, 'gb') }}</span>
+                </div>
+                <div class="flow-item">
+                  <span class="flow-label">已用:</span>
+                  <span class="flow-value used">{{ formatFlow(calculateUserTotalUsedFlow(scope.row)) }}</span>
+                </div>
               </div>
-              <div class="flow-item">
-                <span class="flow-label">已用:</span>
-                <span class="flow-value used">{{ formatFlow(calculateUserTotalUsedFlow(scope.row)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="num" label="转发数量" width="100"></el-table-column>
+          <el-table-column prop="status" label="状态" width="80">
+            <template slot-scope="scope">
+              <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'" size="small">
+                {{ scope.row.status === 1 ? '正常' : '禁用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="expTime" label="过期时间" width="180">
+            <template slot-scope="scope">
+              <span v-if="scope.row.expTime" :class="getExpTimeClass(scope.row.expTime)">
+                {{ scope.row.expTime | dateFormat }}
+              </span>
+              <span v-else class="no-exptime">永久</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="240">
+            <template slot-scope="scope">
+              <el-button 
+                size="mini" 
+                type="primary" 
+                icon="el-icon-edit"
+                @click="handleEdit(scope.row)"
+              >
+                编辑
+              </el-button>
+              <el-button 
+                size="mini" 
+                type="success" 
+                icon="el-icon-s-tools"
+                @click="handleAssignTunnel(scope.row)"
+              >
+                分配
+              </el-button>
+              <el-button 
+                size="mini" 
+                type="danger" 
+                icon="el-icon-delete"
+                @click="handleDelete(scope.row)"
+              >
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 移动端卡片视图 -->
+      <div class="mobile-view" v-loading="loading">
+        <div v-if="userList.length === 0 && !loading" class="empty-state">
+          <el-empty description="暂无用户数据"></el-empty>
+        </div>
+        
+        <div v-for="user in userList" :key="user.id" class="user-card">
+          <!-- 卡片头部 -->
+          <div class="card-header">
+            <div class="user-info">
+              <div class="user-name">{{ user.name }}</div>
+              <div class="user-account">@{{ user.user }}</div>
+            </div>
+            <div class="user-status">
+              <el-tag :type="user.status === 1 ? 'success' : 'danger'" size="small">
+                {{ user.status === 1 ? '正常' : '禁用' }}
+              </el-tag>
+            </div>
+          </div>
+
+          <!-- 卡片内容 -->
+          <div class="card-content">
+            <!-- 流量信息 -->
+            <div class="info-section">
+              <div class="section-title">流量统计</div>
+              <div class="flow-info">
+                <div class="flow-item">
+                  <span class="label">总流量</span>
+                  <span class="value primary">{{ formatFlow(user.flow, 'gb') }}</span>
+                </div>
+                <div class="flow-item">
+                  <span class="label">已使用</span>
+                  <span class="value danger">{{ formatFlow(calculateUserTotalUsedFlow(user)) }}</span>
+                </div>
+                <div class="flow-item">
+                  <span class="label">转发数量</span>
+                  <span class="value">{{ user.num }}</span>
+                </div>
               </div>
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="num" label="转发数量" width="100"></el-table-column>
-        <el-table-column prop="status" label="状态">
-          <template slot-scope="scope">
-            <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'">
-              {{ scope.row.status === 1 ? '正常' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="flowResetTime" label="流量重置日期" width="130">
-          <template slot-scope="scope">
-            <span v-if="scope.row.flowResetTime">
-              每月{{ scope.row.flowResetTime }}号
-            </span>
-            <span v-else class="no-reset-time">未设置</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="expTime" label="过期时间" width="180">
-          <template slot-scope="scope">
-            <span v-if="scope.row.expTime" :class="getExpTimeClass(scope.row.expTime)">
-              {{ scope.row.expTime | dateFormat }}
-            </span>
-            <span v-else class="no-exptime">永久</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createdTime" label="创建时间">
-          <template slot-scope="scope">
-            {{ scope.row.createdTime | dateFormat }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="updatedTime" label="更新时间">
-          <template slot-scope="scope">
-            {{ scope.row.updatedTime | dateFormat }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="280">
-          <template slot-scope="scope">
+
+            <!-- 时间信息 -->
+            <div class="info-section">
+              <div class="section-title">时间信息</div>
+              <div class="time-info">
+                <div class="time-item">
+                  <span class="label">过期时间</span>
+                  <span v-if="user.expTime" :class="['value', getExpTimeClass(user.expTime)]">
+                    {{ user.expTime | dateFormat }}
+                  </span>
+                  <span v-else class="value no-exptime">永久</span>
+                </div>
+                <div class="time-item">
+                  <span class="label">流量重置</span>
+                  <span class="value">
+                    <span v-if="user.flowResetTime">每月{{ user.flowResetTime }}号</span>
+                    <span v-else class="no-reset-time">未设置</span>
+                  </span>
+                </div>
+                <div class="time-item">
+                  <span class="label">创建时间</span>
+                  <span class="value">{{ user.createdTime | dateFormat }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="card-actions">
             <el-button 
-              size="mini" 
+              size="small" 
               type="primary" 
               icon="el-icon-edit"
-              @click="handleEdit(scope.row)"
+              @click="handleEdit(user)"
+              plain
             >
               编辑
             </el-button>
             <el-button 
-              size="mini" 
+              size="small" 
               type="success" 
               icon="el-icon-s-tools"
-              @click="handleAssignTunnel(scope.row)"
+              @click="handleAssignTunnel(user)"
+              plain
             >
-              分配
+              分配权限
             </el-button>
             <el-button 
-              size="mini" 
+              size="small" 
               type="danger" 
               icon="el-icon-delete"
-              @click="handleDelete(scope.row)"
+              @click="handleDelete(user)"
+              plain
             >
               删除
             </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </div>
+      </div>
       
       <!-- 分页组件 -->
       <div class="pagination-container">
+        <!-- 桌面端分页 -->
         <el-pagination
+          class="desktop-pagination"
           @size-change="handleSizeChange"
           @current-change="handleCurrentChange"
           :current-page="pagination.current"
@@ -127,6 +214,20 @@
           :page-size="pagination.size"
           layout="total, sizes, prev, pager, next, jumper"
           :total="pagination.total"
+        >
+        </el-pagination>
+        
+        <!-- 移动端分页 -->
+        <el-pagination
+          class="mobile-pagination"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+          :current-page="pagination.current"
+          :page-sizes="[10, 20, 50]"
+          :page-size="pagination.size"
+          layout="prev, pager, next"
+          :total="pagination.total"
+          small
         >
         </el-pagination>
       </div>
@@ -170,10 +271,7 @@
             show-password
           ></el-input>
         </el-form-item>
-        
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="流量(GB)" prop="flow">
+        <el-form-item label="流量(GB)" prop="flow">
               <el-input-number 
                 v-model="userForm.flow" 
                 :min="0" 
@@ -182,8 +280,7 @@
                 style="width: 100%;"
               ></el-input-number>
             </el-form-item>
-          </el-col>
-          <el-col :span="12">
+        
             <el-form-item label="转发数量" prop="num">
               <el-input-number 
                 v-model="userForm.num" 
@@ -193,8 +290,6 @@
                 style="width: 100%;"
               ></el-input-number>
             </el-form-item>
-          </el-col>
-        </el-row>
         
         <el-form-item label="过期时间" prop="expTime">
           <el-date-picker
@@ -377,73 +472,147 @@
       <!-- 已有隧道权限列表 -->
       <div class="permission-list-section">
         <h4>已有隧道权限</h4>
-        <el-table 
-          :data="userTunnelList" 
-          v-loading="tunnelListLoading"
-          border
-          style="width: 100%"
-        >
-          <el-table-column prop="tunnelName" label="隧道名称"></el-table-column>
-          <el-table-column label="状态" width="80">
-            <template slot-scope="scope">
-              <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'" size="small">
-                {{ scope.row.status === 1 ? '正常' : '禁用' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="流量统计" width="180">
-            <template slot-scope="scope">
-              <div class="tunnel-flow-stats">
-                <div class="tunnel-flow-item">
-                  <span class="tunnel-flow-label">限制:</span>
-                  <span class="tunnel-flow-value">{{ formatFlow(scope.row.flow, 'gb') }}</span>
+        
+        <!-- 桌面端表格视图 -->
+        <div class="desktop-view">
+          <el-table 
+            :data="userTunnelList" 
+            v-loading="tunnelListLoading"
+            border
+            style="width: 100%"
+          >
+            <el-table-column prop="tunnelName" label="隧道名称" min-width="120"></el-table-column>
+            <el-table-column label="状态" width="80">
+              <template slot-scope="scope">
+                <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'" size="small">
+                  {{ scope.row.status === 1 ? '正常' : '禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="流量统计" width="180">
+              <template slot-scope="scope">
+                <div class="tunnel-flow-stats">
+                  <div class="tunnel-flow-item">
+                    <span class="tunnel-flow-label">限制:</span>
+                    <span class="tunnel-flow-value">{{ formatFlow(scope.row.flow, 'gb') }}</span>
+                  </div>
+                  <div class="tunnel-flow-item">
+                    <span class="tunnel-flow-label">已用:</span>
+                    <span class="tunnel-flow-value used">{{ formatFlow(calculateTunnelUsedFlow(scope.row)) }}</span>
+                  </div>
                 </div>
-                <div class="tunnel-flow-item">
-                  <span class="tunnel-flow-label">已用:</span>
-                  <span class="tunnel-flow-value used">{{ formatFlow(calculateTunnelUsedFlow(scope.row)) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="num" label="转发数量" width="100"></el-table-column>
+            <el-table-column prop="speedLimitName" label="限速规则" width="120">
+              <template slot-scope="scope">
+                <el-tag v-if="scope.row.speedLimitName" type="warning" size="small">
+                  {{ scope.row.speedLimitName }}
+                </el-tag>
+                <el-tag v-else type="success" size="small">不限速</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="expTime" label="到期时间" width="150">
+              <template slot-scope="scope">
+                {{ scope.row.expTime | dateFormat }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template slot-scope="scope">
+                <el-button 
+                  size="mini" 
+                  type="primary" 
+                  icon="el-icon-edit"
+                  @click="handleEditTunnelPermission(scope.row)"
+                >
+                </el-button>
+                <el-button 
+                  size="mini" 
+                  type="danger" 
+                  icon="el-icon-delete"
+                  @click="handleRemoveTunnelPermission(scope.row)"
+                >
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 移动端卡片视图 -->
+        <div class="mobile-view" v-loading="tunnelListLoading">
+          <div v-if="userTunnelList.length === 0 && !tunnelListLoading" class="empty-state">
+            <el-empty description="暂无隧道权限" :image-size="100"></el-empty>
+          </div>
+          
+          <div v-for="tunnel in userTunnelList" :key="tunnel.id" class="tunnel-card">
+            <!-- 卡片头部 -->
+            <div class="card-header">
+              <div class="tunnel-info">
+                <div class="tunnel-name">{{ tunnel.tunnelName }}</div>
+                <div class="tunnel-meta">
+                  <el-tag :type="tunnel.status === 1 ? 'success' : 'danger'" size="mini">
+                    {{ tunnel.status === 1 ? '正常' : '禁用' }}
+                  </el-tag>
+                  <el-tag v-if="tunnel.speedLimitName" type="warning" size="mini" style="margin-left: 5px;">
+                    {{ tunnel.speedLimitName }}
+                  </el-tag>
+                  <el-tag v-else type="success" size="mini" style="margin-left: 5px;">不限速</el-tag>
                 </div>
-              
               </div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="num" label="转发数量" width="100"></el-table-column>
-          <el-table-column prop="speedLimitName" label="限速规则" width="150">
-            <template slot-scope="scope">
-              <el-tag v-if="scope.row.speedLimitName" type="warning">
-                {{ scope.row.speedLimitName }}
-              </el-tag>
-              <el-tag v-else type="success">不限速</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="flowResetTime" label="流量重置日期" width="130">
-            <template slot-scope="scope">
-              每月{{ scope.row.flowResetTime }}号
-            </template>
-          </el-table-column>
-          <el-table-column prop="expTime" label="到期时间" width="180">
-            <template slot-scope="scope">
-              {{ scope.row.expTime | dateFormat }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="150">
-            <template slot-scope="scope">
+            </div>
+
+            <!-- 卡片内容 -->
+            <div class="card-content">
+              <div class="tunnel-stats">
+                <div class="stat-item">
+                  <div class="stat-label">流量限制</div>
+                  <div class="stat-value primary">{{ formatFlow(tunnel.flow, 'gb') }}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">已使用</div>
+                  <div class="stat-value danger">{{ formatFlow(calculateTunnelUsedFlow(tunnel)) }}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">转发数量</div>
+                  <div class="stat-value">{{ tunnel.num }}</div>
+                </div>
+              </div>
+              
+              <div class="tunnel-details">
+                <div class="detail-item">
+                  <span class="detail-label">流量重置</span>
+                  <span class="detail-value">每月{{ tunnel.flowResetTime }}号</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">到期时间</span>
+                  <span class="detail-value">{{ tunnel.expTime | dateFormat }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="card-actions">
               <el-button 
-                size="mini" 
+                size="small" 
                 type="primary" 
                 icon="el-icon-edit"
-                @click="handleEditTunnelPermission(scope.row)"
+                @click="handleEditTunnelPermission(tunnel)"
+                plain
               >
+                编辑
               </el-button>
               <el-button 
-                size="mini" 
+                size="small" 
                 type="danger" 
                 icon="el-icon-delete"
-                @click="handleRemoveTunnelPermission(scope.row)"
+                @click="handleRemoveTunnelPermission(tunnel)"
+                plain
               >
+                删除
               </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+            </div>
+          </div>
+        </div>
       </div>
       
       <span slot="footer" class="dialog-footer">
@@ -1188,16 +1357,34 @@ export default {
   border-radius: 6px;
 }
 
-.table-container {
+.list-container {
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   padding: 20px;
 }
 
+/* 响应式视图控制 */
+.desktop-view {
+  display: block;
+}
+
+.mobile-view {
+  display: none;
+}
+
 .pagination-container {
   margin-top: 20px;
   text-align: right;
+}
+
+/* 分页组件响应式控制 */
+.desktop-pagination {
+  display: block;
+}
+
+.mobile-pagination {
+  display: none;
 }
 
 /* 对话框样式调整 */
@@ -1221,6 +1408,197 @@ export default {
   margin-top: 20px;
 }
 
+/* 移动端卡片样式 */
+.user-card, .tunnel-card {
+  background: white;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.user-card:hover, .tunnel-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.card-header {
+  padding: 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e6e6e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.user-info, .tunnel-info {
+  flex: 1;
+}
+
+.user-name, .tunnel-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.user-account {
+  font-size: 14px;
+  color: #666;
+}
+
+.tunnel-meta {
+  margin-top: 8px;
+}
+
+.user-status {
+  display: flex;
+  align-items: center;
+}
+
+.card-content {
+  padding: 16px;
+}
+
+.info-section {
+  margin-bottom: 16px;
+}
+
+.info-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e6e6e6;
+}
+
+.flow-info, .time-info {
+  display: grid;
+  gap: 8px;
+}
+
+.flow-item, .time-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.value.primary {
+  color: #409eff;
+}
+
+.value.danger {
+  color: #f56c6c;
+}
+
+.value.success {
+  color: #67c23a;
+}
+
+.card-actions {
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-top: 1px solid #e6e6e6;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-actions .el-button {
+  flex: 1;
+  margin: 0;
+  min-width: 80px;
+}
+
+/* 隧道卡片特有样式 */
+.tunnel-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 12px 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e6e6e6;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.stat-value.primary {
+  color: #409eff;
+}
+
+.stat-value.danger {
+  color: #f56c6c;
+}
+
+.tunnel-details {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.detail-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.detail-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .user-container {
@@ -1231,6 +1609,7 @@ export default {
     flex-direction: column;
     gap: 15px;
     align-items: stretch;
+    padding: 16px;
   }
   
   .header-actions {
@@ -1240,20 +1619,175 @@ export default {
   
   .page-title {
     text-align: center;
+    font-size: 20px;
+  }
+  
+  .list-container {
+    padding: 16px;
   }
   
   .pagination-container {
     text-align: center;
+    margin-top: 16px;
+    overflow-x: auto;
+    padding: 0 10px;
   }
+  
+  /* 切换到移动端视图 */
+  .desktop-view {
+    display: none;
+  }
+  
+  .mobile-view {
+    display: block;
+  }
+  
+  /* 分页组件移动端切换 */
+  .desktop-pagination {
+    display: none;
+  }
+  
+  .mobile-pagination {
+    display: block;
+  }
+  
+  /* 移动端搜索框优化 */
+  .header-actions .el-input {
+    width: 100% !important;
+    margin-right: 0 !important;
+    margin-bottom: 10px;
+  }
+  
+  /* 移动端分页优化 */
+  .mobile-pagination {
+    justify-content: center;
+  }
+  
+  .mobile-pagination >>> .el-pager {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .mobile-pagination >>> .el-pager li {
+    min-width: 30px;
+    height: 30px;
+    line-height: 30px;
+    margin: 0 2px;
+  }
+  
+  .mobile-pagination >>> .btn-prev,
+  .mobile-pagination >>> .btn-next {
+    min-width: 30px;
+    height: 30px;
+    line-height: 30px;
+  }
+  
+  /* 移动端对话框优化 */
+  .el-dialog {
+    width: 95% !important;
+    margin-top: 5vh !important;
+  }
+  
+  .assign-section h4,
+  .permission-list-section h4 {
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  
+  /* 移动端表单布局优化 - 分配新隧道权限部分 */
+  .assign-section .el-row {
+    flex-direction: column !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  .assign-section .el-col {
+    width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-bottom: 15px;
+  }
+  
+  .assign-section .el-col:last-child {
+    margin-bottom: 0;
+  }
+  
+  /* 移动端编辑隧道权限表单布局优化 */
+  .el-dialog .el-row {
+    flex-direction: column !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  .el-dialog .el-col {
+    width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-bottom: 15px;
+  }
+  
+  .el-dialog .el-col:last-child {
+    margin-bottom: 0;
+  }
+  
+      /* 隧道统计在小屏幕上的优化 */
+    @media (max-width: 480px) {
+      .tunnel-stats {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+      
+      .stat-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: left;
+        padding: 12px;
+      }
+      
+      .stat-label {
+        margin-bottom: 0;
+      }
+      
+      .card-actions {
+        flex-direction: column;
+      }
+      
+      .card-actions .el-button {
+        width: 100%;
+      }
+      
+      /* 超小屏幕分页优化 */
+      .mobile-pagination >>> .el-pager li {
+        min-width: 25px;
+        height: 25px;
+        line-height: 25px;
+        margin: 0 1px;
+        font-size: 12px;
+      }
+      
+      .mobile-pagination >>> .btn-prev,
+      .mobile-pagination >>> .btn-next {
+        min-width: 25px;
+        height: 25px;
+        line-height: 25px;
+        font-size: 12px;
+      }
+      
+      .pagination-container {
+        padding: 0 5px;
+      }
+    }
 }
 
 /* 表格样式优化 */
-.table-container >>> .el-table th {
+.list-container >>> .el-table th {
   background-color: #fafafa;
 }
 
-.table-container >>> .el-table--border td,
-.table-container >>> .el-table--border th {
+.list-container >>> .el-table--border td,
+.list-container >>> .el-table--border th {
   border-right: 1px solid #ebeef5;
 }
 
@@ -1266,7 +1800,7 @@ export default {
 }
 
 /* 按钮样式调整 */
-.table-container >>> .el-button--mini {
+.list-container >>> .el-button--mini {
   padding: 5px 10px;
   margin: 0 2px;
 }

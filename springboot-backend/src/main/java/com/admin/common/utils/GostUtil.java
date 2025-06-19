@@ -1,5 +1,6 @@
 package com.admin.common.utils;
 
+import com.admin.common.dto.GostConfigDto;
 import com.admin.common.dto.GostDto;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
@@ -16,8 +17,33 @@ public class GostUtil {
     public static GostDto SaveConfig(String addr, String secret) {
         JSONObject data = new JSONObject();
         data.put("format", "json");
+
+        if (!addr.contains("[") && addr.indexOf(':') != addr.lastIndexOf(':')) {
+            // 这是IPv6地址，找到最后一个冒号（端口分隔符）
+            int lastColonIndex = addr.lastIndexOf(':');
+            String ipPart = addr.substring(0, lastColonIndex);
+            String portPart = addr.substring(lastColonIndex);
+            addr = "[" + ipPart + "]" + portPart;
+        }
+
         String url = "https://" + addr + "/api/config?format=json";
         return HttpUtils.post(url, data, secret);
+    }
+
+    public static GostConfigDto GetConfig(String addr, String secret) {
+        JSONObject data = new JSONObject();
+        data.put("format", "json");
+
+        if (!addr.contains("[") && addr.indexOf(':') != addr.lastIndexOf(':')) {
+            // 这是IPv6地址，找到最后一个冒号（端口分隔符）
+            int lastColonIndex = addr.lastIndexOf(':');
+            String ipPart = addr.substring(0, lastColonIndex);
+            String portPart = addr.substring(lastColonIndex);
+            addr = "[" + ipPart + "]" + portPart;
+        }
+
+        String url = "https://" + addr + "/api/config?format=json";
+        return HttpUtils.get(url, secret);
     }
 
 

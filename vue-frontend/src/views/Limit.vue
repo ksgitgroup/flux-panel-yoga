@@ -1,116 +1,154 @@
 <template>
   <div class="speed-limit-container">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <h1 class="page-title">
-        <i class="el-icon-odometer"></i>
-        限速管理
-      </h1>
-      <div class="header-actions">
-        <!-- 搜索框 -->
-        <el-input
-          v-model="searchKeyword"
-          placeholder="搜索规则名称"
-          prefix-icon="el-icon-search"
-          @keyup.enter.native="handleSearch"
-          clearable
-          style="width: 250px; margin-right: 15px;"
-        >
-          <el-button slot="append" icon="el-icon-search" @click="handleSearch"></el-button>
-        </el-input>
+    <div class="action-buttons" style="margin-bottom: 10px;">
+          <el-button
+            type="primary" 
+            icon="el-icon-plus" 
+            @click="handleAdd"
+            class="add-btn"
+          >
+            新增限速
+          </el-button>
+        </div>
+
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>加载中...</p>
+    </div>
+
+    <!-- 限速规则列表 - 桌面端表格 -->
+    <div v-else-if="!isMobile && !loading && filteredSpeedLimitList.length !== 0" class="table-container">
+      <div class="custom-table">
+        <div class="table-header">
+          <div class="th">ID</div>
+          <div class="th">规则名称</div>
+          <div class="th">速度限制</div>
+          <div class="th">状态</div>
+          <div class="th">绑定隧道</div>
+          <div class="th">创建时间</div>
+          <div class="th">更新时间</div>
+          <div class="th">操作</div>
+        </div>
         
-        <el-button
-          type="primary" 
-          icon="el-icon-plus" 
-          @click="handleAdd"
-          class="add-btn"
-        >
-          新增限速规则
-        </el-button>
-        
-        <el-button 
-          type="success" 
-          icon="el-icon-refresh" 
-          @click="loadSpeedLimits"
-          :loading="loading"
-        >
-          刷新
-        </el-button>
+        <div v-for="rule in filteredSpeedLimitList" :key="rule.id" class="table-row">
+          <div class="td">{{ rule.id }}</div>
+          <div class="td">{{ rule.name }}</div>
+          <div class="td">
+            <el-tag type="info">{{ rule.speed }} Mbps</el-tag>
+          </div>
+          <div class="td">
+            <el-tag :type="rule.status === 1 ? 'success' : 'danger'">
+              {{ rule.status === 1 ? '运行' : '异常' }}
+            </el-tag>
+          </div>
+          <div class="td">
+            <el-tag v-if="rule.tunnelName" type="success">{{ rule.tunnelName }}</el-tag>
+            <span v-else class="text-muted">未绑定</span>
+          </div>
+          <div class="td">{{ rule.createdTime | dateFormat }}</div>
+          <div class="td">{{ rule.updatedTime | dateFormat }}</div>
+          <div class="td">
+            <div class="action-buttons-inline">
+              <el-button 
+                size="mini" 
+                type="primary" 
+                icon="el-icon-edit"
+                @click="handleEdit(rule)"
+                circle
+              ></el-button>
+              <el-button 
+                size="mini" 
+                type="danger" 
+                icon="el-icon-delete"
+                @click="handleDelete(rule)"
+                circle
+              ></el-button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 限速规则列表 -->
-    <div class="table-container">
-      <el-table 
-        :data="speedLimitList" 
-        v-loading="loading"
-        stripe
-        border
-        style="width: 100%"
+    <!-- 限速规则列表 - 移动端卡片 -->
+    <div v-else class="cards-container" v-loading="loading">
+      <div
+        v-for="rule in filteredSpeedLimitList"
+        :key="rule.id"
+        class="rule-card"
       >
-        <el-table-column prop="id" label="ID" width="80"></el-table-column>
-        <el-table-column prop="name" label="规则名称" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="speed" label="速度限制" >
-          <template slot-scope="scope">
-            <el-tag type="info">{{ scope.row.speed }} Mbps</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
-          <template slot-scope="scope">
-            <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'">
-              {{ scope.row.status === 1 ? '运行' : '异常' }}
+        <div class="card-header">
+          <div class="card-title">
+            <i class="el-icon-odometer"></i>
+            {{ rule.name }}
+          </div>
+          <div class="card-status">
+            <el-tag :type="rule.status === 1 ? 'success' : 'danger'" size="mini">
+              {{ rule.status === 1 ? '运行' : '异常' }}
             </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="tunnelName" label="绑定隧道" show-overflow-tooltip>
-          <template slot-scope="scope">
-            <el-tag type="success" v-if="scope.row.tunnelName">{{ scope.row.tunnelName }}</el-tag>
-            <span v-else class="text-muted">未绑定</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createdTime" label="创建时间" >
-          <template slot-scope="scope">
-            {{ scope.row.createdTime | dateFormat }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="updatedTime" label="更新时间" >
-          <template slot-scope="scope">
-            {{ scope.row.updatedTime | dateFormat }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作"  fixed="right">
-          <template slot-scope="scope">
-            <el-button 
-              size="mini" 
-              type="primary" 
-              icon="el-icon-edit"
-              @click="handleEdit(scope.row)"
-            >
-            </el-button>
-            <el-button 
-              size="mini" 
-              type="danger" 
-              icon="el-icon-delete"
-              @click="handleDelete(scope.row)"
-            >
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      
-      <!-- 空状态 -->
-      <div v-if="!loading && speedLimitList.length === 0" class="empty-state">
-        <el-empty description="暂无限速规则">
-          <el-button type="primary" @click="handleAdd">创建第一个限速规则</el-button>
-        </el-empty>
+          </div>
+        </div>
+
+        <div class="card-content">
+          <div class="info-row">
+            <span class="info-label">ID:</span>
+            <span class="info-value">{{ rule.id }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">速度限制:</span>
+            <span class="info-value speed-value">{{ rule.speed }} Mbps</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">绑定隧道:</span>
+            <span class="info-value tunnel-value">
+              {{ rule.tunnelName || '未绑定' }}
+            </span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">创建时间:</span>
+            <span class="info-value">{{ rule.createdTime | dateFormat }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">更新时间:</span>
+            <span class="info-value">{{ rule.updatedTime | dateFormat }}</span>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <el-button 
+            @click="handleEdit(rule)"
+            type="primary"
+            size="small"
+            icon="el-icon-edit"
+            plain
+          >
+            编辑
+          </el-button>
+          <el-button 
+            @click="handleDelete(rule)"
+            type="danger"
+            size="small"
+            icon="el-icon-delete"
+            plain
+          >
+            删除
+          </el-button>
+        </div>
       </div>
+    </div>
+      
+    <!-- 空状态 -->
+    <div v-if="!loading && filteredSpeedLimitList.length === 0" class="empty-state" style="margin-top: 10px;">
+      <el-empty description="暂无限速规则">
+        
+      </el-empty>
     </div>
 
     <!-- 新增/编辑对话框 -->
     <el-dialog
       :title="dialogTitle"
       :visible.sync="dialogVisible" 
-      width="500px"
+      :width="isMobile ? '90%' : '500px'"
       @close="resetForm"
     >
       <el-form 
@@ -136,11 +174,9 @@
             style="width: 100%;"
           ></el-input-number>
           <div class="form-hint">
-            单位：Mbps
+            单位：Mbps，范围：1-1000000
           </div>
         </el-form-item>
-        
-
         
         <el-form-item label="绑定隧道" prop="tunnelId">
           <el-select 
@@ -192,6 +228,7 @@ export default {
       isEdit: false,
       submitLoading: false,
       searchKeyword: '',
+      isMobile: false,
       
       // 表单数据
       speedLimitForm: {
@@ -220,12 +257,33 @@ export default {
     };
   },
   
+  computed: {
+    filteredSpeedLimitList() {
+      if (!this.searchKeyword.trim()) {
+        return this.speedLimitList;
+      }
+      return this.speedLimitList.filter(item => 
+        item.name.toLowerCase().includes(this.searchKeyword.toLowerCase())
+      );
+    }
+  },
+  
   mounted() {
+    this.checkMobile();
     this.loadSpeedLimits();
     this.loadTunnels();
+    window.addEventListener('resize', this.checkMobile);
+  },
+
+  beforeDestroy() {
+    window.removeEventListener('resize', this.checkMobile);
   },
   
   methods: {
+    checkMobile() {
+      this.isMobile = window.innerWidth <= 768;
+    },
+
     // 加载限速规则列表
     async loadSpeedLimits() {
       try {
@@ -260,20 +318,7 @@ export default {
     
     // 搜索功能
     handleSearch() {
-      if (!this.searchKeyword.trim()) {
-        this.loadSpeedLimits();
-        return;
-      }
-      
-      // 实现本地搜索过滤
-      this.loading = true;
-      setTimeout(() => {
-        const filtered = this.speedLimitList.filter(item => 
-          item.name.includes(this.searchKeyword)
-        );
-        this.speedLimitList = filtered;
-        this.loading = false;
-      }, 300);
+      // 通过 computed 属性实现实时搜索
     },
     
     // 处理隧道选择变化
@@ -400,14 +445,15 @@ export default {
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 20px;
   padding: 20px;
   background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+}
+
+.header-top {
+  margin-bottom: 20px;
 }
 
 .page-title {
@@ -427,7 +473,13 @@ export default {
 
 .header-actions {
   display: flex;
+  gap: 15px;
   align-items: center;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
 }
 
 .add-btn {
@@ -437,9 +489,154 @@ export default {
 
 .table-container {
   background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
   padding: 20px;
+  overflow-x: auto;
+}
+
+.custom-table {
+  width: 100%;
+  border-collapse: collapse;
+  display: table;
+}
+
+.table-header {
+  display: table-row;
+  background: #f8f9fa;
+  font-weight: 600;
+}
+
+.table-row {
+  display: table-row;
+  border-bottom: 1px solid #ebeef5;
+  transition: background-color 0.3s;
+}
+
+.table-row:hover {
+  background-color: #f5f7fa;
+}
+
+.th, .td {
+  display: table-cell;
+  padding: 12px 15px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.th {
+  background: #f8f9fa;
+  color: #909399;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.td {
+  font-size: 14px;
+  color: #606266;
+}
+
+.action-buttons-inline {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.cards-container {
+  display: grid;
+  gap: 15px;
+}
+
+.rule-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rule-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 20px 15px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  display: flex;
+  align-items: center;
+}
+
+.card-title i {
+  margin-right: 8px;
+  color: #409EFF;
+}
+
+.card-content {
+  padding: 15px 20px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-size: 14px;
+  color: #909399;
+  font-weight: 500;
+}
+
+.info-value {
+  font-size: 14px;
+  color: #303133;
+  text-align: right;
+  max-width: 60%;
+  word-break: break-all;
+}
+
+.speed-value {
+  color: #409EFF;
+  font-weight: 600;
+}
+
+.tunnel-value {
+  color: #67C23A;
+}
+
+.card-actions {
+  display: flex;
+  padding: 15px 20px 20px;
+  gap: 10px;
+}
+
+.card-actions .el-button {
+  flex: 1;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
 }
 
 .form-hint {
@@ -452,16 +649,12 @@ export default {
   text-align: right;
 }
 
-.empty-state {
-  text-align: center;
-  padding: 40px;
+.text-muted {
+  color: #909399;
+  font-style: italic;
 }
 
 /* Element UI 样式调整 */
-.el-table {
-  border-radius: 8px;
-}
-
 .el-dialog {
   border-radius: 12px;
 }
@@ -478,11 +671,6 @@ export default {
   border-radius: 4px;
 }
 
-.text-muted {
-  color: #909399;
-  font-style: italic;
-}
-
 /* 响应式设计 */
 @media (max-width: 768px) {
   .speed-limit-container {
@@ -490,18 +678,83 @@ export default {
   }
   
   .page-header {
-    flex-direction: column;
-    gap: 15px;
-    align-items: stretch;
+    padding: 15px;
+  }
+  
+  .page-title {
+    font-size: 20px;
+    margin-bottom: 15px;
   }
   
   .header-actions {
     flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+  
+  .action-buttons {
+    justify-content: space-between;
+  }
+  
+  .action-buttons .el-button {
+    flex: 1;
+  }
+  
+  .card-actions {
+    padding: 15px;
+  }
+  
+  .card-header {
+    padding: 15px;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 10px;
   }
   
+  .card-content {
+    padding: 10px 15px;
+  }
+  
+  .info-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 0;
+  }
+  
+  .info-value {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .table-container {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .speed-limit-container {
+    padding: 8px;
+  }
+  
+  .page-header {
+    padding: 12px;
+  }
+  
   .page-title {
-    text-align: center;
+    font-size: 18px;
+  }
+  
+  .page-title i {
+    font-size: 22px;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+  }
+  
+  .empty-state {
+    padding: 40px 15px;
   }
 }
 </style> 

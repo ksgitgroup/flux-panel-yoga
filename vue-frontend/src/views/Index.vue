@@ -838,6 +838,7 @@ export default {
   white-space: nowrap;        /* 不换行 */
   overflow: hidden;           /* 超出隐藏 */
   text-overflow: ellipsis;    /* 超出显示省略号 */
+  word-break: break-all;      /* 移动端强制换行 */
 }
 
 .address-source {
@@ -912,44 +913,267 @@ export default {
 /* 响应式设计 */
 @media (max-width: 768px) {
   .package-container {
-    padding: 10px;
+    padding: 8px;
+    background-color: #f5f5f5;
   }
 
-  .page-header {
+  .overview-card {
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .card-header {
     flex-direction: column;
-    gap: 15px;
-    align-items: stretch;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .card-header h3 {
+    font-size: 18px;
   }
 
   .overview-stats {
     grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .stat-item {
+    padding: 12px;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    margin-right: 12px;
+  }
+
+  .stat-icon i {
+    font-size: 20px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  .stat-label {
+    font-size: 13px;
   }
 
   .progress-section {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .progress-item {
+    padding: 12px;
+  }
+
+  .section-title {
+    font-size: 16px;
+    margin-bottom: 12px;
+    padding: 0 4px;
   }
 
   .tunnels-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .tunnel-card {
+    padding: 16px;
+    margin-bottom: 8px;
+  }
+
+  .tunnel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .tunnel-name {
+    font-size: 15px;
+    width: 100%;
+  }
+
+  .tunnel-status {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .tunnel-stat-row {
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .tunnel-stat-item {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    margin-right: 0;
+  }
+
+  .tunnel-stat-item:first-child {
+    margin-right: 0;
+  }
+
+  .progress-mini-header {
+    font-size: 11px;
+  }
+
+  .tunnel-footer {
+    margin-top: 12px;
+    padding-top: 8px;
+  }
+
+  .reset-time {
+    font-size: 11px;
+  }
+
+  .forwards-container {
+    padding: 16px;
+    margin: 0 -4px;
+  }
+
+  .forward-group {
+    margin-bottom: 16px;
+  }
+
+  .group-header {
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+  }
+
+  .group-header h4 {
+    font-size: 15px;
   }
 
   .forward-list {
     grid-template-columns: 1fr;
-  }
-
-  .forward-item {
-    flex-direction: column;
-    align-items: flex-start;
     gap: 8px;
   }
 
-  .forward-info {
-    width: 100%;
-    margin-bottom: 8px;
+  .forward-item {
+    padding: 12px;
+    border-left-width: 3px;
+  }
+
+  .forward-item:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .forward-name {
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+
+  .forward-address {
+    gap: 2px;
+    padding: 6px;
+    margin-bottom: 6px;
+  }
+
+  .address-source,
+  .address-target {
+    font-size: 13px;
+    padding: 3px 8px;
+    min-width: 100px;
+    max-width: 100%;
+    white-space: normal;      /* 移动端允许换行 */
+    word-break: break-all;    /* 强制换行 */
+    text-overflow: inherit;   /* 取消省略号 */
+    overflow: visible;        /* 显示完整内容 */
+  }
+
+  .address-arrow {
+    font-size: 16px;
+    margin: 1px 0;
   }
 
   .forward-traffic {
-    width: 100%;
+    padding: 6px;
+    flex-direction: column;
+    gap: 4px;
   }
-}
+
+  .traffic-item {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+  }
+
+  .traffic-label {
+    font-size: 11px;
+    margin-bottom: 0;
+    margin-right: 8px;
+  }
+
+  .traffic-value {
+    font-size: 13px;
+    padding: 1px 4px;
+  }
+
+  .empty-state {
+    height: 150px;
+  }
+
+  .empty-state .el-empty {
+    padding: 20px 0;
+  }
+
+  /* 移动端进度条调整 */
+  .el-progress {
+    margin: 4px 0;
+  }
+
+  .el-progress-bar__outer {
+    height: 6px !important;
+  }
+
+     .el-progress-bar__inner {
+     height: 6px !important;
+   }
+
+   /* 移动端标签样式优化 */
+   .el-tag {
+     font-size: 11px !important;
+     padding: 0 6px !important;
+     height: 20px !important;
+     line-height: 18px !important;
+   }
+
+   /* 移动端卡片阴影减少 */
+   .overview-card,
+   .tunnel-card,
+   .forwards-container {
+     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+   }
+
+   /* 移动端触摸友好的按钮间距 */
+   .tunnel-status .el-tag {
+     margin: 2px 4px 2px 0 !important;
+   }
+
+   /* 移动端图标调整 */
+   .tunnel-name i,
+   .reset-time i {
+     font-size: 14px;
+   }
+
+   /* 避免移动端横向滚动 */
+   .package-container,
+   .overview-card,
+   .tunnel-card,
+   .forwards-container,
+   .forward-item {
+     overflow-x: hidden;
+   }
+ }
 </style>

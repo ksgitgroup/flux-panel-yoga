@@ -136,5 +136,6 @@ func main() {
 	}
 }
 
-// GOOS=linux GOARCH=amd64 go build
+// GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gost
 // GOOS=windows GOARCH=amd64 go build -o your_app.exe
+// upx --best --lzma gost

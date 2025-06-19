@@ -99,6 +99,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
         // 6. 调用Gost服务创建转发
         R gostResult = createGostServices(forward, tunnel, permissionResult.getLimiter());
+
         if (gostResult.getCode() != 0) {
             this.removeById(forward.getId());
             return gostResult;
@@ -538,13 +539,11 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
             R chainResult = createChainService(inNode, serviceName, tunnel.getOutIp(), forward.getOutPort(), tunnel.getProtocol());
             if (chainResult.getCode() != 0) {
-                updateForwardStatusToError(forward);
                 return chainResult;
             }
 
             R remoteResult = createRemoteService(tunnel.getOutNodeId().intValue(), serviceName, forward, tunnel.getProtocol());
             if (remoteResult.getCode() != 0) {
-                updateForwardStatusToError(forward);
                 return remoteResult;
             }
 
@@ -553,7 +552,6 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         // 创建主服务
         R serviceResult = createMainService(inNode, serviceName, forward, limiter, tunnel.getType());
         if (serviceResult.getCode() != 0) {
-            updateForwardStatusToError(forward);
             return serviceResult;
         }
         return R.ok();

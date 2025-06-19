@@ -187,14 +187,12 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
         // 3. 获取隧道信息
         Tunnel tunnel = tunnelService.getById(speedLimit.getTunnelId());
         if (tunnel == null) {
-            return R.err(ERROR_TUNNEL_NOT_EXISTS);
+            this.removeById(id);
+            return R.ok();
         }
 
         // 4. 调用Gost API删除限速器
-        R gostResult = deleteGostLimiter(id, tunnel);
-        if (gostResult.getCode() != 0) {
-            return gostResult;
-        }
+        deleteGostLimiter(id, tunnel);
 
         // 5. 删除限速规则
         boolean result = this.removeById(id);

@@ -1,36 +1,24 @@
 <template>
   <div class="forward-container">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <h1 class="page-title">转发管理</h1>
-      <div class="header-actions">
-        <!-- 搜索框 -->
-        <el-input
-          v-model="searchKeyword"
-          placeholder="搜索转发名称或远程地址"
-          prefix-icon="el-icon-search"
-          @keyup.enter.native="handleSearch"
-          clearable
-          style="width: 250px; margin-right: 15px;"
-        >
-          <el-button slot="append" icon="el-icon-search" @click="handleSearch"></el-button>
-        </el-input>
-        
-        <el-button 
-          type="primary" 
-          icon="el-icon-plus" 
-          @click="handleAdd"
-          class="add-btn"
-        >
-          新增转发
-        </el-button>
-      </div>
+    <!-- 简化的页面头部 -->
+    <div class="action-buttons" style="margin-bottom: 10px;">
+
+      
+      <el-button 
+        type="primary" 
+        icon="el-icon-plus" 
+        @click="handleAdd"
+        class="add-btn"
+      >
+        {{ isMobile ? '添加' : '新增转发' }}
+      </el-button>
     </div>
 
     <!-- 转发列表 -->
     <div class="table-container">
       <div v-loading="loading" class="cards-container">
-        <div v-if="forwardList.length === 0 && !loading" class="empty-state">
+        <!-- 空状态 -->
+        <div v-if="forwardList.length === 0 && !loading" class="empty-state" style="margin-top: 10px;">
           <el-empty description="暂无转发配置"></el-empty>
         </div>
         
@@ -42,7 +30,7 @@
           <div class="card-header">
             <div class="card-title">
               <i class="el-icon-connection"></i>
-              {{ forward.name }}
+              <span class="title-text">{{ forward.name }}</span>
             </div>
             <div class="card-actions">
               <!-- 服务开关 -->
@@ -130,7 +118,7 @@
                   </div>
                   <div class="address-value">
                     <span class="value address-text" :title="forward.remoteAddr">
-                      {{ forward.remoteAddr}}
+                      {{ forward.remoteAddr }}
                     </span>
                   </div>
                 </div>
@@ -176,7 +164,7 @@
     <el-dialog 
       :title="dialogTitle" 
       :visible.sync="dialogVisible" 
-      width="600px"
+      :width="isMobile ? '90%' : '600px'"
       @close="resetForm"
     >
       <el-form 
@@ -263,6 +251,7 @@ export default {
       forwardList: [],
       tunnelList: [],
       selectedTunnel: null,
+      isMobile: false,
       
       // 对话框状态
       dialogVisible: false,
@@ -324,10 +313,24 @@ export default {
   },
   
   created() {
+    this.checkMobile();
     this.loadForwardList();
+  },
+
+  mounted() {
+    window.addEventListener('resize', this.checkMobile);
+  },
+
+  beforeDestroy() {
+    window.removeEventListener('resize', this.checkMobile);
   },
   
   methods: {
+    // 检查是否为移动端
+    checkMobile() {
+      this.isMobile = window.innerWidth <= 768;
+    },
+
     // 加载转发列表
     async loadForwardList() {
       try {
@@ -721,27 +724,35 @@ export default {
   min-height: 100vh;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding: 20px;
-  background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+/* 移动端优化 */
+@media (max-width: 768px) {
+  .forward-container {
+    padding: 10px;
+  }
 }
 
-.page-title {
-  margin: 0;
-  color: #303133;
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.header-actions {
+.action-buttons {
   display: flex;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 移动端行为按钮样式 */
+@media (max-width: 768px) {
+  .action-buttons {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  
+  .action-buttons .el-input {
+    min-width: 0;
+  }
+  
+  .add-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
 }
 
 .add-btn {
@@ -750,7 +761,9 @@ export default {
 }
 
 .table-container {
-  padding: 20px;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .form-hint {
@@ -768,10 +781,6 @@ export default {
 }
 
 /* Element UI 样式调整 */
-.el-table {
-  border-radius: 8px;
-}
-
 .el-dialog {
   border-radius: 12px;
 }
@@ -794,11 +803,59 @@ export default {
   color: #606266;
 }
 
+/* 移动端对话框优化 */
+@media (max-width: 768px) {
+  .el-dialog {
+    border-radius: 8px;
+    margin: 20px;
+  }
+  
+  .el-dialog__header {
+    padding: 15px 20px 10px;
+  }
+  
+  .el-dialog__body {
+    padding: 10px 20px;
+  }
+  
+  .el-dialog__footer {
+    padding: 10px 20px 15px;
+  }
+  
+  .el-dialog__title {
+    font-size: 16px;
+  }
+  
+  .el-form-item__label {
+    font-size: 14px;
+  }
+  
+  .dialog-footer {
+    text-align: center;
+  }
+  
+  .dialog-footer .el-button {
+    min-width: 80px;
+  }
+}
+
 .cards-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 20px;
   padding: 10px 0;
+}
+
+/* 移动端卡片容器 */
+@media (max-width: 768px) {
+  .cards-container {
+    grid-template-columns: 1fr;
+    gap: 15px;
+    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
 }
 
 .forward-card {
@@ -808,11 +865,29 @@ export default {
   padding: 24px;
   transition: all 0.3s ease;
   border: 1px solid #f0f0f0;
+  overflow: hidden; /* 防止内容撑大容器 */
 }
 
-.forward-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+/* 移动端卡片样式 */
+@media (max-width: 768px) {
+  .forward-card {
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  
+  .forward-card:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+}
+
+/* 桌面端悬停效果 */
+@media (min-width: 769px) {
+  .forward-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  }
 }
 
 .card-header {
@@ -824,27 +899,76 @@ export default {
   border-bottom: 1px solid #f0f0f0;
 }
 
+/* 移动端卡片头部 */
+@media (max-width: 768px) {
+  .card-header {
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
 .card-title {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
   display: flex;
   align-items: center;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 移动端卡片标题 */
+@media (max-width: 768px) {
+  .card-title {
+    font-size: 15px;
+  }
+  
+  .title-text {
+    max-width: calc(100% - 60px); /* 为操作按钮留出空间 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .card-title i {
   margin-right: 8px;
   color: #409EFF;
+  flex-shrink: 0;
+}
+
+.title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .card-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 移动端卡片操作 */
+@media (max-width: 768px) {
+  .card-actions {
+    gap: 6px;
+  }
+  
+  .card-actions .el-button--mini {
+    padding: 6px;
+  }
 }
 
 .card-body {
   margin-top: 16px;
+  overflow: hidden; /* 防止内容撑大容器 */
 }
 
 .info-row {
@@ -857,20 +981,43 @@ export default {
   margin-bottom: 0;
 }
 
+/* 移动端信息行 */
+@media (max-width: 768px) {
+  .info-row {
+    margin-bottom: 14px;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
 .info-item {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0; /* 确保flex子元素可以收缩 */
+  overflow: hidden; /* 防止内容撑大容器 */
 }
 
 .info-item.full-width {
   flex: 1;
   min-width: 0; /* 确保flex子元素可以收缩 */
+  overflow: hidden; /* 防止内容撑大容器 */
 }
 
 .info-item:not(:last-child) {
   margin-right: 20px;
+}
+
+/* 移动端信息项 */
+@media (max-width: 768px) {
+  .info-item:not(:last-child) {
+    margin-right: 0;
+    margin-bottom: 8px;
+  }
+  
+  .info-item:last-child {
+    margin-bottom: 0;
+  }
 }
 
 .label {
@@ -886,6 +1033,18 @@ export default {
   font-weight: 500;
 }
 
+/* 移动端字体优化 */
+@media (max-width: 768px) {
+  .label {
+    font-size: 11px;
+    margin-bottom: 3px;
+  }
+  
+  .value {
+    font-size: 13px;
+  }
+}
+
 .empty-state {
   grid-column: 1 / -1;
   display: flex;
@@ -897,12 +1056,28 @@ export default {
 .flow-stats-mini {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 移动端流量统计 */
+@media (max-width: 768px) {
+  .flow-stats-mini {
+    gap: 6px;
+  }
 }
 
 .flow-stat-item {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 60px;
+}
+
+/* 移动端流量统计项 */
+@media (max-width: 480px) {
+  .flow-stat-item {
+    min-width: 50px;
+  }
 }
 
 .flow-stat-label {
@@ -916,6 +1091,18 @@ export default {
   font-size: 14px;
   color: #303133;
   font-weight: 500;
+}
+
+/* 移动端流量统计字体 */
+@media (max-width: 768px) {
+  .flow-stat-label {
+    font-size: 11px;
+    margin-bottom: 3px;
+  }
+  
+  .flow-stat-value {
+    font-size: 12px;
+  }
 }
 
 .flow-stat-value.in {
@@ -963,6 +1150,7 @@ export default {
   flex-direction: column;
   width: 100%;
   min-width: 0; /* 确保flex子元素可以收缩 */
+  overflow: hidden; /* 防止内容撑大容器 */
 }
 
 .label-with-copy {
@@ -975,6 +1163,7 @@ export default {
 .address-value {
   width: 100%;
   min-width: 0; /* 确保flex子元素可以收缩 */
+  overflow: hidden; /* 确保容器支持省略号 */
 }
 
 .address-text {
@@ -1011,6 +1200,23 @@ export default {
   opacity: 1;
 }
 
+/* 移动端复制按钮 */
+@media (max-width: 768px) {
+  .copy-btn {
+    opacity: 0.8;
+    height: 18px !important;
+    padding: 1px 4px !important;
+  }
+  
+  .copy-btn .el-icon-copy-document {
+    font-size: 11px;
+  }
+  
+  .address-item:hover .copy-btn {
+    opacity: 1;
+  }
+}
+
 /* 复制对话框样式 */
 ::v-deep .copy-dialog .el-message-box__content {
   word-break: break-all;
@@ -1030,6 +1236,76 @@ export default {
   margin: 10px 0;
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* 移动端全局优化 */
+@media (max-width: 768px) {
+  /* 确保内容不会水平滚动 */
+  .forward-container * {
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+  
+  /* 强制约束容器宽度 */
+  .forward-card,
+  .card-body,
+  .info-row,
+  .info-item,
+  .address-item,
+  .address-value {
+    max-width: 100%;
+    overflow: hidden;
+  }
+  
+  /* 优化长文本显示 - 保持省略号不换行 */
+  .address-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  
+  /* 标题文本约束 */
+  .title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  
+  /* 移动端空状态调整 */
+  .empty-state {
+    padding: 40px 20px;
+  }
+  
+  /* 移动端form hint */
+  .form-hint {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+}
+
+/* 超小屏幕优化 */
+@media (max-width: 480px) {
+  .forward-container {
+    padding: 8px;
+  }
+  
+  .action-buttons {
+    gap: 8px;
+  }
+  
+  .forward-card {
+    padding: 12px;
+  }
+  
+  .card-header {
+    margin-bottom: 12px;
+  }
+  
+  .info-row {
+    margin-bottom: 10px;
+  }
 }
 
 

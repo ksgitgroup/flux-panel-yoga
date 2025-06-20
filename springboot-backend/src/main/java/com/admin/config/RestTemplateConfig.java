@@ -47,11 +47,13 @@ public class RestTemplateConfig {
         SSLConnectionSocketFactory connectionSocketFactory = new SSLConnectionSocketFactory(sslContext, new NoopHostnameVerifier());
         HttpClientBuilder httpClientBuilder = HttpClients.custom();
 
-
         httpClientBuilder.setSSLSocketFactory(connectionSocketFactory);
         CloseableHttpClient httpClient = httpClientBuilder.build();
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
         factory.setHttpClient(httpClient);
+        // 添加超时配置
+        factory.setConnectTimeout(TIMEOUT_MILLISECONDS);
+        factory.setReadTimeout(TIMEOUT_MILLISECONDS);
         return factory;
     }
 
@@ -67,6 +69,9 @@ public class RestTemplateConfig {
         CloseableHttpClient httpClient = httpClientBuilder.build();
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
         factory.setHttpClient(httpClient);
+        // 添加超时配置
+        factory.setConnectTimeout(TIMEOUT_MILLISECONDS);
+        factory.setReadTimeout(TIMEOUT_MILLISECONDS);
         return factory;
     }
 

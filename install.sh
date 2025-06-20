@@ -136,3 +136,7 @@ else
   echo "❌ gost服务启动失败，请执行以下命令查看日志："
   echo "journalctl -u gost -f"
 fi
+
+# 删除安装脚本自身
+echo "🧹 清理安装脚本..."
+rm -f "$0" 2>/dev/null && echo "✨ 安装脚本已自动清理" || echo "⚠️ 安装脚本清理失败，请手动删除"

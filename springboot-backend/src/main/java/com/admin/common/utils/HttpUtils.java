@@ -102,34 +102,19 @@ public class HttpUtils implements ApplicationContextAware {
     }
 
     /**
-     * 自定义错误处理器，不抛出异常但记录错误信息
+     * 自定义错误处理器，不抛出异常，允许获取所有状态码的响应
      */
     private static class NoOpResponseErrorHandler implements ResponseErrorHandler {
         @Override
         public boolean hasError(ClientHttpResponse response) throws IOException {
-            HttpStatus statusCode = response.getStatusCode();
-            return statusCode.series() == HttpStatus.Series.CLIENT_ERROR || 
-                   statusCode.series() == HttpStatus.Series.SERVER_ERROR;
+            // 返回 false，让 RestTemplate 不认为任何状态码是错误
+            // 这样就可以正常获取 4xx 和 5xx 的响应体
+            return false;
         }
 
         @Override
         public void handleError(ClientHttpResponse response) throws IOException {
-            HttpStatus statusCode = response.getStatusCode();
-            String statusText = response.getStatusText();
-            String responseBody = "";
-            
-            try {
-                // 使用Spring的StreamUtils来读取响应体
-                responseBody = new String(
-                    StreamUtils.copyToByteArray(response.getBody()), 
-                    StandardCharsets.UTF_8
-                );
-            } catch (Exception e) {
-                responseBody = "无法读取响应体: " + e.getMessage();
-            }
-            
-            logger.error("HTTP请求错误 - 状态码: {} {}, 响应体: {}", 
-                        statusCode.value(), statusText, responseBody);
+
         }
     }
 

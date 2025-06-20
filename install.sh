@@ -71,9 +71,9 @@ fi
 GOST_CONFIG="$INSTALL_DIR/gost.json"
 if [[ -f "$GOST_CONFIG" ]]; then
   echo "📝 更新配置: gost.json"
-  sed -i.bak "s|\"addr\": \":.*\"|\"addr\": \":$PORT\"|g" "$GOST_CONFIG"
-  sed -i.bak "s|\"username\": \".*\"|\"username\": \"$SECRET\"|g" "$GOST_CONFIG"
-  sed -i.bak "s|\"password\": \".*\"|\"password\": \"$SECRET\"|g" "$GOST_CONFIG"
+  sed -i.bak '/\"name\": \"web_api\"/,/}/ { s|\"addr\": \":.*\"|\"addr\": \":'"$PORT"'\"|g; }' "$GOST_CONFIG"
+  sed -i.bak '/\"name\": \"web_api\"/,/}/ { s|\"username\": \".*\"|\"username\": \"'"$SECRET"'\"|g; }' "$GOST_CONFIG"
+  sed -i.bak '/\"name\": \"web_api\"/,/}/ { s|\"password\": \".*\"|\"password\": \"'"$SECRET"'\"|g; }' "$GOST_CONFIG"
   rm -f "$GOST_CONFIG.bak"
 else
   echo "📄 创建新配置: gost.json"

@@ -7,7 +7,7 @@
         <!-- 搜索框 -->
         <el-input
           v-model="searchKeyword"
-          placeholder="搜索用户名或姓名"
+          placeholder="搜索用户名"
           prefix-icon="el-icon-search"
           @keyup.enter.native="handleSearch"
           clearable
@@ -39,9 +39,8 @@
           style="width: 100%"
         >
           <el-table-column prop="id" label="ID" width="60"></el-table-column>
-          <el-table-column prop="name" label="姓名" min-width="100"></el-table-column>
-          <el-table-column prop="user" label="用户名" min-width="120"></el-table-column>
-          <el-table-column label="流量统计" width="200">
+          <el-table-column prop="user" label="用户名" ></el-table-column>
+          <el-table-column label="流量统计" >
             <template slot-scope="scope">
               <div class="flow-stats">
                 <div class="flow-item">
@@ -246,13 +245,6 @@
         ref="userForm" 
         label-width="80px"
       >
-        <el-form-item label="姓名" prop="name">
-          <el-input 
-            v-model="userForm.name" 
-            placeholder="请输入姓名"
-            clearable
-          ></el-input>
-        </el-form-item>
         
         <el-form-item label="用户名" prop="user">
           <el-input 
@@ -744,7 +736,6 @@ export default {
       },
       userForm: {
         id: null,
-        name: '',
         user: '',
         pwd: '',
         status: 1,
@@ -754,9 +745,6 @@ export default {
         flowResetTime: 1
       },
       rules: {
-        name: [
-          { required: true, message: '请输入姓名', trigger: 'blur' }
-        ],
         user: [
           { required: true, message: '请输入用户名', trigger: 'blur' },
           { min: 3, message: '用户名长度至少3位', trigger: 'blur' }
@@ -1326,8 +1314,6 @@ export default {
 <style scoped>
 .user-container {
   padding: 20px;
-  background-color: #f5f5f5;
-  min-height: 100vh;
 }
 
 .page-header {

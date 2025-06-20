@@ -2,6 +2,7 @@ package com.admin.service;
 
 import com.admin.common.dto.PageDto;
 import com.admin.common.dto.TunnelDto;
+import com.admin.common.dto.TunnelUpdateDto;
 
 import com.admin.common.lang.R;
 import com.admin.entity.Tunnel;
@@ -30,7 +31,12 @@ public interface TunnelService extends IService<Tunnel> {
      */
     R getAllTunnels();
 
-
+    /**
+     * 更新隧道（只允许修改名称、流量计费、端口范围）
+     * @param tunnelUpdateDto 更新数据
+     * @return 结果
+     */
+    R updateTunnel(TunnelUpdateDto tunnelUpdateDto);
 
     /**
      * 删除隧道

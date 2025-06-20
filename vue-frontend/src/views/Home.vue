@@ -99,12 +99,8 @@
         </el-menu>
       </el-aside>
       <el-main :class="['main-content', { 'mobile-main': isMobile }]">
-        <div :style="mainContentStyle">
+        <div class="scroll-container">
           <router-view/>
-
-          <div :class="['footer', { 'mobile-footer': isMobile }]">
-            © 2023 Copyright.
-          </div>
         </div>
       </el-main>
     </el-container>
@@ -358,8 +354,16 @@ export default {
 
 .main-content {
   padding: 0;
-  height: calc(100vh - 100px);
   transition: margin-left 0.3s ease;
+  overflow: hidden;
+  height: calc(100vh - 50px);
+}
+
+.scroll-container {
+  background-color: #f5f5f5;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .mobile-main {
@@ -367,13 +371,13 @@ export default {
 }
 
 .footer {
-  background-color: white; 
-  height: 50px; 
+  background-color: white;
+  height: 50px;
   position: absolute; 
   bottom: 0;
   left: 199px;
   right: 0;
-  line-height: 50px; 
+  line-height: 50px;
   padding-left: 30px;
   font-size: 12px;
   color: #58666e;

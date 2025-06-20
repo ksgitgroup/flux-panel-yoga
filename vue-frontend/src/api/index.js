@@ -20,6 +20,7 @@ export const getNodeInstallCommand = (id) => Network.post("/node/install", { id 
 export const createTunnel = (data) => Network.post("/tunnel/create", data)
 export const getTunnelList = () => Network.post("/tunnel/list")
 export const getTunnelById = (id) => Network.post("/tunnel/get", { id })
+export const updateTunnel = (data) => Network.post("/tunnel/update", data)
 export const deleteTunnel = (id) => Network.post("/tunnel/delete", { id })
 
 // 用户隧道权限管理操作 - 全部使用POST请求

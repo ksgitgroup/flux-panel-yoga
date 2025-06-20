@@ -10,7 +10,7 @@
         </el-button>
 
     <!-- 节点卡片展示 -->
-    <div class="cards-container" v-loading="loading" style="margin-top: 10px;">
+    <div class="cards-container" v-loading="loading" style="margin-top: 20px;">
       <div class="cards-grid">
         <div 
           v-for="node in nodeList" 
@@ -167,6 +167,22 @@
         <el-button type="primary" @click="handleAdd">创建第一个节点</el-button>
       </div>
     </div>
+
+    <!-- 节点与隧道转发IP重要说明 -->
+    <el-alert
+      title="重要提示"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-top: 30px; margin-bottom: 20px;">
+      <template slot="title">
+        <span style="font-weight: 600;">节点与隧道转发IP说明</span>
+      </template>
+      <div style="font-size: 13px; line-height: 1.5; color: #e6a23c;">
+        <p style="margin: 0 0 8px 0;">• 节点IP若与实际入口IP不同，可点击编辑手动更改</p>
+        <p style="margin: 0 0 8px 0;">• 更改节点IP后，<strong>已创建的隧道和转发IP不会自动更改</strong></p>
+      </div>
+    </el-alert>
 
     <el-dialog
       :title="dialogTitle"
@@ -883,9 +899,7 @@ export default {
 
 <style scoped>
 .node-container {
-  padding: 5px;
-  background-color: #f5f7fa;
-  min-height: calc(100vh - 60px);
+  padding: 20px;
 }
 
 /* 页面头部 */
@@ -1184,25 +1198,25 @@ export default {
 /* 响应式设计 */
 @media (max-width: 768px) {
   .node-container {
-    padding: 5px;
+    padding: 20px;
   }
-  
+
   .cards-grid {
     grid-template-columns: 1fr;
     gap: 10px;
   }
-  
+
   .charts-container {
     grid-template-columns: 1fr;
     gap: 8px;
     margin-bottom: 12px;
   }
-  
+
   .traffic-stats {
     grid-template-columns: 1fr;
     gap: 6px;
   }
-  
+
   .page-header {
     flex-direction: column;
     align-items: stretch;
@@ -1210,58 +1224,58 @@ export default {
     padding: 15px 20px;
     margin-bottom: 15px;
   }
-  
+
   .header-actions {
     justify-content: center;
   }
-  
+
   .node-card {
     padding: 12px;
   }
-  
+
   .node-header {
     margin-bottom: 10px;
   }
-  
+
   .node-name {
     font-size: 16px;
   }
-  
+
   .status-indicator {
     margin-bottom: 10px;
   }
-  
+
   .chart-wrapper {
     padding: 6px;
   }
-  
+
   .chart-title {
     font-size: 12px;
     margin-bottom: 4px;
   }
-  
+
   .stat-item {
     padding: 6px;
     min-height: 45px;
   }
-  
+
   .stat-header {
     font-size: 11px;
     margin-bottom: 4px;
   }
-  
+
   .traffic-value {
     font-size: 12px;
   }
-  
+
   .speed-value {
     font-size: 10px;
   }
-  
+
   .ip-value {
     font-size: 11px;
   }
-  
+
   .node-actions {
     padding-top: 10px;
     gap: 6px;
@@ -1280,58 +1294,58 @@ export default {
 
 @media (max-width: 480px) {
   .node-container {
-    padding: 3px;
+    padding: 10px;
   }
-  
+
   .cards-grid {
     gap: 8px;
   }
-  
+
   .node-card {
     padding: 10px;
   }
-  
+
   .charts-container {
     gap: 6px;
     margin-bottom: 10px;
   }
-  
+
   .traffic-stats {
     gap: 4px;
   }
-  
+
   .stat-item {
     padding: 5px;
     min-height: 40px;
   }
-  
+
   .chart-wrapper {
     padding: 4px;
   }
-  
+
   .node-actions {
     justify-content: center;
     flex-direction: column;
     gap: 5px;
   }
-  
+
   .node-actions .el-button {
     font-size: 11px;
     padding: 5px 10px;
     width: 100%;
     margin: 0;
   }
-  
+
   .add-btn {
     font-size: 12px;
     padding: 8px 15px;
   }
-  
+
   .page-header {
     padding: 10px 15px;
     margin-bottom: 10px;
   }
-  
+
   .page-title {
     font-size: 20px;
   }

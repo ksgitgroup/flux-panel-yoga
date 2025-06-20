@@ -151,7 +151,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         
         return R.ok(MapUtil.builder()
                 .put(LOGIN_TOKEN_FIELD, token)
-                .put(LOGIN_NAME_FIELD, user.getName())
+                .put(LOGIN_NAME_FIELD, user.getUser())
                 .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
                 .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
                 .build());

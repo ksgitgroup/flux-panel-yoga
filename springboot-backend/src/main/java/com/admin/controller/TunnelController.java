@@ -4,6 +4,7 @@ import com.admin.common.aop.LogAnnotation;
 import com.admin.common.annotation.RequireRole;
 import com.admin.common.dto.PageDto;
 import com.admin.common.dto.TunnelDto;
+import com.admin.common.dto.TunnelUpdateDto;
 
 import com.admin.common.dto.UserTunnelDto;
 import com.admin.common.dto.UserTunnelQueryDto;
@@ -50,7 +51,12 @@ public class TunnelController extends BaseController {
         return tunnelService.getAllTunnels();
     }
 
-
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/update")
+    public R update(@Validated @RequestBody TunnelUpdateDto tunnelUpdateDto) {
+        return tunnelService.updateTunnel(tunnelUpdateDto);
+    }
 
     @LogAnnotation
     @RequireRole

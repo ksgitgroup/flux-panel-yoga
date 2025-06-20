@@ -255,6 +255,9 @@ export default {
   mounted() {
     this.loadPackageData();
   },
+  created() {
+    localStorage.setItem('e','/index')
+  },
   methods: {
     async loadPackageData() {
       this.loading = true;
@@ -500,8 +503,6 @@ export default {
 <style scoped>
 .package-container {
   padding: 20px;
-  background-color: #f5f5f5;
-  min-height: 100vh;
 }
 
 .page-header {

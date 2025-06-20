@@ -5,12 +5,13 @@
           icon="el-icon-plus" 
           @click="handleAdd"
           class="add-btn"
+          size="medium"
         >
           新增隧道
         </el-button>
 
     <!-- 隧道卡片展示 -->
-    <div class="cards-container" v-loading="loading" style="margin-top: 10px;">
+    <div class="cards-container" v-loading="loading" style="margin-top: 20px;">
       <div class="cards-grid">
         <div 
           v-for="tunnel in tunnelList" 
@@ -22,29 +23,41 @@
         >
           <!-- 隧道头部 -->
           <div class="tunnel-header">
-            <h3 class="tunnel-name">{{ tunnel.name }}</h3>
-            <div class="tunnel-badges">
-              <el-tag v-if="tunnel.type === 1" type="primary" size="mini">端口转发</el-tag>
-              <el-tag v-else type="warning" size="mini">隧道转发</el-tag>
-              <el-tag v-if="tunnel.type === 2 && tunnel.protocol" 
-                      :type="tunnel.protocol === 'tls' ? 'success' : tunnel.protocol === 'mtls' ? 'danger' : 'info'" 
-                      size="mini">
-                {{ tunnel.protocol.toUpperCase() }}
-              </el-tag>
-              <el-tag v-if="tunnel.flow === 1" type="success" size="mini">单向计算</el-tag>
-              <el-tag v-else type="info" size="mini">双向计算</el-tag>
+            <div class="tunnel-info">
+              <h3 class="tunnel-name">{{ tunnel.name }}</h3>
+              <div class="tunnel-badges">
+                <el-tag v-if="tunnel.type === 1" type="primary" size="mini">端口转发</el-tag>
+                <el-tag v-else type="warning" size="mini">隧道转发</el-tag>
+                <el-tag v-if="tunnel.type === 2 && tunnel.protocol" 
+                        :type="tunnel.protocol === 'tls' ? 'success' : tunnel.protocol === 'mtls' ? 'danger' : 'info'" 
+                        size="mini">
+                  {{ tunnel.protocol.toUpperCase() }}
+                </el-tag>
+                <el-tag v-if="tunnel.flow === 1" type="success" size="mini">单向计算</el-tag>
+                <el-tag v-else type="info" size="mini">双向计算</el-tag>
+              </div>
             </div>
 
-
-            <el-button 
-            style="margin-left: 10px;"
-              size="small" 
-              type="danger" 
-              icon="el-icon-delete"
-              @click="handleDelete(tunnel)"
-            >
-              删除
-            </el-button>
+            <div class="tunnel-actions">
+              <el-button 
+                size="small" 
+                type="primary" 
+                icon="el-icon-edit"
+                @click="handleEdit(tunnel)"
+                class="action-btn edit-btn"
+              >
+                编辑
+              </el-button>
+              <el-button 
+                size="small" 
+                type="danger" 
+                icon="el-icon-delete"
+                @click="handleDelete(tunnel)"
+                class="action-btn delete-btn"
+              >
+                删除
+              </el-button>
+            </div>
           </div>
 
           <!-- 流程图 -->
@@ -171,17 +184,28 @@
         </el-form-item>
 
         <el-form-item label="隧道类型" prop="type">
-          <el-radio-group v-model="tunnelForm.type" @change="handleTypeChange">
-            <el-radio :label="1">端口转发</el-radio>
-            <el-radio :label="2">隧道转发</el-radio>
-          </el-radio-group>
+          <el-select 
+            v-model="tunnelForm.type" 
+            placeholder="请选择隧道类型"
+            style="width: 100%"
+            @change="handleTypeChange"
+            :disabled="isEdit"
+          >
+            <el-option :value="1" label="端口转发"></el-option>
+            <el-option :value="2" label="隧道转发"></el-option>
+          </el-select>
+        
         </el-form-item>
 
         <el-form-item label="流量计算" prop="flow">
-          <el-radio-group v-model="tunnelForm.flow">
-            <el-radio :label="1">单向计算（仅上传）</el-radio>
-            <el-radio :label="2">双向计算（上传+下载）</el-radio>
-          </el-radio-group>
+          <el-select 
+            v-model="tunnelForm.flow" 
+            placeholder="请选择流量计算方式"
+            style="width: 100%"
+          >
+            <el-option :value="1" label="单向计算（仅上传）"></el-option>
+            <el-option :value="2" label="双向计算（上传+下载）"></el-option>
+          </el-select>
           <div class="form-hint">
             单向：仅计算上传流量；双向：计算上传和下载的总流量
           </div>
@@ -195,6 +219,7 @@
             placeholder="请选择入口节点"
             style="width: 100%"
             @change="handleNodeChange"
+            :disabled="isEdit"
           >
             <el-option 
               v-for="node in onlineNodes" 
@@ -210,45 +235,44 @@
               </span>
             </el-option>
           </el-select>
+      
         </el-form-item>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="起始端口" prop="inPortSta">
-              <el-input-number 
-                v-model="tunnelForm.inPortSta" 
-                :min="1" 
-                :max="65535"
-                placeholder="起始端口"
-                style="width: 100%"
-              ></el-input-number>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="结束端口" prop="inPortEnd">
-              <el-input-number 
-                v-model="tunnelForm.inPortEnd" 
-                :min="1" 
-                :max="65535"
-                placeholder="结束端口"
-                style="width: 100%"
-              ></el-input-number>
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <el-form-item label="起始端口" prop="inPortSta">
+          <el-input-number
+              v-model="tunnelForm.inPortSta"
+              :min="1"
+              :max="65535"
+              placeholder="起始端口"
+              style="width: 100%"
+          ></el-input-number>
+        </el-form-item>
+        <el-form-item label="结束端口" prop="inPortEnd">
+          <el-input-number
+              v-model="tunnelForm.inPortEnd"
+              :min="1"
+              :max="65535"
+              placeholder="结束端口"
+              style="width: 100%"
+          ></el-input-number>
+        </el-form-item>
 
         <!-- 只有隧道转发(type=2)时才显示出口配置 -->
         <template v-if="tunnelForm.type === 2">
           <el-divider content-position="left">出口配置</el-divider>
 
           <el-form-item label="协议类型" prop="protocol">
-            <el-radio-group v-model="tunnelForm.protocol">
-              <el-radio label="tls">TLS</el-radio>
-              <el-radio label="tcp">TCP</el-radio>
-              <el-radio label="mtls">mTLS</el-radio>
-            </el-radio-group>
+            <el-select 
+              v-model="tunnelForm.protocol" 
+              placeholder="请选择协议类型"
+              style="width: 100%"
+              :disabled="isEdit"
+            >
+              <el-option value="tls" label="TLS"></el-option>
+              <el-option value="tcp" label="TCP"></el-option>
+              <el-option value="mtls" label="mTLS"></el-option>
+            </el-select>
             <div class="form-hint">
-              TLS：传输层安全协议；TCP：传输控制协议；mTLS：双向TLS认证
+              数据过墙推荐选择TLS协议
             </div>
           </el-form-item>
 
@@ -258,6 +282,7 @@
               placeholder="请选择出口节点"
               style="width: 100%"
               @change="handleNodeChange"
+              :disabled="isEdit"
             >
               <el-option 
                 v-for="node in onlineNodes" 
@@ -274,32 +299,26 @@
                 </span>
               </el-option>
             </el-select>
-          </el-form-item>
 
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="起始端口" prop="outIpSta">
-                <el-input-number 
-                  v-model="tunnelForm.outIpSta" 
-                  :min="10000"
-                  :max="65535"
-                  placeholder="起始端口"
-                  style="width: 100%"
-                ></el-input-number>
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="结束端口" prop="outIpEnd">
-                <el-input-number 
-                  v-model="tunnelForm.outIpEnd" 
-                  :min="10000"
-                  :max="65535"
-                  placeholder="结束端口"
-                  style="width: 100%"
-                ></el-input-number>
-              </el-form-item>
-            </el-col>
-          </el-row>
+          </el-form-item>
+          <el-form-item label="起始端口" prop="outIpSta">
+            <el-input-number
+                v-model="tunnelForm.outIpSta"
+                :min="1"
+                :max="65535"
+                placeholder="起始端口"
+                style="width: 100%"
+            ></el-input-number>
+          </el-form-item>
+          <el-form-item label="结束端口" prop="outIpEnd">
+            <el-input-number
+                v-model="tunnelForm.outIpEnd"
+                :min="1"
+                :max="65535"
+                placeholder="结束端口"
+                style="width: 100%"
+            ></el-input-number>
+          </el-form-item>
         </template>
 
         <el-alert
@@ -313,13 +332,19 @@
       </el-form>
       
       <span slot="footer" class="dialog-footer">
-        <el-button @click="dialogVisible = false">取 消</el-button>
+        <el-button 
+          @click="dialogVisible = false"
+          class="dialog-btn cancel-btn"
+        >
+          取 消
+        </el-button>
         <el-button 
           type="primary" 
           @click="handleSubmit"
           :loading="submitLoading"
+          class="dialog-btn submit-btn"
         >
-          {{ submitLoading ? '创建中...' : '创 建' }}
+          {{ submitLoading ? (isEdit ? '更新中...' : '创建中...') : (isEdit ? '更 新' : '创 建') }}
         </el-button>
       </span>
     </el-dialog>
@@ -327,7 +352,7 @@
 </template>
 
 <script>
-import { createTunnel, deleteTunnel, getTunnelList, getNodeList } from "@/api";
+import { createTunnel, updateTunnel, deleteTunnel, getTunnelList, getNodeList } from "@/api";
 
 export default {
   name: "Tunnel",
@@ -339,14 +364,15 @@ export default {
       dialogVisible: false,
       dialogTitle: '新增隧道',
       submitLoading: false,
+      isEdit: false,
       tunnelForm: {
         id: null,
         name: '',
         inNodeId: null,
-        inPortSta: 10000,
+        inPortSta: 1,
         inPortEnd: 65535,
         outNodeId: null,
-        outIpSta: 10000,
+        outIpSta: 1,
         outIpEnd: 65535,
         type: 1,
         flow: 1,  // 默认单向计算
@@ -450,11 +476,37 @@ export default {
     // 新增隧道
     handleAdd() {
       this.dialogVisible = true;
+      this.isEdit = false;
+      this.dialogTitle = '新增隧道';
       this.resetForm();
       this.loadNodes(); // 打开对话框时加载节点列表
     },
 
-    // 编辑功能已移除 - 隧道创建后不能修改
+    // 编辑隧道 - 只能修改名称、流量计费、端口范围
+    handleEdit(tunnel) {
+      this.isEdit = true;
+      this.dialogTitle = '编辑隧道';
+      this.dialogVisible = true;
+      
+      // 填充表单数据（只允许修改特定字段）
+      this.tunnelForm = {
+        id: tunnel.id,
+        name: tunnel.name,
+        flow: tunnel.flow,
+        inPortSta: tunnel.inPortSta,
+        inPortEnd: tunnel.inPortEnd,
+        outIpSta: tunnel.outIpSta,
+        outIpEnd: tunnel.outIpEnd,
+        // 以下字段不允许修改，但需要保留原值用于显示和提交
+        type: tunnel.type,
+        inNodeId: tunnel.inNodeId,
+        outNodeId: tunnel.outNodeId,
+        protocol: tunnel.protocol,
+        status: tunnel.status
+      };
+      
+      this.loadNodes(); // 打开对话框时加载节点列表
+    },
 
     // 删除隧道
     handleDelete(tunnel) {
@@ -527,36 +579,65 @@ export default {
 
           this.submitLoading = true;
           
-          // 只支持创建隧道，不支持编辑
           const data = { ...this.tunnelForm };
           
-          createTunnel(data).then(res => {
-            this.submitLoading = false;
-            if (res.code === 0) {
-              this.$message.success('创建成功');
-              this.dialogVisible = false;
-              this.loadTunnels();
-            } else {
-              this.$message.error(res.msg || '创建失败');
-            }
-          }).catch(() => {
-            this.submitLoading = false;
-            this.$message.error('网络错误，请重试');
-          });
+          if (this.isEdit) {
+            // 编辑模式 - 只更新允许修改的字段
+            const updateData = {
+              id: data.id,
+              name: data.name,
+              flow: data.flow,
+              inPortSta: data.inPortSta,
+              inPortEnd: data.inPortEnd,
+              outIpSta: data.outIpSta,
+              outIpEnd: data.outIpEnd
+            };
+            
+            updateTunnel(updateData).then(res => {
+              this.submitLoading = false;
+              if (res.code === 0) {
+                this.$message.success('更新成功');
+                this.dialogVisible = false;
+                this.loadTunnels();
+              } else {
+                this.$message.error(res.msg || '更新失败');
+              }
+            }).catch(() => {
+              this.submitLoading = false;
+              this.$message.error('网络错误，请重试');
+            });
+          } else {
+            // 创建模式
+            createTunnel(data).then(res => {
+              this.submitLoading = false;
+              if (res.code === 0) {
+                this.$message.success('创建成功');
+                this.dialogVisible = false;
+                this.loadTunnels();
+              } else {
+                this.$message.error(res.msg || '创建失败');
+              }
+            }).catch(() => {
+              this.submitLoading = false;
+              this.$message.error('网络错误，请重试');
+            });
+          }
         }
       });
     },
 
     // 重置表单
     resetForm() {
+      this.isEdit = false;
+      this.dialogTitle = '新增隧道';
       this.tunnelForm = {
         id: null,
         name: '',
         inNodeId: null,
-        inPortSta: 10000,
+        inPortSta: 1,
         inPortEnd: 65535,
         outNodeId: null,
-        outIpSta: 10000,
+        outIpSta: 1,
         outIpEnd: 65535,
         type: 1,
         flow: 1,  // 默认单向计算
@@ -574,8 +655,6 @@ export default {
 <style scoped>
 .tunnel-container {
   padding: 20px;
-  background-color: #f5f7fa;
-  min-height: calc(100vh - 60px);
 }
 
 /* 页面头部 */
@@ -800,13 +879,102 @@ export default {
   margin-right: 5px;
 }
 
-/* 操作按钮 */
+/* 隧道信息容器 */
+.tunnel-info {
+  flex: 1;
+  margin-right: 15px;
+}
+
+/* 操作按钮容器 */
 .tunnel-actions {
   display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+/* 操作按钮样式 */
+.action-btn {
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.edit-btn {
+  background: #409eff;
+  border-color: #409eff;
+}
+
+.edit-btn:hover {
+  background: #66b1ff;
+  border-color: #66b1ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
+}
+
+.delete-btn {
+  background: #f56c6c;
+  border-color: #f56c6c;
+}
+
+.delete-btn:hover {
+  background: #f78989;
+  border-color: #f78989;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(245, 108, 108, 0.3);
+}
+
+/* 新增按钮样式 */
+.add-btn {
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.3);
+}
+
+.add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(64, 158, 255, 0.4);
+}
+
+/* 对话框按钮样式 */
+.dialog-footer {
+  padding-top: 20px;
+  display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  padding-top: 15px;
-  margin-top: auto;
+  gap: 12px;
+}
+
+.dialog-btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  min-width: 80px;
+  transition: all 0.3s ease;
+}
+
+.cancel-btn {
+  background: #f5f7fa;
+  border-color: #dcdfe6;
+  color: #606266;
+}
+
+.cancel-btn:hover {
+  background: #ecf5ff;
+  border-color: #b3d8ff;
+  color: #409eff;
+}
+
+.submit-btn {
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
+}
+
+.submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
 }
 
 /* 表单提示 */
@@ -815,6 +983,12 @@ export default {
   font-size: 12px;
   margin-top: 5px;
   line-height: 1.4;
+}
+
+/* 只读字段提示样式 */
+.form-readonly-hint {
+  color: #f56c6c;
+  font-weight: 500;
 }
 
 /* 空状态 */
@@ -879,21 +1053,36 @@ export default {
   .tunnel-header {
     margin-bottom: 15px;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 12px;
+  }
+  
+  .tunnel-info {
+    margin-right: 0;
+    margin-bottom: 10px;
   }
   
   .tunnel-name {
     font-size: 17px;
-    margin: 0;
-    width: 100%;
+    margin: 0 0 8px 0;
   }
   
   .tunnel-badges {
-    width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
     gap: 6px;
+  }
+  
+  .tunnel-actions {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  
+  .action-btn {
+    flex: 1;
+    max-width: 80px;
+    padding: 8px 12px;
+    font-size: 12px;
   }
   
   /* 平板端流程图优化 */
@@ -974,6 +1163,59 @@ export default {
   .header-actions .el-button {
     width: 100%;
     justify-content: center;
+  }
+  
+  /* 对话框按钮移动端优化 */
+  .dialog-footer {
+    padding-top: 15px;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  
+  .dialog-btn {
+    flex: 1;
+    padding: 12px 16px;
+    font-size: 14px;
+    min-width: 0;
+  }
+  
+  /* 表单输入框移动端优化 */
+  .el-input-number {
+    width: 100% !important;
+  }
+  
+  .el-input-number .el-input__inner {
+    padding-left: 50px;
+    padding-right: 50px;
+    text-align: center;
+  }
+  
+  /* 对话框移动端优化 */
+  .el-dialog {
+    width: 95% !important;
+    margin: 5vh auto !important;
+  }
+  
+  .el-dialog__body {
+    padding: 20px 15px;
+  }
+  
+  .el-form-item__label {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  
+  .el-form-item {
+    margin-bottom: 18px;
+  }
+  
+  .el-input, .el-select {
+    font-size: 14px;
+  }
+  
+  .el-button {
+    font-size: 14px;
   }
   
   .tunnel-card {
@@ -1086,14 +1328,22 @@ export default {
     display: none; /* 垂直布局时隐藏箭头 */
   }
   
-  /* 删除按钮优化 */
-  .tunnel-header .el-button {
-    padding: 6px 12px;
-    font-size: 12px;
-    border-radius: 4px;
-    margin-left: 0;
+  /* 手机端按钮优化 */
+  .tunnel-actions {
     margin-top: 8px;
-    align-self: flex-start;
+    gap: 6px;
+  }
+  
+  .action-btn {
+    flex: 1;
+    max-width: 70px;
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: 4px;
+  }
+  
+  .action-btn i {
+    margin-right: 2px;
   }
   
   .tunnel-meta {
@@ -1134,6 +1384,17 @@ export default {
   
   .page-header {
     padding: 12px;
+  }
+  
+  /* 超小屏幕对话框优化 */
+  .dialog-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .dialog-btn {
+    width: 100%;
+    flex: none;
   }
   
   .tunnel-card {

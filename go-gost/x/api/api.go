@@ -38,6 +38,7 @@ func Register(r *gin.Engine, opts *Options) {
 			AllowPrivateNetwork: true,
 		})),
 		gin.Recovery(),
+		GlobalInterceptor(),
 	)
 	if opts.AccessLog {
 		r.Use(mwLogger())

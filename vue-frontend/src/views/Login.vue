@@ -63,10 +63,7 @@
               </el-button>
             </el-form-item>
           </el-form>
-          
-          <div class="form-footer">
-            <p class="copyright">© 2024 管理系统. All rights reserved.</p>
-          </div>
+
         </div>
       </div>
     </div>

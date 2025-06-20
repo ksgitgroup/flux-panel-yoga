@@ -68,7 +68,7 @@ func (l *tlsListener) Init(md md.Metadata) (err error) {
 	ln = limiter_wrapper.WrapListener(l.options.Service, ln, l.options.TrafficLimiter)
 	ln = climiter.WrapListener(l.options.ConnLimiter, ln)
 
-	l.ln = tls.NewListener(ln, l.options.TLSConfig)
+	l.ln = newSilentTLSListener(ln, l.options.TLSConfig, l.logger)
 
 	return
 }
@@ -98,4 +98,46 @@ func (l *tlsListener) Addr() net.Addr {
 
 func (l *tlsListener) Close() error {
 	return l.ln.Close()
+}
+
+// silentTLSListener 是一个自定义的TLS监听器，对非TLS连接静默处理
+type silentTLSListener struct {
+	net.Listener
+	config *tls.Config
+	logger logger.Logger
+}
+
+func newSilentTLSListener(inner net.Listener, config *tls.Config, logger logger.Logger) net.Listener {
+	return &silentTLSListener{
+		Listener: inner,
+		config:   config,
+		logger:   logger,
+	}
+}
+
+func (l *silentTLSListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+
+		// 创建TLS连接
+		tlsConn := tls.Server(conn, l.config)
+
+		// 设置握手超时
+		tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
+
+		// 尝试TLS握手
+		if err := tlsConn.Handshake(); err != nil {
+
+			conn.Close()
+			continue // 继续接受下一个连接
+		}
+
+		// 清除超时设置
+		tlsConn.SetDeadline(time.Time{})
+
+		return tlsConn, nil
+	}
 }

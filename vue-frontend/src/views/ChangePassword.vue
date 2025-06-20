@@ -95,7 +95,6 @@
             
             <div class="form-footer">
               <p class="warning-text">注意：修改账号密码后需要重新登录</p>
-              <p class="copyright">© 2024 管理系统. All rights reserved.</p>
             </div>
           </div>
         </div>

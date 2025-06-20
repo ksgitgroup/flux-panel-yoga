@@ -720,8 +720,6 @@ export default {
 <style scoped>
 .forward-container {
   padding: 20px;
-  background-color: #f5f5f5;
-  min-height: 100vh;
 }
 
 /* 移动端优化 */

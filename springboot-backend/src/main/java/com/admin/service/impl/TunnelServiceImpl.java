@@ -3,6 +3,7 @@ package com.admin.service.impl;
 import cn.hutool.core.util.StrUtil;
 import com.admin.common.dto.TunnelDto;
 import com.admin.common.dto.TunnelListDto;
+import com.admin.common.dto.TunnelUpdateDto;
 
 import com.admin.common.lang.R;
 import com.admin.common.utils.JwtUtil;
@@ -110,22 +111,30 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             return nameValidationResult;
         }
 
-        // 2. 验证入口节点和端口
+        // 2. 验证隧道转发类型的必要参数
+        if (tunnelDto.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+            R tunnelForwardValidationResult = validateTunnelForwardCreate(tunnelDto);
+            if (tunnelForwardValidationResult.getCode() != 0) {
+                return tunnelForwardValidationResult;
+            }
+        }
+
+        // 3. 验证入口节点和端口
         NodeValidationResult inNodeValidation = validateInNode(tunnelDto);
         if (inNodeValidation.isHasError()) {
             return R.err(inNodeValidation.getErrorMessage());
         }
 
-        // 3. 构建隧道实体
+        // 4. 构建隧道实体
         Tunnel tunnel = buildTunnelEntity(tunnelDto, inNodeValidation.getNode());
 
-        // 4. 根据隧道类型设置出口参数
+        // 5. 根据隧道类型设置出口参数
         R outNodeSetupResult = setupOutNodeParameters(tunnel, tunnelDto);
         if (outNodeSetupResult.getCode() != 0) {
             return outNodeSetupResult;
         }
 
-        // 5. 设置默认属性并保存
+        // 6. 设置默认属性并保存
         setDefaultTunnelProperties(tunnel);
         boolean result = this.save(tunnel);
         
@@ -141,6 +150,60 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     public R getAllTunnels() {
         List<Tunnel> tunnelList = this.list();
         return R.ok(tunnelList);
+    }
+
+    /**
+     * 更新隧道（只允许修改名称、流量计费、端口范围）
+     * 
+     * @param tunnelUpdateDto 更新数据传输对象
+     * @return 更新结果响应
+     */
+    @Override
+    public R updateTunnel(TunnelUpdateDto tunnelUpdateDto) {
+        // 1. 验证隧道是否存在
+        Tunnel existingTunnel = this.getById(tunnelUpdateDto.getId());
+        if (existingTunnel == null) {
+            return R.err(ERROR_TUNNEL_NOT_FOUND);
+        }
+
+        // 2. 验证隧道名称唯一性（排除自身）
+        R nameValidationResult = validateTunnelNameUniquenessForUpdate(
+            tunnelUpdateDto.getName(), tunnelUpdateDto.getId());
+        if (nameValidationResult.getCode() != 0) {
+            return nameValidationResult;
+        }
+
+        // 3. 验证端口范围
+        R portValidationResult = validatePortRanges(tunnelUpdateDto);
+        if (portValidationResult.getCode() != 0) {
+            return portValidationResult;
+        }
+
+        // 4. 验证隧道转发类型的出口端口
+        if (existingTunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+            R tunnelTypeValidationResult = validateTunnelForwardUpdate(tunnelUpdateDto);
+            if (tunnelTypeValidationResult.getCode() != 0) {
+                return tunnelTypeValidationResult;
+            }
+        }
+
+        // 5. 更新允许修改的字段
+        existingTunnel.setName(tunnelUpdateDto.getName());
+        existingTunnel.setFlow(tunnelUpdateDto.getFlow());
+        existingTunnel.setInPortSta(tunnelUpdateDto.getInPortSta());
+        existingTunnel.setInPortEnd(tunnelUpdateDto.getInPortEnd());
+        
+        if (existingTunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+            existingTunnel.setOutIpSta(tunnelUpdateDto.getOutIpSta());
+            existingTunnel.setOutIpEnd(tunnelUpdateDto.getOutIpEnd());
+        }else{
+            existingTunnel.setOutIpSta(tunnelUpdateDto.getInPortSta());
+            existingTunnel.setOutIpEnd(tunnelUpdateDto.getInPortEnd());
+        }
+
+        // 6. 保存更新
+        boolean result = this.updateById(existingTunnel);
+        return result ? R.ok("隧道更新成功") : R.err("隧道更新失败");
     }
 
     /**
@@ -210,6 +273,91 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         if (existTunnel != null) {
             return R.err(ERROR_TUNNEL_NAME_EXISTS);
         }
+        return R.ok();
+    }
+
+    /**
+     * 验证隧道名称唯一性（更新时使用，排除自身）
+     * 
+     * @param tunnelName 隧道名称
+     * @param tunnelId 隧道ID（要排除的隧道）
+     * @return 验证结果响应
+     */
+    private R validateTunnelNameUniquenessForUpdate(String tunnelName, Long tunnelId) {
+        QueryWrapper<Tunnel> query = new QueryWrapper<>();
+        query.eq("name", tunnelName);
+        query.ne("id", tunnelId);  // 排除自身
+        Tunnel existTunnel = this.getOne(query);
+        if (existTunnel != null) {
+            return R.err(ERROR_TUNNEL_NAME_EXISTS);
+        }
+        return R.ok();
+    }
+
+    /**
+     * 验证端口范围
+     * 
+     * @param tunnelUpdateDto 更新数据传输对象
+     * @return 验证结果响应
+     */
+    private R validatePortRanges(TunnelUpdateDto tunnelUpdateDto) {
+        // 验证入口端口范围
+        if (tunnelUpdateDto.getInPortSta() > tunnelUpdateDto.getInPortEnd()) {
+            return R.err(ERROR_IN_PORT_RANGE_INVALID);
+        }
+        
+        // 验证出口端口范围（如果有的话）
+        if (tunnelUpdateDto.getOutIpSta() != null && tunnelUpdateDto.getOutIpEnd() != null) {
+            if (tunnelUpdateDto.getOutIpSta() > tunnelUpdateDto.getOutIpEnd()) {
+                return R.err(ERROR_OUT_PORT_RANGE_INVALID);
+            }
+        }
+        
+        return R.ok();
+    }
+
+    /**
+     * 验证隧道转发更新时的出口端口
+     * 
+     * @param tunnelUpdateDto 更新数据传输对象
+     * @return 验证结果响应
+     */
+    private R validateTunnelForwardUpdate(TunnelUpdateDto tunnelUpdateDto) {
+        // 验证出口端口参数不能为空
+        if (tunnelUpdateDto.getOutIpSta() == null || tunnelUpdateDto.getOutIpEnd() == null) {
+            return R.err(ERROR_OUT_PORT_REQUIRED);
+        }
+        
+        // 验证出口端口范围
+        if (tunnelUpdateDto.getOutIpSta() > tunnelUpdateDto.getOutIpEnd()) {
+            return R.err(ERROR_OUT_PORT_RANGE_INVALID);
+        }
+        
+        return R.ok();
+    }
+
+    /**
+     * 验证隧道转发创建时的必要参数
+     * 
+     * @param tunnelDto 隧道创建数据传输对象
+     * @return 验证结果响应
+     */
+    private R validateTunnelForwardCreate(TunnelDto tunnelDto) {
+        // 验证出口节点不能为空
+        if (tunnelDto.getOutNodeId() == null) {
+            return R.err(ERROR_OUT_NODE_REQUIRED);
+        }
+        
+        // 验证出口端口参数不能为空
+        if (tunnelDto.getOutIpSta() == null || tunnelDto.getOutIpEnd() == null) {
+            return R.err(ERROR_OUT_PORT_REQUIRED);
+        }
+        
+        // 验证出口端口范围
+        if (tunnelDto.getOutIpSta() > tunnelDto.getOutIpEnd()) {
+            return R.err(ERROR_OUT_PORT_RANGE_INVALID);
+        }
+        
         return R.ok();
     }
 

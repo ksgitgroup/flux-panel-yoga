@@ -9,8 +9,7 @@ import javax.validation.constraints.Min;
 @Data
 public class UserDto {
 
-    @NotBlank(message = "姓名不能为空")
-    private String name;
+    private String name = "user";
 
     @NotBlank(message = "用户名不能为空")
     private String user;

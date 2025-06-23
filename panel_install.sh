@@ -84,6 +84,6 @@ echo "FRONTEND_PORT=$FRONTEND_PORT"
 echo "BACKEND_PORT=$BACKEND_PORT"
 
 # 清理安装文件
-echo "🧹 清理安装文件..."
-rm -f docker-compose.yml gost.sql 2>/dev/null && echo "✨ 下载文件已清理" || echo "⚠️ 下载文件清理失败"
-rm -f "$0" 2>/dev/null && echo "✨ 安装脚本已自动清理" || echo "⚠️ 安装脚本清理失败，请手动删除"
+#echo "🧹 清理安装文件..."
+#rm -f docker-compose.yml gost.sql 2>/dev/null && echo "✨ 下载文件已清理" || echo "⚠️ 下载文件清理失败"
+#rm -f "$0" 2>/dev/null && echo "✨ 安装脚本已自动清理" || echo "⚠️ 安装脚本清理失败，请手动删除"

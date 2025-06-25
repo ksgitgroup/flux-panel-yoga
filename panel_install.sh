@@ -270,6 +270,7 @@ configure_ipv6_network() {
           echo '      {"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}'
           echo "   3. 重启Docker服务: sudo systemctl restart docker"
           echo "   4. 重新运行此安装脚本"
+          echo "ℹ️ 脚本会自动选择不冲突的IPv6子网"
           exit 1
           ;;
         *)
@@ -283,20 +284,30 @@ configure_ipv6_network() {
     echo "🔧 正在创建IPv6网络配置..."
     
     # 检查文件是否已包含IPv6配置
-    if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "2001:db8:1::/64" docker-compose.yml; then
+    if grep -q "enable_ipv6: true" docker-compose.yml && (grep -q "2001:db8:1::/64" docker-compose.yml || grep -q "2001:db8:2::/64" docker-compose.yml); then
+      EXISTING_IPV6_SUBNET=$(grep -o "2001:db8:[0-9]::/64" docker-compose.yml)
       echo "✅ IPv6配置已存在"
       echo "✅ IPv6网络配置完成"
-      echo "ℹ️ IPv6子网: 2001:db8:1::/64"
+      echo "ℹ️ IPv6子网: $EXISTING_IPV6_SUBNET"
       echo "ℹ️ IPv4子网: 172.20.0.0/16"
     else
       # 安全地添加IPv6配置，只修改networks部分
       echo "⚙️ 正在添加IPv6网络支持..."
       
+      # 检测daemon.json中的IPv6子网，选择不冲突的子网
+      IPV6_SUBNET="2001:db8:2::/64"  # 默认使用2号子网
+      if [ -f "/etc/docker/daemon.json" ]; then
+        if grep -q "2001:db8:2::/64" /etc/docker/daemon.json 2>/dev/null; then
+          IPV6_SUBNET="2001:db8:3::/64"  # 如果2号被占用，使用3号
+        fi
+      fi
+      echo "ℹ️ 将使用IPv6子网: $IPV6_SUBNET"
+      
       # 创建临时文件来安全修改
       cp docker-compose.yml docker-compose.yml.backup
       
       # 使用awk来精确修改networks部分
-      awk '
+      awk -v ipv6_subnet="$IPV6_SUBNET" '
       /^networks:/ { in_networks = 1 }
       /^[a-zA-Z]/ && !/^networks:/ && in_networks { in_networks = 0 }
       /^  gost-network:/ && in_networks { in_gost_network = 1 }
@@ -309,7 +320,7 @@ configure_ipv6_network() {
       }
       /^        - subnet: 172\.20\.0\.0\/16$/ && in_gost_network && !subnet_added {
         print $0
-        print "        - subnet: 2001:db8:1::/64"
+        print "        - subnet: " ipv6_subnet
         subnet_added = 1
         next
       }
@@ -317,12 +328,18 @@ configure_ipv6_network() {
       ' docker-compose.yml.backup > docker-compose.yml
       
       # 验证修改是否成功
-      if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "2001:db8:1::/64" docker-compose.yml; then
+      if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "$IPV6_SUBNET" docker-compose.yml; then
         echo "✅ IPv6网络配置添加成功"
         rm -f docker-compose.yml.backup
         echo "✅ IPv6网络配置完成"
-        echo "ℹ️ IPv6子网: 2001:db8:1::/64"
+        echo "ℹ️ IPv6子网: $IPV6_SUBNET"
         echo "ℹ️ IPv4子网: 172.20.0.0/16"
+      else
+        echo "❌ IPv6网络配置添加失败"
+        echo "🔍 请检查docker-compose.yml文件"
+        if [ -f docker-compose.yml.backup ]; then
+          echo "📁 备份文件: docker-compose.yml.backup"
+        fi
       fi
     fi
   else
@@ -382,7 +399,7 @@ get_config_params() {
   if [[ "$ENABLE_IPV6" == "y" || "$ENABLE_IPV6" == "Y" ]]; then
     ENABLE_IPV6=true
     echo "✅ 已选择开启IPv6支持"
-    echo "ℹ️ 将使用IPv6子网: 2001:db8:1::/64"
+    echo "ℹ️ 将根据系统配置自动选择合适的IPv6子网"
   else
     ENABLE_IPV6=false
     echo "ℹ️ 未开启IPv6支持，使用IPv4网络"
@@ -443,6 +460,8 @@ update_panel() {
   echo "🔽 下载最新配置文件..."
   curl -L -o docker-compose.yml "$DOCKER_COMPOSE_URL"
   echo "✅ 下载完成"
+
+
 
   echo "🛑 停止当前服务..."
   $DOCKER_CMD down

@@ -6,8 +6,18 @@ export LANG=en_US.UTF-8
 export LC_ALL=C
 
 # 全局下载地址配置
-DOCKER_COMPOSE_URL="https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose.yml"
+DOCKER_COMPOSEV4_URL="https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose-v4.yml"
+DOCKER_COMPOSEV6_URL="https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose-v6.yml"
 GOST_SQL_URL="https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/gost.sql"
+
+# 根据IPv6支持情况选择docker-compose URL
+get_docker_compose_url() {
+  if check_ipv6_support > /dev/null 2>&1; then
+    echo "$DOCKER_COMPOSEV6_URL"
+  else
+    echo "$DOCKER_COMPOSEV4_URL"
+  fi
+}
 
 # 检查 docker-compose 或 docker compose 命令
 check_docker() {
@@ -116,101 +126,7 @@ configure_docker_ipv6() {
   fi
 }
 
-# 更新 docker-compose.yml 以支持 IPv6
-update_compose_for_ipv6() {
-  echo "🔧 更新 docker-compose.yml 配置 IPv6..."
-  
-  # 创建支持 IPv6 的 docker-compose.yml
-  cat > docker-compose.yml.ipv6 <<'EOF'
-services:
-  mysql:
-    image: mysql:5.7
-    container_name: gost-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      TZ: Asia/Shanghai
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./gost.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    command: >
-      --default-authentication-plugin=mysql_native_password
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --max_connections=1000
-      --innodb_buffer_pool_size=256M
-    networks:
-      - gost-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 10s
-      retries: 10
 
-  backend:
-    image: bqlpfy/springboot-backend:latest
-    container_name: springboot-backend
-    restart: unless-stopped
-    environment:
-      DB_HOST: mysql
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-      LOG_DIR: /app/logs
-      SERVER_ADDR: ${SERVER_HOST}
-      JAVA_OPTS: "-Xms256m -Xmx512m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
-    ports:
-      - "${BACKEND_PORT}:6365"
-    volumes:
-      - backend_logs:/app/logs
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - gost-network
-    healthcheck:
-      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:6365/flow/test || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
-
-  frontend:
-    image: bqlpfy/vue-frontend:latest
-    container_name: vue-frontend
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT}:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    networks:
-      - gost-network
-
-
-volumes:
-  mysql_data:
-    driver: local
-  backend_logs:
-    driver: local
-
-
-networks:
-  gost-network:
-    driver: bridge
-    enable_ipv6: true
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-        - subnet: fd00:dead:beef::/48
-EOF
-  
-  mv docker-compose.yml.ipv6 docker-compose.yml
-  echo "✅ docker-compose.yml 已更新为支持 IPv6"
-}
 
 # 显示菜单
 show_menu() {
@@ -263,6 +179,8 @@ install_panel() {
   get_config_params
   
   echo "🔽 下载必要文件..."
+  DOCKER_COMPOSE_URL=$(get_docker_compose_url)
+  echo "📡 选择配置文件：$(basename "$DOCKER_COMPOSE_URL")"
   curl -L -o docker-compose.yml "$DOCKER_COMPOSE_URL"
   curl -L -o gost.sql "$GOST_SQL_URL"
   echo "✅ 下载完成"
@@ -271,7 +189,6 @@ install_panel() {
   if check_ipv6_support; then
     echo "🚀 系统支持 IPv6，自动启用 IPv6 配置..."
     configure_docker_ipv6
-    update_compose_for_ipv6
   fi
 
   echo "🧹 清理环境信息"
@@ -320,23 +237,15 @@ update_panel() {
   check_docker
   
   echo "🔽 下载最新配置文件..."
+  DOCKER_COMPOSE_URL=$(get_docker_compose_url)
+  echo "📡 选择配置文件：$(basename "$DOCKER_COMPOSE_URL")"
   curl -L -o docker-compose.yml "$DOCKER_COMPOSE_URL"
   echo "✅ 下载完成"
 
-  # 检查当前是否已启用 IPv6（通过检查网络配置）
-  CURRENT_IPV6_ENABLED=false
-  if [[ -f "docker-compose.yml" ]] && grep -q "enable_ipv6: true" docker-compose.yml; then
-    CURRENT_IPV6_ENABLED=true
-  fi
-  
-  # 如果之前启用了 IPv6 或系统支持 IPv6，自动启用
-  if [[ "$CURRENT_IPV6_ENABLED" == "true" ]]; then
-    echo "🔍 检测到当前配置已启用 IPv6，保持 IPv6 支持..."
-    update_compose_for_ipv6
-  elif check_ipv6_support; then
+  # 自动检测并配置 IPv6 支持
+  if check_ipv6_support; then
     echo "🚀 系统支持 IPv6，自动启用 IPv6 配置..."
     configure_docker_ipv6
-    update_compose_for_ipv6
   fi
 
   echo "🛑 停止当前服务..."
@@ -640,6 +549,8 @@ uninstall_panel() {
   
   if [[ ! -f "docker-compose.yml" ]]; then
     echo "⚠️ 未找到 docker-compose.yml 文件，正在下载以完成卸载..."
+    DOCKER_COMPOSE_URL=$(get_docker_compose_url)
+    echo "📡 选择配置文件：$(basename "$DOCKER_COMPOSE_URL")"
     curl -L -o docker-compose.yml "$DOCKER_COMPOSE_URL"
     echo "✅ docker-compose.yml 下载完成"
   fi

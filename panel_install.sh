@@ -27,6 +27,54 @@ check_docker() {
   echo "检测到 Docker 命令：$DOCKER_CMD"
 }
 
+# 检查Docker IPv6支持的多种方法
+check_docker_ipv6_support() {
+  echo "🔍 验证Docker IPv6支持..."
+  
+  # 方法1: 检查daemon.json配置文件
+  if [ -f "/etc/docker/daemon.json" ]; then
+    if grep -q '"ipv6".*true' /etc/docker/daemon.json 2>/dev/null; then
+      echo "✅ daemon.json配置检查通过"
+      return 0
+    fi
+  fi
+  
+  # 方法2: 尝试创建IPv6测试网络
+  echo "🧪 尝试创建IPv6测试网络..."
+  if docker network create --ipv6 --subnet=2001:db8:test::/64 ipv6-test-net 2>/dev/null; then
+    echo "✅ IPv6网络创建成功"
+    # 清理测试网络
+    docker network rm ipv6-test-net >/dev/null 2>&1
+    return 0
+  fi
+  
+  # 方法3: 检查docker info的详细输出
+  if docker info 2>/dev/null | grep -i ipv6 | grep -q true; then
+    echo "✅ docker info IPv6检查通过"
+    return 0
+  fi
+  
+  # 方法4: 检查Docker版本和配置
+  DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
+  if [ -n "$DOCKER_VERSION" ]; then
+    echo "ℹ️ Docker版本: $DOCKER_VERSION"
+    # 对于新版本Docker，配置可能需要更多时间生效
+    echo "⏳ 等待Docker配置生效..."
+    sleep 5
+    
+    # 再次尝试网络创建
+    if docker network create --ipv6 --subnet=2001:db8:test2::/64 ipv6-test-net2 2>/dev/null; then
+      echo "✅ 延迟检查IPv6网络创建成功"
+      docker network rm ipv6-test-net2 >/dev/null 2>&1
+      return 0
+    fi
+  fi
+  
+  echo "⚠️ IPv6支持验证失败，但配置可能已生效"
+  echo "ℹ️ 建议手动验证: docker network create --ipv6 --subnet=2001:db8:test::/64 test-net"
+  return 1
+}
+
 # 检查IPv6支持
 check_ipv6_support() {
   echo "🔍 检查IPv6支持..."
@@ -38,14 +86,14 @@ check_ipv6_support() {
   fi
   
   # 检查Docker是否支持IPv6
-  if ! docker info 2>/dev/null | grep -q "IPv6: true"; then
+  if ! check_docker_ipv6_support; then
     echo "⚠️ Docker守护进程未启用IPv6支持，正在自动配置..."
     
     # 自动配置Docker daemon.json
     configure_docker_ipv6
     
     # 重新检查
-    if ! docker info 2>/dev/null | grep -q "IPv6: true"; then
+    if ! check_docker_ipv6_support; then
       echo "❌ Docker IPv6配置失败，请手动检查"
       return 1
     fi

@@ -258,6 +258,8 @@ configure_ipv6_network() {
         1)
           echo "ℹ️ 继续安装，将使用IPv4网络"
           ENABLE_IPV6=false
+          echo "✅ 网络配置完成（仅IPv4）"
+          echo "ℹ️ IPv4子网: 172.20.0.0/16"
           return 0
           ;;
         2)
@@ -283,6 +285,9 @@ configure_ipv6_network() {
     # 检查文件是否已包含IPv6配置
     if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "2001:db8:1::/64" docker-compose.yml; then
       echo "✅ IPv6配置已存在"
+      echo "✅ IPv6网络配置完成"
+      echo "ℹ️ IPv6子网: 2001:db8:1::/64"
+      echo "ℹ️ IPv4子网: 172.20.0.0/16"
     else
       # 安全地添加IPv6配置，只修改networks部分
       echo "⚙️ 正在添加IPv6网络支持..."
@@ -315,19 +320,15 @@ configure_ipv6_network() {
       if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "2001:db8:1::/64" docker-compose.yml; then
         echo "✅ IPv6网络配置添加成功"
         rm -f docker-compose.yml.backup
-      else
-        echo "❌ IPv6配置添加失败，恢复原文件"
-        mv docker-compose.yml.backup docker-compose.yml
-        echo "ℹ️ 将使用IPv4网络继续安装"
-        ENABLE_IPV6=false
+        echo "✅ IPv6网络配置完成"
+        echo "ℹ️ IPv6子网: 2001:db8:1::/64"
+        echo "ℹ️ IPv4子网: 172.20.0.0/16"
       fi
     fi
-    
-    echo "✅ IPv6网络配置完成"
-    echo "ℹ️ IPv6子网: 2001:db8:1::/64"
-    echo "ℹ️ IPv4子网: 172.20.0.0/16"
   else
     echo "ℹ️ 跳过IPv6网络配置，仅使用IPv4网络"
+    echo "✅ 网络配置完成（仅IPv4）"
+    echo "ℹ️ IPv4子网: 172.20.0.0/16"
   fi
 }
 

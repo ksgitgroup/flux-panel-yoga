@@ -277,30 +277,50 @@ configure_ipv6_network() {
       esac
     fi
     
-    # 修改docker-compose.yml以支持IPv6
-    # 检测操作系统，使用合适的sed语法
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      # macOS
-      sed -i '' '/networks:/,/subnet: 172.20.0.0\/16/c\
-networks:\
-  gost-network:\
-    driver: bridge\
-    enable_ipv6: true\
-    ipam:\
-      config:\
-        - subnet: 172.20.0.0/16\
-        - subnet: 2001:db8:1::/64' docker-compose.yml
+    # 创建支持IPv6的docker-compose.yml配置
+    echo "🔧 正在创建IPv6网络配置..."
+    
+    # 检查文件是否已包含IPv6配置
+    if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "2001:db8:1::/64" docker-compose.yml; then
+      echo "✅ IPv6配置已存在"
     else
-      # Linux
-      sed -i.bak '/networks:/,/subnet: 172.20.0.0\/16/c\
-networks:\
-  gost-network:\
-    driver: bridge\
-    enable_ipv6: true\
-    ipam:\
-      config:\
-        - subnet: 172.20.0.0/16\
-        - subnet: 2001:db8:1::/64' docker-compose.yml
+      # 安全地添加IPv6配置，只修改networks部分
+      echo "⚙️ 正在添加IPv6网络支持..."
+      
+      # 创建临时文件来安全修改
+      cp docker-compose.yml docker-compose.yml.backup
+      
+      # 使用awk来精确修改networks部分
+      awk '
+      /^networks:/ { in_networks = 1 }
+      /^[a-zA-Z]/ && !/^networks:/ && in_networks { in_networks = 0 }
+      /^  gost-network:/ && in_networks { in_gost_network = 1 }
+      /^  [a-zA-Z]/ && !/^  gost-network:/ && in_gost_network { in_gost_network = 0 }
+      /^    driver: bridge$/ && in_gost_network && !ipv6_added { 
+        print $0
+        print "    enable_ipv6: true"
+        ipv6_added = 1
+        next
+      }
+      /^        - subnet: 172\.20\.0\.0\/16$/ && in_gost_network && !subnet_added {
+        print $0
+        print "        - subnet: 2001:db8:1::/64"
+        subnet_added = 1
+        next
+      }
+      { print }
+      ' docker-compose.yml.backup > docker-compose.yml
+      
+      # 验证修改是否成功
+      if grep -q "enable_ipv6: true" docker-compose.yml && grep -q "2001:db8:1::/64" docker-compose.yml; then
+        echo "✅ IPv6网络配置添加成功"
+        rm -f docker-compose.yml.backup
+      else
+        echo "❌ IPv6配置添加失败，恢复原文件"
+        mv docker-compose.yml.backup docker-compose.yml
+        echo "ℹ️ 将使用IPv4网络继续安装"
+        ENABLE_IPV6=false
+      fi
     fi
     
     echo "✅ IPv6网络配置完成"

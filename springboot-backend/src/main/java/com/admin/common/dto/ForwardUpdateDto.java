@@ -3,6 +3,8 @@ package com.admin.common.dto;
 import lombok.Data;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
+import javax.validation.constraints.Min;
+import javax.validation.constraints.Max;
 
 @Data
 public class ForwardUpdateDto {
@@ -21,4 +23,11 @@ public class ForwardUpdateDto {
     
     @NotBlank(message = "远程地址不能为空")
     private String remoteAddr;
+    
+    /**
+     * 入口端口（可选，为空时自动分配）
+     */
+    @Min(value = 1, message = "端口号不能小于1")
+    @Max(value = 65535, message = "端口号不能大于65535")
+    private Integer inPort;
 } 

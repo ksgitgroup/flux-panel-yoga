@@ -62,7 +62,7 @@ public class JwtUtil {
             payload.put("iat", now.getTime() / 1000); // 发布时间
             payload.put("exp", expireDate.getTime() / 1000); // 过期时间
             payload.put("user", user.getUser());
-            payload.put("name", user.getName());
+            payload.put("name", user.getUser());
             payload.put("role_id", user.getRoleId());
 
             String payloadJson = JSON.toJSONString(payload);

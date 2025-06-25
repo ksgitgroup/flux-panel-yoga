@@ -289,10 +289,9 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
         Node node = nodeService.getNodeById(tunnel.getInNodeId());
         
         GostDto gostResult = GostUtil.AddLimiters(
-            buildNodeAddress(node), 
+           node.getId(),
             speedLimit.getId(), 
-            speedInMBps, 
-            node.getSecret()
+            speedInMBps
         );
         
         return isGostOperationSuccess(gostResult) ? R.ok() : R.err(gostResult.getMsg());
@@ -308,14 +307,13 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
     private R updateGostLimiter(SpeedLimit speedLimit, Tunnel tunnel) {
         String speedInMBps = convertBitsToMBps(speedLimit.getSpeed());
         Node node = nodeService.getNodeById(tunnel.getInNodeId());
-        String nodeAddress = buildNodeAddress(node);
 
         // 尝试更新限速器
-        GostDto gostResult = GostUtil.UpdateLimiters(nodeAddress, speedLimit.getId(), speedInMBps, node.getSecret());
+        GostDto gostResult = GostUtil.UpdateLimiters(node.getId(), speedLimit.getId(), speedInMBps);
         
         // 如果限速器不存在，则创建新的
         if (gostResult.getMsg().contains(GOST_NOT_FOUND_MSG)) {
-            gostResult = GostUtil.AddLimiters(nodeAddress, speedLimit.getId(), speedInMBps, node.getSecret());
+            gostResult = GostUtil.AddLimiters(node.getId(), speedLimit.getId(), speedInMBps);
         }
         
         return isGostOperationSuccess(gostResult) ? R.ok() : R.err(gostResult.getMsg());
@@ -330,7 +328,7 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
      */
     private R deleteGostLimiter(Long speedLimitId, Tunnel tunnel) {
         Node node = nodeService.getNodeById(tunnel.getInNodeId());
-        GostDto gostResult = GostUtil.DeleteLimiters(buildNodeAddress(node), speedLimitId, node.getSecret());
+        GostDto gostResult = GostUtil.DeleteLimiters(node.getId(), speedLimitId);
         
         return isGostOperationSuccess(gostResult) ? R.ok() : R.err(gostResult.getMsg());
     }
@@ -343,16 +341,6 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
     private void handleGostOperationFailure(SpeedLimit speedLimit) {
         speedLimit.setStatus(SPEED_LIMIT_INACTIVE_STATUS);
         speedLimitService.updateById(speedLimit);
-    }
-
-    /**
-     * 构建节点地址
-     * 
-     * @param node 节点对象
-     * @return 节点地址字符串
-     */
-    private String buildNodeAddress(Node node) {
-        return node.getIp() + ":" + node.getPort();
     }
 
     /**

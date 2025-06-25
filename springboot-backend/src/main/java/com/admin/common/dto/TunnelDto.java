@@ -46,4 +46,10 @@ public class TunnelDto {
     
     // 协议类型（隧道转发时使用：tls、tcp、mtls），默认为tls
     private String protocol;
+    
+    // TCP监听地址，默认为0.0.0.0
+    private String tcpListenAddr = "0.0.0.0";
+    
+    // UDP监听地址，默认为0.0.0.0
+    private String udpListenAddr = "0.0.0.0";
 } 

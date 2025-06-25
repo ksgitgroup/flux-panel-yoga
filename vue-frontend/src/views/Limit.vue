@@ -138,7 +138,7 @@
     </div>
       
     <!-- 空状态 -->
-    <div v-if="!loading && filteredSpeedLimitList.length === 0" class="empty-state" style="margin-top: 10px;">
+    <div v-if="!loading && filteredSpeedLimitList.length === 0"  style="margin-top: 10px;">
       <el-empty description="暂无限速规则">
         
       </el-empty>

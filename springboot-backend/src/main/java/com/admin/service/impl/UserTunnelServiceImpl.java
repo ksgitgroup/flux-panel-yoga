@@ -368,9 +368,8 @@ public class UserTunnelServiceImpl extends ServiceImpl<UserTunnelMapper, UserTun
             
             // 1. 先删除主服务
             if (inNode != null) {
-                String inNodeAddress = buildNodeAddress(inNode);
                 try {
-                    GostUtil.DeleteService(inNodeAddress, serviceName, inNode.getSecret());
+                    GostUtil.DeleteService(inNode.getId(), serviceName);
                 } catch (Exception e) {
                     // 主服务删除失败，记录但继续
                 }
@@ -378,9 +377,8 @@ public class UserTunnelServiceImpl extends ServiceImpl<UserTunnelMapper, UserTun
             
             // 2. 如果是隧道转发，删除远端服务
             if (tunnel.getType() == 1 && outNode != null && !outNode.getId().equals(inNode != null ? inNode.getId() : null)) {
-                String outNodeAddress = buildNodeAddress(outNode);
                 try {
-                    GostUtil.DeleteRemoteService(outNodeAddress, serviceName, outNode.getSecret());
+                    GostUtil.DeleteRemoteService(outNode.getId(), serviceName);
                 } catch (Exception e) {
                     // 远端服务删除失败，记录但继续
                 }
@@ -388,9 +386,8 @@ public class UserTunnelServiceImpl extends ServiceImpl<UserTunnelMapper, UserTun
             
             // 3. 如果是隧道转发，最后删除转发链
             if (tunnel.getType() == 1 && inNode != null) {
-                String inNodeAddress = buildNodeAddress(inNode);
                 try {
-                    GostUtil.DeleteChains(inNodeAddress, serviceName, inNode.getSecret());
+                    GostUtil.DeleteChains(inNode.getId(), serviceName);
                 } catch (Exception e) {
                     // 转发链删除失败，记录但继续
                 }
@@ -431,16 +428,7 @@ public class UserTunnelServiceImpl extends ServiceImpl<UserTunnelMapper, UserTun
         return forwardId + "_" + userId + "_" + userTunnelId;
     }
 
-    /**
-     * 构建节点地址
-     * 
-     * @param node 节点对象
-     * @return 节点地址字符串
-     */
-    private String buildNodeAddress(Node node) {
-        return node.getIp() + ":" + node.getPort();
-    }
-    
+
     /**
      * 检查用户隧道是否启用且有到期时间
      * 
@@ -507,14 +495,12 @@ public class UserTunnelServiceImpl extends ServiceImpl<UserTunnelMapper, UserTun
         }
 
         // 5. 批量更新该用户在该隧道下所有转发的限速配置（只更新入口节点）
-        String inNodeAddress = buildNodeAddress(inNode);
-
         for (Forward forward : userTunnelForwards) {
             String serviceName = buildServiceName(forward.getId(), Long.valueOf(userId), userTunnel.getId());
 
             // 6. 更新入口节点的主服务限速配置（使用批量UpdateService接口）
-            GostUtil.UpdateService(inNodeAddress, serviceName, forward.getInPort(), speedId,
-                    forward.getRemoteAddr(), inNode.getSecret(), tunnel.getType());
+            GostUtil.UpdateService(inNode.getId(), serviceName, forward.getInPort(), speedId,
+                    forward.getRemoteAddr(), tunnel.getType(), tunnel);
         }
     }
 }

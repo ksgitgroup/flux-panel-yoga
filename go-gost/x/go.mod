@@ -5,6 +5,10 @@ go 1.22.0
 toolchain go1.23.4
 
 require (
+	github.com/shirou/gopsutil/v3 v3.24.5
+)
+
+require (
 	github.com/alecthomas/units v0.0.0-20211218093645-b94a6e3cc137
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
 	github.com/gin-contrib/cors v1.7.2

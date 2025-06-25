@@ -12,16 +12,17 @@ import com.admin.service.SpeedLimitService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.List;
 import java.util.Objects;
 
 @Slf4j
-@Configuration
-@EnableScheduling
+@Service
 public class CheckGostConfigAsync {
 
     @Resource
@@ -33,39 +34,17 @@ public class CheckGostConfigAsync {
     @Resource
     private SpeedLimitService speedLimitService;
 
-    /**
-     * 启动后10秒执行一次，然后每10分钟执行一次
-     * 清理孤立的Gost配置项
-     */
-    @Scheduled(initialDelay = 10000, fixedRate = 600000)
-    public void cleanOrphanedGostConfigs() {
-        log.info("开始清理孤立的Gost配置项");
-        
-        List<Node> activeNodes = nodeService.list(new QueryWrapper<Node>().eq("status", 1));
-        log.info("找到 {} 个活跃节点", activeNodes.size());
-        
-        for (Node node : activeNodes) {
-            cleanNodeConfigs(node);
-        }
-        
-        log.info("Gost配置清理任务完成");
-    }
 
     /**
-     * 清理单个节点的配置
+     * 清理孤立的Gost配置项
      */
-    private void cleanNodeConfigs(Node node) {
-        String nodeAddress = node.getIp() + ":" + node.getPort();
-        
-        try {
-            GostConfigDto gostConfig = GostUtil.GetConfig(nodeAddress, node.getSecret());
-            
+    @Async
+    public void cleanNodeConfigs(String node_id, GostConfigDto gostConfig) {
+        Node node = nodeService.getById(node_id);
+        if (node != null) {
             cleanOrphanedServices(gostConfig, node);
             cleanOrphanedChains(gostConfig, node);
             cleanOrphanedLimiters(gostConfig, node);
-            
-        } catch (Exception e) {
-            log.error("清理节点 {} 配置时发生错误", nodeAddress, e);
         }
     }
 
@@ -76,8 +55,7 @@ public class CheckGostConfigAsync {
         if (gostConfig.getServices() == null) {
             return;
         }
-        
-        String nodeAddress = node.getIp() + ":" + node.getPort();
+
         
         for (ConfigItem service : gostConfig.getServices()) {
             safeExecute(() -> {
@@ -95,8 +73,15 @@ public class CheckGostConfigAsync {
                     if (Objects.equals(type, "tcp")) { // 只处理TCP，避免重复处理
                         Forward forward = forwardService.getById(forwardId);
                         if (forward == null) {
-                            log.warn("删除孤立的服务: {} (节点: {})", service.getName(), nodeAddress);
-                            GostUtil.DeleteService(nodeAddress, forwardId+"_"+userId+"_"+userTunnelId, node.getSecret());
+                            log.warn("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
+                            GostUtil.DeleteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
+                        }
+                    }
+                    if (Objects.equals(type, "tls")) {
+                        Forward forward = forwardService.getById(forwardId);
+                        if (forward == null) {
+                            log.warn("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
+                            GostUtil.DeleteRemoteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
                         }
                     }
                 }
@@ -112,8 +97,7 @@ public class CheckGostConfigAsync {
             return;
         }
         
-        String nodeAddress = node.getIp() + ":" + node.getPort();
-        
+
         for (ConfigItem chain : gostConfig.getChains()) {
             safeExecute(() -> {
                 String[] serviceIds = parseServiceName(chain.getName());
@@ -126,8 +110,8 @@ public class CheckGostConfigAsync {
                     if (Objects.equals(type, "chains")) {
                         Forward forward = forwardService.getById(forwardId);
                         if (forward == null) {
-                            log.warn("删除孤立的链: {} (节点: {})", chain.getName(), nodeAddress);
-                            GostUtil.DeleteChains(nodeAddress, forwardId+"_"+userId+"_"+userTunnelId, node.getSecret());
+                            log.warn("删除孤立的链: {} (节点: {})", chain.getName(), node.getId());
+                            GostUtil.DeleteChains(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
                         }
                     }
                 }
@@ -143,14 +127,13 @@ public class CheckGostConfigAsync {
             return;
         }
         
-        String nodeAddress = node.getIp() + ":" + node.getPort();
-        
+
         for (ConfigItem limiter : gostConfig.getLimiters()) {
             safeExecute(() -> {
                 SpeedLimit speedLimit = speedLimitService.getById(limiter.getName());
                 if (speedLimit == null) {
-                    log.warn("删除孤立的限流器: {} (节点: {})", limiter.getName(), nodeAddress);
-                    GostUtil.DeleteLimiters(nodeAddress, Long.parseLong(limiter.getName()), node.getSecret());
+                    log.warn("删除孤立的限流器: {} (节点: {})", limiter.getName(), node.getId());
+                    GostUtil.DeleteLimiters(node.getId(), Long.parseLong(limiter.getName()));
                 }
             }, "清理限流器 " + limiter.getName());
         }

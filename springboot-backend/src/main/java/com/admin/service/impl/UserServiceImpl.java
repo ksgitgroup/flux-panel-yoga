@@ -573,7 +573,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String serviceName = buildServiceName(forward.getId(), userId, userTunnel.getId());
 
         // 删除主服务
-        GostUtil.DeleteService(buildNodeAddress(inNode), serviceName, inNode.getSecret());
+        GostUtil.DeleteService(inNode.getId(), serviceName);
 
         // 如果是隧道转发，还需要删除链和远程服务
         if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
@@ -591,8 +591,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private void deleteGostTunnelForwardServices(Tunnel tunnel, String serviceName, Node inNode) {
         Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
         if (outNode != null) {
-            GostUtil.DeleteChains(buildNodeAddress(inNode), serviceName, inNode.getSecret());
-            GostUtil.DeleteRemoteService(buildNodeAddress(outNode), serviceName, outNode.getSecret());
+            GostUtil.DeleteChains(inNode.getId(), serviceName);
+            GostUtil.DeleteRemoteService(outNode.getId(), serviceName);
         }
     }
 
@@ -621,15 +621,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return forwardId + "_" + userId + "_" + userTunnelId;
     }
 
-    /**
-     * 构建节点地址
-     * 
-     * @param node 节点对象
-     * @return 节点地址字符串
-     */
-    private String buildNodeAddress(Node node) {
-        return node.getIp() + ":" + node.getPort();
-    }
 
     /**
      * 删除用户隧道权限
@@ -700,7 +691,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private UserPackageDto.UserInfoDto buildUserInfoDto(User user) {
         UserPackageDto.UserInfoDto userInfo = new UserPackageDto.UserInfoDto();
         userInfo.setId(user.getId());
-        userInfo.setName(user.getName());
         userInfo.setUser(user.getUser());
         userInfo.setStatus(user.getStatus());
         userInfo.setFlow(user.getFlow());

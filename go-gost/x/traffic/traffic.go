@@ -10,6 +10,7 @@ type Manager interface {
 	RecordTraffic(ctx context.Context, service string, upload, download int64) error
 	GetAllServicesStats(ctx context.Context) (map[string]map[string]int64, error)
 	ClearAllTrafficStats(ctx context.Context) error
+	SubtractTrafficStats(ctx context.Context, stats map[string]map[string]int64) error
 	Close() error
 	TestConnection(ctx context.Context) error
 }

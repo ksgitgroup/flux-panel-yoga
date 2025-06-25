@@ -235,17 +235,15 @@ public class DelayQueueManager implements CommandLineRunner {
             }
 
             String serviceName = buildServiceName(forward.getId(), userId, userTunnel.getId());
-            String nodeAddress = buildNodeAddress(inNode);
 
             // 暂停主服务
-            GostDto result = GostUtil.PauseService(nodeAddress, serviceName, inNode.getSecret());
+            GostDto result = GostUtil.PauseService(inNode.getId(), serviceName);
             
             // 隧道转发需要同时暂停远端服务
             if (tunnel.getType() == 2) { // TUNNEL_TYPE_TUNNEL_FORWARD
                 Node outNode = nodeMapper.selectById(tunnel.getOutNodeId());
                 if (outNode != null) {
-                    String outNodeAddress = buildNodeAddress(outNode);
-                    GostDto remoteResult = GostUtil.PauseRemoteService(outNodeAddress, serviceName, outNode.getSecret());
+                    GostDto remoteResult = GostUtil.PauseRemoteService(outNode.getId(), serviceName);
                     if (!"OK".equals(remoteResult.getMsg())) {
                         log.warn("暂停远端服务失败，转发ID：{}，用户ID：{}，服务名：{}，结果：{}", 
                                 forward.getId(), userId, serviceName, remoteResult.getMsg());
@@ -297,16 +295,7 @@ public class DelayQueueManager implements CommandLineRunner {
         return forwardId + "_" + userId + "_" + userTunnelId;
     }
 
-    /**
-     * 构建节点地址
-     * 
-     * @param node 节点对象
-     * @return 节点地址字符串
-     */
-    private String buildNodeAddress(Node node) {
-        return node.getIp() + ":" + node.getPort();
-    }
-    
+
     /**
      * 初始化用户账号到期延时任务
      * 查询所有非管理员的正常用户，为有到期时间且未过期的用户创建延时任务
@@ -455,17 +444,15 @@ public class DelayQueueManager implements CommandLineRunner {
             }
 
             String serviceName = buildServiceName(forward.getId(), Long.valueOf(userTunnel.getUserId()), userTunnel.getId());
-            String nodeAddress = buildNodeAddress(inNode);
 
             // 暂停服务
-            GostDto result = GostUtil.PauseService(nodeAddress, serviceName, inNode.getSecret());
+            GostDto result = GostUtil.PauseService(inNode.getId(), serviceName);
             
             // 隧道转发需要同时暂停远端服务
             if (tunnel.getType() == 2) { // TUNNEL_TYPE_TUNNEL_FORWARD
                 Node outNode = nodeMapper.selectById(tunnel.getOutNodeId());
                 if (outNode != null) {
-                    String outNodeAddress = buildNodeAddress(outNode);
-                    GostDto remoteResult = GostUtil.PauseRemoteService(outNodeAddress, serviceName, outNode.getSecret());
+                    GostDto remoteResult = GostUtil.PauseRemoteService(outNode.getId(), serviceName);
                     if (!"OK".equals(remoteResult.getMsg())) {
                         log.warn("暂停远端服务失败，转发ID：{}，用户ID：{}，隧道ID：{}，服务名：{}，结果：{}", 
                                 forward.getId(), userTunnel.getUserId(), userTunnel.getTunnelId(), serviceName, remoteResult.getMsg());

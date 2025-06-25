@@ -73,43 +73,10 @@
 
 ```bash
 
-ipv6需要面板端支持，同时开启docker的ipv6服务和composer中的ipv6
-
-
-如果以前安装过需要重新安装
-推荐先删除本地上次下载的文件
-    panel_install.sh
-    gost.sql
-    docker-compose.yml
-在执行下面的安装命令
-
-github
-curl -L https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
-
-gitee
-curl -L https://gitee.com/bqlpfy/forward-panel/raw/master/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
-
-节点端安装时可以手动将install.sh换成下方的连接
-https://gitee.com/bqlpfy/forward-panel/raw/master/install.sh
+curl -L https://ghproxy.com/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 
 ```
-### 卸载
 
-```bash
-面板端
-    cd到compose所在位置执行下面的命令
-    改操作会删除所有数据 包括数据库文件
-    docker compose down --rmi all --volumes --remove-orphans
-    或
-    docker-compose down --rmi all --volumes --remove-orphans
-节点端
-    systemctl stop gost
-    systemctl disable gost
-    rm -f /etc/systemd/system/gost.service
-    rm -rf /etc/gost
-    systemctl daemon-reload
-
-```
 
 
 

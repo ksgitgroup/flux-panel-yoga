@@ -2,212 +2,99 @@ package com.admin.common.utils;
 
 import com.admin.common.dto.GostConfigDto;
 import com.admin.common.dto.GostDto;
+import com.admin.entity.Tunnel;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.aspectj.apache.bcel.generic.RET;
 
+import java.util.Objects;
+
 public class GostUtil {
 
-    private static final String API_BASE_URL = "/api/config/";
-    private static final String LIMITERS_ENDPOINT = "limiters";
-    private static final String SERVICES_ENDPOINT = "services";
-    private static final String CHAINS_ENDPOINT = "chains";
 
-
-    public static GostDto SaveConfig(String addr, String secret) {
-        JSONObject data = new JSONObject();
-        data.put("format", "json");
-
-        if (!addr.contains("[") && addr.indexOf(':') != addr.lastIndexOf(':')) {
-            // 这是IPv6地址，找到最后一个冒号（端口分隔符）
-            int lastColonIndex = addr.lastIndexOf(':');
-            String ipPart = addr.substring(0, lastColonIndex);
-            String portPart = addr.substring(lastColonIndex);
-            addr = "[" + ipPart + "]" + portPart;
-        }
-
-        String url = "https://" + addr + "/api/config?format=json";
-        return HttpUtils.post(url, data, secret);
-    }
-
-    public static GostConfigDto GetConfig(String addr, String secret) {
-        JSONObject data = new JSONObject();
-        data.put("format", "json");
-
-        if (!addr.contains("[") && addr.indexOf(':') != addr.lastIndexOf(':')) {
-            // 这是IPv6地址，找到最后一个冒号（端口分隔符）
-            int lastColonIndex = addr.lastIndexOf(':');
-            String ipPart = addr.substring(0, lastColonIndex);
-            String portPart = addr.substring(lastColonIndex);
-            addr = "[" + ipPart + "]" + portPart;
-        }
-
-        String url = "https://" + addr + "/api/config?format=json";
-        return HttpUtils.get(url, secret);
-    }
-
-
-    /**
-     * 添加限流器配置
-     *
-     * @param addr   服务器地址
-     * @param name   限流器名称
-     * @param speed  限速值（MB）
-     * @param secret 认证密钥
-     * @return 请求结果
-     */
-    public static GostDto AddLimiters(String addr, Long name, String speed, String secret) {
+    public static GostDto AddLimiters(Long node_id, Long name, String speed) {
         JSONObject data = createLimiterData(name, speed);
-        String url = buildUrl(addr, LIMITERS_ENDPOINT);
-        return HttpUtils.post(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "AddLimiters");
     }
 
-    /**
-     * 更新限流器配置
-     *
-     * @param addr   服务器地址
-     * @param name   限流器名称
-     * @param speed  限速值（MB）
-     * @param secret 认证密钥
-     * @return 请求结果
-     */
-    public static GostDto UpdateLimiters(String addr, Long name, String speed, String secret) {
+    public static GostDto UpdateLimiters(Long node_id, Long name, String speed) {
         JSONObject data = createLimiterData(name, speed);
-        String url = buildUrl(addr, LIMITERS_ENDPOINT + "/" + name);
-        return HttpUtils.put(url, data, secret);
+        JSONObject req = new JSONObject();
+        req.put("limiter", name + "");
+        req.put("data", data);
+        return WebSocketServer.send_msg(node_id, req, "UpdateLimiters");
     }
 
-    /**
-     * 删除限流器配置
-     *
-     * @param addr   服务器地址
-     * @param name   限流器名称
-     * @param secret 认证密钥
-     * @return 请求结果
-     */
-    public static GostDto DeleteLimiters(String addr, Long name, String secret) {
-        String url = buildUrl(addr, LIMITERS_ENDPOINT + "/" + name);
-        return HttpUtils.delete(url, secret);
+    public static GostDto DeleteLimiters(Long node_id, Long name) {
+        JSONObject req = new JSONObject();
+        req.put("limiter", name + "");
+        return WebSocketServer.send_msg(node_id, req, "DeleteLimiters");
     }
 
-    /**
-     * 创建限流器数据
-     */
-    private static JSONObject createLimiterData(Long name, String speed) {
-        JSONObject data = new JSONObject();
-        data.put("name", name.toString());
-        JSONArray limits = new JSONArray();
-        limits.add("$ " + speed + "MB " + speed + "MB");
-        data.put("limits", limits);
-        return data;
-    }
-
-
-    /**
-     * 添加服务配置（支持端口转发和隧道转发）
-     *
-     * @param addr       服务器地址
-     * @param name       服务名称
-     * @param in_port    监听端口
-     * @param limiter    限流器ID
-     * @param remoteAddr 远程地址（端口转发时使用）
-     * @param secret     认证密钥
-     * @param fow_type   转发类型：1=端口转发，2=隧道转发
-     * @return 请求结果
-     */
-    public static GostDto AddService(String addr, String name, Integer in_port, Integer limiter, String remoteAddr, String secret, Integer fow_type) {
+    public static GostDto AddService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel) {
         JSONArray services = new JSONArray();
         String[] protocols = {"tcp", "udp"};
         for (String protocol : protocols) {
-            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type);
+            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel);
             services.add(service);
         }
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch");
-        return HttpUtils.post(url, services, secret);
+        return WebSocketServer.send_msg(node_id, services, "AddService");
     }
 
-    /**
-     * 更新服务配置（批量更新TCP和UDP服务）
-     *
-     * @param addr       服务器地址
-     * @param name       服务名称
-     * @param in_port    监听端口
-     * @param limiter    限流器ID
-     * @param remoteAddr 远程地址（端口转发时使用）
-     * @param secret     认证密钥
-     * @param fow_type   转发类型：1=端口转发，2=隧道转发
-     * @return 请求结果
-     */
-    public static GostDto UpdateService(String addr, String name, Integer in_port, Integer limiter, String remoteAddr, String secret, Integer fow_type) {
+    public static GostDto UpdateService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel) {
         JSONArray services = new JSONArray();
         String[] protocols = {"tcp", "udp"};
         for (String protocol : protocols) {
-            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type);
+            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel);
             services.add(service);
         }
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch");
-        return HttpUtils.put(url, services, secret);
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
     }
 
-    /**
-     * 删除服务配置（批量删除TCP和UDP服务）
-     *
-     * @param addr   服务器地址
-     * @param name   服务名称
-     * @param secret 认证密钥
-     * @return 请求结果
-     */
-    public static GostDto DeleteService(String addr, String name, String secret) {
+    public static GostDto DeleteService(Long node_id, String name) {
         JSONObject data = new JSONObject();
         JSONArray services = new JSONArray();
         services.add(name + "_tcp");
         services.add(name + "_udp");
         data.put("services", services);
-
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch");
-        return HttpUtils.delete(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "DeleteService");
     }
 
-
-    public static GostDto PauseService(String addr, String name, String secret) {
+    public static GostDto PauseService(Long node_id, String name) {
         JSONObject data = new JSONObject();
         JSONArray services = new JSONArray();
         services.add(name + "_tcp");
         services.add(name + "_udp");
         data.put("services", services);
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch/pause");
-        return HttpUtils.post(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "PauseService");
     }
 
-    public static GostDto ResumeService(String addr, String name, String secret) {
+    public static GostDto ResumeService(Long node_id, String name) {
         JSONObject data = new JSONObject();
         JSONArray services = new JSONArray();
         services.add(name + "_tcp");
         services.add(name + "_udp");
         data.put("services", services);
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch/resume");
-        return HttpUtils.post(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "ResumeService");
     }
 
-    public static GostDto PauseRemoteService(String addr, String name, String secret) {
+    public static GostDto PauseRemoteService(Long node_id, String name) {
         JSONObject data = new JSONObject();
         JSONArray services = new JSONArray();
         services.add(name + "_tls");
         data.put("services", services);
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch/pause");
-        return HttpUtils.post(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "PauseRemoteService");
     }
 
-    public static GostDto ResumeRemoteService(String addr, String name, String secret) {
+    public static GostDto ResumeRemoteService(Long node_id, String name) {
         JSONObject data = new JSONObject();
         JSONArray services = new JSONArray();
         services.add(name + "_tls");
         data.put("services", services);
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/batch/resume");
-        return HttpUtils.post(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "ResumeRemoteService");
     }
 
-    public static GostDto AddChains(String addr, String name, String remoteAddr, String secret, String protocol) {
+    public static GostDto AddChains(Long node_id, String name, String remoteAddr, String protocol) {
         JSONObject dialer = new JSONObject();
         dialer.put("type", protocol);
 
@@ -234,11 +121,10 @@ public class GostUtil {
         data.put("name", name + "_chains");
         data.put("hops", hops);
 
-        String url = buildUrl(addr, CHAINS_ENDPOINT);
-        return HttpUtils.post(url, data, secret);
+        return WebSocketServer.send_msg(node_id, data, "AddChains");
     }
 
-    public static GostDto UpdateChains(String addr, String name, String remoteAddr, String secret, String protocol) {
+    public static GostDto UpdateChains(Long node_id, String name, String remoteAddr, String protocol) {
         JSONObject dialer = new JSONObject();
         dialer.put("type", protocol);
 
@@ -264,18 +150,19 @@ public class GostUtil {
         JSONObject data = new JSONObject();
         data.put("name", name + "_chains");
         data.put("hops", hops);
-
-        String url = buildUrl(addr, CHAINS_ENDPOINT + "/" + name + "_chains");
-        return HttpUtils.put(url, data, secret);
+        JSONObject req = new JSONObject();
+        req.put("chain", name + "_chains");
+        req.put("data", data);
+       return WebSocketServer.send_msg(node_id, req, "UpdateChains");
     }
 
-
-    public static GostDto DeleteChains(String addr, String name, String secret) {
-        String url = buildUrl(addr, CHAINS_ENDPOINT + "/" + name + "_chains");
-        return HttpUtils.delete(url, secret);
+    public static GostDto DeleteChains(Long node_id, String name) {
+        JSONObject data = new JSONObject();
+        data.put("chain", name + "_chains");
+        return WebSocketServer.send_msg(node_id, data, "DeleteChains");
     }
 
-    public static GostDto AddRemoteService(String addr, String name, Integer out_port, String remoteAddr, String secret, String protocol) {
+    public static GostDto AddRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,  String protocol) {
         JSONObject data = new JSONObject();
         data.put("name", name + "_tls");
         data.put("addr", ":" + out_port);
@@ -293,12 +180,12 @@ public class GostUtil {
         nodes.add(node);
         forwarder.put("nodes", nodes);
         data.put("forwarder", forwarder);
-        String url = buildUrl(addr, SERVICES_ENDPOINT);
-        return HttpUtils.post(url, data, secret);
+        JSONArray services = new JSONArray();
+        services.add(data);
+       return WebSocketServer.send_msg(node_id, services, "AddService");
     }
 
-
-    public static GostDto UpdateRemoteService(String addr, String name, Integer out_port, String remoteAddr, String secret) {
+    public static GostDto UpdateRemoteService(Long node_id, String name, Integer out_port, String remoteAddr) {
         JSONObject data = new JSONObject();
         data.put("name", name + "_tls");
         data.put("addr", ":" + out_port);
@@ -316,24 +203,36 @@ public class GostUtil {
         nodes.add(node);
         forwarder.put("nodes", nodes);
         data.put("forwarder", forwarder);
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/" + name + "_tls");
-        return HttpUtils.put(url, data, secret);
+        JSONArray services = new JSONArray();
+        services.add(data);
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
     }
 
-
-    public static GostDto DeleteRemoteService(String addr, String name, String secret) {
-        String url = buildUrl(addr, SERVICES_ENDPOINT + "/" + name + "_tls");
-        return HttpUtils.delete(url, secret);
+    public static GostDto DeleteRemoteService(Long node_id, String name) {
+        JSONArray data = new JSONArray();
+        data.add(name + "_tls");
+        JSONObject req = new JSONObject();
+        req.put("services", data);
+        return WebSocketServer.send_msg(node_id, req, "DeleteService");
     }
 
+    private static JSONObject createLimiterData(Long name, String speed) {
+        JSONObject data = new JSONObject();
+        data.put("name", name.toString());
+        JSONArray limits = new JSONArray();
+        limits.add("$ " + speed + "MB " + speed + "MB");
+        data.put("limits", limits);
+        return data;
+    }
 
-    /**
-     * 创建单个服务配置
-     */
-    private static JSONObject createServiceConfig(String name, Integer in_port, Integer limiter, String remoteAddr, String protocol, Integer fow_type) {
+    private static JSONObject createServiceConfig(String name, Integer in_port, Integer limiter, String remoteAddr, String protocol, Integer fow_type, Tunnel tunnel) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_" + protocol);
-        service.put("addr", ":" + in_port);
+        if (Objects.equals(protocol, "tcp")){
+            service.put("addr", tunnel.getTcpListenAddr() + ":" + in_port);
+        }else {
+            service.put("addr", tunnel.getUdpListenAddr() + ":" + in_port);
+        }
 
         // 添加限流器配置
         if (limiter != null) {
@@ -357,9 +256,6 @@ public class GostUtil {
         return service;
     }
 
-    /**
-     * 创建处理器配置
-     */
     private static JSONObject createHandler(String protocol, String name, Integer fow_type) {
         JSONObject handler = new JSONObject();
         handler.put("type", protocol);
@@ -372,18 +268,12 @@ public class GostUtil {
         return handler;
     }
 
-    /**
-     * 创建监听器配置
-     */
     private static JSONObject createListener(String protocol) {
         JSONObject listener = new JSONObject();
         listener.put("type", protocol);
         return listener;
     }
 
-    /**
-     * 创建转发器配置
-     */
     private static JSONObject createForwarder(String protocol, String remoteAddr) {
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
@@ -395,33 +285,12 @@ public class GostUtil {
         return forwarder;
     }
 
-    /**
-     * 判断是否为端口转发
-     */
     private static boolean isPortForwarding(Integer fow_type) {
         return fow_type != null && fow_type == 1;
     }
 
-    /**
-     * 判断是否为隧道转发
-     */
     private static boolean isTunnelForwarding(Integer fow_type) {
         return fow_type != null && fow_type != 1;
     }
 
-
-    /**
-     * 构建API URL
-     */
-    private static String buildUrl(String addr, String endpoint) {
-        // 如果是IPv6地址（包含多个冒号且不包含方括号），需要用方括号包裹IP部分
-        if (!addr.contains("[") && addr.indexOf(':') != addr.lastIndexOf(':')) {
-            // 这是IPv6地址，找到最后一个冒号（端口分隔符）
-            int lastColonIndex = addr.lastIndexOf(':');
-            String ipPart = addr.substring(0, lastColonIndex);
-            String portPart = addr.substring(lastColonIndex);
-            addr = "[" + ipPart + "]" + portPart;
-        }
-        return "https://" + addr + API_BASE_URL + endpoint;
-    }
 }

@@ -112,6 +112,9 @@
       :width="isMobile ? '90%' : '400px'" 
       :before-close="handlePasswordDialogClose">
       <el-form :model="passwordForm" :rules="passwordRules" ref="passwordForm" label-width="100px">
+        <el-form-item label="新用户名" prop="newUsername">
+          <el-input v-model="passwordForm.newUsername" placeholder="请输入新用户名（至少3位）" clearable></el-input>
+        </el-form-item>
         <el-form-item label="当前密码" prop="currentPassword">
           <el-input v-model="passwordForm.currentPassword" type="password" placeholder="请输入当前密码" show-password clearable></el-input>
         </el-form-item>
@@ -147,11 +150,17 @@ export default {
       passwordDialogVisible: false,
       passwordLoading: false,
       passwordForm: {
+        newUsername: '',
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       },
       passwordRules: {
+        newUsername: [
+          { required: true, message: '请输入新用户名', trigger: 'blur' },
+          { min: 3, message: '用户名长度至少3位', trigger: 'blur' },
+          { max: 20, message: '用户名长度不能超过20位', trigger: 'blur' }
+        ],
         currentPassword: [
           { required: true, message: '请输入当前密码', trigger: 'blur' },
           { min: 1, message: '密码不能为空', trigger: 'blur' }
@@ -224,6 +233,7 @@ export default {
     // 重置修改密码表单
     resetPasswordForm() {
       this.passwordForm = {
+        newUsername: '',
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''

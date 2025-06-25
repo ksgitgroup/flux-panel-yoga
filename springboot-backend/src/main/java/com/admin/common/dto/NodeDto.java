@@ -13,8 +13,9 @@ public class NodeDto {
     @NotBlank(message = "节点名称不能为空")
     private String name;
 
-    @NotNull(message = "控制端口不能为空")
-    @Min(value = 1, message = "端口号必须在1-65535之间")
-    @Max(value = 65535, message = "端口号必须在1-65535之间")
-    private Integer port;
+    @NotBlank(message = "入口IP不能为空")
+    private String ip;
+
+    @NotBlank(message = "服务器ip不能为空")
+    private String serverIp;
 } 

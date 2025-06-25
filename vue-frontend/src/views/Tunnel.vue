@@ -256,6 +256,30 @@
           ></el-input-number>
         </el-form-item>
 
+        <el-form-item label="监听地址" prop="tcpListenAddr">
+          <el-input 
+            v-model="tunnelForm.tcpListenAddr" 
+            placeholder="请输入TCP监听地址"
+            clearable
+          >
+            <template slot="prepend">TCP</template>
+          </el-input>
+      
+        </el-form-item>
+
+        <el-form-item label="监听地址" prop="udpListenAddr">
+          <el-input 
+            v-model="tunnelForm.udpListenAddr" 
+            placeholder="请输入UDP监听地址"
+            clearable
+          >
+            <template slot="prepend">UDP</template>
+          </el-input>
+          <div class="form-hint">
+            部分专线需要指定才能转发udp
+          </div>
+        </el-form-item>
+
         <!-- 只有隧道转发(type=2)时才显示出口配置 -->
         <template v-if="tunnelForm.type === 2">
           <el-divider content-position="left">出口配置</el-divider>
@@ -377,7 +401,9 @@ export default {
         type: 1,
         flow: 1,  // 默认单向计算
         status: 1,  // 默认启用
-        protocol: 'tls'
+        protocol: 'tls',
+        tcpListenAddr: '0.0.0.0',  // TCP监听地址
+        udpListenAddr: '0.0.0.0'   // UDP监听地址
       },
       rules: {
         name: [
@@ -412,6 +438,44 @@ export default {
         ],
         protocol: [
           { required: false, message: '请选择协议类型', trigger: 'change' }
+        ],
+        tcpListenAddr: [
+          { required: true, message: '请输入TCP监听地址', trigger: 'blur' },
+          { 
+            validator: (rule, value, callback) => {
+              if (value) {
+                // 验证IP地址格式（包括0.0.0.0）
+                const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                if (ipRegex.test(value)) {
+                  callback();
+                } else {
+                  callback(new Error('请输入有效的IP地址'));
+                }
+              } else {
+                callback();
+              }
+            }, 
+            trigger: 'blur' 
+          }
+        ],
+        udpListenAddr: [
+          { required: true, message: '请输入UDP监听地址', trigger: 'blur' },
+          { 
+            validator: (rule, value, callback) => {
+              if (value) {
+                // 验证IP地址格式（包括0.0.0.0）
+                const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                if (ipRegex.test(value)) {
+                  callback();
+                } else {
+                  callback(new Error('请输入有效的IP地址'));
+                }
+              } else {
+                callback();
+              }
+            }, 
+            trigger: 'blur' 
+          }
         ]
       }
     };
@@ -497,6 +561,8 @@ export default {
         inPortEnd: tunnel.inPortEnd,
         outIpSta: tunnel.outIpSta,
         outIpEnd: tunnel.outIpEnd,
+        tcpListenAddr: tunnel.tcpListenAddr || '0.0.0.0',
+        udpListenAddr: tunnel.udpListenAddr || '0.0.0.0',
         // 以下字段不允许修改，但需要保留原值用于显示和提交
         type: tunnel.type,
         inNodeId: tunnel.inNodeId,
@@ -590,7 +656,9 @@ export default {
               inPortSta: data.inPortSta,
               inPortEnd: data.inPortEnd,
               outIpSta: data.outIpSta,
-              outIpEnd: data.outIpEnd
+              outIpEnd: data.outIpEnd,
+              tcpListenAddr: data.tcpListenAddr,
+              udpListenAddr: data.udpListenAddr
             };
             
             updateTunnel(updateData).then(res => {
@@ -642,7 +710,9 @@ export default {
         type: 1,
         flow: 1,  // 默认单向计算
         status: 1,  // 默认启用
-        protocol: 'tls'
+        protocol: 'tls',
+        tcpListenAddr: '0.0.0.0',  // TCP监听地址
+        udpListenAddr: '0.0.0.0'   // UDP监听地址
       };
       if (this.$refs.tunnelForm) {
         this.$refs.tunnelForm.clearValidate();

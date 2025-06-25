@@ -77,4 +77,8 @@ public class Tunnel extends BaseEntity {
      * 协议类型（隧道转发时使用：tls、tcp、mtls）
      */
     private String protocol;
+
+    private String tcpListenAddr;
+
+    private String udpListenAddr;
 }

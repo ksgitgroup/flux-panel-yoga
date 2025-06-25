@@ -193,6 +193,14 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         existingTunnel.setInPortSta(tunnelUpdateDto.getInPortSta());
         existingTunnel.setInPortEnd(tunnelUpdateDto.getInPortEnd());
         
+        // 更新TCP和UDP监听地址
+        if (StrUtil.isNotBlank(tunnelUpdateDto.getTcpListenAddr())) {
+            existingTunnel.setTcpListenAddr(tunnelUpdateDto.getTcpListenAddr());
+        }
+        if (StrUtil.isNotBlank(tunnelUpdateDto.getUdpListenAddr())) {
+            existingTunnel.setUdpListenAddr(tunnelUpdateDto.getUdpListenAddr());
+        }
+        
         if (existingTunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
             existingTunnel.setOutIpSta(tunnelUpdateDto.getOutIpSta());
             existingTunnel.setOutIpEnd(tunnelUpdateDto.getOutIpEnd());
@@ -400,7 +408,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         
         // 设置入口节点信息
         tunnel.setInNodeId(tunnelDto.getInNodeId());
-        tunnel.setInIp(inNode.getIp());
+        tunnel.setInIp(inNode.getServerIp());
         
         // 设置流量计算类型
         tunnel.setFlow(tunnelDto.getFlow());
@@ -414,6 +422,12 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             // 端口转发时，协议类型为null
             tunnel.setProtocol(null);
         }
+        
+        // 设置TCP和UDP监听地址
+        tunnel.setTcpListenAddr(StrUtil.isNotBlank(tunnelDto.getTcpListenAddr()) ? 
+                               tunnelDto.getTcpListenAddr() : "0.0.0.0");
+        tunnel.setUdpListenAddr(StrUtil.isNotBlank(tunnelDto.getUdpListenAddr()) ? 
+                               tunnelDto.getUdpListenAddr() : "0.0.0.0");
         
         return tunnel;
     }
@@ -496,7 +510,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         
         // 设置出口参数
         tunnel.setOutNodeId(tunnelDto.getOutNodeId());
-        tunnel.setOutIp(outNode.getIp());
+        tunnel.setOutIp(outNode.getServerIp());
         
         return R.ok();
     }
@@ -651,6 +665,14 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         TunnelListDto dto = new TunnelListDto();
         dto.setId(tunnel.getId().intValue());
         dto.setName(tunnel.getName());
+        dto.setIp(tunnel.getInIp());
+        dto.setInPortSta(tunnel.getInPortSta());
+        dto.setInPortEnd(tunnel.getInPortEnd());
+        dto.setOutIp(tunnel.getOutIp());
+        dto.setOutIpSta(tunnel.getOutIpSta());
+        dto.setOutIpEnd(tunnel.getOutIpEnd());
+        dto.setType(tunnel.getType());
+        dto.setProtocol(tunnel.getProtocol());
         return dto;
     }
 

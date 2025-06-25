@@ -80,6 +80,33 @@ func (m *MemoryManager) ClearAllTrafficStats(ctx context.Context) error {
 	return nil
 }
 
+// SubtractTrafficStats 从指定服务的流量统计中减去给定的值
+func (m *MemoryManager) SubtractTrafficStats(ctx context.Context, stats map[string]map[string]int64) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for service, serviceStats := range stats {
+		if managerStats, exists := m.stats[service]; exists {
+			if upload, ok := serviceStats["upload"]; ok && upload > 0 {
+				managerStats.upload.Add(-upload)
+				// 确保不会变成负数
+				if managerStats.upload.Load() < 0 {
+					managerStats.upload.Store(0)
+				}
+			}
+			if download, ok := serviceStats["download"]; ok && download > 0 {
+				managerStats.download.Add(-download)
+				// 确保不会变成负数
+				if managerStats.download.Load() < 0 {
+					managerStats.download.Store(0)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // Close 关闭管理器（内存管理器无需特殊清理）
 func (m *MemoryManager) Close() error {
 	return nil

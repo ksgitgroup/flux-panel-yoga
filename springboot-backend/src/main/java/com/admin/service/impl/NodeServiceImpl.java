@@ -187,6 +187,7 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         node.setId(nodeUpdateDto.getId());
         node.setName(nodeUpdateDto.getName());
         node.setIp(nodeUpdateDto.getIp());
+        node.setServerIp(nodeUpdateDto.getServerIp());
         node.setUpdatedTime(System.currentTimeMillis());
         return node;
     }
@@ -297,15 +298,68 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         StringBuilder command = new StringBuilder();
         
         // 第一部分：下载安装脚本  
-        command.append("curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/install.sh")
+        command.append("curl -L https://ghproxy.com/https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/install.sh")
                .append(" -o ./install.sh && chmod +x ./install.sh && ");
+        
+        // 处理服务器地址，如果是IPv6需要添加方括号
+        String processedServerAddr = processServerAddress(serverAddr);
         
         // 第二部分：执行安装脚本（去掉-u参数）
         command.append("./install.sh")
-               .append(" -a ").append(serverAddr)          // 服务器地址
-               .append(" -p ").append(node.getPort())      // 节点端口
-               .append(" -s ").append(node.getSecret());   // 节点密钥
+               .append(" -a ").append(processedServerAddr)  // 服务器地址
+               .append(" -s ").append(node.getSecret());    // 节点密钥
         
         return command.toString();
+    }
+
+    /**
+     * 处理服务器地址，确保IPv6地址被方括号包裹
+     * 
+     * @param serverAddr 原始服务器地址，格式可能为 host:port
+     * @return 处理后的服务器地址
+     */
+    private String processServerAddress(String serverAddr) {
+        if (StrUtil.isBlank(serverAddr)) {
+            return serverAddr;
+        }
+        
+        // 如果已经被方括号包裹，直接返回
+        if (serverAddr.startsWith("[")) {
+            return serverAddr;
+        }
+        
+        // 查找最后一个冒号，分离主机和端口
+        int lastColonIndex = serverAddr.lastIndexOf(':');
+        if (lastColonIndex == -1) {
+            // 没有端口号，直接检查是否需要包裹
+            return isIPv6Address(serverAddr) ? "[" + serverAddr + "]" : serverAddr;
+        }
+        
+        String host = serverAddr.substring(0, lastColonIndex);
+        String port = serverAddr.substring(lastColonIndex);
+        
+        // 检查主机部分是否为IPv6地址
+        if (isIPv6Address(host)) {
+            return "[" + host + "]" + port;
+        }
+        
+        return serverAddr;
+    }
+
+    /**
+     * 判断是否为IPv6地址
+     * 
+     * @param address 地址字符串（不包含端口号）
+     * @return 是否为IPv6地址
+     */
+    private boolean isIPv6Address(String address) {
+        // IPv6地址包含多个冒号，至少2个
+        if (!address.contains(":")) {
+            return false;
+        }
+        
+        // 计算冒号数量，IPv6地址至少有2个冒号
+        long colonCount = address.chars().filter(ch -> ch == ':').count();
+        return colonCount >= 2;
     }
 }

@@ -197,6 +197,25 @@
           </el-select>
         </el-form-item>
         
+        <el-form-item label="入口端口" prop="inPort">
+          <el-input 
+            v-model.number="forwardForm.inPort" 
+            type="number"
+            placeholder="留空自动分配"
+            clearable
+            :min="1"
+            :max="65535"
+          >
+            <template slot="prepend">端口</template>
+          </el-input>
+          <div class="form-hint" v-if="selectedTunnel">
+            允许范围: {{ selectedTunnel.inPortSta }}-{{ selectedTunnel.inPortEnd }}，留空将自动分配可用端口
+          </div>
+          <div class="form-hint" v-else>
+            请先选择隧道以查看端口范围，留空将自动分配可用端口
+          </div>
+        </el-form-item>
+        
         <el-form-item label="远程地址" prop="remoteAddr">
           <el-input 
             v-model="forwardForm.remoteAddr" 
@@ -264,6 +283,7 @@ export default {
         userId: null,
         name: '',
         tunnelId: null,
+        inPort: null,
         remoteAddr: ''
       },
       
@@ -275,6 +295,29 @@ export default {
         ],
         tunnelId: [
           { required: true, message: '请选择关联隧道', trigger: 'change' }
+        ],
+        inPort: [
+          { 
+            validator: (rule, value, callback) => {
+              if (value !== null && value !== undefined && value !== '') {
+                // 检查端口号范围
+                if (value < 1 || value > 65535) {
+                  callback(new Error('端口号必须在1-65535之间'));
+                  return;
+                }
+                
+                // 检查是否在隧道允许范围内
+                if (this.selectedTunnel) {
+                  if (value < this.selectedTunnel.inPortSta || value > this.selectedTunnel.inPortEnd) {
+                    callback(new Error(`端口号必须在${this.selectedTunnel.inPortSta}-${this.selectedTunnel.inPortEnd}范围内`));
+                    return;
+                  }
+                }
+              }
+              callback();
+            }, 
+            trigger: 'blur' 
+          }
         ],
         remoteAddr: [
           { required: true, message: '请输入远程地址', trigger: 'blur' },
@@ -431,7 +474,8 @@ export default {
         // 隧道列表加载完成后，设置表单数据并弹出对话框
       this.forwardForm = { 
         ...row,
-        userId: row.userId // 确保userId被正确设置
+        userId: row.userId, // 确保userId被正确设置
+        inPort: row.inPort || null // 设置入口端口
       };
       this.handleTunnelChange(row.tunnelId);
       this.dialogVisible = true;
@@ -511,8 +555,18 @@ export default {
     // 隧道选择变化处理
     handleTunnelChange(tunnelId) {
       this.selectedTunnel = this.tunnelList.find(tunnel => 
-        tunnel.id === tunnelId || tunnel.tunnelId === tunnelId
+        tunnel.id === tunnelId
       ) || null;
+      
+      // 清空端口输入，避免与新隧道的端口范围冲突
+      this.forwardForm.inPort = null;
+      
+      // 触发端口字段重新验证
+      this.$nextTick(() => {
+        if (this.$refs.forwardForm) {
+          this.$refs.forwardForm.clearValidate('inPort');
+        }
+      });
     },
     
     // 提交表单
@@ -530,6 +584,7 @@ export default {
             userId: this.forwardForm.userId,
             name: this.forwardForm.name,
             tunnelId: this.forwardForm.tunnelId,
+            inPort: this.forwardForm.inPort || null,
             remoteAddr: this.forwardForm.remoteAddr
           };
           res = await updateForward(updateData);
@@ -538,6 +593,7 @@ export default {
           const createData = {
             name: this.forwardForm.name,
             tunnelId: this.forwardForm.tunnelId,
+            inPort: this.forwardForm.inPort || null,
             remoteAddr: this.forwardForm.remoteAddr
           };
           res = await createForward(createData);
@@ -567,6 +623,7 @@ export default {
         userId: null,
         name: '',
         tunnelId: null,
+        inPort: null,
         remoteAddr: ''
       };
       this.selectedTunnel = null;
@@ -581,19 +638,11 @@ export default {
     getTunnelDisplayName(tunnel) {
       if (!tunnel) return '未知隧道';
       
-      // 处理用户隧道权限列表的数据结构
-      if (tunnel.tunnelId) {
-        const tunnelInfo = this.tunnelList.find(t => t.id === tunnel.tunnelId);
-        if (tunnelInfo && tunnelInfo.ip && tunnelInfo.port) {
-          return `${tunnelInfo.name || tunnel.tunnelId} (${tunnelInfo.ip}:${tunnelInfo.port})`;
-        }
-        return `隧道ID: ${tunnel.tunnelId}`;
-      }
-      
-      // 处理直接隧道数据结构
+      // 处理隧道数据结构
       if (tunnel.name) {
-        if (tunnel.ip && tunnel.port) {
-          return `${tunnel.name} (${tunnel.ip}:${tunnel.port})`;
+        // 显示隧道名称和IP信息
+        if (tunnel.ip) {
+          return `${tunnel.name} (${tunnel.ip})`;
         }
         return tunnel.name;
       }

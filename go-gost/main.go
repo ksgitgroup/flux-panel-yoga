@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-gost/core/logger"
 	xlogger "github.com/go-gost/x/logger"
+	"github.com/go-gost/x/socket"
 	"github.com/go-gost/x/traffic"
 	"github.com/judwhite/go-svc"
 )
@@ -124,9 +125,10 @@ func main() {
 	fmt.Println("✅ 使用内存流量管理器")
 	logger.Default().Info("Using memory traffic manager")
 
-	SetHTTPReportURL(config.Addr, config.Secret)
-	StartTrafficReporter(trafficMgr)
-	wsReporter := StartWebSocketReporterWithConfig(config.Addr, config.Secret)
+	traffic.SetHTTPReportURL(config.Addr, config.Secret)
+	traffic.StartTrafficReporter(trafficMgr)
+
+	wsReporter := socket.StartWebSocketReporterWithConfig(config.Addr, config.Secret)
 	defer wsReporter.Stop()
 
 	p := &program{}

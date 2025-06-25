@@ -35,14 +35,10 @@ public class WebSocketInterceptor extends HttpSessionHandshakeInterceptor {
         String secret = serverHttpRequest.getServletRequest().getParameter("secret");
         String type = serverHttpRequest.getServletRequest().getParameter("type");
         if (Objects.equals(type, "1")) {
-            String client_ip = serverHttpRequest.getServletRequest().getParameter("client_ip");
             Node node = nodeService.getOne(new QueryWrapper<Node>().eq("secret", secret));
             if (node == null) return false;
             attributes.put("id", node.getId());
             node.setStatus(1);
-            if (node.getIp() == null){
-                node.setIp(client_ip);
-            }
             nodeService.updateById(node);
         }else {
             boolean b = JwtUtil.validateToken(secret);

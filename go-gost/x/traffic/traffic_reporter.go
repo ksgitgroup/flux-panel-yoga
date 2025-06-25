@@ -1,4 +1,4 @@
-package main
+package traffic
 
 import (
 	"bytes"
@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/go-gost/x/traffic"
 )
 
 // 全局变量存储HTTP地址
@@ -29,7 +27,7 @@ func SetHTTPReportURL(addr string, secret string) {
 }
 
 // StartTrafficReporter 启动流量报告任务
-func StartTrafficReporter(trafficMgr traffic.Manager) {
+func StartTrafficReporter(trafficMgr Manager) {
 	// 检查是否设置了HTTP地址
 	if httpReportURL == "" {
 		fmt.Println("❌ HTTP报告地址未设置，无法启动流量报告任务")
@@ -124,12 +122,12 @@ func StartTrafficReporter(trafficMgr traffic.Manager) {
 				if err != nil {
 					fmt.Printf("发送流量报告失败: %v\n", err)
 				} else if success {
-					// 只有收到"ok"响应才清零流量
-					err = trafficMgr.ClearAllTrafficStats(ctx)
+					// 只有收到"ok"响应才减去已上报的流量
+					err = trafficMgr.SubtractTrafficStats(ctx, stats)
 					if err != nil {
-						fmt.Printf("清零流量统计失败: %v\n", err)
+						fmt.Printf("减去已上报流量失败: %v\n", err)
 					} else {
-						fmt.Printf("✅ 流量报告已发送并清零: %d个记录, 总流量: %d bytes\n",
+						fmt.Printf("✅ 流量报告已发送并减去已上报流量: %d个记录, 总流量: %d bytes\n",
 							totalServices, totalTraffic)
 					}
 				} else {

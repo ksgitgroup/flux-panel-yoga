@@ -24,7 +24,6 @@ public class Node extends BaseEntity {
 
     private String ip;
 
-    private Integer port;
-
+    private String serverIp;
 
 }

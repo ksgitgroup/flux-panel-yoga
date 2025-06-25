@@ -37,4 +37,10 @@ public class TunnelUpdateDto {
     @Min(value = 1, message = "出口端口结束必须大于等于0")
     @Max(value = 65535, message = "出口端口结束不能超过65535")
     private Integer outIpEnd;
+    
+    // TCP监听地址
+    private String tcpListenAddr;
+    
+    // UDP监听地址
+    private String udpListenAddr;
 } 

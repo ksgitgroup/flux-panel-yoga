@@ -44,7 +44,6 @@ public class FlowController extends BaseController {
 
     // 常量定义
     private static final String SUCCESS_RESPONSE = "ok";
-    private static final String ERROR_RESPONSE = "err1";
     private static final String DEFAULT_USER_TUNNEL_ID = "0";
     private static final int FLOW_TYPE_UPLOAD_ONLY = 1;
     private static final int FLOW_TYPE_BIDIRECTIONAL = 2;
@@ -73,7 +72,7 @@ public class FlowController extends BaseController {
     public String uploadFlowData(@RequestBody List<FlowDto> flowDataList, String secret) {
         // 1. 验证节点权限
         if (!isValidNode(secret)) {
-            return ERROR_RESPONSE;
+            return SUCCESS_RESPONSE;
         }
 
         List<FlowDto> validFlowData = flowDataList;
@@ -266,13 +265,13 @@ public class FlowController extends BaseController {
             Node node = nodeService.getNodeById(tunnel.getInNodeId());
             if (node != null) {
                 String serviceName = buildServiceName(forwardId, userId, userTunnelId);
-                GostUtil.PauseService(node.getIp() + ":" + node.getPort(), serviceName, node.getSecret());
+                GostUtil.PauseService(node.getId(), serviceName);
 
                 // 隧道转发需要同时暂停远端服务
                 if (tunnel.getType() == 2) { // TUNNEL_TYPE_TUNNEL_FORWARD
                     Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
                     if (outNode != null) {
-                        GostUtil.PauseRemoteService(outNode.getIp() + ":" + outNode.getPort(), serviceName, outNode.getSecret());
+                        GostUtil.PauseRemoteService(outNode.getId(), serviceName);
                     }
                 }
             }
@@ -296,13 +295,13 @@ public class FlowController extends BaseController {
             Node node = nodeService.getNodeById(tunnel.getInNodeId());
             if (node != null) {
                 String serviceName = buildServiceName(forwardId, userId, userTunnelId);
-                GostUtil.PauseService(node.getIp() + ":" + node.getPort(), serviceName, node.getSecret());
+                GostUtil.PauseService(node.getId(), serviceName);
 
                 // 隧道转发需要同时暂停远端服务
                 if (tunnel.getType() == 2) { // TUNNEL_TYPE_TUNNEL_FORWARD
                     Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
                     if (outNode != null) {
-                        GostUtil.PauseRemoteService(outNode.getIp() + ":" + outNode.getPort(), serviceName, outNode.getSecret());
+                        GostUtil.PauseRemoteService(outNode.getId(), serviceName);
                     }
                 }
             }
@@ -392,13 +391,13 @@ public class FlowController extends BaseController {
             Node node = nodeService.getNodeById(tunnel.getInNodeId());
             if (node != null) {
                 String serviceName = buildServiceName(String.valueOf(forward.getId()), userId, userTunnelId);
-                GostUtil.PauseService(node.getIp() + ":" + node.getPort(), serviceName, node.getSecret());
+                GostUtil.PauseService(node.getId(), serviceName);
 
                 // 隧道转发需要同时暂停远端服务
                 if (tunnel.getType() == 2) { // TUNNEL_TYPE_TUNNEL_FORWARD
                     Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
                     if (outNode != null) {
-                        GostUtil.PauseRemoteService(outNode.getIp() + ":" + outNode.getPort(), serviceName, outNode.getSecret());
+                        GostUtil.PauseRemoteService(outNode.getId(), serviceName);
                     }
                 }
             }
@@ -423,13 +422,13 @@ public class FlowController extends BaseController {
                     // 查找该转发对应的正确userTunnelId
                     String actualUserTunnelId = findActualUserTunnelId(userId, forward.getTunnelId().toString());
                     String serviceName = buildServiceName(String.valueOf(forward.getId()), userId, actualUserTunnelId);
-                    GostUtil.PauseService(node.getIp() + ":" + node.getPort(), serviceName, node.getSecret());
+                    GostUtil.PauseService(node.getId(), serviceName);
 
                     // 隧道转发需要同时暂停远端服务
                     if (tunnel.getType() == 2) { // TUNNEL_TYPE_TUNNEL_FORWARD
                         Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
                         if (outNode != null) {
-                            GostUtil.PauseRemoteService(outNode.getIp() + ":" + outNode.getPort(), serviceName, outNode.getSecret());
+                            GostUtil.PauseRemoteService(outNode.getId(), serviceName);
                         }
                     }
                 }

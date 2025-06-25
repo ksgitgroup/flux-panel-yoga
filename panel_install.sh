@@ -6,8 +6,8 @@ export LANG=en_US.UTF-8
 export LC_ALL=C
 
 # 全局下载地址配置
-DOCKER_COMPOSE_URL="https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose.yml"
-GOST_SQL_URL="https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/gost.sql"
+DOCKER_COMPOSE_URL="https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose.yml"
+GOST_SQL_URL="https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/gost.sql"
 
 # 检查 docker-compose 或 docker compose 命令
 check_docker() {

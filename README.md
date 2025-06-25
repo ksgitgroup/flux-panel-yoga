@@ -73,7 +73,7 @@
 
 ```bash
 
-curl -L https://ghproxy.com/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 
 ```
 

@@ -218,17 +218,7 @@ EOF
   echo "FRONTEND_PORT=$FRONTEND_PORT"
   echo "BACKEND_PORT=$BACKEND_PORT"
   
-  # 如果启用了 IPv6，显示额外信息
-  if check_ipv6_support; then
-    echo ""
-    echo "📡 IPv6 访问信息："
-    # 获取系统的 IPv6 地址
-    IPV6_ADDR=$(ip -6 addr show | grep -v "fe80" | grep -v "::1" | grep "inet6" | head -n1 | awk '{print $2}' | cut -d'/' -f1)
-    if [[ -n "$IPV6_ADDR" ]]; then
-      echo "   前端访问: http://[$IPV6_ADDR]:$FRONTEND_PORT"
-      echo "   后端访问: http://[$IPV6_ADDR]:$BACKEND_PORT"
-    fi
-  fi
+
 }
 
 # 更新功能

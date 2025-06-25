@@ -164,7 +164,6 @@ services:
       JAVA_OPTS: "-Xms256m -Xmx512m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
     ports:
       - "${BACKEND_PORT}:6365"
-      - "[::]:${BACKEND_PORT}:6365"
     volumes:
       - backend_logs:/app/logs
     depends_on:
@@ -185,7 +184,6 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT}:80"
-      - "[::]:${FRONTEND_PORT}:80"
     depends_on:
       backend:
         condition: service_healthy

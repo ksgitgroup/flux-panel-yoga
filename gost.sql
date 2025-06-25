@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- 主机： localhost
--- 生成日期： 2025-06-17 11:38:14
+-- 生成日期： 2025-06-25 10:51:18
 -- 服务器版本： 5.7.40-log
 -- PHP 版本： 7.4.33
 
@@ -54,7 +54,7 @@ CREATE TABLE `node` (
   `name` varchar(100) NOT NULL,
   `secret` varchar(100) NOT NULL,
   `ip` varchar(100) DEFAULT NULL,
-  `port` int(10) NOT NULL,
+  `server_ip` varchar(100) NOT NULL,
   `created_time` bigint(20) NOT NULL,
   `updated_time` bigint(20) DEFAULT NULL,
   `status` int(10) NOT NULL
@@ -95,8 +95,10 @@ CREATE TABLE `tunnel` (
   `out_ip_sta` int(10) NOT NULL,
   `out_ip_end` int(10) NOT NULL,
   `type` int(10) NOT NULL,
+  `protocol` varchar(10) NOT NULL DEFAULT 'tls',
   `flow` int(10) NOT NULL,
-  `protocol` varchar(10) DEFAULT 'tls' COMMENT '协议类型: tls, tcp, mtls',
+  `tcp_listen_addr` varchar(100) NOT NULL DEFAULT '0.0.0.0',
+  `udp_listen_addr` varchar(100) NOT NULL DEFAULT '0.0.0.0',
   `created_time` bigint(20) NOT NULL,
   `updated_time` bigint(20) NOT NULL,
   `status` int(10) NOT NULL
@@ -110,7 +112,6 @@ CREATE TABLE `tunnel` (
 
 CREATE TABLE `user` (
   `id` int(10) NOT NULL,
-  `name` varchar(100) NOT NULL,
   `user` varchar(100) NOT NULL,
   `pwd` varchar(100) NOT NULL,
   `role_id` int(10) NOT NULL,
@@ -129,8 +130,8 @@ CREATE TABLE `user` (
 -- 转存表中的数据 `user`
 --
 
-INSERT INTO `user` (`id`, `name`, `user`, `pwd`, `role_id`, `exp_time`, `flow`, `in_flow`, `out_flow`, `flow_reset_time`, `num`, `created_time`, `updated_time`, `status`) VALUES
-(1, 'admin_user', 'admin_user', '3c85cdebade1c51cf64ca9f3c09d182d', 0, 1780480500000, 99999, 0, 0, 1, 99999, 1748914865000, 1749707064856, 1);
+INSERT INTO `user` (`id`, `user`, `pwd`, `role_id`, `exp_time`, `flow`, `in_flow`, `out_flow`, `flow_reset_time`, `num`, `created_time`, `updated_time`, `status`) VALUES
+(1, 'admin_user', '3c85cdebade1c51cf64ca9f3c09d182d', 0, 1780480500000, 99999, 0, 0, 1, 99999, 1748914865000, 1750228795866, 1);
 
 -- --------------------------------------------------------
 
@@ -200,37 +201,37 @@ ALTER TABLE `user_tunnel`
 -- 使用表AUTO_INCREMENT `forward`
 --
 ALTER TABLE `forward`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=78;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=110;
 
 --
 -- 使用表AUTO_INCREMENT `node`
 --
 ALTER TABLE `node`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- 使用表AUTO_INCREMENT `speed_limit`
 --
 ALTER TABLE `speed_limit`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=66;
 
 --
 -- 使用表AUTO_INCREMENT `tunnel`
 --
 ALTER TABLE `tunnel`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- 使用表AUTO_INCREMENT `user`
 --
 ALTER TABLE `user`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
 
 --
 -- 使用表AUTO_INCREMENT `user_tunnel`
 --
 ALTER TABLE `user_tunnel`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=41;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

@@ -198,38 +198,91 @@
         
         <el-form-item label="入口IP" prop="ipList">
           <div class="ip-input-container">
-            <!-- 已添加的IP标签 -->
-            <div class="ip-tags" v-if="nodeForm.ipList.length > 0">
-              <el-tag
-                v-for="(ip, index) in nodeForm.ipList"
-                :key="index"
-                :type="getIpTagType(ip)"
-                size="medium"
-                closable
-                @close="removeIp(index)"
-                class="ip-tag"
-              >
-                {{ ip }}
-              </el-tag>
-            </div>
-            
-            <!-- 输入新IP -->
-            <div class="ip-input-wrapper">
+            <!-- IP输入区域 -->
+            <div class="ip-input-section">
               <el-input
                 v-model="newIpInput"
-                placeholder="请输入IP地址或域名，如: 192.168.1.1、2001:db8::1 或 example.com"
+                placeholder="输入IP地址或域名，按Enter添加"
                 clearable
                 @keyup.enter.native="addIp"
-                @blur="addIp"
                 size="medium"
                 class="ip-input"
+                :disabled="nodeForm.ipList.length >= 10"
               >
                 <template slot="append">
-                  <el-button @click="addIp" icon="el-icon-plus" size="medium">添加</el-button>
+                  <el-button 
+                    @click="addIp" 
+                    icon="el-icon-plus" 
+                    size="medium"
+                    :disabled="nodeForm.ipList.length >= 10 || !newIpInput.trim()"
+                    type="primary"
+                  >
+                    添加
+                  </el-button>
                 </template>
               </el-input>
+              
+              <!-- 添加提示 -->
+              <div class="ip-input-tips">
+                <div class="tip-item">
+                  <i class="el-icon-info"></i>
+                  <span>支持IPv4、IPv6地址和域名格式</span>
+                </div>
+                <div class="tip-item count-tip">
+                  <i class="el-icon-document"></i>
+                  <span>已添加 {{ nodeForm.ipList.length }} / 10 个IP</span>
+                </div>
+              </div>
             </div>
-     
+            
+            <!-- 已添加的IP列表 -->
+            <div class="ip-list-section" v-if="nodeForm.ipList.length > 0">
+              <div class="ip-list-header">
+                <span class="list-title">
+                  <i class="el-icon-collection-tag"></i>
+                  已配置的入口IP
+                </span>
+                <el-button 
+                  size="mini" 
+                  type="text" 
+                  @click="clearAllIps"
+                  class="clear-all-btn"
+                >
+                  <i class="el-icon-delete"></i>
+                  清空全部
+                </el-button>
+              </div>
+              
+              <div class="ip-tags-grid">
+                <div 
+                  v-for="(ip, index) in nodeForm.ipList"
+                  :key="index"
+                  class="ip-tag-item"
+                >
+                  <el-tag
+                    :type="getIpTagType(ip)"
+                    size="medium"
+                    closable
+                    @close="removeIp(index)"
+                    class="ip-tag"
+                  >
+                    <i :class="getIpIcon(ip)" class="ip-icon"></i>
+                    {{ ip }}
+                  </el-tag>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 空状态提示 -->
+            <div class="ip-empty-state" v-else>
+              <i class="el-icon-plus"></i>
+              <p>请添加至少一个入口IP地址</p>
+              <div class="example-ips">
+                <span class="example-label">示例：</span>
+                <el-tag size="mini" @click="fillExample('192.168.1.100')" class="example-tag">192.168.1.100</el-tag>
+                <el-tag size="mini" @click="fillExample('example.com')" class="example-tag">example.com</el-tag>
+              </div>
+            </div>
           </div>
         </el-form-item>
    
@@ -970,6 +1023,17 @@ export default {
       
       const ip = this.newIpInput.trim();
       
+      // 检查数量限制
+      if (this.nodeForm.ipList.length >= 10) {
+        this.$message({
+          message: '最多只能添加10个IP地址',
+          type: 'warning',
+          duration: 3000,
+          showClose: true
+        });
+        return;
+      }
+      
       // 验证IP格式
       if (!this.validateIp(ip)) {
         this.$message({
@@ -1003,15 +1067,11 @@ export default {
         }
       });
       
-      this.$message({
-        message: `已添加IP地址: ${ip}`,
-        type: 'success',
-        duration: 2000
-      });
     },
     
     // 移除IP地址
     removeIp(index) {
+      const removedIp = this.nodeForm.ipList[index];
       this.nodeForm.ipList.splice(index, 1);
       
       // 触发表单验证
@@ -1020,6 +1080,82 @@ export default {
           this.$refs.nodeForm.validateField('ipList');
         }
       });
+      
+    
+    },
+    
+    // 清空所有IP地址
+    clearAllIps() {
+      this.$confirm('确定要清空所有IP地址吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        const count = this.nodeForm.ipList.length;
+        this.nodeForm.ipList = [];
+        
+        // 触发表单验证
+        this.$nextTick(() => {
+          if (this.$refs.nodeForm) {
+            this.$refs.nodeForm.validateField('ipList');
+          }
+        });
+        
+        this.$message({
+          message: `已清空 ${count} 个IP地址`,
+          type: 'success',
+          duration: 2000
+        });
+      }).catch(() => {
+        // 用户取消
+      });
+    },
+    
+    // 填充示例IP
+    fillExample(exampleIp) {
+      if (this.nodeForm.ipList.includes(exampleIp)) {
+        this.$message({
+          message: '该示例IP已存在',
+          type: 'warning',
+          duration: 2000
+        });
+        return;
+      }
+      
+      if (this.nodeForm.ipList.length >= 10) {
+        this.$message({
+          message: '最多只能添加10个IP地址',
+          type: 'warning',
+          duration: 2000
+        });
+        return;
+      }
+      
+      this.newIpInput = exampleIp;
+      // 自动聚焦到输入框
+      this.$nextTick(() => {
+        const input = this.$el.querySelector('.ip-input input');
+        if (input) {
+          input.focus();
+        }
+      });
+    },
+    
+    // 获取IP类型图标
+    getIpIcon(ip) {
+      // IPv4格式验证
+      const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+      
+      // IPv6格式验证
+      const ipv6Regex = /^((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/;
+      
+      if (ipv4Regex.test(ip)) {
+        return 'el-icon-monitor'; // IPv4
+      } else if (ipv6Regex.test(ip)) {
+        return 'el-icon-cpu'; // IPv6
+      } else {
+        return 'el-icon-link'; // 域名
+      }
     },
     
     // 验证单个IP地址（用于服务器IP验证）
@@ -1635,49 +1771,233 @@ export default {
   width: 100%;
 }
 
-.ip-tags {
-  margin-bottom: 12px;
+/* IP输入区域 */
+.ip-input-section {
+  margin-bottom: 16px;
+}
+
+.ip-input {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.ip-input-tips {
   display: flex;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #909399;
+  margin-top: 6px;
+}
+
+.tip-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tip-item i {
+  font-size: 14px;
+}
+
+.count-tip {
+  color: #606266;
+  font-weight: 500;
+}
+
+/* IP列表区域 */
+.ip-list-section {
+  background: #fafbfc;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.ip-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.list-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.list-title i {
+  color: #409eff;
+}
+
+.clear-all-btn {
+  color: #f56c6c;
+  padding: 4px 8px;
+}
+
+.clear-all-btn:hover {
+  color: #f02d2d;
+  background: rgba(245, 108, 108, 0.1);
+}
+
+.ip-tags-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
+}
+
+.ip-tag-item {
+  display: flex;
+  align-items: center;
 }
 
 .ip-tag {
   font-family: monospace;
   font-size: 12px;
-}
-
-.ip-input-wrapper {
-  margin-bottom: 8px;
-}
-
-.ip-input {
   width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 0.3s ease;
 }
 
-.ip-help-text {
+.ip-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.ip-icon {
+  font-size: 14px;
+  margin-right: 4px;
+}
+
+/* 空状态样式 */
+.ip-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  background: #fafbfc;
+  border: 2px dashed #d9d9d9;
+  border-radius: 8px;
+  color: #999;
+}
+
+.ip-empty-state i {
+  font-size: 48px;
+  margin-bottom: 12px;
+  color: #d9d9d9;
+}
+
+.ip-empty-state p {
+  font-size: 14px;
+  margin-bottom: 16px;
+  color: #666;
+}
+
+.example-ips {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.example-label {
   font-size: 12px;
   color: #909399;
-  line-height: 1.4;
+  margin-right: 4px;
 }
 
-.ip-help-text span {
-  display: block;
+.example-tag {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: monospace;
+}
+
+.example-tag:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* 响应式样式 */
 @media (max-width: 768px) {
-  .ip-tags {
-    margin-bottom: 8px;
+  .ip-input-tips {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  
+  .ip-list-section {
+    padding: 12px;
+  }
+  
+  .ip-list-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .clear-all-btn {
+    align-self: flex-end;
+  }
+  
+  .ip-tags-grid {
+    grid-template-columns: 1fr;
     gap: 6px;
   }
   
   .ip-tag {
     font-size: 11px;
+    padding: 5px 10px;
   }
   
-  .ip-help-text {
-    font-size: 11px;
+  .ip-empty-state {
+    padding: 30px 15px;
+  }
+  
+  .ip-empty-state i {
+    font-size: 36px;
+  }
+  
+  .example-ips {
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .example-label {
+    margin-right: 0;
+    margin-bottom: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .ip-input-section {
+    margin-bottom: 12px;
+  }
+  
+  .ip-list-section {
+    padding: 10px;
+  }
+  
+  .ip-tags-grid {
+    gap: 4px;
+  }
+  
+  .ip-tag {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+  
+  .ip-empty-state {
+    padding: 20px 10px;
   }
 }
 

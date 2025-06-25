@@ -565,6 +565,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     private Forward createForwardEntity(ForwardDto forwardDto, UserInfo currentUser, PortAllocation portAllocation) {
         Forward forward = new Forward();
+        // 先复制DTO的属性，再设置其他属性，避免被覆盖
+        BeanUtils.copyProperties(forwardDto, forward);
         forward.setStatus(FORWARD_STATUS_ACTIVE);
         forward.setInPort(portAllocation.getInPort());
         forward.setOutPort(portAllocation.getOutPort());
@@ -572,7 +574,6 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         forward.setUserName(currentUser.getUserName());
         forward.setCreatedTime(System.currentTimeMillis());
         forward.setUpdatedTime(System.currentTimeMillis());
-        BeanUtils.copyProperties(forwardDto, forward);
         return forward;
     }
 

@@ -87,7 +87,7 @@
                 <div class="flow-detail">
                   <div class="detail-item">
                     <span class="label">IP:</span>
-                    <span class="value" :title="tunnel.inIp">{{ tunnel.inIp }}</span>
+                    <span class="value" :title="getFullIpList(tunnel.inIp)">{{ getDisplayIp(tunnel.inIp) }}</span>
                   </div>
                   <div class="detail-item">
                     <span class="label">端口:</span>
@@ -113,7 +113,7 @@
                   
                   <div class="detail-item">
                     <span class="label">IP:</span>
-                    <span class="value" :title="tunnel.outIp">{{ tunnel.outIp }}</span>
+                    <span class="value" :title="getFullIpList(tunnel.outIp)">{{ getDisplayIp(tunnel.outIp) }}</span>
                   </div>
 
                   <div class="detail-item">
@@ -717,6 +717,32 @@ export default {
       if (this.$refs.tunnelForm) {
         this.$refs.tunnelForm.clearValidate();
       }
+    },
+
+    // 获取显示的IP（优化多IP显示）
+    getDisplayIp(ipString) {
+      if (!ipString) return '-';
+      
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      
+      if (ips.length === 0) return '-';
+      if (ips.length === 1) return ips[0];
+      
+      // 多个IP时显示第一个 + 数量提示
+      return `${ips[0]} 等${ips.length}个入口IP`;
+    },
+
+    // 获取完整的IP列表（用于title显示）
+    getFullIpList(ipString) {
+      if (!ipString) return '无IP配置';
+      
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      
+      if (ips.length === 0) return '无IP配置';
+      if (ips.length === 1) return ips[0];
+      
+      // 多个IP时在title中显示所有IP
+      return `入口IP列表 (${ips.length}个):\n${ips.join('\n')}`;
     }
   }
 };
@@ -913,15 +939,32 @@ export default {
   font-size: 12px;
   color: #909399;
   margin-bottom: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .detail-item .label {
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .detail-item .value {
   color: #303133;
   font-family: monospace;
+  cursor: help;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px dotted transparent;
+  transition: border-color 0.2s;
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-item .value:hover {
+  border-bottom-color: #409eff;
 }
 
 .flow-arrow {
@@ -1184,16 +1227,26 @@ export default {
      font-size: 11px;
      margin-bottom: 2px;
      line-height: 1.3;
+     display: flex;
+     align-items: baseline;
+     gap: 4px;
    }
    
    .detail-item .value {
      font-size: 12px;
-     display: inline-block;
-     max-width: 140px;
+     max-width: 120px;
      overflow: hidden;
      text-overflow: ellipsis;
      white-space: nowrap;
-     vertical-align: top;
+     cursor: help;
+     border-bottom: 1px dotted transparent;
+     transition: border-color 0.2s;
+     flex: 1;
+     min-width: 0;
+   }
+   
+   .detail-item .value:hover {
+     border-bottom-color: #409eff;
    }
   
   .flow-arrow {
@@ -1379,15 +1432,15 @@ export default {
      font-size: 11px;
      font-weight: 500;
      color: #409eff;
-     display: inline-block;
-     max-width: 120px;
+     max-width: 100px;
      overflow: hidden;
      text-overflow: ellipsis;
      white-space: nowrap;
-     vertical-align: top;
      cursor: help;
      border-bottom: 1px dotted transparent;
      transition: border-color 0.2s;
+     flex: 1;
+     min-width: 0;
    }
    
    .detail-item .value:hover {
@@ -1500,16 +1553,26 @@ export default {
      font-size: 9px;
      margin-bottom: 2px;
      line-height: 1.3;
+     display: flex;
+     align-items: baseline;
+     gap: 4px;
    }
    
    .detail-item .value {
      font-size: 10px;
-     display: inline-block;
-     max-width: 100px;
+     max-width: 80px;
      overflow: hidden;
      text-overflow: ellipsis;
      white-space: nowrap;
-     vertical-align: top;
+     cursor: help;
+     border-bottom: 1px dotted transparent;
+     transition: border-color 0.2s;
+     flex: 1;
+     min-width: 0;
+   }
+   
+   .detail-item .value:hover {
+     border-bottom-color: #409eff;
    }
 }
 

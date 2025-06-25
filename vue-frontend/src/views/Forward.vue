@@ -88,13 +88,17 @@
                       size="mini" 
                       type="text" 
                       icon="el-icon-copy-document"
-                      @click="copyToClipboard(formatInAddress(forward.inIp, forward.inPort), '入口地址')"
+                      @click="copyToClipboard(getCopyInAddress(forward.inIp, forward.inPort), '入口地址')"
                       class="copy-btn"
                       title="复制入口地址"
                     ></el-button>
                   </div>
                   <div class="address-value">
-                    <span class="value address-text" :title="formatInAddress(forward.inIp, forward.inPort)">
+                    <span 
+                      class="value address-text" 
+                      @click="showAddressDialog(forward.inIp, forward.inPort, '入口地址')"
+                      :class="{ 'clickable': hasMultipleIps(forward.inIp) }"
+                    >
                       {{ formatInAddress(forward.inIp, forward.inPort) }}
                     </span>
                   </div>
@@ -117,7 +121,7 @@
                     ></el-button>
                   </div>
                   <div class="address-value">
-                    <span class="value address-text" :title="forward.remoteAddr">
+                    <span class="value address-text">
                       {{ forward.remoteAddr }}
                     </span>
                   </div>
@@ -243,6 +247,65 @@
         </el-button>
       </span>
     </el-dialog>
+
+    <!-- 地址列表弹窗 -->
+    <el-dialog 
+      :title="addressDialogTitle" 
+      :visible.sync="addressDialogVisible" 
+      :width="isMobile ? '90%' : '500px'"
+      class="address-list-dialog"
+    >
+      <div class="address-list-container">
+        <!-- 头部操作 -->
+        <div class="address-list-header">
+          <div class="header-info">
+            <i class="el-icon-connection"></i>
+            <span>点击地址右侧按钮可单独复制</span>
+          </div>
+          <el-button 
+            size="mini" 
+            type="primary" 
+            icon="el-icon-copy-document"
+            @click="copyAllAddresses"
+            class="copy-all-btn"
+          >
+            复制全部
+          </el-button>
+        </div>
+
+        <!-- 地址列表 -->
+        <div class="address-list">
+          <div 
+            v-for="addressItem in addressList" 
+            :key="addressItem.id" 
+            class="address-list-item"
+          >
+            <div class="address-content">
+              <div class="ip-info">
+                <i class="el-icon-position"></i>
+                <span class="ip-text">{{ addressItem.ip }}</span>
+              </div>
+              <div class="address-text-full">{{ addressItem.address }}</div>
+            </div>
+            <el-button
+              size="mini"
+              type="text"
+              icon="el-icon-copy-document"
+              :loading="addressItem.copying"
+              @click="copyAddress(addressItem)"
+              class="copy-single-btn"
+              title="复制此地址"
+            >
+              复制
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <span slot="footer" class="dialog-footer">
+        <el-button @click="addressDialogVisible = false">关 闭</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
@@ -276,6 +339,11 @@ export default {
       dialogVisible: false,
       dialogTitle: '',
       isEdit: false,
+      
+      // 地址列表弹窗状态
+      addressDialogVisible: false,
+      addressDialogTitle: '',
+      addressList: [],
       
       // 表单数据
       forwardForm: {
@@ -558,8 +626,10 @@ export default {
         tunnel.id === tunnelId
       ) || null;
       
-      // 清空端口输入，避免与新隧道的端口范围冲突
-      this.forwardForm.inPort = null;
+      // 只在新增模式下清空端口输入，编辑模式下保留原端口值
+      if (!this.isEdit) {
+        this.forwardForm.inPort = null;
+      }
       
       // 触发端口字段重新验证
       this.$nextTick(() => {
@@ -642,12 +712,12 @@ export default {
       if (tunnel.name) {
         // 显示隧道名称和IP信息
         if (tunnel.ip) {
-          return `${tunnel.name} (${tunnel.ip})`;
+          return `${tunnel.name}`;
         }
         return tunnel.name;
       }
       
-      return `隧道ID: ${tunnel.id || 'unknown'}`;
+      return `隧道ID: ${tunnel.id}`;
     },
     
     formatFlow(value) {
@@ -658,20 +728,149 @@ export default {
       return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     },
     
-    // 格式化入口地址，IPv6需要用[]包裹
-    formatInAddress(ip, port) {
-      if (!ip || !port) return '';
+    // 格式化入口地址，IPv6需要用[]包裹，支持多IP优化显示
+    formatInAddress(ipString, port) {
+      if (!ipString || !port) return '';
       
-      // 检查是否为IPv6地址
-      if (ip.includes(':')) {
-        // IPv6地址需要用方括号包裹
-        return `[${ip}]:${port}`;
-      } else {
-        // IPv4地址直接拼接
-        return `${ip}:${port}`;
+      // 分割IP字符串，处理多个IP的情况
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      
+      if (ips.length === 0) return '';
+      
+      // 只有一个IP时，正常格式化
+      if (ips.length === 1) {
+        const ip = ips[0];
+        // 检查是否为IPv6地址
+        if (ip.includes(':') && !ip.startsWith('[')) {
+          // IPv6地址需要用方括号包裹
+          return `[${ip}]:${port}`;
+        } else {
+          // IPv4地址或已包含方括号的IPv6地址直接拼接
+          return `${ip}:${port}`;
+        }
       }
+      
+      // 多个IP时，显示第一个IP + 数量提示
+      const firstIp = ips[0];
+      let formattedFirstIp;
+      
+      // 格式化第一个IP
+      if (firstIp.includes(':') && !firstIp.startsWith('[')) {
+        formattedFirstIp = `[${firstIp}]`;
+      } else {
+        formattedFirstIp = firstIp;
+      }
+      
+      return `${formattedFirstIp}:${port} 等${ips.length}个入口`;
     },
     
+    // 获取完整的入口地址列表（用于title显示）
+    getFullInAddressList(ipString, port) {
+      if (!ipString || !port) return '无入口地址配置';
+      
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      
+      if (ips.length === 0) return '无入口地址配置';
+      if (ips.length === 1) {
+        // 单个IP时，直接返回格式化后的地址
+        return this.formatInAddress(ipString, port);
+      }
+      
+      // 多个IP时在title中显示所有地址
+      const formattedAddresses = ips.map(ip => {
+        if (ip.includes(':') && !ip.startsWith('[')) {
+          return `[${ip}]:${port}`;
+        } else {
+          return `${ip}:${port}`;
+        }
+      });
+      
+      return `入口地址列表 (${ips.length}个):\n${formattedAddresses.join('\n')}`;
+    },
+
+    // 获取复制用的入口地址（支持多IP）
+    getCopyInAddress(ipString, port) {
+      if (!ipString || !port) return '';
+      
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      
+      if (ips.length === 0) return '';
+      if (ips.length === 1) {
+        // 单个IP时，返回格式化后的地址
+        return this.formatInAddress(ipString, port);
+      }
+      
+      // 多个IP时返回所有地址，用换行符分隔
+      const formattedAddresses = ips.map(ip => {
+        if (ip.includes(':') && !ip.startsWith('[')) {
+          return `[${ip}]:${port}`;
+        } else {
+          return `${ip}:${port}`;
+        }
+      });
+      
+      return formattedAddresses.join('\n');
+    },
+
+    // 检查是否有多个IP
+    hasMultipleIps(ipString) {
+      if (!ipString) return false;
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      return ips.length > 1;
+    },
+
+    // 显示地址列表弹窗
+    showAddressDialog(ipString, port, title) {
+      if (!ipString || !port) return;
+      
+      const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
+      
+      // 如果只有一个IP，直接复制，不显示弹窗
+      if (ips.length <= 1) {
+        this.copyToClipboard(this.formatInAddress(ipString, port), title);
+        return;
+      }
+      
+      // 格式化地址列表
+      this.addressList = ips.map((ip, index) => {
+        let formattedAddress;
+        if (ip.includes(':') && !ip.startsWith('[')) {
+          formattedAddress = `[${ip}]:${port}`;
+        } else {
+          formattedAddress = `${ip}:${port}`;
+        }
+        return {
+          id: index,
+          ip: ip,
+          address: formattedAddress,
+          copying: false // 复制状态
+        };
+      });
+      
+      this.addressDialogTitle = `${title}列表 (共${ips.length}个)`;
+      this.addressDialogVisible = true;
+    },
+
+    // 复制单个地址
+    async copyAddress(addressItem) {
+      try {
+        this.$set(addressItem, 'copying', true);
+        await copyWithMessage(addressItem.address, '地址', this);
+      } catch (error) {
+        this.$message.error('复制失败');
+      } finally {
+        this.$set(addressItem, 'copying', false);
+      }
+    },
+
+    // 复制所有地址
+    async copyAllAddresses() {
+      if (this.addressList.length === 0) return;
+      
+      const allAddresses = this.addressList.map(item => item.address).join('\n');
+      await copyWithMessage(allAddresses, '所有地址', this);
+    },
+
     // 复制到剪贴板
     async copyToClipboard(text, label = '内容') {
       await copyWithMessage(text, label, this);
@@ -1221,6 +1420,18 @@ export default {
   width: 100%;
   max-width: 100%; /* 确保不会超出容器 */
   box-sizing: border-box;
+  font-family: monospace;
+  color: #409EFF;
+  font-weight: 500;
+}
+
+.address-text.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.address-text.clickable:hover {
+  background-color: rgba(64, 158, 255, 0.1);
 }
 
 .copy-btn {
@@ -1355,5 +1566,190 @@ export default {
   }
 }
 
+/* 地址列表弹窗样式 */
+.address-list-dialog .el-dialog__body {
+  padding: 20px;
+}
+
+.address-list-container {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.address-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #409EFF;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.header-info i {
+  color: #409EFF;
+  font-size: 16px;
+}
+
+.copy-all-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.address-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.address-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: white;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.address-list-item:hover {
+  border-color: #409EFF;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.1);
+}
+
+.address-content {
+  flex: 1;
+  min-width: 0;
+  margin-right: 12px;
+}
+
+.ip-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ip-info i {
+  color: #909399;
+  font-size: 14px;
+}
+
+.ip-text {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 500;
+}
+
+.address-text-full {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: #409EFF;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.copy-single-btn {
+  flex-shrink: 0;
+  color: #409EFF;
+  border: 1px solid #409EFF;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.copy-single-btn:hover {
+  background-color: #409EFF;
+  color: white;
+}
+
+.copy-single-btn.is-loading {
+  background-color: rgba(64, 158, 255, 0.1);
+}
+
+/* 移动端地址列表优化 */
+@media (max-width: 768px) {
+  .address-list-dialog .el-dialog__body {
+    padding: 15px;
+  }
+  
+  .address-list-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+  
+  .header-info {
+    justify-content: center;
+    font-size: 13px;
+  }
+  
+  .copy-all-btn {
+    align-self: center;
+    min-width: 120px;
+  }
+  
+  .address-list-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+  
+  .address-content {
+    margin-right: 0;
+    margin-bottom: 8px;
+  }
+  
+  .address-text-full {
+    font-size: 13px;
+  }
+  
+  .copy-single-btn {
+    align-self: center;
+    min-width: 80px;
+  }
+}
+
+/* 超小屏幕优化 */
+@media (max-width: 480px) {
+  .address-list-dialog .el-dialog__body {
+    padding: 10px;
+  }
+  
+  .address-list-header {
+    padding: 10px;
+  }
+  
+  .header-info {
+    font-size: 12px;
+  }
+  
+  .address-list-item {
+    padding: 10px;
+  }
+  
+  .address-text-full {
+    font-size: 12px;
+  }
+  
+  .ip-text {
+    font-size: 11px;
+  }
+}
 
 </style>

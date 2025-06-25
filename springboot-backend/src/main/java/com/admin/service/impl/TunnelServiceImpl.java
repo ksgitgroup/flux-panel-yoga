@@ -129,7 +129,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         Tunnel tunnel = buildTunnelEntity(tunnelDto, inNodeValidation.getNode());
 
         // 5. 根据隧道类型设置出口参数
-        R outNodeSetupResult = setupOutNodeParameters(tunnel, tunnelDto);
+        R outNodeSetupResult = setupOutNodeParameters(tunnel, tunnelDto, inNodeValidation.getNode().getServerIp());
         if (outNodeSetupResult.getCode() != 0) {
             return outNodeSetupResult;
         }
@@ -408,7 +408,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         
         // 设置入口节点信息
         tunnel.setInNodeId(tunnelDto.getInNodeId());
-        tunnel.setInIp(inNode.getServerIp());
+        tunnel.setInIp(inNode.getIp());
         
         // 设置流量计算类型
         tunnel.setFlow(tunnelDto.getFlow());
@@ -439,10 +439,10 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
      * @param tunnelDto 隧道创建DTO
      * @return 设置结果响应
      */
-    private R setupOutNodeParameters(Tunnel tunnel, TunnelDto tunnelDto) {
+    private R setupOutNodeParameters(Tunnel tunnel, TunnelDto tunnelDto, String server_ip) {
         if (tunnelDto.getType() == TUNNEL_TYPE_PORT_FORWARD) {
             // 端口转发：出口参数使用入口参数
-            return setupPortForwardOutParameters(tunnel, tunnelDto);
+            return setupPortForwardOutParameters(tunnel, tunnelDto, server_ip);
         } else {
             // 隧道转发：需要验证出口参数
             return setupTunnelForwardOutParameters(tunnel, tunnelDto);
@@ -456,9 +456,9 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
      * @param tunnelDto 隧道创建DTO
      * @return 设置结果响应
      */
-    private R setupPortForwardOutParameters(Tunnel tunnel, TunnelDto tunnelDto) {
+    private R setupPortForwardOutParameters(Tunnel tunnel, TunnelDto tunnelDto, String server_ip) {
         tunnel.setOutNodeId(tunnelDto.getInNodeId());
-        tunnel.setOutIp(tunnel.getInIp());
+        tunnel.setOutIp(server_ip);
         tunnel.setOutIpSta(tunnelDto.getInPortSta());
         tunnel.setOutIpEnd(tunnelDto.getInPortEnd());
         return R.ok();

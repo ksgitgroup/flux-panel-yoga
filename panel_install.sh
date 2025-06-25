@@ -27,6 +27,242 @@ check_docker() {
   echo "检测到 Docker 命令：$DOCKER_CMD"
 }
 
+# 检查IPv6支持
+check_ipv6_support() {
+  echo "🔍 检查IPv6支持..."
+  
+  # 检查内核是否支持IPv6
+  if [ ! -f /proc/net/if_inet6 ]; then
+    echo "⚠️ 警告：系统内核不支持IPv6"
+    return 1
+  fi
+  
+  # 检查Docker是否支持IPv6
+  if ! docker info 2>/dev/null | grep -q "IPv6: true"; then
+    echo "⚠️ Docker守护进程未启用IPv6支持，正在自动配置..."
+    
+    # 自动配置Docker daemon.json
+    configure_docker_ipv6
+    
+    # 重新检查
+    if ! docker info 2>/dev/null | grep -q "IPv6: true"; then
+      echo "❌ Docker IPv6配置失败，请手动检查"
+      return 1
+    fi
+  fi
+  
+  echo "✅ IPv6支持检查通过"
+  return 0
+}
+
+# 配置Docker IPv6支持
+configure_docker_ipv6() {
+  echo "🔧 正在配置Docker IPv6支持..."
+  
+  DAEMON_JSON_PATH="/etc/docker/daemon.json"
+  
+  # 检查是否有写入权限
+  if [ ! -w "/etc/docker" ] && [ ! -w "$DAEMON_JSON_PATH" ]; then
+    echo "⚠️ 需要管理员权限来配置Docker"
+    echo "🔐 正在请求sudo权限..."
+  fi
+  
+  # 备份现有配置
+  if [ -f "$DAEMON_JSON_PATH" ]; then
+    sudo cp "$DAEMON_JSON_PATH" "$DAEMON_JSON_PATH.backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || {
+      echo "❌ 无法备份daemon.json文件，请检查权限"
+      return 1
+    }
+    echo "✅ 已备份现有daemon.json配置"
+  fi
+  
+  # 创建或更新daemon.json
+  if [ -f "$DAEMON_JSON_PATH" ]; then
+    # 文件存在，检查是否已配置IPv6
+    if grep -q '"ipv6".*true' "$DAEMON_JSON_PATH" 2>/dev/null; then
+      echo "ℹ️ daemon.json已配置IPv6支持"
+    else
+      echo "🔧 更新现有daemon.json配置..."
+      # 尝试多种方式更新JSON
+      JSON_UPDATED=false
+      
+      # 方法1: 使用jq
+      if command -v jq &> /dev/null; then
+        if sudo jq '. + {"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' "$DAEMON_JSON_PATH" > /tmp/daemon.json.tmp 2>/dev/null && \
+           sudo mv /tmp/daemon.json.tmp "$DAEMON_JSON_PATH" 2>/dev/null; then
+          JSON_UPDATED=true
+          echo "✅ 使用jq更新JSON配置"
+        fi
+      fi
+      
+      # 方法2: 使用Python3
+      if [ "$JSON_UPDATED" = false ] && command -v python3 &> /dev/null; then
+        if sudo python3 -c "
+import json
+try:
+    with open('$DAEMON_JSON_PATH', 'r') as f:
+        config = json.load(f)
+except:
+    config = {}
+config['ipv6'] = True
+config['fixed-cidr-v6'] = '2001:db8:1::/64'
+with open('$DAEMON_JSON_PATH', 'w') as f:
+    json.dump(config, f, indent=2)
+print('JSON updated successfully')
+" 2>/dev/null; then
+          JSON_UPDATED=true
+          echo "✅ 使用Python3更新JSON配置"
+        fi
+      fi
+      
+      # 方法3: 手动创建新文件（简单覆盖）
+      if [ "$JSON_UPDATED" = false ]; then
+        echo "⚠️ 无法解析现有JSON，将创建新的配置文件"
+        read -p "这将覆盖现有的daemon.json配置，是否继续？(y/N): " confirm
+        if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+          sudo tee "$DAEMON_JSON_PATH" > /dev/null <<EOF
+{
+  "ipv6": true,
+  "fixed-cidr-v6": "2001:db8:1::/64"
+}
+EOF
+          JSON_UPDATED=true
+          echo "✅ 创建新的daemon.json配置"
+        else
+          echo "❌ 用户取消操作"
+          return 1
+        fi
+      fi
+      
+      if [ "$JSON_UPDATED" = false ]; then
+        echo "❌ 无法更新daemon.json，请手动配置"
+        return 1
+      fi
+    fi
+  else
+    # 文件不存在，创建新的
+    echo "🆕 创建新的daemon.json配置..."
+    sudo mkdir -p /etc/docker 2>/dev/null || {
+      echo "❌ 无法创建/etc/docker目录"
+      return 1
+    }
+    sudo tee "$DAEMON_JSON_PATH" > /dev/null <<EOF
+{
+  "ipv6": true,
+  "fixed-cidr-v6": "2001:db8:1::/64"
+}
+EOF
+  fi
+  
+  echo "✅ Docker IPv6配置完成"
+  echo "🔄 重启Docker服务..."
+  
+  # 重启Docker服务
+  if command -v systemctl &> /dev/null; then
+    if sudo systemctl restart docker 2>/dev/null; then
+      echo "⏳ 等待Docker服务启动..."
+      sleep 5
+      if sudo systemctl is-active docker &> /dev/null; then
+        echo "✅ Docker服务重启成功"
+      else
+        echo "❌ Docker服务启动失败"
+        sudo systemctl status docker --no-pager -l
+        return 1
+      fi
+    else
+      echo "❌ 无法重启Docker服务"
+      return 1
+    fi
+  elif command -v service &> /dev/null; then
+    if sudo service docker restart 2>/dev/null; then
+      sleep 5
+      echo "✅ Docker服务重启完成"
+    else
+      echo "❌ 无法重启Docker服务"
+      return 1
+    fi
+  else
+    echo "⚠️ 无法自动重启Docker服务，请手动重启:"
+    echo "   sudo systemctl restart docker"
+    echo "   或者: sudo service docker restart"
+    return 1
+  fi
+  
+  return 0
+}
+
+# 配置IPv6网络
+configure_ipv6_network() {
+  if [[ "$ENABLE_IPV6" == "true" ]]; then
+    echo "🌐 配置IPv6网络..."
+    
+    # 检查IPv6支持
+    if ! check_ipv6_support; then
+      echo "❌ IPv6支持检查失败"
+      echo ""
+      echo "📋 您有以下选择："
+      echo "1. 继续安装（仅使用IPv4网络）"
+      echo "2. 取消安装，手动配置IPv6后重试"
+      echo ""
+      read -p "请选择 (1/2): " ipv6_choice
+      
+      case $ipv6_choice in
+        1)
+          echo "ℹ️ 继续安装，将使用IPv4网络"
+          ENABLE_IPV6=false
+          return 0
+          ;;
+        2)
+          echo "❌ 安装已取消"
+          echo "ℹ️ 请参考以下步骤手动配置IPv6:"
+          echo "   1. 确保系统内核支持IPv6"
+          echo "   2. 编辑 /etc/docker/daemon.json 添加:"
+          echo '      {"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}'
+          echo "   3. 重启Docker服务: sudo systemctl restart docker"
+          echo "   4. 重新运行此安装脚本"
+          exit 1
+          ;;
+        *)
+          echo "❌ 无效选择，安装已取消"
+          exit 1
+          ;;
+      esac
+    fi
+    
+    # 修改docker-compose.yml以支持IPv6
+    # 检测操作系统，使用合适的sed语法
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      # macOS
+      sed -i '' '/networks:/,/subnet: 172.20.0.0\/16/c\
+networks:\
+  gost-network:\
+    driver: bridge\
+    enable_ipv6: true\
+    ipam:\
+      config:\
+        - subnet: 172.20.0.0/16\
+        - subnet: 2001:db8:1::/64' docker-compose.yml
+    else
+      # Linux
+      sed -i.bak '/networks:/,/subnet: 172.20.0.0\/16/c\
+networks:\
+  gost-network:\
+    driver: bridge\
+    enable_ipv6: true\
+    ipam:\
+      config:\
+        - subnet: 172.20.0.0/16\
+        - subnet: 2001:db8:1::/64' docker-compose.yml
+    fi
+    
+    echo "✅ IPv6网络配置完成"
+    echo "ℹ️ IPv6子网: 2001:db8:1::/64"
+    echo "ℹ️ IPv4子网: 172.20.0.0/16"
+  else
+    echo "ℹ️ 跳过IPv6网络配置，仅使用IPv4网络"
+  fi
+}
+
 # 显示菜单
 show_menu() {
   echo "==============================================="
@@ -64,6 +300,25 @@ get_config_params() {
   read -p "后端端口（默认 6365）: " BACKEND_PORT
   BACKEND_PORT=${BACKEND_PORT:-6365}
 
+  # 询问是否开启IPv6支持
+  echo ""
+  echo "🌐 IPv6 支持配置"
+  echo "开启IPv6可以让容器支持IPv6网络连接"
+  echo "ℹ️ 注意事项："
+  echo "   - 需要系统内核支持IPv6"
+  echo "   - 需要Docker守护进程启用IPv6支持"
+  echo "   - 如果Docker未启用IPv6，请先配置Docker后再安装"
+  echo ""
+  read -p "是否开启IPv6支持？(y/N): " ENABLE_IPV6
+  if [[ "$ENABLE_IPV6" == "y" || "$ENABLE_IPV6" == "Y" ]]; then
+    ENABLE_IPV6=true
+    echo "✅ 已选择开启IPv6支持"
+    echo "ℹ️ 将使用IPv6子网: 2001:db8:1::/64"
+  else
+    ENABLE_IPV6=false
+    echo "ℹ️ 未开启IPv6支持，使用IPv4网络"
+  fi
+
   DB_NAME=$(generate_random)
   DB_USER=$(generate_random)
   DB_PASSWORD=$(generate_random)
@@ -82,6 +337,9 @@ install_panel() {
   curl -L -o gost.sql "$GOST_SQL_URL"
   echo "✅ 下载完成"
 
+  # 配置IPv6网络
+  configure_ipv6_network
+
   cat > .env <<EOF
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
@@ -90,6 +348,7 @@ JWT_SECRET=$JWT_SECRET
 SERVER_HOST=$SERVER_HOST_PORT
 FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_PORT=$BACKEND_PORT
+ENABLE_IPV6=$ENABLE_IPV6
 EOF
 
   echo "🚀 启动 docker 服务..."
@@ -104,6 +363,7 @@ EOF
   echo "SERVER_HOST=$SERVER_HOST_PORT"
   echo "FRONTEND_PORT=$FRONTEND_PORT"
   echo "BACKEND_PORT=$BACKEND_PORT"
+  echo "ENABLE_IPV6=$ENABLE_IPV6"
 }
 
 # 更新功能

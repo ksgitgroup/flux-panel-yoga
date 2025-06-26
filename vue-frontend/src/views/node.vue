@@ -118,7 +118,7 @@
             :loading="node.copyLoading"
             plain
           >
-            复制命令
+            复制
           </el-button>
 
           <el-button

@@ -91,13 +91,13 @@ public class FlowController extends BaseController {
         if (!Objects.equals(userTunnelId, DEFAULT_USER_TUNNEL_ID)) {
             userTunnel = userTunnelService.getById(userTunnelId);
         }
-
+        System.out.println(flowDataList);
         // 4. 处理流量倍率
         List<FlowDto> validFlowData = flowDataList;
         if (forward != null) {
             validFlowData = filterFlowData(flowDataList, forward.getTunnelId());
         }
-
+        System.out.println(validFlowData);
 
 
 

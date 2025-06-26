@@ -853,29 +853,18 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                 nodeService.updateById(node);
                 
                 result.setSuccess(false);
-                result.setMessage(String.format("节点 %s 实际已离线（WebSocket连接断开），已更新节点状态。请重新启动节点或检查网络连接", node.getName()));
+                result.setMessage("节点WebSocket连接已断开，请检查节点是否正常运行");
                 result.setAverageTime(-1.0);
                 result.setPacketLoss(100.0);
                 return result;
             }
 
             // 如果连接正常，执行标准的ping诊断
-            DiagnosisResult pingResult = performPingDiagnosis(node, targetIp, description);
-            
-            // 如果ping失败，添加更详细的错误信息
-            if (!pingResult.isSuccess() && pingResult.getMessage() != null) {
-                if (pingResult.getMessage().contains("等待响应超时")) {
-                    pingResult.setMessage(String.format("节点 %s 响应超时，可能网络延迟较高或负载过重", node.getName()));
-                } else if (pingResult.getMessage().contains("节点无响应")) {
-                    pingResult.setMessage(String.format("节点 %s 无响应，请检查节点状态", node.getName()));
-                }
-            }
-            
-            return pingResult;
+            return performPingDiagnosis(node, targetIp, description);
 
         } catch (Exception e) {
             result.setSuccess(false);
-            result.setMessage(String.format("诊断节点 %s 时发生异常: %s", node.getName(), e.getMessage()));
+            result.setMessage("连接检查异常: " + e.getMessage());
             result.setAverageTime(-1.0);
             result.setPacketLoss(100.0);
             return result;
@@ -895,7 +884,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             testData.put("ip", "127.0.0.1");
             testData.put("count", 1);
 
-            GostDto testResult = WebSocketServer.send_msg(nodeId, testData, "Ping", 3);
+            GostDto testResult = WebSocketServer.send_msg(nodeId, testData, "Ping");
             
             // 如果能收到任何响应（不管是成功还是失败），说明WebSocket连接正常
             return testResult != null && 

@@ -91,13 +91,8 @@ public class FlowController extends BaseController {
         if (!Objects.equals(userTunnelId, DEFAULT_USER_TUNNEL_ID)) {
             userTunnel = userTunnelService.getById(userTunnelId);
         }
-        System.out.println(flowDataList);
         // 4. 处理流量倍率
-        List<FlowDto> validFlowData = flowDataList;
-        if (forward != null) {
-            validFlowData = filterFlowData(flowDataList, forward.getTunnelId());
-        }
-        System.out.println(validFlowData);
+        List<FlowDto> validFlowData = filterFlowData(flowDataList, forward);
 
 
 
@@ -146,20 +141,23 @@ public class FlowController extends BaseController {
 
 
 
-    private List<FlowDto> filterFlowData(List<FlowDto> flowDataList, Integer tunnel_id) {
-        Tunnel tunnel = tunnelService.getById(tunnel_id);
-        if (tunnel != null && tunnel.getTrafficRatio() != null){
-            BigDecimal trafficRatio = tunnel.getTrafficRatio();
-            for (FlowDto flowDto : flowDataList) {
-                // 将Long转为BigDecimal进行计算，然后转回Long
-                BigDecimal originalD = BigDecimal.valueOf(flowDto.getD());
-                BigDecimal originalU = BigDecimal.valueOf(flowDto.getU());
-                
-                BigDecimal newD = originalD.multiply(trafficRatio);
-                BigDecimal newU = originalU.multiply(trafficRatio);
-                
-                flowDto.setD(newD.longValue());
-                flowDto.setU(newU.longValue());
+    private List<FlowDto> filterFlowData(List<FlowDto> flowDataList, Forward forward) {
+        if (forward != null) {
+            Tunnel tunnel = tunnelService.getById(forward.getTunnelId());
+            if (tunnel != null){
+                BigDecimal trafficRatio = tunnel.getTrafficRatio();
+                for (FlowDto flowDto : flowDataList) {
+                    System.out.println(flowDto);
+                    BigDecimal originalD = BigDecimal.valueOf(flowDto.getD());
+                    BigDecimal originalU = BigDecimal.valueOf(flowDto.getU());
+
+                    BigDecimal newD = originalD.multiply(trafficRatio);
+                    BigDecimal newU = originalU.multiply(trafficRatio);
+
+                    flowDto.setD(newD.longValue());
+                    flowDto.setU(newU.longValue());
+                    System.out.println(flowDto);
+                }
             }
         }
         return flowDataList;

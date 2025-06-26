@@ -72,8 +72,8 @@
 #### 快速部署
 
 ```bash
-
-curl -L https://ghfast.top/https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+不在提供gitee 自行解决github访问问题
+curl -L https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 
 ```
 

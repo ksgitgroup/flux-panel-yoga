@@ -53,6 +53,7 @@ public class FlowController extends BaseController {
     // 用于同步相同用户和隧道的流量更新操作
     private static final ConcurrentHashMap<String, Object> USER_LOCKS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Object> TUNNEL_LOCKS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Object> FORWARD_LOCKS = new ConcurrentHashMap<>();
 
 
     @RequestMapping("/test")
@@ -147,7 +148,6 @@ public class FlowController extends BaseController {
             if (tunnel != null){
                 BigDecimal trafficRatio = tunnel.getTrafficRatio();
                 for (FlowDto flowDto : flowDataList) {
-                    System.out.println(flowDto);
                     BigDecimal originalD = BigDecimal.valueOf(flowDto.getD());
                     BigDecimal originalU = BigDecimal.valueOf(flowDto.getU());
 
@@ -156,7 +156,6 @@ public class FlowController extends BaseController {
 
                     flowDto.setD(newD.longValue());
                     flowDto.setU(newU.longValue());
-                    System.out.println(flowDto);
                 }
             }
         }
@@ -214,12 +213,15 @@ public class FlowController extends BaseController {
      * 更新转发流量统计 - 使用原子操作避免并发问题
      */
     private boolean updateForwardFlow(String forwardId, FlowStatistics flowStats) {
-        UpdateWrapper<Forward> updateWrapper = new UpdateWrapper<>();
-        updateWrapper.eq("id", forwardId);
-        updateWrapper.setSql("in_flow = in_flow + " + flowStats.getDownload());
-        updateWrapper.setSql("out_flow = out_flow + " + flowStats.getUpload());
+        // 对相同转发的流量更新进行同步，避免并发覆盖
+        synchronized (getForwardLock(forwardId)) {
+            UpdateWrapper<Forward> updateWrapper = new UpdateWrapper<>();
+            updateWrapper.eq("id", forwardId);
+            updateWrapper.setSql("in_flow = in_flow + " + flowStats.getDownload());
+            updateWrapper.setSql("out_flow = out_flow + " + flowStats.getUpload());
 
-        return forwardService.update(null, updateWrapper);
+            return forwardService.update(null, updateWrapper);
+        }
     }
 
     /**
@@ -496,6 +498,13 @@ public class FlowController extends BaseController {
      */
     private Object getTunnelLock(String userTunnelId) {
         return TUNNEL_LOCKS.computeIfAbsent(userTunnelId, k -> new Object());
+    }
+
+    /**
+     * 获取转发锁对象
+     */
+    private Object getForwardLock(String forwardId) {
+        return FORWARD_LOCKS.computeIfAbsent(forwardId, k -> new Object());
     }
 
     /**

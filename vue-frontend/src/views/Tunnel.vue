@@ -33,16 +33,6 @@
               <div class="tunnel-badges">
                 <el-tag v-if="tunnel.type === 1" type="primary" size="mini">端口转发</el-tag>
                 <el-tag v-else type="warning" size="mini">隧道转发</el-tag>
-                <el-tag v-if="tunnel.type === 2 && tunnel.protocol" 
-                        :type="tunnel.protocol === 'tls' ? 'success' : tunnel.protocol === 'mtls' ? 'danger' : 'info'" 
-                        size="mini">
-                  {{ tunnel.protocol.toUpperCase() }}
-                </el-tag>
-                <el-tag v-if="tunnel.flow === 1" type="success" size="mini">单向计算</el-tag>
-                <el-tag v-else type="info" size="mini">双向计算</el-tag>
-                <el-tag v-if="tunnel.trafficRatio && tunnel.trafficRatio !== 1.0" type="warning" size="mini">
-                  {{ tunnel.trafficRatio }}x倍率
-                </el-tag>
               </div>
             </div>
 

@@ -28,8 +28,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
         return new ServletContextInitializer() {
             @Override
             public void onStartup(ServletContext servletContext) throws ServletException {
-                servletContext.setInitParameter("org.apache.tomcat.websocket.textBufferSize", String.valueOf(100 * 1024 * 1024));
-                servletContext.setInitParameter("org.apache.tomcat.websocket.binaryBufferSize", String.valueOf(100 * 1024 * 1024));
+                servletContext.setInitParameter("org.apache.tomcat.websocket.textBufferSize", String.valueOf(10 * 1024 * 1024));
+                servletContext.setInitParameter("org.apache.tomcat.websocket.binaryBufferSize", String.valueOf(10 * 1024 * 1024));
             }
         };
     }

@@ -160,8 +160,8 @@ func (w *WebSocketReporter) connect() error {
 	w.conn = conn
 	w.connected = true
 
-	// 设置最大消息大小为 16MB (默认是 1024 * 1024)
-	w.conn.SetReadLimit(100 * 1024 * 1024)
+	// 设置最大消息大小为 10MB (默认是 1024 * 1024)
+	w.conn.SetReadLimit(10 * 1024 * 1024)
 
 	// 设置关闭处理器来检测连接状态
 	w.conn.SetCloseHandler(func(code int, text string) error {

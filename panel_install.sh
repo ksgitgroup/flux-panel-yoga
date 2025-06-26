@@ -498,6 +498,29 @@ SET @sql = (
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- traffic_ratio (流量倍率)
+SET @sql = (
+  SELECT IF(
+    NOT EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'tunnel'
+        AND column_name = 'traffic_ratio'
+    ),
+    'ALTER TABLE \`tunnel\` ADD COLUMN \`traffic_ratio\` DECIMAL(5,1) DEFAULT 1.0 COMMENT "流量倍率";',
+    'SELECT "Column \`traffic_ratio\` already exists in \`tunnel\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 为现有数据设置默认流量倍率
+UPDATE \`tunnel\`
+SET \`traffic_ratio\` = 1.0
+WHERE \`traffic_ratio\` IS NULL;
 EOF
   
   # 检查数据库容器

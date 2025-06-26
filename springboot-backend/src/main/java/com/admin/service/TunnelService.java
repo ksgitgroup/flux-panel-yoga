@@ -45,5 +45,16 @@ public interface TunnelService extends IService<Tunnel> {
      */
     R deleteTunnel(Long id);
 
+    /**
+     * 获取用户可用的隧道列表
+     * @return 结果
+     */
     R userTunnel();
+
+    /**
+     * 隧道诊断功能
+     * @param tunnelId 隧道ID
+     * @return 诊断结果
+     */
+    R diagnoseTunnel(Long tunnelId);
 }

@@ -974,7 +974,7 @@ export default {
     
     // 删除用户
     handleDelete(row) {
-      this.$confirm(`确定要删除用户 "${row.name}" 吗？`, '提示', {
+      this.$confirm(`确定要删除用户 "${row.user}" 吗？`, '提示', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'

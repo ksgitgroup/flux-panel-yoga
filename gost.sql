@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- 主机： localhost
--- 生成日期： 2025-06-25 10:51:18
+-- 生成日期： 2025-06-26 14:11:52
 -- 服务器版本： 5.7.40-log
 -- PHP 版本： 7.4.33
 
@@ -86,6 +86,7 @@ CREATE TABLE `speed_limit` (
 CREATE TABLE `tunnel` (
   `id` int(10) NOT NULL,
   `name` varchar(100) NOT NULL,
+  `traffic_ratio` decimal(10,1) NOT NULL DEFAULT '1.0',
   `in_node_id` int(10) NOT NULL,
   `in_ip` varchar(100) NOT NULL,
   `in_port_sta` int(10) NOT NULL,
@@ -131,7 +132,7 @@ CREATE TABLE `user` (
 --
 
 INSERT INTO `user` (`id`, `user`, `pwd`, `role_id`, `exp_time`, `flow`, `in_flow`, `out_flow`, `flow_reset_time`, `num`, `created_time`, `updated_time`, `status`) VALUES
-(1, 'admin_user', '3c85cdebade1c51cf64ca9f3c09d182d', 0, 1780480500000, 99999, 0, 0, 1, 99999, 1748914865000, 1750228795866, 1);
+(1, 'admin_user', '3c85cdebade1c51cf64ca9f3c09d182d', 0, 1780480500000, 99999, 0, 0, 1, 99999, 1748914865000, 1750910756282, 1);
 
 -- --------------------------------------------------------
 
@@ -201,37 +202,37 @@ ALTER TABLE `user_tunnel`
 -- 使用表AUTO_INCREMENT `forward`
 --
 ALTER TABLE `forward`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=110;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=128;
 
 --
 -- 使用表AUTO_INCREMENT `node`
 --
 ALTER TABLE `node`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
 
 --
 -- 使用表AUTO_INCREMENT `speed_limit`
 --
 ALTER TABLE `speed_limit`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=66;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
 
 --
 -- 使用表AUTO_INCREMENT `tunnel`
 --
 ALTER TABLE `tunnel`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=45;
 
 --
 -- 使用表AUTO_INCREMENT `user`
 --
 ALTER TABLE `user`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=31;
 
 --
 -- 使用表AUTO_INCREMENT `user_tunnel`
 --
 ALTER TABLE `user_tunnel`
-  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
+  MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=48;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

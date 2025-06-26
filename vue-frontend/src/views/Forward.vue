@@ -1,16 +1,18 @@
 <template>
   <div class="forward-container">
-    <!-- 简化的页面头部 -->
-    <div class="action-buttons" style="margin-bottom: 10px;">
-
-      
-      <el-button 
+    <!-- 页面头部 -->
+    <div class="header-bar">
+      <h2 class="page-title">
+        <i class="el-icon-connection"></i>
+        转发管理
+      </h2>
+      <el-button
         type="primary" 
+        size="small"
         icon="el-icon-plus" 
         @click="handleAdd"
-        class="add-btn"
       >
-        {{ isMobile ? '添加' : '新增转发' }}
+        新增转发
       </el-button>
     </div>
 
@@ -63,7 +65,7 @@
           </div>
           
           <div class="card-body">
-            <div class="info-row">
+            <div class="info-row inline-on-mobile">
               <div class="info-item">
                 <span class="label">隧道名称:</span>
                 <span class="value">{{ forward.tunnelName || '未知隧道' }}</span>
@@ -129,7 +131,7 @@
               </div>
             </div>
             
-            <div class="info-row">
+            <div class="info-row inline-on-mobile">
               <div class="info-item full-width">
                 <span class="label">创建时间:</span>
                 <span class="value">{{ forward.createdTime | dateFormat }}</span>
@@ -967,43 +969,40 @@ export default {
 
 <style scoped>
 .forward-container {
-  padding: 20px;
+  padding: 16px;
 }
 
 /* 移动端优化 */
 @media (max-width: 768px) {
   .forward-container {
-    padding: 10px;
+    padding: 8px;
   }
 }
 
-.action-buttons {
+/* 页面头部 */
+.header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  background: white;
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.1);
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
-/* 移动端行为按钮样式 */
-@media (max-width: 768px) {
-  .action-buttons {
-    flex-direction: row;
-    align-items: stretch;
-  }
-  
-  .action-buttons .el-input {
-    min-width: 0;
-  }
-  
-  .add-btn {
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-}
-
-.add-btn {
-  border-radius: 6px;
-  font-weight: 500;
+.page-title i {
+  margin-right: 6px;
+  color: #409eff;
 }
 
 .table-container {
@@ -1028,7 +1027,7 @@ export default {
 
 /* Element UI 样式调整 */
 .el-dialog {
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .el-dialog__title {
@@ -1052,28 +1051,28 @@ export default {
 /* 移动端对话框优化 */
 @media (max-width: 768px) {
   .el-dialog {
-    border-radius: 8px;
-    margin: 20px;
+    border-radius: 6px;
+    margin: 15px;
   }
   
   .el-dialog__header {
-    padding: 15px 20px 10px;
+    padding: 12px 16px 8px;
   }
   
   .el-dialog__body {
-    padding: 10px 20px;
+    padding: 8px 16px;
   }
   
   .el-dialog__footer {
-    padding: 10px 20px 15px;
+    padding: 8px 16px 12px;
   }
   
   .el-dialog__title {
-    font-size: 16px;
+    font-size: 15px;
   }
   
   .el-form-item__label {
-    font-size: 14px;
+    font-size: 13px;
   }
   
   .dialog-footer {
@@ -1081,22 +1080,22 @@ export default {
   }
   
   .dialog-footer .el-button {
-    min-width: 80px;
+    min-width: 70px;
   }
 }
 
 .cards-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
-  padding: 10px 0;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  padding: 0;
 }
 
 /* 移动端卡片容器 */
 @media (max-width: 768px) {
   .cards-container {
     grid-template-columns: 1fr;
-    gap: 15px;
+    gap: 10px;
     padding: 0;
     width: 100%;
     max-width: 100%;
@@ -1106,9 +1105,9 @@ export default {
 
 .forward-card {
   background-color: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  padding: 16px;
   transition: all 0.3s ease;
   border: 1px solid #f0f0f0;
   overflow: hidden; /* 防止内容撑大容器 */
@@ -1117,14 +1116,14 @@ export default {
 /* 移动端卡片样式 */
 @media (max-width: 768px) {
   .forward-card {
-    padding: 16px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 12px;
+    border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
   
   .forward-card:hover {
     transform: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
 }
 
@@ -1140,23 +1139,23 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid #f0f0f0;
 }
 
 /* 移动端卡片头部 */
 @media (max-width: 768px) {
   .card-header {
-    margin-bottom: 16px;
-    padding-bottom: 10px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
 }
 
 .card-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: #303133;
   display: flex;
@@ -1169,7 +1168,7 @@ export default {
 /* 移动端卡片标题 */
 @media (max-width: 768px) {
   .card-title {
-    font-size: 15px;
+    font-size: 13px;
   }
   
   .title-text {
@@ -1181,9 +1180,10 @@ export default {
 }
 
 .card-title i {
-  margin-right: 8px;
+  margin-right: 6px;
   color: #409EFF;
   flex-shrink: 0;
+  font-size: 14px;
 }
 
 .title-text {
@@ -1197,30 +1197,30 @@ export default {
 .card-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 /* 移动端卡片操作 */
 @media (max-width: 768px) {
   .card-actions {
-    gap: 6px;
+    gap: 4px;
   }
   
   .card-actions .el-button--mini {
-    padding: 6px;
+    padding: 4px;
   }
 }
 
 .card-body {
-  margin-top: 16px;
+  margin-top: 0;
   overflow: hidden; /* 防止内容撑大容器 */
 }
 
 .info-row {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .info-row:last-child {
@@ -1230,9 +1230,31 @@ export default {
 /* 移动端信息行 */
 @media (max-width: 768px) {
   .info-row {
-    margin-bottom: 14px;
+    margin-bottom: 8px;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
+  }
+  
+  /* 在移动端保持一行显示的信息行 */
+  .info-row.inline-on-mobile {
+    flex-direction: row;
+    gap: 12px;
+  }
+  
+  .info-row.inline-on-mobile .info-item {
+    flex: 1;
+    min-width: 0;
+  }
+  
+  .info-row.inline-on-mobile .info-item:not(:last-child) {
+    margin-right: 8px;
+    margin-bottom: 0;
+  }
+  
+  .info-row.inline-on-mobile .value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -1251,14 +1273,14 @@ export default {
 }
 
 .info-item:not(:last-child) {
-  margin-right: 20px;
+  margin-right: 12px;
 }
 
 /* 移动端信息项 */
 @media (max-width: 768px) {
   .info-item:not(:last-child) {
     margin-right: 0;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   
   .info-item:last-child {
@@ -1267,14 +1289,14 @@ export default {
 }
 
 .label {
-  font-size: 12px;
+  font-size: 11px;
   color: #909399;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   font-weight: 500;
 }
 
 .value {
-  font-size: 14px;
+  font-size: 13px;
   color: #303133;
   font-weight: 500;
 }
@@ -1282,12 +1304,12 @@ export default {
 /* 移动端字体优化 */
 @media (max-width: 768px) {
   .label {
-    font-size: 11px;
-    margin-bottom: 3px;
+    font-size: 10px;
+    margin-bottom: 1px;
   }
   
   .value {
-    font-size: 13px;
+    font-size: 12px;
   }
 }
 
@@ -1296,19 +1318,19 @@ export default {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 300px;
+  height: 200px;
 }
 
 .flow-stats-mini {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 /* 移动端流量统计 */
 @media (max-width: 768px) {
   .flow-stats-mini {
-    gap: 6px;
+    gap: 4px;
   }
 }
 
@@ -1316,25 +1338,25 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 60px;
+  min-width: 50px;
 }
 
 /* 移动端流量统计项 */
 @media (max-width: 480px) {
   .flow-stat-item {
-    min-width: 50px;
+    min-width: 45px;
   }
 }
 
 .flow-stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: #909399;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   font-weight: 500;
 }
 
 .flow-stat-value {
-  font-size: 14px;
+  font-size: 13px;
   color: #303133;
   font-weight: 500;
 }
@@ -1342,12 +1364,12 @@ export default {
 /* 移动端流量统计字体 */
 @media (max-width: 768px) {
   .flow-stat-label {
-    font-size: 11px;
-    margin-bottom: 3px;
+    font-size: 10px;
+    margin-bottom: 1px;
   }
   
   .flow-stat-value {
-    font-size: 12px;
+    font-size: 11px;
   }
 }
 
@@ -1402,8 +1424,8 @@ export default {
 .label-with-copy {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 6px;
+  margin-bottom: 2px;
 }
 
 .address-value {
@@ -1508,6 +1530,7 @@ export default {
   .forward-card,
   .card-body,
   .info-row,
+  .info-row.inline-on-mobile,
   .info-item,
   .address-item,
   .address-value {
@@ -1533,7 +1556,8 @@ export default {
   
   /* 移动端空状态调整 */
   .empty-state {
-    padding: 40px 20px;
+    padding: 20px 15px;
+    height: 150px;
   }
   
   /* 移动端form hint */
@@ -1543,32 +1567,62 @@ export default {
   }
 }
 
+/* 移动端头部样式 */
+@media (max-width: 768px) {
+  .header-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 15px;
+    margin-bottom: 10px;
+  }
+  
+  .page-title {
+    font-size: 16px;
+    text-align: center;
+  }
+}
+
 /* 超小屏幕优化 */
 @media (max-width: 480px) {
   .forward-container {
-    padding: 8px;
+    padding: 6px;
   }
   
-  .action-buttons {
-    gap: 8px;
+  .header-bar {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+  
+  .page-title {
+    font-size: 15px;
   }
   
   .forward-card {
-    padding: 12px;
+    padding: 10px;
   }
   
   .card-header {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
   
   .info-row {
-    margin-bottom: 10px;
+    margin-bottom: 6px;
+  }
+  
+  /* 超小屏幕下调整间距 */
+  .info-row.inline-on-mobile {
+    gap: 8px;
+  }
+  
+  .info-row.inline-on-mobile .info-item:not(:last-child) {
+    margin-right: 6px;
   }
 }
 
 /* 地址列表弹窗样式 */
 .address-list-dialog .el-dialog__body {
-  padding: 20px;
+  padding: 16px;
 }
 
 .address-list-container {
@@ -1580,11 +1634,11 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-  padding: 12px 16px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
   background: #f8f9fa;
-  border-radius: 8px;
-  border-left: 4px solid #409EFF;
+  border-radius: 6px;
+  border-left: 3px solid #409EFF;
 }
 
 .header-info {
@@ -1608,17 +1662,17 @@ export default {
 .address-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .address-list-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
+  padding: 12px;
   background: white;
   border: 1px solid #e4e7ed;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: all 0.3s ease;
 }
 
@@ -1683,72 +1737,72 @@ export default {
 /* 移动端地址列表优化 */
 @media (max-width: 768px) {
   .address-list-dialog .el-dialog__body {
-    padding: 15px;
+    padding: 12px;
   }
   
   .address-list-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
-    padding: 12px;
+    gap: 10px;
+    padding: 10px;
   }
   
   .header-info {
     justify-content: center;
-    font-size: 13px;
+    font-size: 12px;
   }
   
   .copy-all-btn {
     align-self: center;
-    min-width: 120px;
+    min-width: 100px;
   }
   
   .address-list-item {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
-    padding: 12px;
+    gap: 10px;
+    padding: 10px;
   }
   
   .address-content {
     margin-right: 0;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   
   .address-text-full {
-    font-size: 13px;
+    font-size: 12px;
   }
   
   .copy-single-btn {
     align-self: center;
-    min-width: 80px;
+    min-width: 70px;
   }
 }
 
 /* 超小屏幕优化 */
 @media (max-width: 480px) {
   .address-list-dialog .el-dialog__body {
-    padding: 10px;
+    padding: 8px;
   }
   
   .address-list-header {
-    padding: 10px;
+    padding: 8px;
   }
   
   .header-info {
-    font-size: 12px;
+    font-size: 11px;
   }
   
   .address-list-item {
-    padding: 10px;
+    padding: 8px;
   }
   
   .address-text-full {
-    font-size: 12px;
+    font-size: 11px;
   }
   
   .ip-text {
-    font-size: 11px;
+    font-size: 10px;
   }
 }
 

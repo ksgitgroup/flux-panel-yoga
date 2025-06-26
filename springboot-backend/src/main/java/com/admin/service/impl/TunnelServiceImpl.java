@@ -1,12 +1,15 @@
 package com.admin.service.impl;
 
 import cn.hutool.core.util.StrUtil;
+import com.admin.common.dto.GostDto;
 import com.admin.common.dto.TunnelDto;
 import com.admin.common.dto.TunnelListDto;
 import com.admin.common.dto.TunnelUpdateDto;
 
 import com.admin.common.lang.R;
+import com.admin.common.utils.GostUtil;
 import com.admin.common.utils.JwtUtil;
+import com.admin.common.utils.WebSocketServer;
 import com.admin.entity.Forward;
 import com.admin.entity.Node;
 import com.admin.entity.Tunnel;
@@ -18,6 +21,7 @@ import com.admin.service.ForwardService;
 import com.admin.service.NodeService;
 import com.admin.service.TunnelService;
 import com.admin.service.UserTunnelService;
+import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.Data;
@@ -25,7 +29,11 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -192,6 +200,11 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         existingTunnel.setFlow(tunnelUpdateDto.getFlow());
         existingTunnel.setInPortSta(tunnelUpdateDto.getInPortSta());
         existingTunnel.setInPortEnd(tunnelUpdateDto.getInPortEnd());
+        
+        // 更新流量倍率
+        if (tunnelUpdateDto.getTrafficRatio() != null) {
+            existingTunnel.setTrafficRatio(tunnelUpdateDto.getTrafficRatio());
+        }
         
         // 更新TCP和UDP监听地址
         if (StrUtil.isNotBlank(tunnelUpdateDto.getTcpListenAddr())) {
@@ -413,6 +426,13 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 设置流量计算类型
         tunnel.setFlow(tunnelDto.getFlow());
         
+        // 设置流量倍率，如果为空则设置默认值1.0
+        if (tunnelDto.getTrafficRatio() != null) {
+            tunnel.setTrafficRatio(tunnelDto.getTrafficRatio());
+        } else {
+            tunnel.setTrafficRatio(new BigDecimal("1.0"));
+        }
+        
         // 设置协议类型（仅隧道转发需要）
         if (tunnelDto.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
             // 隧道转发时，设置协议类型，默认为tls
@@ -526,8 +546,6 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         tunnel.setCreatedTime(currentTime);
         tunnel.setUpdatedTime(currentTime);
     }
-
-
 
     /**
      * 检查隧道是否存在
@@ -676,6 +694,140 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         return dto;
     }
 
+    /**
+     * 隧道诊断功能
+     * 
+     * @param tunnelId 隧道ID
+     * @return 诊断结果响应
+     */
+    @Override
+    public R diagnoseTunnel(Long tunnelId) {
+        // 1. 验证隧道是否存在
+        Tunnel tunnel = this.getById(tunnelId);
+        if (tunnel == null) {
+            return R.err(ERROR_TUNNEL_NOT_FOUND);
+        }
+
+        // 2. 获取入口和出口节点信息
+        Node inNode = nodeService.getById(tunnel.getInNodeId());
+        if (inNode == null) {
+            return R.err(ERROR_IN_NODE_NOT_FOUND);
+        }
+
+        Node outNode = null;
+        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+            outNode = nodeService.getById(tunnel.getOutNodeId());
+            if (outNode == null) {
+                return R.err(ERROR_OUT_NODE_NOT_FOUND);
+            }
+        }
+
+        List<DiagnosisResult> results = new ArrayList<>();
+
+        // 3. 根据隧道类型执行不同的诊断策略
+        if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
+            // 端口转发：只给入口节点发送诊断指令，ping谷歌DNS
+            DiagnosisResult inResult = performPingDiagnosis(inNode, "8.8.8.8", "入口->外网");
+            results.add(inResult);
+        } else {
+            // 隧道转发：入口ping出口，出口ping谷歌DNS
+            DiagnosisResult inToOutResult = performPingDiagnosis(inNode, outNode.getServerIp(), "入口->出口");
+            results.add(inToOutResult);
+
+            DiagnosisResult outToExternalResult = performPingDiagnosis(outNode, "8.8.8.8", "出口->外网");
+            results.add(outToExternalResult);
+        }
+
+        // 4. 构建诊断报告
+        Map<String, Object> diagnosisReport = new HashMap<>();
+        diagnosisReport.put("tunnelId", tunnelId);
+        diagnosisReport.put("tunnelName", tunnel.getName());
+        diagnosisReport.put("tunnelType", tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD ? "端口转发" : "隧道转发");
+        diagnosisReport.put("results", results);
+        diagnosisReport.put("timestamp", System.currentTimeMillis());
+
+        return R.ok(diagnosisReport);
+    }
+
+    /**
+     * 执行ping诊断
+     * 
+     * @param node 执行ping的节点
+     * @param targetIp 目标IP地址
+     * @param description 诊断描述
+     * @return 诊断结果
+     */
+    private DiagnosisResult performPingDiagnosis(Node node, String targetIp, String description) {
+        try {
+            // 构建ping请求数据
+            JSONObject pingData = new JSONObject();
+            pingData.put("ip", targetIp);
+            pingData.put("count", 4);
+
+            // 发送ping命令到节点
+            GostDto gostResult = WebSocketServer.send_msg(node.getId(), pingData, "Ping");
+            
+            DiagnosisResult result = new DiagnosisResult();
+            result.setNodeId(node.getId());
+            result.setNodeName(node.getName());
+            result.setTargetIp(targetIp);
+            result.setDescription(description);
+            result.setTimestamp(System.currentTimeMillis());
+
+            if (gostResult != null && "OK".equals(gostResult.getMsg())) {
+                // 尝试解析ping响应数据
+                try {
+                    if (gostResult.getData() != null) {
+                        JSONObject pingResponse = (JSONObject) gostResult.getData();
+                        boolean success = pingResponse.getBooleanValue("success");
+                        
+                        result.setSuccess(success);
+                        if (success) {
+                            result.setMessage("ping成功");
+                            result.setAverageTime(pingResponse.getDoubleValue("averageTime"));
+                            result.setPacketLoss(pingResponse.getDoubleValue("packetLoss"));
+                        } else {
+                            result.setMessage(pingResponse.getString("errorMessage"));
+                            result.setAverageTime(-1.0);
+                            result.setPacketLoss(100.0);
+                        }
+                    } else {
+                        // 没有详细数据，使用默认值
+                        result.setSuccess(true);
+                        result.setMessage("ping成功");
+                        result.setAverageTime(0.0);
+                        result.setPacketLoss(0.0);
+                    }
+                } catch (Exception e) {
+                    // 解析响应数据失败，但ping命令本身成功了
+                    result.setSuccess(true);
+                    result.setMessage("ping成功，但无法解析详细数据");
+                    result.setAverageTime(0.0);
+                    result.setPacketLoss(0.0);
+                }
+            } else {
+                result.setSuccess(false);
+                result.setMessage(gostResult != null ? gostResult.getMsg() : "节点无响应");
+                result.setAverageTime(-1.0);
+                result.setPacketLoss(100.0);
+            }
+
+            return result;
+        } catch (Exception e) {
+            DiagnosisResult result = new DiagnosisResult();
+            result.setNodeId(node.getId());
+            result.setNodeName(node.getName());
+            result.setTargetIp(targetIp);
+            result.setDescription(description);
+            result.setSuccess(false);
+            result.setMessage("诊断执行异常: " + e.getMessage());
+            result.setTimestamp(System.currentTimeMillis());
+            result.setAverageTime(-1.0);
+            result.setPacketLoss(100.0);
+            return result;
+        }
+    }
+
     // ========== 内部数据类 ==========
 
     /**
@@ -709,5 +861,21 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         public static NodeValidationResult error(String errorMessage) {
             return new NodeValidationResult(true, errorMessage, null);
         }
+    }
+
+    /**
+     * 诊断结果数据类
+     */
+    @Data
+    public static class DiagnosisResult {
+        private Long nodeId;
+        private String nodeName;
+        private String targetIp;
+        private String description;
+        private boolean success;
+        private String message;
+        private double averageTime;
+        private double packetLoss;
+        private long timestamp;
     }
 }

@@ -138,4 +138,17 @@ public class TunnelController extends BaseController {
         return tunnelService.userTunnel();
     }
 
+    /**
+     * 隧道诊断功能
+     * @param params 包含tunnelId的参数
+     * @return 诊断结果
+     */
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/diagnose")
+    public R diagnoseTunnel(@RequestBody Map<String, Object> params) {
+        Long tunnelId = Long.valueOf(params.get("tunnelId").toString());
+        return tunnelService.diagnoseTunnel(tunnelId);
+    }
+
 }

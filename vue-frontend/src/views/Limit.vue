@@ -1,15 +1,20 @@
 <template>
   <div class="speed-limit-container">
-    <div class="action-buttons" style="margin-bottom: 10px;">
-          <el-button
-            type="primary" 
-            icon="el-icon-plus" 
-            @click="handleAdd"
-            class="add-btn"
-          >
-            新增限速
-          </el-button>
-        </div>
+    <!-- 页面头部 -->
+    <div class="header-bar">
+      <h2 class="page-title">
+        <i class="el-icon-odometer"></i>
+        限速管理
+      </h2>
+      <el-button
+        type="primary" 
+        size="small"
+        icon="el-icon-plus" 
+        @click="handleAdd"
+      >
+        新增限速
+      </el-button>
+    </div>
 
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-state">
@@ -439,50 +444,33 @@ export default {
 
 <style scoped>
 .speed-limit-container {
-  padding: 20px;
+  padding: 15px;
 }
 
-.page-header {
-  margin-bottom: 20px;
-  padding: 20px;
-  background-color: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
-}
-
-.header-top {
-  margin-bottom: 20px;
+/* 页面头部 */
+.header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  background: white;
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 .page-title {
-  margin: 0;
-  color: #303133;
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
+  color: #303133;
+  margin: 0;
   display: flex;
   align-items: center;
 }
 
 .page-title i {
-  margin-right: 12px;
-  font-size: 28px;
-  color: #409EFF;
-}
-
-.header-actions {
-  display: flex;
-  gap: 15px;
-  align-items: center;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.add-btn {
-  border-radius: 6px;
-  font-weight: 500;
+  margin-right: 6px;
+  color: #409eff;
 }
 
 .table-container {
@@ -675,27 +663,17 @@ export default {
     padding: 10px;
   }
   
-  .page-header {
-    padding: 15px;
+  .header-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 15px;
+    margin-bottom: 10px;
   }
   
   .page-title {
-    font-size: 20px;
-    margin-bottom: 15px;
-  }
-  
-  .header-actions {
-    flex-direction: column;
-    gap: 12px;
-    align-items: stretch;
-  }
-  
-  .action-buttons {
-    justify-content: space-between;
-  }
-  
-  .action-buttons .el-button {
-    flex: 1;
+    font-size: 16px;
+    text-align: center;
   }
   
   .card-actions {
@@ -735,20 +713,13 @@ export default {
     padding: 8px;
   }
   
-  .page-header {
-    padding: 12px;
+  .header-bar {
+    padding: 8px 12px;
+    margin-bottom: 8px;
   }
   
   .page-title {
-    font-size: 18px;
-  }
-  
-  .page-title i {
-    font-size: 22px;
-  }
-  
-  .action-buttons {
-    flex-direction: column;
+    font-size: 15px;
   }
   
   .empty-state {

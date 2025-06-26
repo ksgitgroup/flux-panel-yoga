@@ -1,163 +1,145 @@
 <template>
   <div class="node-container">
-    <el-button
-          type="primary" 
-          icon="el-icon-plus" 
-          @click="handleAdd"
-          class="add-btn"
-        >
-          新增节点
-        </el-button>
+    <div class="header-bar">
+      <h2 class="page-title">
+        <i class="el-icon-cpu"></i>
+        节点管理
+      </h2>
+      <el-button
+        type="primary" 
+        size="small"
+        icon="el-icon-plus" 
+        @click="handleAdd"
+      >
+        新增节点
+      </el-button>
+    </div>
 
-    <!-- 节点卡片展示 -->
-    <div class="cards-container" v-loading="loading" style="margin-top: 20px;">
-      <div class="cards-grid">
-        <div 
-          v-for="node in nodeList" 
-          :key="node.id" 
-          class="node-card"
-          :class="{ 'online': node.connectionStatus === 'online', 'offline': node.connectionStatus !== 'online' }"
-        >
-          <!-- 节点状态指示器 -->
-          <div class="status-indicator">
+    <!-- 节点卡片网格 -->
+    <div class="node-grid" v-loading="loading">
+      <div 
+        v-for="node in nodeList" 
+        :key="node.id" 
+        class="node-card"
+        :class="{ 'online': node.connectionStatus === 'online', 'offline': node.connectionStatus !== 'online' }"
+      >
+        <!-- 节点头部 -->
+        <div class="node-header">
+          <div class="node-title">
             <div 
               class="status-dot"
               :class="{ 'online': node.connectionStatus === 'online', 'offline': node.connectionStatus !== 'online' }"
             ></div>
-            <span class="status-text">
-              {{ node.connectionStatus === 'online' ? '在线' : '离线' }}
-            </span>
+            <span class="node-name">{{ node.name }}</span>
           </div>
+          
+          <div class="server-info" v-if="node.serverIp">
+            <i class="el-icon-position"></i>
+            <span>{{ node.serverIp }}</span>
+          </div>
+        </div>
 
-          <!-- 节点信息 -->
-          <div class="node-info">
-            <div class="node-header">
-              <h3 class="node-name">{{ node.name }}</h3>
+        <!-- 监控指标网格 -->
+        <div class="metrics-grid">
+          <!-- CPU -->
+          <div class="metric-item">
+            <div class="metric-header">
+              <span class="metric-label">CPU</span>
+              <span class="metric-value">
+                {{ node.connectionStatus === 'online' ? (node.systemInfo?.cpuUsage || 0).toFixed(2) + '%' : '-' }}
+              </span>
             </div>
-
-            <!-- 系统监控信息 -->
-            <div class="system-stats">
-              <!-- CPU和内存使用率图表 -->
-              <div class="charts-container" :class="{ 'offline-charts': node.connectionStatus !== 'online' }">
-                <div class="chart-item">
-                  <div class="chart-title">CPU使用率</div>
-                  <div class="chart-wrapper">
-                    <v-chart 
-                      :option="getCpuChartOption(node.connectionStatus === 'online' ? (node.systemInfo?.cpuUsage || 0) : 0, node.connectionStatus !== 'online')"
-                      :style="chartStyle"
-                    />
-                  </div>
-                </div>
-                
-                <div class="chart-item">
-                  <div class="chart-title">内存使用率</div>
-                  <div class="chart-wrapper">
-                    <v-chart 
-                      :option="getMemoryChartOption(node.connectionStatus === 'online' ? (node.systemInfo?.memoryUsage || 0) : 0, node.connectionStatus !== 'online')"
-                      :style="chartStyle"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <!-- 流量信息 -->
-              <div class="traffic-stats" :class="{ 'offline-stats': node.connectionStatus !== 'online' }">
-                <div class="stat-item">
-                  <div class="stat-header">
-                    <i class="el-icon-upload2"></i>
-                    <span>上传流量</span>
-                  </div>
-                  <div class="stat-content">
-                    <span class="traffic-value">
-                      {{ node.connectionStatus === 'online' ? formatBytes(node.systemInfo?.uploadTraffic || 0) : '-' }}
-                    </span>
-                  </div>
-                </div>
-
-                <div class="stat-item">
-                  <div class="stat-header">
-                    <i class="el-icon-download"></i>
-                    <span>下载流量</span>
-                  </div>
-                  <div class="stat-content">
-                    <span class="traffic-value">
-                      {{ node.connectionStatus === 'online' ? formatBytes(node.systemInfo?.downloadTraffic || 0) : '-' }}
-                    </span>
-                  </div>
-                </div>
-
-                <div class="stat-item">
-                  <div class="stat-header">
-                    <i class="el-icon-s-grid"></i>
-                    <span>实时网速</span>
-                  </div>
-                  <div class="stat-content">
-                    <div v-if="node.connectionStatus === 'online'" class="speed-info">
-                      <div class="speed-item">
-                        <span class="speed-label">↑</span>
-                        <span class="speed-value">{{ formatSpeed(node.systemInfo?.uploadSpeed || 0) }}</span>
-                      </div>
-                      <div class="speed-item">
-                        <span class="speed-label">↓</span>
-                        <span class="speed-value">{{ formatSpeed(node.systemInfo?.downloadSpeed || 0) }}</span>
-                      </div>
-                    </div>
-                    <span v-else class="traffic-value total">-</span>
-                  </div>
-                </div>
-
-                <div class="stat-item">
-                  <div class="stat-header">
-                    <i class="el-icon-position"></i>
-                    <span>服务器IP</span>
-                  </div>
-                  <div class="stat-content">
-                    <div v-if="node.connectionStatus === 'online' && node.serverIp" class="ip-display">
-                      <el-tag
-                        :type="getIpTagType(node.serverIp)"
-                        size="mini"
-                        class="ip-display-tag"
-                      >
-                        {{ node.serverIp }}
-                      </el-tag>
-                    </div>
-                    <span v-else class="ip-value">-</span>
-                  </div>
-                </div>
-              </div>
+            <div class="metric-progress">
+              <div 
+                class="progress-fill" 
+                :class="{ 'offline': node.connectionStatus !== 'online' }"
+                :style="{ 
+                  width: node.connectionStatus === 'online' ? (node.systemInfo?.cpuUsage || 0) + '%' : '0%',
+                  backgroundColor: getProgressColor(node.connectionStatus === 'online' ? (node.systemInfo?.cpuUsage || 0) : 0, node.connectionStatus !== 'online')
+                }"
+              ></div>
             </div>
           </div>
 
-          <div class="node-actions">
-            <el-button
-              size="small" 
-              type="success" 
-              icon="el-icon-copy-document"
-              @click="handleCopyInstallCommand(node)"
-              :loading="node.copyLoading"
-            >
-              复制安装命令
-            </el-button>
-
-            <el-button
-              size="small" 
-              type="primary" 
-              icon="el-icon-edit"
-              @click="handleEdit(node)"
-            >
-              编辑
-            </el-button>
-
-            <el-button
-              size="small" 
-              type="danger" 
-              icon="el-icon-delete"
-              @click="handleDelete(node)"
-            >
-              删除
-            </el-button>
-
+          <!-- 内存 -->
+          <div class="metric-item">
+            <div class="metric-header">
+              <span class="metric-label">内存</span>
+              <span class="metric-value">
+                {{ node.connectionStatus === 'online' ? (node.systemInfo?.memoryUsage || 0).toFixed(2) + '%' : '-' }}
+              </span>
+            </div>
+            <div class="metric-progress">
+              <div 
+                class="progress-fill" 
+                :class="{ 'offline': node.connectionStatus !== 'online' }"
+                :style="{ 
+                  width: node.connectionStatus === 'online' ? (node.systemInfo?.memoryUsage || 0) + '%' : '0%',
+                  backgroundColor: getProgressColor(node.connectionStatus === 'online' ? (node.systemInfo?.memoryUsage || 0) : 0, node.connectionStatus !== 'online')
+                }"
+              ></div>
+            </div>
           </div>
+
+          <!-- 上传 -->
+          <div class="metric-item">
+            <div class="metric-header">
+              <span class="metric-label">上传</span>
+              <span class="metric-value">
+                {{ node.connectionStatus === 'online' ? formatSpeed(node.systemInfo?.uploadSpeed || 0) : '-' }}
+              </span>
+            </div>
+            <div class="metric-footer">
+              {{ node.connectionStatus === 'online' ? formatBytes(node.systemInfo?.uploadTraffic || 0) : '-' }}
+            </div>
+          </div>
+
+          <!-- 下载 -->
+          <div class="metric-item">
+            <div class="metric-header">
+              <span class="metric-label">下载</span>
+              <span class="metric-value">
+                {{ node.connectionStatus === 'online' ? formatSpeed(node.systemInfo?.downloadSpeed || 0) : '-' }}
+              </span>
+            </div>
+            <div class="metric-footer">
+              {{ node.connectionStatus === 'online' ? formatBytes(node.systemInfo?.downloadTraffic || 0) : '-' }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="card-actions">
+          <el-button
+            size="mini"
+            type="success"
+            icon="el-icon-copy-document"
+            @click="handleCopyInstallCommand(node)"
+            :loading="node.copyLoading"
+            plain
+          >
+            复制命令
+          </el-button>
+
+          <el-button
+            size="mini"
+            type="primary"
+            icon="el-icon-edit"
+            @click="handleEdit(node)"
+            plain
+          >
+            编辑
+          </el-button>
+
+          <el-button
+            size="mini"
+            type="danger"
+            icon="el-icon-delete"
+            @click="handleDelete(node)"
+            plain
+          >
+            删除
+          </el-button>
         </div>
       </div>
 
@@ -165,9 +147,14 @@
       <div v-if="!loading && nodeList.length === 0" class="empty-state">
         <i class="el-icon-box"></i>
         <p>暂无节点数据</p>
+        <el-button type="primary" size="small" @click="handleAdd">
+          <i class="el-icon-plus"></i>
+          新增第一个节点
+        </el-button>
       </div>
     </div>
 
+    <!-- 对话框保持不变 -->
     <el-dialog
       :title="dialogTitle"
       :visible.sync="dialogVisible" 
@@ -294,6 +281,13 @@
           style="margin-bottom: 20px;">
         </el-alert>
         <el-alert
+          title="入口ip是用于展示在转发卡片中的地址，可以支持多个，比如有些专线是三线入口，这里可以填三个ip，或者手搓的BGP域名。不知道怎么填就填服务器ip"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 20px;">
+        </el-alert>
+        <el-alert
           title="系统将自动为节点生成UUID密钥"
           type="info"
           :closable="false"
@@ -394,20 +388,7 @@ export default {
     };
   },
   
-  computed: {
-    // 动态图表样式
-    chartStyle() {
-      return {
-        height: this.isMobile ? '80px' : '120px',
-        width: '100%'
-      };
-    },
-    
-    // 检查是否为移动端
-    isMobile() {
-      return window.innerWidth <= 768;
-    }
-  },
+
   
   filters: {
     dateFormat(timestamp) {
@@ -420,8 +401,6 @@ export default {
   mounted() {
     this.loadNodes();
     this.initWebSocket();
-    // 监听窗口大小变化
-    window.addEventListener('resize', this.handleResize);
   },
   
   // 组件激活时（如果使用keep-alive）
@@ -440,8 +419,6 @@ export default {
   // 组件销毁前
   beforeDestroy() {
     this.closeWebSocket();
-    // 移除窗口大小变化监听
-    window.removeEventListener('resize', this.handleResize);
   },
   
   // 路由离开守卫
@@ -816,123 +793,7 @@ export default {
       });
     },
     
-    // 获取CPU图表配置
-    getCpuChartOption(cpuUsage, offline = false) {
-      const colors = offline ? 
-        [[1, '#d4d4d4']] : 
-        [
-          [0.5, '#67c23a'],
-          [0.8, '#e6a23c'],
-          [1, '#f56c6c']
-        ];
-      
-      return {
-        series: [{
-          type: 'gauge',
-          radius: '85%',
-          center: ['50%', '55%'],
-          startAngle: 180,
-          endAngle: 0,
-          min: 0,
-          max: 100,
-          splitNumber: 5,
-          axisLine: {
-            lineStyle: {
-              width: 8,
-              color: colors
-            }
-          },
-          pointer: {
-            width: 3,
-            length: '45%',
-            itemStyle: {
-              color: offline ? '#909399' : '#409eff'
-            }
-          },
-          axisTick: {
-            show: false
-          },
-          splitLine: {
-            show: false
-          },
-          axisLabel: {
-            show: false
-          },
-          detail: {
-            formatter: offline ? '-' : '{value}%',
-            fontSize: 18,
-            fontWeight: 'bold',
-            color: offline ? '#909399' : '#303133',
-            offsetCenter: [0, '25%']
-          },
-          title: {
-            show: false
-          },
-          data: [{
-            value: offline ? 0 : cpuUsage.toFixed(1)
-          }]
-        }]
-      };
-    },
-    
-    // 获取内存图表配置
-    getMemoryChartOption(memoryUsage, offline = false) {
-      const colors = offline ? 
-        [[1, '#d4d4d4']] : 
-        [
-          [0.5, '#67c23a'],
-          [0.8, '#e6a23c'],
-          [1, '#f56c6c']
-        ];
-      
-      return {
-        series: [{
-          type: 'gauge',
-          radius: '85%',
-          center: ['50%', '55%'],
-          startAngle: 180,
-          endAngle: 0,
-          min: 0,
-          max: 100,
-          splitNumber: 5,
-          axisLine: {
-            lineStyle: {
-              width: 8,
-              color: colors
-            }
-          },
-          pointer: {
-            width: 3,
-            length: '45%',
-            itemStyle: {
-              color: offline ? '#909399' : '#409eff'
-            }
-          },
-          axisTick: {
-            show: false
-          },
-          splitLine: {
-            show: false
-          },
-          axisLabel: {
-            show: false
-          },
-          detail: {
-            formatter: offline ? '-' : '{value}%',
-            fontSize: 18,
-            fontWeight: 'bold',
-            color: offline ? '#909399' : '#303133',
-            offsetCenter: [0, '25%']
-          },
-          title: {
-            show: false
-          },
-          data: [{
-            value: offline ? 0 : memoryUsage.toFixed(1)
-          }]
-        }]
-      };
-    },
+
     
     // 格式化字节数
     formatBytes(bytes) {
@@ -956,11 +817,7 @@ export default {
       return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     },
     
-    // 处理窗口大小变化
-    handleResize() {
-      // 触发计算属性重新计算
-      this.$forceUpdate();
-    },
+
     
     // 获取节点IP列表
     getNodeIpList(ipString) {
@@ -1207,6 +1064,21 @@ export default {
       return false;
     },
 
+    // 获取进度条颜色
+    getProgressColor(value, offline = false) {
+      if (offline) {
+        return '#d4d4d4';
+      }
+      
+      if (value <= 50) {
+        return '#67c23a'; // 绿色 - 正常
+      } else if (value <= 80) {
+        return '#e6a23c'; // 橙色 - 警告
+      } else {
+        return '#f56c6c'; // 红色 - 危险
+      }
+    },
+    
     // 获取IP标签类型（根据IP类型设置不同颜色）
     getIpTagType(ip) {
       // IPv4格式验证
@@ -1229,23 +1101,23 @@ export default {
 
 <style scoped>
 .node-container {
-  padding: 20px;
+  padding: 15px;
 }
 
 /* 页面头部 */
-.page-header {
+.header-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
+  margin-bottom: 15px;
   background: white;
-  padding: 20px 30px;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
   color: #303133;
   margin: 0;
@@ -1254,64 +1126,59 @@ export default {
 }
 
 .page-title i {
-  margin-right: 8px;
+  margin-right: 6px;
   color: #409eff;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* 卡片容器 */
-.cards-container {
-  min-height: 400px;
-}
-
-.cards-grid {
+/* 节点网格 */
+.node-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  min-height: 200px;
 }
 
 /* 节点卡片 */
 .node-card {
   background: white;
   border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;
-  border-left: 4px solid #ddd;
+  border-top: 4px solid #ddd;
 }
 
 .node-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.15);
 }
 
 .node-card.online {
-  border-left-color: #67c23a;
+  border-top-color: #67c23a;
 }
 
 .node-card.offline {
-  border-left-color: #f56c6c;
+  border-top-color: #f56c6c;
 }
 
-/* 状态指示器 */
-.status-indicator {
+/* 节点头部 */
+.node-header {
+  margin-bottom: 16px;
+}
+
+.node-title {
   display: flex;
   align-items: center;
-  margin-bottom: 15px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 8px;
   animation: pulse 2s infinite;
+  flex-shrink: 0;
 }
 
 .status-dot.online {
@@ -1328,258 +1195,136 @@ export default {
   100% { opacity: 1; }
 }
 
-.status-text {
-  font-size: 12px;
-  font-weight: 500;
-  color: #909399;
-}
-
-/* 节点信息 */
-.node-info {
-  margin-bottom: 20px;
-}
-
-.node-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
 .node-name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: #303133;
   margin: 0;
 }
 
-/* 图表容器 */
-.charts-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.charts-container.offline-charts {
-  opacity: 0.6;
-}
-
-.charts-container.offline-charts .chart-title {
+.server-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
   color: #909399;
 }
 
-.chart-item {
-  text-align: center;
+.server-info i {
+  color: #409eff;
+  font-size: 12px;
 }
 
-.chart-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: #606266;
+/* 指标网格 */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metric-item {
+  background: #fafbfc;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #e4e7ed;
+}
+
+.metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 8px;
 }
 
-.chart-wrapper {
-  background: #fafafa;
-  border-radius: 8px;
-  padding: 10px;
-}
-
-.charts-container.offline-charts .chart-wrapper {
-  background: #f5f5f5;
-}
-
-/* 流量统计 */
-.traffic-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 10px;
-  width: 100%;
-}
-
-.traffic-stats.offline-stats {
-  opacity: 0.6;
-}
-
-.traffic-stats.offline-stats .stat-header {
-  color: #909399;
-}
-
-.traffic-stats.offline-stats .stat-header i {
-  color: #c0c4cc;
-}
-
-.traffic-stats.offline-stats .traffic-value,
-.traffic-stats.offline-stats .ip-value {
-  color: #909399;
-}
-
-.traffic-stats.offline-stats .stat-item {
-  background: #f5f5f5;
-}
-
-.stat-item {
-  background: #fafafa;
-  border-radius: 6px;
-  padding: 10px;
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 60px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 0; /* 防止内容撑开容器 */
-  overflow: hidden; /* 防止内容溢出 */
-}
-
-.stat-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 6px;
+.metric-label {
   font-size: 12px;
   color: #606266;
   font-weight: 500;
 }
 
-.stat-header i {
-  margin-right: 6px;
-  color: #409eff;
-  width: 14px;
-}
-
-.stat-content {
-  text-align: center;
-}
-
-.traffic-value {
+.metric-value {
   font-size: 13px;
-  font-weight: 600;
-  color: #409eff;
-  font-family: monospace;
-}
-
-.traffic-value.total {
-  color: #67c23a;
-  font-size: 14px;
-}
-
-.speed-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.speed-item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  flex: 1;
-}
-
-.speed-label {
-  font-size: 12px;
-  font-weight: bold;
-  color: #909399;
-  width: 12px;
-}
-
-.speed-value {
-  font-size: 11px;
-  font-weight: 600;
-  color: #409eff;
-  font-family: monospace;
-}
-
-.ip-value {
-  font-size: 12px;
   font-weight: 600;
   color: #303133;
   font-family: monospace;
-  display: block;
+}
+
+.metric-progress {
   width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.ip-display {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: center;
-  max-width: 100%;
+  height: 4px;
+  background-color: #e4e7ed;
+  border-radius: 2px;
   overflow: hidden;
 }
 
-.ip-display-tag {
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+  min-width: 2px;
+}
+
+.progress-fill.offline {
+  background-color: #d4d4d4 !important;
+}
+
+.metric-footer {
+  font-size: 11px;
+  color: #909399;
+  margin-top: 4px;
   font-family: monospace;
-  font-size: 10px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.ip-count-tag {
-  font-size: 10px;
-  cursor: pointer;
+/* 卡片操作 */
+.card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  border-top: 1px solid #ebeef5;
+  padding-top: 12px;
 }
 
 /* 空状态 */
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   color: #909399;
 }
 
 .empty-state i {
-  font-size: 64px;
-  margin-bottom: 20px;
+  font-size: 48px;
+  margin-bottom: 15px;
   opacity: 0.5;
 }
 
 .empty-state p {
-  font-size: 16px;
-  margin-bottom: 20px;
+  font-size: 14px;
+  margin-bottom: 15px;
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
   .node-container {
-    padding: 20px;
+    padding: 10px;
   }
 
-  .cards-grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .charts-container {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-
-  .traffic-stats {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-
-  .page-header {
+  .header-bar {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
-    padding: 15px 20px;
-    margin-bottom: 15px;
+    padding: 10px 15px;
+    margin-bottom: 10px;
   }
 
-  .header-actions {
-    justify-content: center;
+  .page-title {
+    font-size: 16px;
+    text-align: center;
+  }
+
+  .node-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .node-card {
@@ -1587,70 +1332,51 @@ export default {
   }
 
   .node-header {
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
 
   .node-name {
-    font-size: 16px;
+    font-size: 14px;
   }
 
-  .status-indicator {
-    margin-bottom: 10px;
+  .metrics-grid {
+    gap: 8px;
+    margin-bottom: 12px;
   }
 
-  .chart-wrapper {
-    padding: 6px;
+  .metric-item {
+    padding: 8px;
   }
 
-  .chart-title {
-    font-size: 12px;
-    margin-bottom: 4px;
-  }
-
-  .stat-item {
-    padding: 6px;
-    min-height: 45px;
-  }
-
-  .stat-header {
-    font-size: 11px;
-    margin-bottom: 4px;
-  }
-
-  .traffic-value {
-    font-size: 12px;
-  }
-
-  .speed-value {
-    font-size: 10px;
-  }
-
-  .ip-value {
-    font-size: 11px;
-  }
-
-  .node-actions {
-    padding-top: 10px;
+  .card-actions {
+    flex-wrap: wrap;
     gap: 6px;
+    padding-top: 10px;
+  }
+
+  .card-actions .el-button {
+    flex: 1;
+    min-width: 80px;
   }
 }
 
-/* 节点操作 */
-.node-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  border-top: 1px solid #ebeef5;
-  padding-top: 15px;
-}
+
 
 @media (max-width: 480px) {
   .node-container {
-    padding: 10px;
+    padding: 8px;
   }
 
-  .cards-grid {
+  .header-bar {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+
+  .page-title {
+    font-size: 14px;
+  }
+
+  .node-grid {
     gap: 8px;
   }
 
@@ -1658,113 +1384,64 @@ export default {
     padding: 10px;
   }
 
-  .charts-container {
+  .node-header {
+    margin-bottom: 10px;
+  }
+
+  .node-name {
+    font-size: 13px;
+  }
+
+  .server-info {
+    font-size: 11px;
+  }
+
+  .metrics-grid {
     gap: 6px;
     margin-bottom: 10px;
   }
 
-  .traffic-stats {
-    gap: 4px;
+  .metric-item {
+    padding: 6px;
   }
 
-  .stat-item {
-    padding: 5px;
-    min-height: 40px;
-  }
-
-  .chart-wrapper {
-    padding: 4px;
-  }
-
-  .node-actions {
-    justify-content: center;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .node-actions .el-button {
+  .metric-label {
     font-size: 11px;
-    padding: 5px 10px;
-    width: 100%;
-    margin: 0;
   }
 
-  .add-btn {
+  .metric-value {
     font-size: 12px;
-    padding: 8px 15px;
   }
 
-  .page-header {
-    padding: 10px 15px;
-    margin-bottom: 10px;
+  .metric-footer {
+    font-size: 10px;
   }
 
-  .page-title {
-    font-size: 20px;
+  .card-actions {
+    gap: 4px;
+    padding-top: 8px;
+  }
+
+  .card-actions .el-button {
+    font-size: 11px;
+    padding: 4px 8px;
+    min-width: 60px;
+  }
+
+  .empty-state {
+    padding: 30px 15px;
+  }
+
+  .empty-state i {
+    font-size: 36px;
+  }
+
+  .empty-state p {
+    font-size: 12px;
   }
 }
 
-/* 管理员信息面板 */
-.admin-info-panel {
-  margin-top: 15px;
-  padding: 12px;
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-  border-radius: 8px;
-  border-left: 3px solid #007bff;
-}
 
-.admin-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #007bff;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-}
-
-.admin-title:before {
-  content: '👑';
-  margin-right: 6px;
-}
-
-.admin-details {
-  display: grid;
-  gap: 6px;
-}
-
-.admin-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px dotted #dee2e6;
-}
-
-.admin-item:last-child {
-  border-bottom: none;
-}
-
-.admin-item .label {
-  font-size: 12px;
-  color: #6c757d;
-  font-weight: 500;
-}
-
-.admin-item .value {
-  font-size: 12px;
-  color: #495057;
-  font-family: monospace;
-  background: rgba(255, 255, 255, 0.6);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* 管理员状态信息 */
-.admin-info {
-  font-size: 11px;
-  color: #007bff;
-  font-weight: 500;
-}
 
 /* IP输入组件样式 */
 .ip-input-container {

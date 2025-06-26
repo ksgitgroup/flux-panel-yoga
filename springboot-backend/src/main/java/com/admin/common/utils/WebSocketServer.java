@@ -70,12 +70,27 @@ public class WebSocketServer extends TextWebSocketHandler {
                         JSONObject responseJson = JSONObject.parseObject(message.getPayload());
                         String requestId = responseJson.getString("requestId");
                         String responseMessage = responseJson.getString("message");
+                        String responseType = responseJson.getString("type");
+                        JSONObject responseData = responseJson.getJSONObject("data");
                         
                         if (requestId != null) {
                             CompletableFuture<GostDto> future = pendingRequests.remove(requestId);
                             if (future != null) {
                                 GostDto result = new GostDto();
-                                result.setMsg(responseMessage != null ? responseMessage : "无响应消息");
+                                
+                                // 根据响应类型处理不同的数据
+                                if ("PingResponse".equals(responseType) && responseData != null) {
+                                    // 特殊处理ping响应，将完整的响应数据返回
+                                    result.setMsg(responseMessage != null ? responseMessage : "OK");
+                                    result.setData(responseData); // 保存ping详细结果
+                                } else {
+                                    // 其他类型的响应
+                                    result.setMsg(responseMessage != null ? responseMessage : "无响应消息");
+                                    if (responseData != null) {
+                                        result.setData(responseData);
+                                    }
+                                }
+                                
                                 future.complete(result);
                             }
                         }

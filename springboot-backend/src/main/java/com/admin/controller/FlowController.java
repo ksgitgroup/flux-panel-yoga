@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,30 +76,35 @@ public class FlowController extends BaseController {
             return SUCCESS_RESPONSE;
         }
 
-        List<FlowDto> validFlowData = flowDataList;
-//        // 2. 过滤有效流量数据
-//        List<FlowDto> validFlowData = filterValidFlowData(flowDataList);
-//        if (validFlowData.isEmpty()) {
-//            return SUCCESS_RESPONSE;
-//        }
 
-
-        // 3. 解析服务名称获取ID信息
-        String[] serviceIds = parseServiceName(validFlowData.get(0).getN());
+        // 2. 解析服务名称获取ID信息
+        String[] serviceIds = parseServiceName(flowDataList.get(0).getN());
         String forwardId = serviceIds[0];
         String userId = serviceIds[1];
         String userTunnelId = serviceIds[2];
 
-        // 4. 计算总流量
-        FlowStatistics flowStats = calculateTotalFlow(validFlowData);
 
-        // 5. 一次性查询相关实体，避免后续重复查询
+        // 3. 一次性查询相关实体，避免后续重复查询
         Forward forward = forwardService.getById(forwardId);
         User user = userService.getById(userId);
         UserTunnel userTunnel = null;
         if (!Objects.equals(userTunnelId, DEFAULT_USER_TUNNEL_ID)) {
             userTunnel = userTunnelService.getById(userTunnelId);
         }
+
+        // 4. 处理流量倍率
+        List<FlowDto> validFlowData = flowDataList;
+        if (forward != null) {
+            validFlowData = filterFlowData(flowDataList, forward.getTunnelId());
+        }
+
+
+
+
+        // 5. 计算总流量
+        FlowStatistics flowStats = calculateTotalFlow(validFlowData);
+
+
 
         // 6. 获取流量计费类型
         int flowType = getFlowType(forward);
@@ -136,6 +142,27 @@ public class FlowController extends BaseController {
         }
 
         return SUCCESS_RESPONSE;
+    }
+
+
+
+    private List<FlowDto> filterFlowData(List<FlowDto> flowDataList, Integer tunnel_id) {
+        Tunnel tunnel = tunnelService.getById(tunnel_id);
+        if (tunnel != null && tunnel.getTrafficRatio() != null){
+            BigDecimal trafficRatio = tunnel.getTrafficRatio();
+            for (FlowDto flowDto : flowDataList) {
+                // 将Long转为BigDecimal进行计算，然后转回Long
+                BigDecimal originalD = BigDecimal.valueOf(flowDto.getD());
+                BigDecimal originalU = BigDecimal.valueOf(flowDto.getU());
+                
+                BigDecimal newD = originalD.multiply(trafficRatio);
+                BigDecimal newU = originalU.multiply(trafficRatio);
+                
+                flowDto.setD(newD.longValue());
+                flowDto.setU(newU.longValue());
+            }
+        }
+        return flowDataList;
     }
 
     /**

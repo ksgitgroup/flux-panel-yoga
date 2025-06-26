@@ -1,17 +1,22 @@
 <template>
   <div class="tunnel-container">
-    <el-button 
-          type="primary" 
-          icon="el-icon-plus" 
-          @click="handleAdd"
-          class="add-btn"
-          size="medium"
-        >
-          新增隧道
-        </el-button>
+    <div class="header-bar">
+      <h2 class="page-title">
+        <i class="el-icon-connection"></i>
+        隧道管理
+      </h2>
+      <el-button 
+        type="primary" 
+        icon="el-icon-plus" 
+        @click="handleAdd"
+        size="small"
+      >
+        新增隧道
+      </el-button>
+    </div>
 
     <!-- 隧道卡片展示 -->
-    <div class="cards-container" v-loading="loading" style="margin-top: 20px;">
+    <div class="cards-container" v-loading="loading">
       <div class="cards-grid">
         <div 
           v-for="tunnel in tunnelList" 
@@ -35,6 +40,9 @@
                 </el-tag>
                 <el-tag v-if="tunnel.flow === 1" type="success" size="mini">单向计算</el-tag>
                 <el-tag v-else type="info" size="mini">双向计算</el-tag>
+                <el-tag v-if="tunnel.trafficRatio && tunnel.trafficRatio !== 1.0" type="warning" size="mini">
+                  {{ tunnel.trafficRatio }}x倍率
+                </el-tag>
               </div>
             </div>
 
@@ -50,6 +58,15 @@
               </el-button>
               <el-button 
                 size="small" 
+                type="warning" 
+                icon="el-icon-view"
+                @click="handleDiagnose(tunnel)"
+                class="action-btn diagnose-btn"
+              >
+                诊断
+              </el-button>
+              <el-button 
+                size="small" 
                 type="danger" 
                 icon="el-icon-delete"
                 @click="handleDelete(tunnel)"
@@ -60,85 +77,36 @@
             </div>
           </div>
 
-          <!-- 流程图 -->
+          <!-- 紧凑流程图 -->
           <div class="tunnel-flow">
-            <!-- 客户端 -->
-            <div class="flow-item client">
-              <div class="flow-icon">
-                <i class="el-icon-monitor"></i>
-              </div>
-              <div class="flow-content">
-                <div class="flow-label">客户端</div>
-              </div>
-            </div>
-
-            <!-- 箭头 -->
-            <div class="flow-arrow">
-              <i class="el-icon-right"></i>
-            </div>
-
-            <!-- 入口 -->
-            <div class="flow-item entrance">
-              <div class="flow-icon">
-                <i class="el-icon-upload"></i>
-              </div>
-              <div class="flow-content">
-                <div class="flow-label">入口</div>
-                <div class="flow-detail">
-                  <div class="detail-item">
-                    <span class="label">IP:</span>
-                    <span class="value" :title="getFullIpList(tunnel.inIp)">{{ getDisplayIp(tunnel.inIp) }}</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="label">端口:</span>
-                    <span class="value">{{ tunnel.inPortSta === tunnel.inPortEnd ? tunnel.inPortSta : `${tunnel.inPortSta}-${tunnel.inPortEnd}` }}</span>
+            <div class="flow-section">
+              <div class="flow-step">
+                <div class="step-content">
+                  <div class="step-title">入口</div>
+                  <div class="step-details">
+                    <span class="detail-text" :title="getFullIpList(tunnel.inIp)">{{ getDisplayIp(tunnel.inIp) }}</span>
                   </div>
                 </div>
               </div>
-            </div>
-
-            <!-- 箭头 -->
-            <div class="flow-arrow">
-              <i class="el-icon-right"></i>
-            </div>
-
-            <!-- 出口 -->
-            <div class="flow-item exit">
-              <div class="flow-icon">
-                <i class="el-icon-download"></i>
-              </div>
-              <div class="flow-content">
-                <div class="flow-label" >出口</div>
-                <div class="flow-detail">
-                  
-                  <div class="detail-item">
-                    <span class="label">IP:</span>
-                    <span class="value" :title="getFullIpList(tunnel.outIp)">{{ getDisplayIp(tunnel.outIp) }}</span>
-                  </div>
-
-                  <div class="detail-item">
-                    <span class="label">端口:</span>
-                    <span class="value">{{ tunnel.outIpSta === tunnel.outIpEnd ? tunnel.outIpSta : `${tunnel.outIpSta}-${tunnel.outIpEnd}` }}</span>
+              
+              <i class="el-icon-right flow-arrow"></i>
+              
+              <div class="flow-step">
+                <div class="step-content">
+                  <div class="step-title">出口</div>
+                  <div class="step-details">
+                    <span class="detail-text" :title="getFullIpList(tunnel.outIp)">{{ getDisplayIp(tunnel.outIp) }}</span>
                   </div>
                 </div>
               </div>
-            </div>
-
-            <!-- 箭头 -->
-            <div class="flow-arrow">
-              <i class="el-icon-right"></i>
-            </div>
-
-            <!-- 目标 -->
-            <div class="flow-item target">
-              <div class="flow-icon">
-                <i class="el-icon-position"></i>
-              </div>
-              <div class="flow-content">
-                <div class="flow-label">目标</div>
-                <div class="flow-detail">
-                  <div class="detail-item">
-                    <span class="label">目标服务</span>
+              
+              <i class="el-icon-right flow-arrow"></i>
+              
+              <div class="flow-step">
+                <div class="step-content">
+                  <div class="step-title">目标</div>
+                  <div class="step-details">
+                    <span class="detail-text">目标服务</span>
                   </div>
                 </div>
               </div>
@@ -147,10 +115,8 @@
 
           <!-- 创建时间 -->
           <div class="tunnel-meta">
-            <div class="meta-item">
-              <i class="el-icon-time"></i>
-              <span>{{ tunnel.createdTime | dateFormat }}</span>
-            </div>
+            <i class="el-icon-time"></i>
+            <span>{{ tunnel.createdTime | dateFormat }}</span>
           </div>
         </div>
       </div>
@@ -208,6 +174,21 @@
           </el-select>
           <div class="form-hint">
             单向：仅计算上传流量；双向：计算上传和下载的总流量
+          </div>
+        </el-form-item>
+
+        <el-form-item label="流量倍率" prop="trafficRatio">
+          <el-input-number
+            v-model="tunnelForm.trafficRatio"
+            :min="0.0"
+            :max="100.0"
+            :step="0.1"
+            :precision="1"
+            placeholder="请输入流量倍率"
+            style="width: 100%;"
+          ></el-input-number>
+          <div class="form-hint">
+            流量计费倍率，设置为2.0表示按实际流量的2倍计费，范围：0.0-100.0
           </div>
         </el-form-item>
 
@@ -372,11 +353,96 @@
         </el-button>
       </span>
     </el-dialog>
+
+    <!-- 诊断结果对话框 -->
+    <el-dialog 
+      title="隧道诊断结果" 
+      :visible.sync="diagnosisDialogVisible" 
+      width="700px"
+      @close="resetDiagnosisDialog"
+    >
+      <div v-loading="diagnosisLoading" class="diagnosis-container">
+        <!-- 诊断信息头部 -->
+        <div class="diagnosis-header" v-if="diagnosisResult">
+          <h3 class="diagnosis-title">{{ diagnosisResult.tunnelName }}</h3>
+          <div class="diagnosis-meta">
+            <el-tag :type="diagnosisResult.tunnelType === '端口转发' ? 'primary' : 'warning'" size="small">
+              {{ diagnosisResult.tunnelType }}
+            </el-tag>
+            <span class="diagnosis-time">
+              {{ formatTimestamp(diagnosisResult.timestamp) }}
+            </span>
           </div>
+        </div>
+
+        <!-- 诊断结果列表 -->
+        <div class="diagnosis-results" v-if="diagnosisResult && diagnosisResult.results">
+          <div 
+            v-for="(result, index) in diagnosisResult.results" 
+            :key="index"
+            class="diagnosis-item"
+            :class="{ 'success': result.success, 'failed': !result.success }"
+          >
+            <div class="diagnosis-item-header">
+              <div class="diagnosis-description">
+                <i :class="result.success ? 'el-icon-success' : 'el-icon-error'"></i>
+                {{ result.description }}
+              </div>
+              <div class="diagnosis-status">
+                <el-tag :type="result.success ? 'success' : 'danger'" size="mini">
+                  {{ result.success ? '成功' : '失败' }}
+                </el-tag>
+              </div>
+            </div>
+            
+            <div class="diagnosis-details">
+              <div class="detail-row">
+                <span class="detail-label">节点：</span>
+                <span class="detail-value">{{ result.nodeName }} (ID: {{ result.nodeId }})</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">目标：</span>
+                <span class="detail-value">{{ result.targetIp }}</span>
+              </div>
+              <div class="detail-row" v-if="result.success">
+                <span class="detail-label">平均延迟：</span>
+                <span class="detail-value">{{ result.averageTime.toFixed(2) }}ms</span>
+              </div>
+              <div class="detail-row" v-if="result.success">
+                <span class="detail-label">丢包率：</span>
+                <span class="detail-value">{{ result.packetLoss.toFixed(1) }}%</span>
+              </div>
+              <div class="detail-row" v-if="!result.success">
+                <span class="detail-label">错误信息：</span>
+                <span class="detail-value error-msg">{{ result.message }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-if="!diagnosisLoading && !diagnosisResult" class="diagnosis-empty">
+          <i class="el-icon-warning-outline"></i>
+          <p>暂无诊断数据</p>
+        </div>
+      </div>
+      
+      <span slot="footer" class="dialog-footer">
+        <el-button @click="diagnosisDialogVisible = false">关 闭</el-button>
+        <el-button 
+          type="primary" 
+          @click="handleDiagnose(currentDiagnosisTunnel)"
+          :loading="diagnosisLoading"
+        >
+          重新诊断
+        </el-button>
+      </span>
+    </el-dialog>
+  </div>
 </template>
 
 <script>
-import { createTunnel, updateTunnel, deleteTunnel, getTunnelList, getNodeList } from "@/api";
+import { createTunnel, updateTunnel, deleteTunnel, getTunnelList, getNodeList, diagnoseTunnel } from "@/api";
 
 export default {
   name: "Tunnel",
@@ -403,7 +469,8 @@ export default {
         status: 1,  // 默认启用
         protocol: 'tls',
         tcpListenAddr: '0.0.0.0',  // TCP监听地址
-        udpListenAddr: '0.0.0.0'   // UDP监听地址
+        udpListenAddr: '0.0.0.0',   // UDP监听地址
+        trafficRatio: 1.0  // 默认流量倍率1.0
       },
       rules: {
         name: [
@@ -425,6 +492,10 @@ export default {
         ],
         flow: [
           { required: true, message: '请选择流量计算类型', trigger: 'change' }
+        ],
+        trafficRatio: [
+          { required: true, message: '请输入流量倍率', trigger: 'blur' },
+          { type: 'number', min: 0.0, max: 100.0, message: '流量倍率必须在0.0-100.0之间', trigger: 'blur' }
         ],
         // 隧道转发时的出口验证规则
         outNodeId: [
@@ -477,7 +548,11 @@ export default {
             trigger: 'blur' 
           }
         ]
-      }
+      },
+      diagnosisDialogVisible: false,
+      diagnosisLoading: false,
+      diagnosisResult: null,
+      currentDiagnosisTunnel: null
     };
   },
 
@@ -546,7 +621,7 @@ export default {
       this.loadNodes(); // 打开对话框时加载节点列表
     },
 
-    // 编辑隧道 - 只能修改名称、流量计费、端口范围
+    // 编辑隧道 - 只能修改名称、流量计费、流量倍率、端口范围、监听地址
     handleEdit(tunnel) {
       this.isEdit = true;
       this.dialogTitle = '编辑隧道';
@@ -557,6 +632,7 @@ export default {
         id: tunnel.id,
         name: tunnel.name,
         flow: tunnel.flow,
+        trafficRatio: tunnel.trafficRatio || 1.0,
         inPortSta: tunnel.inPortSta,
         inPortEnd: tunnel.inPortEnd,
         outIpSta: tunnel.outIpSta,
@@ -653,6 +729,7 @@ export default {
               id: data.id,
               name: data.name,
               flow: data.flow,
+              trafficRatio: data.trafficRatio,
               inPortSta: data.inPortSta,
               inPortEnd: data.inPortEnd,
               outIpSta: data.outIpSta,
@@ -712,7 +789,8 @@ export default {
         status: 1,  // 默认启用
         protocol: 'tls',
         tcpListenAddr: '0.0.0.0',  // TCP监听地址
-        udpListenAddr: '0.0.0.0'   // UDP监听地址
+        udpListenAddr: '0.0.0.0',   // UDP监听地址
+        trafficRatio: 1.0  // 默认流量倍率1.0
       };
       if (this.$refs.tunnelForm) {
         this.$refs.tunnelForm.clearValidate();
@@ -743,6 +821,67 @@ export default {
       
       // 多个IP时在title中显示所有IP
       return `入口IP列表 (${ips.length}个):\n${ips.join('\n')}`;
+    },
+
+    // 新增诊断功能
+    handleDiagnose(tunnel) {
+      this.currentDiagnosisTunnel = tunnel;
+      this.diagnosisDialogVisible = true;
+      this.diagnosisLoading = true;
+      this.diagnosisResult = null;
+
+      // 调用诊断API
+      diagnoseTunnel(tunnel.id).then(res => {
+        this.diagnosisLoading = false;
+        if (res.code === 0) {
+          this.diagnosisResult = res.data;
+        } else {
+          this.$message.error(res.msg || '诊断失败');
+          this.diagnosisResult = {
+            tunnelName: tunnel.name,
+            tunnelType: tunnel.type === 1 ? '端口转发' : '隧道转发',
+            timestamp: Date.now(),
+            results: [{
+              success: false,
+              description: '诊断失败',
+              nodeName: '-',
+              nodeId: '-',
+              targetIp: '-',
+              message: res.msg || '诊断过程中发生错误'
+            }]
+          };
+        }
+      }).catch(error => {
+        this.diagnosisLoading = false;
+        this.$message.error('网络错误，请重试');
+        this.diagnosisResult = {
+          tunnelName: tunnel.name,
+          tunnelType: tunnel.type === 1 ? '端口转发' : '隧道转发',
+          timestamp: Date.now(),
+          results: [{
+            success: false,
+            description: '网络错误',
+            nodeName: '-',
+            nodeId: '-',
+            targetIp: '-',
+            message: '无法连接到服务器'
+          }]
+        };
+      });
+    },
+
+    // 重置诊断对话框
+    resetDiagnosisDialog() {
+      this.diagnosisDialogVisible = false;
+      this.diagnosisResult = null;
+      this.currentDiagnosisTunnel = null;
+    },
+
+    // 格式化时间戳
+    formatTimestamp(timestamp) {
+      if (!timestamp) return '-';
+      const date = new Date(timestamp);
+      return date.toLocaleString('zh-CN');
     }
   }
 };
@@ -750,23 +889,23 @@ export default {
 
 <style scoped>
 .tunnel-container {
-  padding: 20px;
+  padding: 15px;
 }
 
 /* 页面头部 */
-.page-header {
+.header-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
+  margin-bottom: 15px;
   background: white;
-  padding: 20px 30px;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
   color: #303133;
   margin: 0;
@@ -775,47 +914,40 @@ export default {
 }
 
 .page-title i {
-  margin-right: 8px;
+  margin-right: 6px;
   color: #409eff;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 /* 卡片容器 */
 .cards-container {
-  min-height: 400px;
+  min-height: 200px;
 }
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
   align-items: start;
 }
 
 /* 隧道卡片 */
 .tunnel-card {
   background: white;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-  border-left: 4px solid #409eff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 6px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  border-left: 3px solid #409eff;
   position: relative;
-  height: auto;
-  min-height: 320px;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
 }
 
 .tunnel-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px 0 rgba(0, 0, 0, 0.15);
 }
 
 /* 禁用状态样式 */
@@ -825,177 +957,174 @@ export default {
   border-left-color: #c0c4cc !important;
 }
 
-.tunnel-card.disabled .flow-icon {
-  background: #c0c4cc !important;
-}
-
 .tunnel-card.disabled .tunnel-name {
   color: #909399 !important;
 }
 
-.tunnel-card.disabled .detail-item .value {
+.tunnel-card.disabled .detail-text {
   color: #c0c4cc !important;
 }
 
-.tunnel-card.disabled .flow-label {
+.tunnel-card.disabled .step-title {
   color: #c0c4cc !important;
-}
-
-.tunnel-card.disabled::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(192, 196, 204, 0.1);
-  pointer-events: none;
-  border-radius: 12px;
 }
 
 /* 隧道头部 */
 .tunnel-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
 }
 
-.tunnel-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: #303133;
-  margin: 0;
-  flex: 1;
-}
-
-.tunnel-badges {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* 流程图 */
-.tunnel-flow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  overflow-x: auto;
-}
-
-.flow-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 100px;
-  flex-shrink: 0;
-}
-
-.flow-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 8px;
-  font-size: 18px;
-  color: white;
-}
-
-.client .flow-icon {
-  background: #909399;
-}
-
-.entrance .flow-icon {
-  background: #409eff;
-}
-
-.exit .flow-icon {
-  background: #f56c6c;
-}
-
-.target .flow-icon {
-  background: #67c23a;
-}
-
-.flow-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #606266;
-  margin-bottom: 8px;
-  text-align: center;
-}
-
-.flow-detail {
-  text-align: center;
-}
-
-.detail-item {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 2px;
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
-
-.detail-item .label {
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-.detail-item .value {
-  color: #303133;
-  font-family: monospace;
-  cursor: help;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border-bottom: 1px dotted transparent;
-  transition: border-color 0.2s;
+.tunnel-info {
   flex: 1;
   min-width: 0;
 }
 
-.detail-item .value:hover {
-  border-bottom-color: #409eff;
+.tunnel-name {
+  font-size: 17px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0 0 8px 0;
+  line-height: 1.3;
+}
+
+.tunnel-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tunnel-badges .el-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  height: auto;
+  line-height: 1.3;
+}
+
+/* 紧凑流程图 */
+.tunnel-flow {
+  margin-bottom: 16px;
+  background: #fafbfc;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #e4e7ed;
+}
+
+.flow-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.flow-step {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
+
+.flow-step:nth-child(1),
+.flow-step:nth-child(3) {
+  flex: 2;
+}
+
+.flow-step:nth-child(5) {
+  flex: 1;
+}
+
+.step-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.step-icon.entrance {
+  color: #409eff;
+  background: rgba(64, 158, 255, 0.1);
+}
+
+.step-icon.exit {
+  color: #f56c6c;
+  background: rgba(245, 108, 108, 0.1);
+}
+
+.step-icon.target {
+  color: #67c23a;
+  background: rgba(103, 194, 58, 0.1);
+}
+
+.step-content {
+  min-width: 0;
+  flex: 1;
+  text-align: center;
+}
+
+.step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.step-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.detail-text {
+  font-size: 12px;
+  color: #303133;
+  font-family: monospace;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+  text-align: center;
+  width: 100%;
+}
+
+.detail-text:hover {
+  color: #409eff;
 }
 
 .flow-arrow {
   color: #c0c4cc;
-  font-size: 16px;
-  margin: 0 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin: 0 2px;
 }
 
 /* 隧道元信息 */
 .tunnel-meta {
   display: flex;
   align-items: center;
-  margin-bottom: 15px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #ebeef5;
   font-size: 12px;
   color: #909399;
 }
 
-.meta-item {
-  display: flex;
-  align-items: center;
-  margin-right: 20px;
-}
-
-.meta-item i {
-  margin-right: 5px;
-}
-
-/* 隧道信息容器 */
-.tunnel-info {
-  flex: 1;
-  margin-right: 15px;
+.tunnel-meta i {
+  margin-right: 6px;
+  font-size: 13px;
 }
 
 /* 操作按钮容器 */
@@ -1008,10 +1137,12 @@ export default {
 
 /* 操作按钮样式 */
 .action-btn {
-  border-radius: 6px;
+  border-radius: 4px;
   font-weight: 500;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
   white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 12px;
 }
 
 .edit-btn {
@@ -1022,8 +1153,6 @@ export default {
 .edit-btn:hover {
   background: #66b1ff;
   border-color: #66b1ff;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
 }
 
 .delete-btn {
@@ -1034,60 +1163,16 @@ export default {
 .delete-btn:hover {
   background: #f78989;
   border-color: #f78989;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(245, 108, 108, 0.3);
 }
 
-/* 新增按钮样式 */
-.add-btn {
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.3);
+.diagnose-btn {
+  background: #e6a23c;
+  border-color: #e6a23c;
 }
 
-.add-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(64, 158, 255, 0.4);
-}
-
-/* 对话框按钮样式 */
-.dialog-footer {
-  padding-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.dialog-btn {
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-weight: 500;
-  min-width: 80px;
-  transition: all 0.3s ease;
-}
-
-.cancel-btn {
-  background: #f5f7fa;
-  border-color: #dcdfe6;
-  color: #606266;
-}
-
-.cancel-btn:hover {
-  background: #ecf5ff;
-  border-color: #b3d8ff;
-  color: #409eff;
-}
-
-.submit-btn {
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
-}
-
-.submit-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
+.diagnose-btn:hover {
+  background: #ebb563;
+  border-color: #ebb563;
 }
 
 /* 表单提示 */
@@ -1098,517 +1183,346 @@ export default {
   line-height: 1.4;
 }
 
-/* 只读字段提示样式 */
-.form-readonly-hint {
-  color: #f56c6c;
-  font-weight: 500;
-}
-
 /* 空状态 */
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   color: #909399;
 }
 
 .empty-state i {
-  font-size: 64px;
-  margin-bottom: 20px;
+  font-size: 48px;
+  margin-bottom: 15px;
   opacity: 0.5;
 }
 
 .empty-state p {
-  font-size: 16px;
-  margin-bottom: 20px;
+  font-size: 14px;
+  margin-bottom: 15px;
 }
 
-/* 中等屏幕优化 (768px - 1024px) */
-@media (max-width: 1024px) {
-  .cards-grid {
-    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-  }
-}
-
-/* 平板优化 (480px - 768px) */
+/* 响应式设计 */
 @media (max-width: 768px) {
   .tunnel-container {
-    padding: 15px;
+    padding: 10px;
   }
 
-  .page-header {
+  .header-bar {
     flex-direction: column;
     align-items: stretch;
-    gap: 15px;
-    padding: 20px;
-    margin-bottom: 20px;
+    gap: 10px;
+    padding: 10px 15px;
+    margin-bottom: 10px;
   }
   
   .page-title {
-    font-size: 22px;
+    font-size: 16px;
     text-align: center;
-  }
-  
-  .header-actions {
-    justify-content: center;
   }
 
   .cards-grid {
     grid-template-columns: 1fr;
-    gap: 15px;
+    gap: 10px;
   }
   
   .tunnel-card {
-    padding: 20px;
+    padding: 12px;
     min-height: auto;
-    border-radius: 10px;
   }
   
   .tunnel-header {
-    margin-bottom: 15px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  
-  .tunnel-info {
-    margin-right: 0;
     margin-bottom: 10px;
-  }
-  
-  .tunnel-name {
-    font-size: 17px;
-    margin: 0 0 8px 0;
-  }
-  
-  .tunnel-badges {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  
-  .tunnel-actions {
-    justify-content: flex-start;
-    gap: 8px;
-  }
-  
-  .action-btn {
-    flex: 1;
-    max-width: 80px;
-    padding: 8px 12px;
-    font-size: 12px;
-  }
-  
-  /* 平板端流程图优化 */
-  .tunnel-flow {
-    padding: 18px 15px;
-    margin-bottom: 18px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  .flow-item {
-    min-width: 90px;
-    flex-shrink: 0;
-  }
-  
-  .flow-icon {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
-    margin-bottom: 6px;
-  }
-  
-  .flow-label {
-    font-size: 13px;
-    margin-bottom: 6px;
-  }
-  
-     .detail-item {
-     font-size: 11px;
-     margin-bottom: 2px;
-     line-height: 1.3;
-     display: flex;
-     align-items: baseline;
-     gap: 4px;
-   }
-   
-   .detail-item .value {
-     font-size: 12px;
-     max-width: 120px;
-     overflow: hidden;
-     text-overflow: ellipsis;
-     white-space: nowrap;
-     cursor: help;
-     border-bottom: 1px dotted transparent;
-     transition: border-color 0.2s;
-     flex: 1;
-     min-width: 0;
-   }
-   
-   .detail-item .value:hover {
-     border-bottom-color: #409eff;
-   }
-  
-  .flow-arrow {
-    font-size: 14px;
-    margin: 0 8px;
-  }
-  
-  .tunnel-meta {
-    margin-bottom: 12px;
-    font-size: 11px;
-    justify-content: center;
-  }
-}
-
-/* 手机端优化 (最大 480px) */
-@media (max-width: 480px) {
-  .tunnel-container {
-    padding: 10px;
-  }
-  
-  .page-header {
-    padding: 15px;
-    margin-bottom: 15px;
-    border-radius: 6px;
-  }
-  
-  .page-title {
-    font-size: 18px;
-  }
-  
-  .header-actions {
-    flex-direction: column;
-    gap: 8px;
-    width: 100%;
-  }
-  
-  .header-actions .el-button {
-    width: 100%;
-    justify-content: center;
-  }
-  
-  /* 对话框按钮移动端优化 */
-  .dialog-footer {
-    padding-top: 15px;
     flex-direction: row;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  
-  .dialog-btn {
-    flex: 1;
-    padding: 12px 16px;
-    font-size: 14px;
-    min-width: 0;
-  }
-  
-  /* 表单输入框移动端优化 */
-  .el-input-number {
-    width: 100% !important;
-  }
-  
-  .el-input-number .el-input__inner {
-    padding-left: 50px;
-    padding-right: 50px;
-    text-align: center;
-  }
-  
-  /* 对话框移动端优化 */
-  .el-dialog {
-    width: 95% !important;
-    margin: 5vh auto !important;
-  }
-  
-  .el-dialog__body {
-    padding: 20px 15px;
-  }
-  
-  .el-form-item__label {
-    font-size: 14px;
-    line-height: 1.4;
-  }
-  
-  .el-form-item {
-    margin-bottom: 18px;
-  }
-  
-  .el-input, .el-select {
-    font-size: 14px;
-  }
-  
-  .el-button {
-    font-size: 14px;
-  }
-  
-  .tunnel-card {
-    padding: 15px;
-    border-radius: 8px;
-    margin-bottom: 10px;
-  }
-  
-  .tunnel-header {
-    margin-bottom: 12px;
-    gap: 10px;
-  }
-  
-  .tunnel-name {
-    font-size: 16px;
-  }
-  
-  .tunnel-badges {
-    gap: 4px;
-  }
-  
-  .tunnel-badges .el-tag {
-    font-size: 10px;
-    padding: 2px 6px;
-    height: auto;
-    line-height: 1.3;
-    border-radius: 3px;
-  }
-  
-  /* 手机端流程图 - 垂直布局 */
-  .tunnel-flow {
-    padding: 12px 8px;
-    margin-bottom: 12px;
-    flex-direction: column;
-    gap: 10px;
-    align-items: stretch;
-  }
-  
-  .flow-item {
-    min-width: auto;
-    width: 100%;
-    flex-direction: row;
-    justify-content: flex-start;
-    align-items: center;
-    padding: 8px 12px;
-    background: white;
-    border-radius: 6px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  }
-  
-  .flow-icon {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-    margin-bottom: 0;
-    margin-right: 10px;
-    flex-shrink: 0;
-  }
-  
-  .flow-content {
-    flex: 1;
-    text-align: left;
-  }
-  
-     .flow-label {
-     font-size: 12px;
-     font-weight: 600;
-     margin-bottom: 4px;
-     color: #303133;
-     text-align: left;
-   }
-  
-  .flow-detail {
-    text-align: left;
-  }
-  
-     .detail-item {
-     display: block;
-     font-size: 10px;
-     margin-bottom: 3px;
-     line-height: 1.4;
-   }
-   
-   .detail-item .label {
-     display: inline;
-     margin-right: 4px;
-     color: #666;
-   }
-   
-   .detail-item .value {
-     font-size: 11px;
-     font-weight: 500;
-     color: #409eff;
-     max-width: 100px;
-     overflow: hidden;
-     text-overflow: ellipsis;
-     white-space: nowrap;
-     cursor: help;
-     border-bottom: 1px dotted transparent;
-     transition: border-color 0.2s;
-     flex: 1;
-     min-width: 0;
-   }
-   
-   .detail-item .value:hover {
-     border-bottom-color: #409eff;
-   }
-  
-  .flow-arrow {
-    display: none; /* 垂直布局时隐藏箭头 */
-  }
-  
-  /* 手机端按钮优化 */
-  .tunnel-actions {
-    margin-top: 8px;
-    gap: 6px;
-  }
-  
-  .action-btn {
-    flex: 1;
-    max-width: 70px;
-    padding: 6px 10px;
-    font-size: 11px;
-    border-radius: 4px;
-  }
-  
-  .action-btn i {
-    margin-right: 2px;
-  }
-  
-  .tunnel-meta {
-    margin-bottom: 8px;
-    font-size: 10px;
-    justify-content: flex-start;
-  }
-  
-  .meta-item {
-    margin-right: 15px;
-  }
-  
-  .meta-item i {
-    margin-right: 3px;
-  }
-  
-  /* 空状态手机端优化 */
-  .empty-state {
-    padding: 30px 15px;
-  }
-  
-  .empty-state i {
-    font-size: 40px;
-    margin-bottom: 12px;
-  }
-  
-  .empty-state p {
-    font-size: 14px;
-    margin-bottom: 12px;
-  }
-}
-
-/* 超小屏幕优化 (最大 360px) */
-@media (max-width: 360px) {
-  .tunnel-container {
-    padding: 8px;
-  }
-  
-  .page-header {
-    padding: 12px;
-  }
-  
-  /* 超小屏幕对话框优化 */
-  .dialog-footer {
-    flex-direction: column;
+    align-items: flex-start;
     gap: 8px;
-  }
-  
-  .dialog-btn {
-    width: 100%;
-    flex: none;
-  }
-  
-  .tunnel-card {
-    padding: 12px;
   }
   
   .tunnel-name {
     font-size: 15px;
+    margin: 0 0 6px 0;
+  }
+  
+  .tunnel-badges {
+    justify-content: flex-start;
+    gap: 4px;
   }
   
   .tunnel-badges .el-tag {
-    font-size: 9px;
-    padding: 1px 4px;
+    font-size: 11px;
+    padding: 3px 7px;
   }
   
-  .flow-item {
-    padding: 6px 10px;
+  .tunnel-actions {
+    justify-content: flex-start;
+    gap: 6px;
   }
   
-  .flow-icon {
-    width: 28px;
-    height: 28px;
+  /* 保持统一样式 */
+  
+  .tunnel-meta {
+    padding-top: 6px;
+    font-size: 11px;
+  }
+  
+  .tunnel-meta i {
+    margin-right: 4px;
     font-size: 12px;
-    margin-right: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tunnel-container {
+    padding: 8px;
   }
   
-  .flow-label {
+  .header-bar {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+  
+  .page-title {
+    font-size: 15px;
+  }
+  
+  .cards-grid {
+    gap: 8px;
+  }
+  
+  .tunnel-card {
+    padding: 10px;
+  }
+  
+  .tunnel-header {
+    margin-bottom: 8px;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  
+  .tunnel-name {
+    font-size: 14px;
+    margin: 0 0 4px 0;
+  }
+  
+  .tunnel-badges .el-tag {
+    font-size: 10px;
+    padding: 2px 5px;
+  }
+  
+  /* 移动端流程图优化 */
+  .tunnel-flow {
+    padding: 8px;
+    margin-bottom: 8px;
+  }
+  
+  .flow-section {
+    min-width: auto;
+    gap: 4px;
+  }
+  
+  .flow-step {
+    min-width: 60px;
+    flex: 1;
+  }
+  
+  .flow-step:nth-child(1),
+  .flow-step:nth-child(3) {
+    flex: 2;
+  }
+  
+  .flow-step:nth-child(5) {
+    flex: 1;
+  }
+  
+  .step-title {
     font-size: 11px;
     margin-bottom: 2px;
   }
   
-     .detail-item {
-     font-size: 9px;
-     margin-bottom: 2px;
-     line-height: 1.3;
-     display: flex;
-     align-items: baseline;
-     gap: 4px;
-   }
-   
-   .detail-item .value {
-     font-size: 10px;
-     max-width: 80px;
-     overflow: hidden;
-     text-overflow: ellipsis;
-     white-space: nowrap;
-     cursor: help;
-     border-bottom: 1px dotted transparent;
-     transition: border-color 0.2s;
-     flex: 1;
-     min-width: 0;
-   }
-   
-   .detail-item .value:hover {
-     border-bottom-color: #409eff;
-   }
-}
-
-/* 横屏模式优化 */
-@media (max-width: 768px) and (orientation: landscape) {
-  .tunnel-flow {
-    flex-direction: row;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 12px;
+  .step-details {
+    gap: 1px;
   }
   
-  .flow-item {
-    flex-direction: column;
-    min-width: 80px;
-    width: auto;
-    padding: 8px;
-    margin-right: 8px;
-  }
-  
-  .flow-icon {
-    margin-right: 0;
-    margin-bottom: 4px;
-  }
-  
-  .flow-content {
-    text-align: center;
-  }
-  
-  .flow-detail {
-    text-align: center;
+  .detail-text {
+    font-size: 10px;
+    max-width: 80px;
+    line-height: 1.2;
   }
   
   .flow-arrow {
-    display: flex;
-    margin: 0 4px;
+    font-size: 11px;
+    margin: 0 2px;
   }
+  
+  /* 移动端按钮优化 */
+  .tunnel-actions {
+    gap: 4px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+  
+  .action-btn {
+    padding: 5px 7px;
+    font-size: 10px;
+    white-space: nowrap;
+    min-width: 42px;
+  }
+  
+  .tunnel-meta {
+    padding-top: 4px;
+    font-size: 10px;
+  }
+  
+  .empty-state {
+    padding: 20px 10px;
+  }
+  
+  .empty-state i {
+    font-size: 32px;
+    margin-bottom: 10px;
+  }
+  
+  .empty-state p {
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+}
+
+.diagnosis-container {
+  padding: 20px;
+}
+
+.diagnosis-header {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.diagnosis-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.diagnosis-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.diagnosis-time {
+  font-size: 12px;
+  color: #909399;
+}
+
+.diagnosis-results {
+  margin-bottom: 20px;
+}
+
+.diagnosis-item {
+  margin-bottom: 10px;
+  padding: 10px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 6px 0 rgba(0, 0, 0, 0.1);
+}
+
+.diagnosis-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.diagnosis-description {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.diagnosis-description i {
+  font-size: 18px;
+  color: #606266;
+}
+
+.diagnosis-status {
+  display: flex;
+  align-items: center;
+}
+
+.diagnosis-details {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #606266;
+}
+
+.detail-value {
+  font-size: 12px;
+  color: #909399;
+}
+
+.diagnosis-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #909399;
+}
+
+.diagnosis-empty i {
+  font-size: 48px;
+  margin-bottom: 15px;
+  opacity: 0.5;
+}
+
+.diagnosis-empty p {
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dialog-btn {
+  border-radius: 4px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.cancel-btn {
+  background: #f56c6c;
+  border-color: #f56c6c;
+}
+
+.cancel-btn:hover {
+  background: #f78989;
+  border-color: #f78989;
+}
+
+.submit-btn {
+  background: #409eff;
+  border-color: #409eff;
+}
+
+.submit-btn:hover {
+  background: #66b1ff;
+  border-color: #66b1ff;
 }
 </style>

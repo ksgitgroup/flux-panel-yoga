@@ -1,10 +1,16 @@
 package socket
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +61,23 @@ type CommandResponse struct {
 	Message   string      `json:"message"`
 	Data      interface{} `json:"data,omitempty"`
 	RequestId string      `json:"requestId,omitempty"`
+}
+
+// PingRequest ping请求结构体
+type PingRequest struct {
+	IP        string `json:"ip"`
+	Count     int    `json:"count"`
+	RequestId string `json:"requestId,omitempty"`
+}
+
+// PingResponse ping响应结构体
+type PingResponse struct {
+	IP           string  `json:"ip"`
+	Success      bool    `json:"success"`
+	AverageTime  float64 `json:"averageTime"` // 平均延迟(ms)
+	PacketLoss   float64 `json:"packetLoss"`  // 丢包率(%)
+	ErrorMessage string  `json:"errorMessage,omitempty"`
+	RequestId    string  `json:"requestId,omitempty"`
 }
 
 type WebSocketReporter struct {
@@ -136,6 +159,9 @@ func (w *WebSocketReporter) connect() error {
 
 	w.conn = conn
 	w.connected = true
+
+	// 设置最大消息大小为 16MB (默认是 1024 * 1024)
+	w.conn.SetReadLimit(100 * 1024 * 1024)
 
 	// 设置关闭处理器来检测连接状态
 	w.conn.SetCloseHandler(func(code int, text string) error {
@@ -257,16 +283,61 @@ func (w *WebSocketReporter) receiveMessages() {
 func (w *WebSocketReporter) handleReceivedMessage(messageType int, message []byte) {
 	switch messageType {
 	case websocket.TextMessage:
-
-		// 解析命令消息
-		var cmdMsg CommandMessage
-		if err := json.Unmarshal(message, &cmdMsg); err != nil {
-			fmt.Printf("❌ 解析命令消息失败: %v\n", err)
-			w.sendErrorResponse("ParseError", fmt.Sprintf("解析命令失败: %v", err))
-			return
+		// 先尝试解析是否是压缩消息
+		var compressedMsg struct {
+			Type       string          `json:"type"`
+			Compressed bool            `json:"compressed"`
+			Data       json.RawMessage `json:"data"`
+			RequestId  string          `json:"requestId,omitempty"`
 		}
-		if cmdMsg.Type != "call" {
-			w.routeCommand(cmdMsg)
+
+		if err := json.Unmarshal(message, &compressedMsg); err == nil && compressedMsg.Compressed {
+			// 处理压缩消息
+			fmt.Printf("📥 收到压缩消息，正在解压...\n")
+
+			// 解压数据
+			gzipReader, err := gzip.NewReader(bytes.NewReader(compressedMsg.Data))
+			if err != nil {
+				fmt.Printf("❌ 创建解压读取器失败: %v\n", err)
+				w.sendErrorResponse("DecompressError", fmt.Sprintf("解压失败: %v", err))
+				return
+			}
+			defer gzipReader.Close()
+
+			var decompressedData bytes.Buffer
+			if _, err := decompressedData.ReadFrom(gzipReader); err != nil {
+				fmt.Printf("❌ 解压数据失败: %v\n", err)
+				w.sendErrorResponse("DecompressError", fmt.Sprintf("解压失败: %v", err))
+				return
+			}
+
+			// 使用解压后的数据继续处理
+			message = decompressedData.Bytes()
+
+			// 构建解压后的命令消息
+			var cmdMsg CommandMessage
+			cmdMsg.Type = compressedMsg.Type
+			cmdMsg.RequestId = compressedMsg.RequestId
+			if err := json.Unmarshal(message, &cmdMsg.Data); err != nil {
+				fmt.Printf("❌ 解析解压后的命令数据失败: %v\n", err)
+				w.sendErrorResponse("ParseError", fmt.Sprintf("解析命令失败: %v", err))
+				return
+			}
+
+			if cmdMsg.Type != "call" {
+				w.routeCommand(cmdMsg)
+			}
+		} else {
+			// 处理普通消息
+			var cmdMsg CommandMessage
+			if err := json.Unmarshal(message, &cmdMsg); err != nil {
+				fmt.Printf("❌ 解析命令消息失败: %v\n", err)
+				w.sendErrorResponse("ParseError", fmt.Sprintf("解析命令失败: %v", err))
+				return
+			}
+			if cmdMsg.Type != "call" {
+				w.routeCommand(cmdMsg)
+			}
 		}
 
 	default:
@@ -321,6 +392,14 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "DeleteLimiters":
 		err = w.handleDeleteLimiter(cmd.Data)
 		response.Type = "DeleteLimitersResponse"
+
+	// Ping 诊断命令
+	case "Ping":
+		var pingResult PingResponse
+		pingResult, err = w.handlePing(cmd.Data)
+		response.Type = "PingResponse"
+		response.Data = pingResult
+
 	default:
 		err = fmt.Errorf("未知命令类型: %s", cmd.Type)
 		response.Type = "UnknownCommandResponse"
@@ -621,29 +700,78 @@ func (w *WebSocketReporter) sendConfigReport() {
 		return
 	}
 
-	// 构建配置报告消息
-	configMsg := struct {
-		Type string      `json:"type"`
-		Data interface{} `json:"data"`
-	}{
-		Type: "config_report",
-		Data: json.RawMessage(configData),
-	}
+	// 检查数据大小，如果超过1MB则压缩
+	if len(configData) > 1024*1024 {
+		fmt.Printf("📦 配置数据较大 (%.2f MB)，进行压缩处理\n", float64(len(configData))/(1024*1024))
 
-	// 转换为JSON
-	jsonData, err := json.Marshal(configMsg)
-	if err != nil {
-		fmt.Printf("❌ 序列化配置报告失败: %v\n", err)
-		return
-	}
+		// 压缩配置数据
+		var compressedBuf bytes.Buffer
+		gzipWriter := gzip.NewWriter(&compressedBuf)
+		if _, err := gzipWriter.Write(configData); err != nil {
+			fmt.Printf("❌ 压缩配置数据失败: %v\n", err)
+			return
+		}
+		gzipWriter.Close()
 
-	// 设置写入超时
-	w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		// 构建压缩后的配置报告消息
+		configMsg := struct {
+			Type       string `json:"type"`
+			Compressed bool   `json:"compressed"`
+			Data       []byte `json:"data"`
+		}{
+			Type:       "config_report",
+			Compressed: true,
+			Data:       compressedBuf.Bytes(),
+		}
 
-	if err := w.conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
-		fmt.Printf("❌ 发送配置报告失败: %v\n", err)
-		w.connected = false
-		return
+		// 转换为JSON
+		jsonData, err := json.Marshal(configMsg)
+		if err != nil {
+			fmt.Printf("❌ 序列化压缩配置报告失败: %v\n", err)
+			return
+		}
+
+		fmt.Printf("✅ 压缩后大小: %.2f MB -> %.2f MB (压缩率: %.1f%%)\n",
+			float64(len(configData))/(1024*1024),
+			float64(len(jsonData))/(1024*1024),
+			100.0-float64(len(jsonData))/float64(len(configData))*100)
+
+		// 设置写入超时
+		w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+
+		if err := w.conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+			fmt.Printf("❌ 发送压缩配置报告失败: %v\n", err)
+			w.connected = false
+			return
+		}
+	} else {
+		// 数据较小，直接发送
+		// 构建配置报告消息
+		configMsg := struct {
+			Type       string      `json:"type"`
+			Compressed bool        `json:"compressed"`
+			Data       interface{} `json:"data"`
+		}{
+			Type:       "config_report",
+			Compressed: false,
+			Data:       json.RawMessage(configData),
+		}
+
+		// 转换为JSON
+		jsonData, err := json.Marshal(configMsg)
+		if err != nil {
+			fmt.Printf("❌ 序列化配置报告失败: %v\n", err)
+			return
+		}
+
+		// 设置写入超时
+		w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
+		if err := w.conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+			fmt.Printf("❌ 发送配置报告失败: %v\n", err)
+			w.connected = false
+			return
+		}
 	}
 
 }
@@ -661,7 +789,18 @@ func (w *WebSocketReporter) sendResponse(response CommandResponse) {
 		return
 	}
 
-	w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	// 检查消息大小，如果超过10MB则记录警告
+	if len(jsonData) > 10*1024*1024 {
+		fmt.Printf("⚠️ 响应消息过大 (%.2f MB)，可能会被拒绝\n", float64(len(jsonData))/(1024*1024))
+	}
+
+	// 设置较长的写入超时，以应对大消息
+	timeout := 5 * time.Second
+	if len(jsonData) > 1024*1024 {
+		timeout = 30 * time.Second
+	}
+
+	w.conn.SetWriteDeadline(time.Now().Add(timeout))
 	if err := w.conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
 		fmt.Printf("❌ 发送响应失败: %v\n", err)
 		w.connected = false
@@ -749,4 +888,201 @@ func StartWebSocketReporterWithConfig(Addr string, Secret string) *WebSocketRepo
 	reporter := NewWebSocketReporter(fullURL)
 	reporter.Start()
 	return reporter
+}
+
+// handlePing 处理ping诊断命令
+func (w *WebSocketReporter) handlePing(data interface{}) (PingResponse, error) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return PingResponse{}, fmt.Errorf("序列化ping数据失败: %v", err)
+	}
+
+	var req PingRequest
+	if err := json.Unmarshal(jsonData, &req); err != nil {
+		return PingResponse{}, fmt.Errorf("解析ping请求失败: %v", err)
+	}
+
+	// 验证IP地址格式
+	if net.ParseIP(req.IP) == nil && !isValidHostname(req.IP) {
+		return PingResponse{
+			IP:           req.IP,
+			Success:      false,
+			ErrorMessage: "无效的IP地址或主机名",
+			RequestId:    req.RequestId,
+		}, nil
+	}
+
+	// 设置默认ping次数
+	if req.Count <= 0 {
+		req.Count = 4
+	}
+
+	// 执行ping操作
+	avgTime, packetLoss, err := pingHost(req.IP, req.Count)
+
+	response := PingResponse{
+		IP:        req.IP,
+		RequestId: req.RequestId,
+	}
+
+	if err != nil {
+		response.Success = false
+		response.ErrorMessage = err.Error()
+	} else {
+		response.Success = true
+		response.AverageTime = avgTime
+		response.PacketLoss = packetLoss
+	}
+
+	return response, nil
+}
+
+// pingHost 执行ping操作，返回平均延迟和丢包率
+func pingHost(ip string, count int) (float64, float64, error) {
+	var cmd *exec.Cmd
+
+	// 根据操作系统选择不同的ping命令
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("ping", "-n", strconv.Itoa(count), ip)
+	case "darwin", "linux":
+		cmd = exec.Command("ping", "-c", strconv.Itoa(count), ip)
+	default:
+		return 0, 0, fmt.Errorf("不支持的操作系统: %s", runtime.GOOS)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("ping命令执行失败: %v", err)
+	}
+
+	// 解析ping输出
+	return parsePingOutput(string(output), runtime.GOOS)
+}
+
+// parsePingOutput 解析ping命令输出，提取平均延迟和丢包率
+func parsePingOutput(output, osType string) (float64, float64, error) {
+	lines := strings.Split(output, "\n")
+
+	switch osType {
+	case "windows":
+		return parsePingOutputWindows(lines)
+	case "darwin", "linux":
+		return parsePingOutputUnix(lines)
+	default:
+		return 0, 0, fmt.Errorf("不支持的操作系统类型")
+	}
+}
+
+// parsePingOutputWindows 解析Windows系统的ping输出
+func parsePingOutputWindows(lines []string) (float64, float64, error) {
+	var avgTime float64
+	var packetLoss float64
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// 查找平均延迟 (例如: "最短 = 1ms，最长 = 2ms，平均 = 1ms")
+		if strings.Contains(line, "平均") && strings.Contains(line, "ms") {
+			parts := strings.Split(line, "平均 = ")
+			if len(parts) > 1 {
+				avgPart := strings.Split(parts[1], "ms")[0]
+				if avg, err := strconv.ParseFloat(avgPart, 64); err == nil {
+					avgTime = avg
+				}
+			}
+		}
+
+		// 查找丢包率 (例如: "丢失 = 0 (0% 丢失)")
+		if strings.Contains(line, "丢失") && strings.Contains(line, "%") {
+			if strings.Contains(line, "(0%") {
+				packetLoss = 0
+			} else {
+				// 提取百分比
+				start := strings.Index(line, "(")
+				end := strings.Index(line, "%")
+				if start != -1 && end != -1 && start < end {
+					lossStr := line[start+1 : end]
+					if loss, err := strconv.ParseFloat(lossStr, 64); err == nil {
+						packetLoss = loss
+					}
+				}
+			}
+		}
+	}
+
+	return avgTime, packetLoss, nil
+}
+
+// parsePingOutputUnix 解析Unix系统（Linux/macOS）的ping输出
+func parsePingOutputUnix(lines []string) (float64, float64, error) {
+	var avgTime float64
+	var packetLoss float64
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// 查找统计行 (例如: "4 packets transmitted, 4 received, 0% packet loss")
+		if strings.Contains(line, "packet loss") {
+			parts := strings.Split(line, "%")
+			if len(parts) > 0 {
+				// 查找百分比前的数字
+				lossStr := strings.Fields(parts[0])
+				if len(lossStr) > 0 {
+					if loss, err := strconv.ParseFloat(lossStr[len(lossStr)-1], 64); err == nil {
+						packetLoss = loss
+					}
+				}
+			}
+		}
+
+		// 查找往返时间统计 (例如: "round-trip min/avg/max/stddev = 0.123/0.456/0.789/0.012 ms")
+		if strings.Contains(line, "round-trip") && strings.Contains(line, "=") {
+			parts := strings.Split(line, "=")
+			if len(parts) > 1 {
+				times := strings.TrimSpace(parts[1])
+				times = strings.Split(times, " ")[0] // 去掉末尾的"ms"
+				timeValues := strings.Split(times, "/")
+				if len(timeValues) >= 2 {
+					if avg, err := strconv.ParseFloat(timeValues[1], 64); err == nil {
+						avgTime = avg
+					}
+				}
+			}
+		}
+
+		// macOS的格式可能不同，查找avg (例如: "min/avg/max/stddev = 0.123/0.456/0.789/0.012 ms")
+		if strings.Contains(line, "min/avg/max") && strings.Contains(line, "=") {
+			parts := strings.Split(line, "=")
+			if len(parts) > 1 {
+				times := strings.TrimSpace(parts[1])
+				times = strings.Split(times, " ")[0] // 去掉末尾的"ms"
+				timeValues := strings.Split(times, "/")
+				if len(timeValues) >= 2 {
+					if avg, err := strconv.ParseFloat(timeValues[1], 64); err == nil {
+						avgTime = avg
+					}
+				}
+			}
+		}
+	}
+
+	return avgTime, packetLoss, nil
+}
+
+// isValidHostname 验证主机名格式
+func isValidHostname(hostname string) bool {
+	if len(hostname) == 0 || len(hostname) > 253 {
+		return false
+	}
+
+	// 简单的主机名验证
+	for _, r := range hostname {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '.') {
+			return false
+		}
+	}
+
+	return true
 }

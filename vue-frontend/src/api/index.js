@@ -22,6 +22,7 @@ export const getTunnelList = () => Network.post("/tunnel/list")
 export const getTunnelById = (id) => Network.post("/tunnel/get", { id })
 export const updateTunnel = (data) => Network.post("/tunnel/update", data)
 export const deleteTunnel = (id) => Network.post("/tunnel/delete", { id })
+export const diagnoseTunnel = (tunnelId) => Network.post("/tunnel/diagnose", { tunnelId })
 
 // 用户隧道权限管理操作 - 全部使用POST请求
 export const assignUserTunnel = (data) => Network.post("/tunnel/user/assign", data)

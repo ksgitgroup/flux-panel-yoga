@@ -144,14 +144,10 @@
       </div>
 
       <!-- 空状态 -->
-      <div v-if="!loading && nodeList.length === 0" class="empty-state">
-        <i class="el-icon-box"></i>
-        <p>暂无节点数据</p>
-        <el-button type="primary" size="small" @click="handleAdd">
-          <i class="el-icon-plus"></i>
-          新增第一个节点
-        </el-button>
-      </div>
+      <EmptyState 
+        v-if="!loading && nodeList.length === 0" 
+        description="暂无节点数据"
+      />
     </div>
 
     <!-- 对话框保持不变 -->
@@ -315,6 +311,7 @@
 import {createNode, updateNode, deleteNode, getNodeList, getNodeInstallCommand} from "@/api";
 import { copyWithMessage, copyWithFallback } from "@/utils/clipboard";
 import VChart from 'vue-echarts';
+import EmptyState from "@/components/EmptyState.vue";
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { GaugeChart } from 'echarts/charts';
@@ -330,7 +327,8 @@ use([
 export default {
   name: "Node",
   components: {
-    VChart
+    VChart,
+    EmptyState
   },
   data() {
     return {
@@ -1285,23 +1283,7 @@ export default {
   padding-top: 12px;
 }
 
-/* 空状态 */
-.empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  color: #909399;
-}
-
-.empty-state i {
-  font-size: 48px;
-  margin-bottom: 15px;
-  opacity: 0.5;
-}
-
-.empty-state p {
-  font-size: 14px;
-  margin-bottom: 15px;
-}
+/* 空状态使用统一组件，样式已内置 */
 
 /* 响应式设计 */
 @media (max-width: 768px) {

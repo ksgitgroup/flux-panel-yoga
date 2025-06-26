@@ -103,9 +103,10 @@
 
       <!-- 移动端卡片视图 -->
       <div class="mobile-view" v-loading="loading">
-        <div v-if="userList.length === 0 && !loading" class="empty-state">
-          <el-empty description="暂无用户数据"></el-empty>
-        </div>
+        <EmptyState 
+          v-if="userList.length === 0 && !loading" 
+          description="暂无用户数据"
+        />
         
         <div v-for="user in userList" :key="user.id" class="user-card">
           <!-- 卡片头部 -->
@@ -532,9 +533,10 @@
 
         <!-- 移动端卡片视图 -->
         <div class="mobile-view" v-loading="tunnelListLoading">
-          <div v-if="userTunnelList.length === 0 && !tunnelListLoading" class="empty-state">
-            <el-empty description="暂无隧道权限" :image-size="100"></el-empty>
-          </div>
+          <EmptyState 
+            v-if="userTunnelList.length === 0 && !tunnelListLoading" 
+            description="暂无隧道权限"
+          />
           
           <div v-for="tunnel in userTunnelList" :key="tunnel.id" class="tunnel-card">
             <!-- 卡片头部 -->
@@ -717,9 +719,13 @@
 
 <script>
 import { getAllUsers, createUser, updateUser, deleteUser, getTunnelList, assignUserTunnel, getUserTunnelList, removeUserTunnel, updateUserTunnelFlow, updateUserTunnel, getSpeedLimitList } from "@/api";
+import EmptyState from "@/components/EmptyState.vue";
 
 export default {
   name: "User",
+  components: {
+    EmptyState
+  },
   data() {
     return {
       userList: [],

@@ -272,6 +272,19 @@ public class WebSocketServer extends TextWebSocketHandler {
 
 
     public static GostDto send_msg(Long node_id, Object msg, String type) {
+        return send_msg(node_id, msg, type, 10); // 默认10秒超时
+    }
+
+    /**
+     * 发送消息到指定节点（支持自定义超时时间）
+     * 
+     * @param node_id 节点ID
+     * @param msg 消息内容
+     * @param type 消息类型
+     * @param timeoutSeconds 超时时间（秒）
+     * @return 响应结果
+     */
+    public static GostDto send_msg(Long node_id, Object msg, String type, int timeoutSeconds) {
         WebSocketSession nodeSession = nodeSessions.get(node_id);
 
         if (nodeSession == null) {
@@ -301,7 +314,7 @@ public class WebSocketServer extends TextWebSocketHandler {
             data.put("data", msg);
             data.put("requestId", requestId);
             sendToUser(nodeSession, data.toJSONString());
-            GostDto result = future.get(10, TimeUnit.SECONDS);
+            GostDto result = future.get(timeoutSeconds, TimeUnit.SECONDS);
             return result;
             
         } catch (Exception e) {

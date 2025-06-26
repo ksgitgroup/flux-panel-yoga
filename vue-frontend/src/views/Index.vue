@@ -88,8 +88,12 @@
     <div class="tunnels-section">
       <h3 class="section-title">隧道权限</h3>
       <div v-loading="loading" class="tunnels-grid">
-        <div v-if="userTunnels.length === 0 && !loading" class="empty-state">
-          <el-empty description="暂无隧道权限"></el-empty>
+        <!-- 空状态也使用卡片容器，保持样式统一 -->
+        <div v-if="userTunnels.length === 0 && !loading" class="tunnel-card empty-card">
+          <EmptyState 
+            description="暂无隧道权限"
+            size="small"
+          />
         </div>
 
         <div
@@ -177,9 +181,12 @@
     <div class="forwards-section">
       <h3 class="section-title">转发详情</h3>
       <div v-loading="loading" class="forwards-container">
-        <div v-if="groupedForwards.length === 0 && !loading" class="empty-state">
-          <el-empty description="暂无转发配置"></el-empty>
-        </div>
+        <!-- 空状态保持在容器内，与有数据时样式统一 -->
+        <EmptyState 
+          v-if="groupedForwards.length === 0 && !loading" 
+          description="暂无转发配置"
+          size="small"
+        />
 
         <div v-for="group in groupedForwards" :key="group.tunnelName" class="forward-group">
           <div class="group-header">
@@ -267,9 +274,13 @@
 
 <script>
 import { getUserPackageInfo } from "@/api";
+import EmptyState from "@/components/EmptyState.vue";
 
 export default {
   name: "Index",
+  components: {
+    EmptyState
+  },
   data() {
     return {
       refreshLoading: false,
@@ -1071,13 +1082,18 @@ export default {
   font-weight: 600;
 }
 
-.empty-state {
+/* 隧道权限空状态卡片样式 */
+.tunnel-card.empty-card {
   grid-column: 1 / -1;
+  justify-self: center;
+  max-width: 400px;
+  min-height: 160px;
   display: flex;
-  justify-content: center;
   align-items: center;
-  height: 200px;
+  justify-content: center;
 }
+
+/* 转发详情的空状态样式由EmptyState组件内置处理 */
 
 /* 响应式设计 */
 @media (max-width: 768px) {
@@ -1153,6 +1169,12 @@ export default {
   .tunnel-card {
     padding: 16px;
     margin-bottom: 8px;
+  }
+
+  .tunnel-card.empty-card {
+    max-width: 100%;
+    min-height: 140px;
+    margin-bottom: 12px;
   }
 
   .tunnel-header {

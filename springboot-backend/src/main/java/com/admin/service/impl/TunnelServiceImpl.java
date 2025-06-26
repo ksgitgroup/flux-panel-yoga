@@ -727,14 +727,15 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 3. 根据隧道类型执行不同的诊断策略
         if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
             // 端口转发：只给入口节点发送诊断指令，ping谷歌DNS
-            DiagnosisResult inResult = performPingDiagnosis(inNode, "8.8.8.8", "入口->外网");
+            DiagnosisResult inResult = performPingDiagnosisWithConnectionCheck(inNode, "8.8.8.8", "入口->外网");
             results.add(inResult);
         } else {
             // 隧道转发：入口ping出口，出口ping谷歌DNS
-            DiagnosisResult inToOutResult = performPingDiagnosis(inNode, outNode.getServerIp(), "入口->出口");
+            DiagnosisResult inToOutResult = performPingDiagnosisWithConnectionCheck(inNode, outNode.getServerIp(), "入口->出口");
             results.add(inToOutResult);
 
-            DiagnosisResult outToExternalResult = performPingDiagnosis(outNode, "8.8.8.8", "出口->外网");
+            // 先检查出口节点的真实连接状态，然后再进行诊断
+            DiagnosisResult outToExternalResult = performPingDiagnosisWithConnectionCheck(outNode, "8.8.8.8", "出口->外网");
             results.add(outToExternalResult);
         }
 
@@ -825,6 +826,85 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             result.setAverageTime(-1.0);
             result.setPacketLoss(100.0);
             return result;
+        }
+    }
+
+    /**
+     * 执行ping诊断（带连接状态检查）
+     * 
+     * @param node 执行ping的节点
+     * @param targetIp 目标IP地址
+     * @param description 诊断描述
+     * @return 诊断结果
+     */
+    private DiagnosisResult performPingDiagnosisWithConnectionCheck(Node node, String targetIp, String description) {
+        DiagnosisResult result = new DiagnosisResult();
+        result.setNodeId(node.getId());
+        result.setNodeName(node.getName());
+        result.setTargetIp(targetIp);
+        result.setDescription(description);
+        result.setTimestamp(System.currentTimeMillis());
+
+        try {
+            // 首先检查节点的WebSocket连接状态
+            if (!isNodeWebSocketConnected(node.getId())) {
+                // 如果WebSocket连接有问题，更新节点状态并返回错误
+                node.setStatus(0); // 标记为离线
+                nodeService.updateById(node);
+                
+                result.setSuccess(false);
+                result.setMessage(String.format("节点 %s 实际已离线（WebSocket连接断开），已更新节点状态。请重新启动节点或检查网络连接", node.getName()));
+                result.setAverageTime(-1.0);
+                result.setPacketLoss(100.0);
+                return result;
+            }
+
+            // 如果连接正常，执行标准的ping诊断
+            DiagnosisResult pingResult = performPingDiagnosis(node, targetIp, description);
+            
+            // 如果ping失败，添加更详细的错误信息
+            if (!pingResult.isSuccess() && pingResult.getMessage() != null) {
+                if (pingResult.getMessage().contains("等待响应超时")) {
+                    pingResult.setMessage(String.format("节点 %s 响应超时，可能网络延迟较高或负载过重", node.getName()));
+                } else if (pingResult.getMessage().contains("节点无响应")) {
+                    pingResult.setMessage(String.format("节点 %s 无响应，请检查节点状态", node.getName()));
+                }
+            }
+            
+            return pingResult;
+
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setMessage(String.format("诊断节点 %s 时发生异常: %s", node.getName(), e.getMessage()));
+            result.setAverageTime(-1.0);
+            result.setPacketLoss(100.0);
+            return result;
+        }
+    }
+
+    /**
+     * 检查节点的WebSocket连接是否有效
+     * 
+     * @param nodeId 节点ID
+     * @return 连接是否有效
+     */
+    private boolean isNodeWebSocketConnected(Long nodeId) {
+        try {
+            // 发送一个简单的测试ping，超时时间设为3秒
+            JSONObject testData = new JSONObject();
+            testData.put("ip", "127.0.0.1");
+            testData.put("count", 1);
+
+            GostDto testResult = WebSocketServer.send_msg(nodeId, testData, "Ping", 3);
+            
+            // 如果能收到任何响应（不管是成功还是失败），说明WebSocket连接正常
+            return testResult != null && 
+                   !testResult.getMsg().equals("节点不在线") && 
+                   !testResult.getMsg().equals("节点连接已断开") &&
+                   !testResult.getMsg().equals("等待响应超时");
+                   
+        } catch (Exception e) {
+            return false;
         }
     }
 

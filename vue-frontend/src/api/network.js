@@ -24,7 +24,7 @@ export default {
         return new Promise(function(resolve, reject) {
             axios.get(path, {
                 params: data,
-                timeout: 12000,
+                timeout: 30000,
                 headers: {
                     "Authorization": window.localStorage.getItem('token')
                 }
@@ -53,7 +53,7 @@ export default {
     post: function(path = '', data = {}) {
         return new Promise(function(resolve, reject) {
             axios.post(path, data, {
-                timeout: 12000,
+                timeout: 30000,
                 headers:{
                     "Authorization": window.localStorage.getItem('token'),
                     "Content-Type": "application/json"

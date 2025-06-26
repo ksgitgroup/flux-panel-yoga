@@ -20,9 +20,10 @@
     <div class="table-container">
       <div v-loading="loading" class="cards-container">
         <!-- 空状态 -->
-        <div v-if="forwardList.length === 0 && !loading" class="empty-state" style="margin-top: 10px;">
-          <el-empty description="暂无转发配置"></el-empty>
-        </div>
+        <EmptyState 
+          v-if="forwardList.length === 0 && !loading" 
+          description="暂无转发配置"
+        />
         
         <div 
           v-for="forward in forwardList" 
@@ -324,9 +325,13 @@ import {
   resumeForwardService
 } from "@/api";
 import { copyWithMessage } from "@/utils/clipboard";
+import EmptyState from "@/components/EmptyState.vue";
 
 export default {
   name: "Forward",
+  components: {
+    EmptyState
+  },
   data() {
     return {
       loading: false,
@@ -1313,13 +1318,7 @@ export default {
   }
 }
 
-.empty-state {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 200px;
-}
+/* 空状态使用统一组件，样式已内置 */
 
 .flow-stats-mini {
   display: flex;
@@ -1554,11 +1553,7 @@ export default {
     max-width: 100%;
   }
   
-  /* 移动端空状态调整 */
-  .empty-state {
-    padding: 20px 15px;
-    height: 150px;
-  }
+  /* 移动端空状态样式已在统一组件中处理 */
   
   /* 移动端form hint */
   .form-hint {

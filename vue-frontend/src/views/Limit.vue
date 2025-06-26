@@ -143,11 +143,10 @@
     </div>
       
     <!-- 空状态 -->
-    <div v-if="!loading && filteredSpeedLimitList.length === 0"  style="margin-top: 10px;">
-      <el-empty description="暂无限速规则">
-        
-      </el-empty>
-    </div>
+    <EmptyState 
+      v-if="!loading && filteredSpeedLimitList.length === 0" 
+      description="暂无限速规则"
+    />
 
     <!-- 新增/编辑对话框 -->
     <el-dialog
@@ -220,9 +219,13 @@
 
 <script>
 import { createSpeedLimit, getSpeedLimitList, updateSpeedLimit, deleteSpeedLimit, getTunnelList } from "@/api";
+import EmptyState from "@/components/EmptyState.vue";
 
 export default {
   name: "Limit",
+  components: {
+    EmptyState
+  },
   data() {
     return {
       speedLimitList: [],
@@ -617,13 +620,7 @@ export default {
   flex: 1;
 }
 
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
-}
+/* 空状态使用统一组件，样式已内置 */
 
 .form-hint {
   font-size: 12px;

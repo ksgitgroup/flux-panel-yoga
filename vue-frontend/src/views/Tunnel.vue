@@ -122,10 +122,10 @@
       </div>
 
       <!-- 空状态 -->
-      <div v-if="!loading && tunnelList.length === 0" class="empty-state">
-        <i class="el-icon-connection"></i>
-        <p>暂无隧道数据</p>
-      </div>
+      <EmptyState 
+        v-if="!loading && tunnelList.length === 0" 
+        description="暂无隧道数据"
+      />
     </div>
 
     <!-- 新增/编辑隧道对话框 -->
@@ -380,51 +380,138 @@
           <div 
             v-for="(result, index) in diagnosisResult.results" 
             :key="index"
-            class="diagnosis-item"
+            class="diagnosis-card"
             :class="{ 'success': result.success, 'failed': !result.success }"
           >
-            <div class="diagnosis-item-header">
-              <div class="diagnosis-description">
-                <i :class="result.success ? 'el-icon-success' : 'el-icon-error'"></i>
-                {{ result.description }}
+            <!-- 卡片头部 -->
+            <div class="diagnosis-card-header">
+              <div class="status-indicator">
+                <div class="status-icon" :class="{ 'success': result.success, 'failed': !result.success }">
+                  <i :class="result.success ? 'el-icon-check' : 'el-icon-close'"></i>
+                </div>
+                <div class="status-text">
+                  <div class="status-title">{{ result.description }}</div>
+                  <div class="status-subtitle">
+                    {{ result.success ? '连接正常' : '连接异常' }}
+                  </div>
+                </div>
               </div>
-              <div class="diagnosis-status">
-                <el-tag :type="result.success ? 'success' : 'danger'" size="mini">
-                  {{ result.success ? '成功' : '失败' }}
+              <div class="status-badge">
+                <el-tag 
+                  :type="result.success ? 'success' : 'danger'" 
+                  size="small"
+                  :effect="result.success ? 'light' : 'dark'"
+                >
+                  {{ result.success ? '✓ 成功' : '✗ 失败' }}
                 </el-tag>
               </div>
             </div>
-            
-            <div class="diagnosis-details">
-              <div class="detail-row">
-                <span class="detail-label">节点：</span>
-                <span class="detail-value">{{ result.nodeName }} (ID: {{ result.nodeId }})</span>
+
+            <!-- 卡片内容 -->
+            <div class="diagnosis-card-body">
+              <!-- 节点信息 -->
+              <div class="info-section">
+                <div class="info-grid">
+                  <div class="info-item">
+                    <div class="info-icon">
+                      <i class="el-icon-s-data"></i>
+                    </div>
+                    <div class="info-content">
+                      <div class="info-label">节点名称</div>
+                      <div class="info-value">{{ result.nodeName }}</div>
+                    </div>
+                  </div>
+                  
+                  <div class="info-item">
+                    <div class="info-icon">
+                      <i class="el-icon-position"></i>
+                    </div>
+                    <div class="info-content">
+                      <div class="info-label">目标地址</div>
+                      <div class="info-value mono">{{ result.targetIp }}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="detail-row">
-                <span class="detail-label">目标：</span>
-                <span class="detail-value">{{ result.targetIp }}</span>
+
+              <!-- 性能指标（仅成功时显示） -->
+              <div class="performance-section" v-if="result.success">
+                <div class="metrics-grid">
+                  <div class="metric-card latency">
+                    <div class="metric-icon">
+                      <i class="el-icon-time"></i>
+                    </div>
+                    <div class="metric-content">
+                      <div class="metric-value">{{ result.averageTime.toFixed(0) }}</div>
+                      <div class="metric-unit">ms</div>
+                    </div>
+                    <div class="metric-label">平均延迟</div>
+                    <div class="metric-indicator">
+                      <el-progress 
+                        :percentage="getLatencyPercentage(result.averageTime)" 
+                        :status="getLatencyStatus(result.averageTime)"
+                        :stroke-width="4"
+                        :show-text="false"
+                      ></el-progress>
+                    </div>
+                  </div>
+
+                  <div class="metric-card packet-loss">
+                    <div class="metric-icon">
+                      <i class="el-icon-warning-outline"></i>
+                    </div>
+                    <div class="metric-content">
+                      <div class="metric-value">{{ result.packetLoss.toFixed(1) }}</div>
+                      <div class="metric-unit">%</div>
+                    </div>
+                    <div class="metric-label">丢包率</div>
+                    <div class="metric-indicator">
+                      <el-progress 
+                        :percentage="result.packetLoss" 
+                        :status="getPacketLossStatus(result.packetLoss)"
+                        :stroke-width="4"
+                        :show-text="false"
+                      ></el-progress>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 连接质量总评 -->
+                <div class="quality-summary">
+                  <div class="quality-label">连接质量</div>
+                  <div class="quality-badge">
+                    <el-tag 
+                      :type="getQualityType(result.averageTime, result.packetLoss)" 
+                      size="medium"
+                    >
+                      {{ getQualityText(result.averageTime, result.packetLoss) }}
+                    </el-tag>
+                  </div>
+                </div>
               </div>
-              <div class="detail-row" v-if="result.success">
-                <span class="detail-label">平均延迟：</span>
-                <span class="detail-value">{{ result.averageTime.toFixed(2) }}ms</span>
-              </div>
-              <div class="detail-row" v-if="result.success">
-                <span class="detail-label">丢包率：</span>
-                <span class="detail-value">{{ result.packetLoss.toFixed(1) }}%</span>
-              </div>
-              <div class="detail-row" v-if="!result.success">
-                <span class="detail-label">错误信息：</span>
-                <span class="detail-value error-msg">{{ result.message }}</span>
+
+              <!-- 错误信息（仅失败时显示） -->
+              <div class="error-section" v-if="!result.success">
+                <div class="error-card">
+                  <div class="error-icon">
+                    <i class="el-icon-warning"></i>
+                  </div>
+                  <div class="error-content">
+                    <div class="error-title">错误详情</div>
+                    <div class="error-message">{{ result.message }}</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- 空状态 -->
-        <div v-if="!diagnosisLoading && !diagnosisResult" class="diagnosis-empty">
-          <i class="el-icon-warning-outline"></i>
-          <p>暂无诊断数据</p>
-        </div>
+        <EmptyState 
+          v-if="!diagnosisLoading && !diagnosisResult" 
+          description="暂无诊断数据"
+          size="small"
+        />
       </div>
       
       <span slot="footer" class="dialog-footer">
@@ -443,9 +530,13 @@
 
 <script>
 import { createTunnel, updateTunnel, deleteTunnel, getTunnelList, getNodeList, diagnoseTunnel } from "@/api";
+import EmptyState from "@/components/EmptyState.vue";
 
 export default {
   name: "Tunnel",
+  components: {
+    EmptyState
+  },
   data() {
     return {
       tunnelList: [],
@@ -882,6 +973,49 @@ export default {
       if (!timestamp) return '-';
       const date = new Date(timestamp);
       return date.toLocaleString('zh-CN');
+    },
+
+    // 计算延迟百分比（用于进度条显示）
+    getLatencyPercentage(latency) {
+      // 将延迟转换为百分比，最大值设为500ms
+      const maxLatency = 500;
+      return Math.min((latency / maxLatency) * 100, 100);
+    },
+
+    // 获取延迟状态
+    getLatencyStatus(latency) {
+      if (latency < 50) return 'success';      // 绿色：优秀
+      if (latency < 100) return '';            // 蓝色：良好
+      if (latency < 200) return 'warning';     // 黄色：一般
+      return 'exception';                      // 红色：较差
+    },
+
+    // 获取丢包率状态
+    getPacketLossStatus(packetLoss) {
+      if (packetLoss === 0) return 'success';     // 绿色：无丢包
+      if (packetLoss < 2) return '';              // 蓝色：轻微丢包
+      if (packetLoss < 5) return 'warning';       // 黄色：中等丢包
+      return 'exception';                         // 红色：严重丢包
+    },
+
+    // 获取连接质量类型
+    getQualityType(latency, packetLoss) {
+      // 综合评估延迟和丢包率
+      if (latency < 50 && packetLoss === 0) return 'success';
+      if (latency < 100 && packetLoss < 2) return 'primary';
+      if (latency < 200 && packetLoss < 5) return 'warning';
+      return 'danger';
+    },
+
+    // 获取连接质量文本
+    getQualityText(latency, packetLoss) {
+      // 综合评估延迟和丢包率
+      if (latency < 30 && packetLoss === 0) return '🚀 优秀';
+      if (latency < 50 && packetLoss === 0) return '✨ 很好';
+      if (latency < 100 && packetLoss < 1) return '👍 良好';
+      if (latency < 150 && packetLoss < 2) return '😐 一般';
+      if (latency < 200 && packetLoss < 5) return '😟 较差';
+      return '😵 很差';
     }
   }
 };
@@ -927,7 +1061,6 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 12px;
-  margin-bottom: 20px;
   align-items: start;
 }
 
@@ -989,13 +1122,18 @@ export default {
   color: #303133;
   margin: 0 0 8px 0;
   line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tunnel-badges {
   display: flex;
   gap: 6px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .tunnel-badges .el-tag {
@@ -1003,6 +1141,8 @@ export default {
   padding: 3px 8px;
   height: auto;
   line-height: 1.3;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* 紧凑流程图 */
@@ -1183,23 +1323,7 @@ export default {
   line-height: 1.4;
 }
 
-/* 空状态 */
-.empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  color: #909399;
-}
-
-.empty-state i {
-  font-size: 48px;
-  margin-bottom: 15px;
-  opacity: 0.5;
-}
-
-.empty-state p {
-  font-size: 14px;
-  margin-bottom: 15px;
-}
+/* 空状态使用统一组件，样式已内置 */
 
 /* 响应式设计 */
 @media (max-width: 768px) {
@@ -1240,16 +1364,23 @@ export default {
   .tunnel-name {
     font-size: 15px;
     margin: 0 0 6px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   
   .tunnel-badges {
     justify-content: flex-start;
     gap: 4px;
+    flex-wrap: nowrap;
+    overflow: hidden;
   }
   
   .tunnel-badges .el-tag {
     font-size: 11px;
     padding: 3px 7px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   
   .tunnel-actions {
@@ -1302,11 +1433,16 @@ export default {
   .tunnel-name {
     font-size: 14px;
     margin: 0 0 4px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   
   .tunnel-badges .el-tag {
     font-size: 10px;
     padding: 2px 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   
   /* 移动端流程图优化 */
@@ -1373,19 +1509,7 @@ export default {
     font-size: 10px;
   }
   
-  .empty-state {
-    padding: 20px 10px;
-  }
-  
-  .empty-state i {
-    font-size: 32px;
-    margin-bottom: 10px;
-  }
-  
-  .empty-state p {
-    font-size: 13px;
-    margin-bottom: 10px;
-  }
+  /* 移动端空状态样式已在统一组件中处理 */
 }
 
 .diagnosis-container {
@@ -1418,78 +1542,753 @@ export default {
 
 .diagnosis-results {
   margin-bottom: 20px;
-}
-
-.diagnosis-item {
-  margin-bottom: 10px;
-  padding: 10px;
-  background: #fff;
-  border-radius: 4px;
-  box-shadow: 0 1px 6px 0 rgba(0, 0, 0, 0.1);
-}
-
-.diagnosis-item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.diagnosis-description {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.diagnosis-description i {
-  font-size: 18px;
-  color: #606266;
-}
-
-.diagnosis-status {
-  display: flex;
-  align-items: center;
-}
-
-.diagnosis-details {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 16px;
 }
 
-.detail-row {
+/* 诊断卡片 */
+.diagnosis-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e4e7ed;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.diagnosis-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.diagnosis-card.success {
+  border-left: 4px solid #67c23a;
+}
+
+.diagnosis-card.failed {
+  border-left: 4px solid #f56c6c;
+}
+
+/* 卡片头部 */
+.diagnosis-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 20px 24px 16px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.detail-label {
-  font-size: 12px;
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+  transition: all 0.3s ease;
+}
+
+.status-icon.success {
+  background: linear-gradient(135deg, #67c23a, #85ce61);
+  color: white;
+  box-shadow: 0 4px 12px rgba(103, 194, 58, 0.3);
+}
+
+.status-icon.failed {
+  background: linear-gradient(135deg, #f56c6c, #f78989);
+  color: white;
+  box-shadow: 0 4px 12px rgba(245, 108, 108, 0.3);
+}
+
+.status-text {
+  flex: 1;
+}
+
+.status-title {
+  font-size: 16px;
   font-weight: 600;
-  color: #606266;
+  color: #303133;
+  margin-bottom: 4px;
 }
 
-.detail-value {
+.status-subtitle {
+  font-size: 13px;
+  color: #909399;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+}
+
+/* 卡片内容 */
+.diagnosis-card-body {
+  padding: 20px 24px 24px;
+}
+
+/* 信息区域 */
+.info-section {
+  margin-bottom: 20px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+}
+
+.info-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #409eff, #66b1ff);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.info-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-label {
   font-size: 12px;
   color: #909399;
+  margin-bottom: 2px;
+  font-weight: 500;
 }
 
-.diagnosis-empty {
-  text-align: center;
-  padding: 40px 20px;
-  color: #909399;
-}
-
-.diagnosis-empty i {
-  font-size: 48px;
-  margin-bottom: 15px;
-  opacity: 0.5;
-}
-
-.diagnosis-empty p {
+.info-value {
   font-size: 14px;
-  margin-bottom: 15px;
+  color: #303133;
+  font-weight: 600;
+  word-break: break-all;
 }
+
+.info-value.mono {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+}
+
+/* 性能指标区域 */
+.performance-section {
+  margin-bottom: 20px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.metric-card {
+  background: linear-gradient(135deg, #fff 0%, #f8f9fa 100%);
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.metric-card.latency {
+  border-left: 3px solid #409eff;
+}
+
+.metric-card.packet-loss {
+  border-left: 3px solid #e6a23c;
+}
+
+.metric-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #409eff, #66b1ff);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  margin: 0 auto 8px;
+}
+
+.metric-card.packet-loss .metric-icon {
+  background: linear-gradient(135deg, #e6a23c, #ebb563);
+}
+
+.metric-content {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #303133;
+  line-height: 1;
+}
+
+.metric-unit {
+  font-size: 14px;
+  color: #909399;
+  font-weight: 500;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #606266;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.metric-indicator {
+  margin-top: 8px;
+}
+
+/* 连接质量总评 */
+.quality-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+}
+
+.quality-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.quality-badge {
+  display: flex;
+  align-items: center;
+}
+
+/* 错误区域 */
+.error-section {
+  margin-top: 8px;
+}
+
+.error-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+}
+
+.error-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f56c6c, #f78989);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.error-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.error-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #991b1b;
+  margin-bottom: 4px;
+}
+
+.error-message {
+  font-size: 13px;
+  color: #dc2626;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* 移动端响应式优化 */
+@media (max-width: 768px) {
+  .diagnosis-container {
+    padding: 12px;
+  }
+
+  .diagnosis-header {
+    margin-bottom: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .diagnosis-title {
+    font-size: 16px;
+  }
+
+  .diagnosis-meta {
+    gap: 8px;
+  }
+
+  .diagnosis-results {
+    gap: 12px;
+  }
+
+  /* 诊断卡片移动端优化 */
+  .diagnosis-card {
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  .diagnosis-card:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  .diagnosis-card-header {
+    padding: 12px 16px 8px;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-indicator {
+    flex: 1;
+    gap: 10px;
+  }
+
+  .status-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .status-title {
+    font-size: 14px;
+  }
+
+  .status-subtitle {
+    font-size: 11px;
+  }
+
+  .status-badge {
+    flex-shrink: 0;
+  }
+
+  .diagnosis-card-body {
+    padding: 12px 16px 16px;
+  }
+
+  /* 信息区域移动端优化 */
+  .info-section {
+    margin-bottom: 12px;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .info-item {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .info-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+
+  .info-label {
+    font-size: 10px;
+    margin-bottom: 1px;
+  }
+
+  .info-value {
+    font-size: 12px;
+  }
+
+  .info-value.mono {
+    font-size: 11px;
+  }
+
+  /* 性能指标移动端优化 */
+  .performance-section {
+    margin-bottom: 12px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .metric-card {
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .metric-card:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .metric-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  .metric-content {
+    margin-bottom: 4px;
+  }
+
+  .metric-value {
+    font-size: 18px;
+  }
+
+  .metric-unit {
+    font-size: 11px;
+  }
+
+  .metric-label {
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  .metric-indicator {
+    margin-top: 4px;
+  }
+
+  /* 连接质量总评移动端优化 */
+  .quality-summary {
+    padding: 8px 10px;
+    border-radius: 6px;
+    flex-direction: row;
+    gap: 8px;
+    text-align: left;
+    justify-content: space-between;
+  }
+
+  .quality-label {
+    font-size: 12px;
+  }
+
+  /* 错误区域移动端优化 */
+  .error-card {
+    padding: 12px;
+    gap: 10px;
+    border-radius: 6px;
+  }
+
+  .error-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .error-title {
+    font-size: 13px;
+  }
+
+  .error-message {
+    font-size: 12px;
+  }
+}
+
+/* PC端紧凑化优化 - 减少高度占用 */
+@media (min-width: 769px) {
+  .diagnosis-container {
+    padding: 16px;
+  }
+
+  .diagnosis-header {
+    margin-bottom: 16px;
+  }
+
+  .diagnosis-results {
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  /* 诊断卡片紧凑化 */
+  .diagnosis-card-header {
+    padding: 16px 20px 12px;
+  }
+
+  .status-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+
+  .diagnosis-card-body {
+    padding: 16px 20px 20px;
+  }
+
+  /* 信息区域紧凑化 */
+  .info-section {
+    margin-bottom: 16px;
+  }
+
+  .info-grid {
+    gap: 12px;
+  }
+
+  .info-item {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .info-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+  }
+
+  .info-label {
+    margin-bottom: 1px;
+  }
+
+  /* 性能指标紧凑化 */
+  .performance-section {
+    margin-bottom: 16px;
+  }
+
+  .metrics-grid {
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .metric-card {
+    padding: 12px;
+  }
+
+  .metric-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .metric-content {
+    margin-bottom: 6px;
+  }
+
+  .metric-value {
+    font-size: 20px;
+  }
+
+  .metric-label {
+    margin-bottom: 6px;
+  }
+
+  .metric-indicator {
+    margin-top: 6px;
+  }
+
+  /* 连接质量总评紧凑化 */
+  .quality-summary {
+    padding: 10px 14px;
+  }
+
+  /* 错误区域紧凑化 */
+  .error-card {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .error-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .diagnosis-container {
+    padding: 8px;
+  }
+
+  .diagnosis-header {
+    margin-bottom: 12px;
+  }
+
+  .diagnosis-title {
+    font-size: 15px;
+  }
+
+  .diagnosis-results {
+    gap: 10px;
+  }
+
+  .diagnosis-card-header {
+    padding: 10px 12px 6px;
+  }
+
+  .status-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+
+  .status-title {
+    font-size: 13px;
+  }
+
+  .status-subtitle {
+    font-size: 10px;
+  }
+
+  .diagnosis-card-body {
+    padding: 10px 12px 12px;
+  }
+
+  .info-section {
+    margin-bottom: 10px;
+  }
+
+  .info-grid {
+    gap: 6px;
+  }
+
+  .info-item {
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .info-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+
+  .info-label {
+    font-size: 9px;
+    margin-bottom: 1px;
+  }
+
+  .info-value {
+    font-size: 11px;
+  }
+
+  .info-value.mono {
+    font-size: 10px;
+  }
+
+  .performance-section {
+    margin-bottom: 10px;
+  }
+
+  .metrics-grid {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .metric-card {
+    padding: 8px;
+  }
+
+  .metric-icon {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+    margin-bottom: 3px;
+  }
+
+  .metric-content {
+    margin-bottom: 3px;
+  }
+
+  .metric-value {
+    font-size: 16px;
+  }
+
+  .metric-unit {
+    font-size: 10px;
+  }
+
+  .metric-label {
+    font-size: 9px;
+    margin-bottom: 3px;
+  }
+
+  .metric-indicator {
+    margin-top: 3px;
+  }
+
+  .quality-summary {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .quality-label {
+    font-size: 11px;
+  }
+
+  .error-card {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .error-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .error-title {
+    font-size: 12px;
+  }
+
+  .error-message {
+    font-size: 11px;
+  }
+}
+
+/* 诊断空状态使用统一组件，样式已内置 */
 
 .dialog-footer {
   display: flex;

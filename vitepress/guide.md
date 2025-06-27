@@ -2,6 +2,10 @@
 
 哆啦A梦是一个基于 go-gost 的现代化转发面板，提供了直观的 Web 界面来管理网络流量转发。
 
+::: tip 需要帮助？
+📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1) | 🐛 [GitHub Issues](https://github.com/bqlpfy/forward-panel/issues) | 🤝 [参与贡献](https://github.com/bqlpfy/forward-panel/pulls)
+:::
+
 ## 项目介绍
 
 ### 核心功能
@@ -37,12 +41,6 @@ http://your-server-ip:6366
 
 登录后**务必立即修改默认密码**：
 
-1. 点击右上角用户头像
-2. 选择 **"修改密码"**
-3. 输入当前密码：`admin_user`
-4. 设置新密码并确认
-5. 点击确定完成修改
-
 ## 第三步：创建节点
 
 节点是运行转发服务的服务器，需要先创建节点才能部署转发服务。
@@ -54,7 +52,7 @@ http://your-server-ip:6366
 3. 填写节点信息：
    - **节点名称**: 自定义名称（如：香港节点-01）
    - **服务器IP**: 节点服务器的IP地址
-   - **状态**: 启用
+   - **入口IP**: 节点服务器的IP地址
 
 4. 点击 **"确定"** 保存节点
 
@@ -96,8 +94,10 @@ http://your-server-ip:6366
 # 示例安装命令（实际命令请从面板复制）
 curl -L https://your-panel-server:6365/agent/install | bash -s -- --server=your-panel-server:6365 --token=your-node-token
 ```
-如果/etc/gost/下存在gost.json和config.json，安装命令会跳过生成，使用当前存在的配置
-gost执行文件会强制更新
+
+### 须知
+- 安装或者更新时如果/etc/gost/下存在gost.json和config.json，安装命令会跳过生成，使用当前存在的配置
+- gost执行文件会强制更新
 
 ### 验证安装
 
@@ -129,12 +129,13 @@ gost执行文件会强制更新
 - **入口节点**: 选择流量入口节点
 - **起始端口**: 端口范围起始值（默认1）
 - **结束端口**: 端口范围结束值（默认65535）
-- **监听地址**: 保持默认即可（TCP/UDP 都默认 0.0.0.0）
+- **监听地址**: 部分专线需要，如果不理解保持默认即可
 
 **出口配置**（仅隧道转发类型需要）：
 - **协议类型**: 保持默认即可，如有特殊需求可选择：
   - TLS：数据过墙推荐选择
   - TCP：普通场景
+  - MTLS: 多路复用的TLS
 - **出口节点**: 选择流量出口节点
 - **起始端口**: 出口端口范围起始值（默认1）
 - **结束端口**: 出口端口范围结束值（默认65535）
@@ -289,12 +290,64 @@ gost执行文件会强制更新
 
 ## 获取帮助
 
-如果在使用过程中遇到问题：
+### 社区支持
 
-1. 📖 查看本文档的相关章节
-2. 🔍 检查系统日志和错误信息
-3. 🐛 提交 [GitHub Issues](https://github.com/bqlpfy/forward-panel/issues)
-4. 💬 参与社区讨论
+如果在使用过程中遇到问题或有功能建议，推荐以下方式获取帮助：
+
+1. **💬 Telegram 群组**（推荐）
+   - [立即加入](https://t.me/+wdVDni1fdyI0YzE1)
+   - 实时讨论，快速回复
+   - 与其他用户交流经验
+
+2. **🐛 GitHub Issues**
+   - [报告问题](https://github.com/bqlpfy/forward-panel/issues/new)
+   - 查看 [已知问题](https://github.com/bqlpfy/forward-panel/issues)
+   - 提交功能建议
+
+3. **📖 文档资源**
+   - [快速开始指南](/getting-started)
+   - [常见问题解答](/faq)
+   - [项目架构说明](/project-structure)
+
+### 故障排除
+
+#### 安装相关问题
+
+**问题**: Agent 安装失败
+- 检查服务器网络连接
+- 确认防火墙设置（开放 6365 端口）
+- 使用 `sudo` 权限执行安装命令
+
+**问题**: 节点显示离线
+- 检查 Agent 服务状态：`systemctl status gost-agent`
+- 查看 Agent 日志：`journalctl -u gost-agent -f`
+- 确认面板地址和端口可访问
+
+#### 转发相关问题
+
+**问题**: 转发无法正常工作
+- 检查端口是否被占用
+- 确认目标地址可达性
+- 验证隧道状态是否正常
+
+**问题**: 流量统计异常
+- 确认转发规则配置正确
+- 检查流量计算方式设置
+- 重启相关服务进行重置
+
+#### 权限相关问题
+
+**问题**: 用户无法创建转发
+- 检查用户账号状态
+- 确认隧道权限分配
+- 验证流量和转发数量限制
+
+### 联系开发者
+
+对于紧急问题：
+
+- **GitHub**: [@bqlpfy](https://github.com/bqlpfy)
+- **Telegram**: [加入群组](https://t.me/+wdVDni1fdyI0YzE1) 直接联系
 
 ## 免责声明
 

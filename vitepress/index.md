@@ -50,6 +50,7 @@ features:
 
 如果您在使用过程中遇到问题或有功能建议，欢迎：
 
+- 📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1)
 - 🐛 [报告问题](https://github.com/bqlpfy/forward-panel/issues)
 - 💡 [功能建议](https://github.com/bqlpfy/forward-panel/issues)
 - 🤝 [参与贡献](https://github.com/bqlpfy/forward-panel/pulls)

@@ -1,5 +1,9 @@
 # 常见问题
 
+::: tip 需要帮助？
+📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1) | 🐛 [GitHub Issues](https://github.com/bqlpfy/forward-panel/issues) | 🚀 [快速开始](/getting-started)
+:::
+
 ## 日志查看
 
 ### 查看后端服务日志
@@ -60,4 +64,36 @@ docker logs springboot-backend | grep ERROR
 - **ERROR** - 错误信息，需要立即处理
 - **WARN** - 警告信息，建议关注
 - **INFO** - 一般信息，正常运行状态
-- **DEBUG** - 调试信息，详细执行过程 
+- **DEBUG** - 调试信息，详细执行过程
+
+## 获取更多帮助
+
+如果上述信息无法解决您的问题：
+
+### 社区支持
+
+1. **💬 Telegram 群组**（推荐）
+   - [立即加入](https://t.me/+wdVDni1fdyI0YzE1)
+   - 实时讨论，经验分享
+   - 开发者和社区用户在线答疑
+
+2. **🐛 GitHub Issues**
+   - [报告 Bug](https://github.com/bqlpfy/forward-panel/issues/new)
+   - [查看已知问题](https://github.com/bqlpfy/forward-panel/issues)
+   - 参与功能讨论
+
+### 技术支持
+
+提交问题时，请提供以下信息以便快速诊断：
+
+- 操作系统版本
+- Docker 和 Docker Compose 版本
+- 错误日志完整内容
+- 问题复现步骤
+- 相关配置文件（隐去敏感信息）
+
+### 文档资源
+
+- [使用指南](/guide) - 详细操作教程
+- [快速开始](/getting-started) - 安装和配置
+- [项目结构](/project-structure) - 技术架构说明 

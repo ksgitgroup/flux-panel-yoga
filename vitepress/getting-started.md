@@ -2,6 +2,10 @@
 
 本指南将帮助您快速安装和配置哆啦A梦，让您在几分钟内开始使用流量转发功能。
 
+::: tip 需要帮助？
+📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1) | 🐛 [GitHub Issues](https://github.com/bqlpfy/forward-panel/issues) | 🤔 [常见问题](/faq)
+:::
+
 ## 系统要求
 
 在开始之前，请确保您的系统满足以下要求：
@@ -185,10 +189,22 @@ docker compose ps
 
 如果在安装过程中遇到问题：
 
-1. 🔍 查看安装日志和错误信息
-2. 📋 检查系统要求是否满足
-3. 🐛 提交 [GitHub Issues](https://github.com/bqlpfy/forward-panel/issues)
-4. 💬 参与社区讨论
+1. **💬 Telegram 群组**（推荐）
+   - [立即加入](https://t.me/+wdVDni1fdyI0YzE1) 
+   - 实时技术支持，快速响应
+
+2. **🔍 故障排除**
+   - 查看安装日志和错误信息
+   - 检查系统要求是否满足
+   - 验证 Docker 和网络配置
+
+3. **🐛 GitHub Issues**
+   - [报告安装问题](https://github.com/bqlpfy/forward-panel/issues/new)
+   - 查看 [已知问题](https://github.com/bqlpfy/forward-panel/issues)
+
+4. **📖 文档资源**
+   - [使用指南](/guide) - 详细的操作教程
+   - [常见问题](/faq) - 快速解决方案
 
 ## 备份建议
 

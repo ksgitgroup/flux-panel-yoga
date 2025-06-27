@@ -1,7 +1,9 @@
 # 转发面板
 
 本项目基于 [go-gost/gost](https://github.com/go-gost/gost) 和 [go-gost/x](https://github.com/go-gost/x) 两个开源库，实现了转发面板。
-
+---
+## 特性
+- [文档地址](https://tes.cc)
 ---
 ## 特性
 

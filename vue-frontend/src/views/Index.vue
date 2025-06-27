@@ -92,7 +92,7 @@
         <div v-if="userTunnels.length === 0 && !loading" class="tunnel-card empty-card">
           <EmptyState 
             description="暂无隧道权限"
-            size="small"
+            size="large"
           />
         </div>
 
@@ -185,7 +185,7 @@
         <EmptyState 
           v-if="groupedForwards.length === 0 && !loading" 
           description="暂无转发配置"
-          size="small"
+          size="large"
         />
 
         <div v-for="group in groupedForwards" :key="group.tunnelName" class="forward-group">
@@ -1085,12 +1085,11 @@ export default {
 /* 隧道权限空状态卡片样式 */
 .tunnel-card.empty-card {
   grid-column: 1 / -1;
-  justify-self: center;
-  max-width: 400px;
-  min-height: 160px;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 20px;
 }
 
 /* 转发详情的空状态样式由EmptyState组件内置处理 */
@@ -1172,9 +1171,9 @@ export default {
   }
 
   .tunnel-card.empty-card {
-    max-width: 100%;
-    min-height: 140px;
+    width: 100%;
     margin-bottom: 12px;
+    padding: 16px;
   }
 
   .tunnel-header {

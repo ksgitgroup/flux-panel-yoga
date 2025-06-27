@@ -12,6 +12,7 @@ import (
 	"github.com/go-gost/core/hop"
 	"github.com/go-gost/core/listener"
 	"github.com/go-gost/core/logger"
+	"github.com/go-gost/core/observer"
 	"github.com/go-gost/core/observer/stats"
 	"github.com/go-gost/core/recorder"
 	"github.com/go-gost/core/selector"
@@ -112,6 +113,9 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 	var limiterCleanupInterval time.Duration
 	var limiterScope string
 
+	enableStats := true
+	observerPeriod = 5 * time.Second
+
 	if cfg.Metadata != nil {
 		md := metadata.NewMetadata(cfg.Metadata)
 		ppv = mdutil.GetInt(md, parsing.MDKeyProxyProtocol)
@@ -129,10 +133,13 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		postDown = mdutil.GetStrings(md, parsing.MDKeyPostDown)
 		ignoreChain = mdutil.GetBool(md, parsing.MDKeyIgnoreChain)
 
-		if mdutil.GetBool(md, parsing.MDKeyEnableStats) {
-			pStats = xstats.NewStats(mdutil.GetBool(md, parsing.MDKeyObserverResetTraffic))
+		if md.IsExists(parsing.MDKeyEnableStats) {
+			enableStats = mdutil.GetBool(md, parsing.MDKeyEnableStats)
 		}
-		observerPeriod = mdutil.GetDuration(md, parsing.MDKeyObserverPeriod, "observePeriod")
+
+		if period := mdutil.GetDuration(md, parsing.MDKeyObserverPeriod, "observePeriod"); period > 0 {
+			observerPeriod = period
+		}
 
 		netnsIn = mdutil.GetString(md, parsing.MDKeyNetns)
 		netnsOut = mdutil.GetString(md, parsing.MDKeyNetnsOut)
@@ -142,6 +149,17 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		limiterRefreshInterval = mdutil.GetDuration(md, parsing.MDKeyLimiterRefreshInterval)
 		limiterCleanupInterval = mdutil.GetDuration(md, parsing.MDKeyLimiterCleanupInterval)
 		limiterScope = mdutil.GetString(md, parsing.MDKeyLimiterScope)
+	}
+
+	if enableStats {
+		resetTraffic := true
+		if cfg.Metadata != nil {
+			md := metadata.NewMetadata(cfg.Metadata)
+			if md.IsExists(parsing.MDKeyObserverResetTraffic) {
+				resetTraffic = mdutil.GetBool(md, parsing.MDKeyObserverResetTraffic)
+			}
+		}
+		pStats = xstats.NewStats(resetTraffic)
 	}
 
 	listenerLogger := serviceLogger.WithFields(map[string]any{
@@ -329,6 +347,17 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		return nil, err
 	}
 
+	var observer observer.Observer
+	// 如果服务名以_tls结尾，则不启用观察器
+	if strings.HasSuffix(cfg.Name, "_tls") {
+		observer = nil
+		fmt.Println("服务名以_tls结尾，跳过观察器启用")
+	} else if cfg.Observer != "" {
+		observer = registry.ObserverRegistry().Get(cfg.Observer)
+	} else if pStats != nil {
+		observer = registry.ObserverRegistry().Get("console")
+	}
+
 	s := xservice.NewService(cfg.Name, ln, h,
 		xservice.AdmissionOption(xadmission.AdmissionGroup(admissions...)),
 		xservice.PreUpOption(preUp),
@@ -337,7 +366,7 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		xservice.PostDownOption(postDown),
 		xservice.RecordersOption(recorders...),
 		xservice.StatsOption(pStats),
-		xservice.ObserverOption(registry.ObserverRegistry().Get(cfg.Observer)),
+		xservice.ObserverOption(observer),
 		xservice.ObserverPeriodOption(observerPeriod),
 		xservice.LoggerOption(serviceLogger),
 	)

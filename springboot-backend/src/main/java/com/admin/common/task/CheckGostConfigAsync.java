@@ -2,6 +2,7 @@ package com.admin.common.task;
 
 import com.admin.common.dto.ConfigItem;
 import com.admin.common.dto.GostConfigDto;
+import com.admin.common.dto.GostDto;
 import com.admin.common.utils.GostUtil;
 import com.admin.entity.Forward;
 import com.admin.entity.Node;
@@ -74,7 +75,8 @@ public class CheckGostConfigAsync {
                         Forward forward = forwardService.getById(forwardId);
                         if (forward == null) {
                             log.warn("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
-                            GostUtil.DeleteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
+                            GostDto gostDto = GostUtil.DeleteService(node.getId(), forwardId + "_" + userId + "_" + userTunnelId);
+                            System.out.println(gostDto);
                         }
                     }
                     if (Objects.equals(type, "tls")) {

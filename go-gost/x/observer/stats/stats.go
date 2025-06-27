@@ -57,19 +57,18 @@ func (s *Stats) Get(kind stats.Kind) uint64 {
 	case stats.KindCurrentConns:
 		return s.currentConns.Load()
 	case stats.KindInputBytes:
-		if s.resetTraffic {
-			return s.inputBytes.Swap(0)
-		}
-		return s.inputBytes.Load()
+		return s.inputBytes.Load() // 只获取，不自动清零
 	case stats.KindOutputBytes:
-		if s.resetTraffic {
-			return s.outputBytes.Swap(0)
-		}
-		return s.outputBytes.Load()
+		return s.outputBytes.Load() // 只获取，不自动清零
 	case stats.KindTotalErrs:
 		return s.totalErrs.Load()
 	}
 	return 0
+}
+
+func (s *Stats) ResetTraffic(reportedInputBytes, reportedOutputBytes uint64) {
+	s.inputBytes.Store(reportedInputBytes)
+	s.outputBytes.Store(reportedOutputBytes)
 }
 
 func (s *Stats) Reset() {

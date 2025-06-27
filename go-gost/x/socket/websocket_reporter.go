@@ -160,9 +160,6 @@ func (w *WebSocketReporter) connect() error {
 	w.conn = conn
 	w.connected = true
 
-	// 设置最大消息大小为 10MB (默认是 1024 * 1024)
-	w.conn.SetReadLimit(10 * 1024 * 1024)
-
 	// 设置关闭处理器来检测连接状态
 	w.conn.SetCloseHandler(func(code int, text string) error {
 		w.connected = false
@@ -184,9 +181,6 @@ func (w *WebSocketReporter) handleConnection() {
 
 	// 启动消息接收goroutine
 	go w.receiveMessages()
-
-	// 启动配置上报goroutine
-	go w.reportConfig()
 
 	// 主发送循环
 	ticker := time.NewTicker(w.pingInterval)
@@ -347,14 +341,14 @@ func (w *WebSocketReporter) handleReceivedMessage(messageType int, message []byt
 
 // routeCommand 路由命令到对应的处理函数
 func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
-	jsonBytes, errs := json.MarshalIndent(cmd, "", "  ")
-	if errs != nil {
-		fmt.Println("Error marshaling JSON:", errs)
-		return
-	}
-
-	// 打印 JSON 字符串
-	fmt.Println("🔔 收到命令: ", string(jsonBytes))
+	//jsonBytes, errs := json.MarshalIndent(cmd, "", "  ")
+	//if errs != nil {
+	//	fmt.Println("Error marshaling JSON:", errs)
+	//	return
+	//}
+	//
+	//// 打印 JSON 字符串
+	//fmt.Println("🔔 收到命令: ", string(jsonBytes))
 	var err error
 	var response CommandResponse
 
@@ -672,116 +666,6 @@ func (w *WebSocketReporter) handleCall(data interface{}) error {
 
 	// 简单返回成功，表示call已被处理
 	return nil
-}
-
-// reportConfig 定时上报配置信息
-func (w *WebSocketReporter) reportConfig() {
-	// 立即发送一次配置
-	w.sendConfigReport()
-
-	// 启动定时器
-	ticker := time.NewTicker(w.configInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		case <-ticker.C:
-			if w.connected {
-				w.sendConfigReport()
-			}
-		}
-	}
-}
-
-// sendConfigReport 发送配置报告
-func (w *WebSocketReporter) sendConfigReport() {
-	if w.conn == nil || !w.connected {
-		return
-	}
-
-	// 获取配置数据
-	configData, err := getConfig()
-	if err != nil {
-		fmt.Printf("❌ 获取配置失败: %v\n", err)
-		return
-	}
-
-	// 检查数据大小，如果超过1MB则压缩
-	if len(configData) > 1024*1024 {
-		fmt.Printf("📦 配置数据较大 (%.2f MB)，进行压缩处理\n", float64(len(configData))/(1024*1024))
-
-		// 压缩配置数据
-		var compressedBuf bytes.Buffer
-		gzipWriter := gzip.NewWriter(&compressedBuf)
-		if _, err := gzipWriter.Write(configData); err != nil {
-			fmt.Printf("❌ 压缩配置数据失败: %v\n", err)
-			return
-		}
-		gzipWriter.Close()
-
-		// 构建压缩后的配置报告消息
-		configMsg := struct {
-			Type       string `json:"type"`
-			Compressed bool   `json:"compressed"`
-			Data       []byte `json:"data"`
-		}{
-			Type:       "config_report",
-			Compressed: true,
-			Data:       compressedBuf.Bytes(),
-		}
-
-		// 转换为JSON
-		jsonData, err := json.Marshal(configMsg)
-		if err != nil {
-			fmt.Printf("❌ 序列化压缩配置报告失败: %v\n", err)
-			return
-		}
-
-		fmt.Printf("✅ 压缩后大小: %.2f MB -> %.2f MB (压缩率: %.1f%%)\n",
-			float64(len(configData))/(1024*1024),
-			float64(len(jsonData))/(1024*1024),
-			100.0-float64(len(jsonData))/float64(len(configData))*100)
-
-		// 设置写入超时
-		w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-
-		if err := w.conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
-			fmt.Printf("❌ 发送压缩配置报告失败: %v\n", err)
-			w.connected = false
-			return
-		}
-	} else {
-		// 数据较小，直接发送
-		// 构建配置报告消息
-		configMsg := struct {
-			Type       string      `json:"type"`
-			Compressed bool        `json:"compressed"`
-			Data       interface{} `json:"data"`
-		}{
-			Type:       "config_report",
-			Compressed: false,
-			Data:       json.RawMessage(configData),
-		}
-
-		// 转换为JSON
-		jsonData, err := json.Marshal(configMsg)
-		if err != nil {
-			fmt.Printf("❌ 序列化配置报告失败: %v\n", err)
-			return
-		}
-
-		// 设置写入超时
-		w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-
-		if err := w.conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
-			fmt.Printf("❌ 发送配置报告失败: %v\n", err)
-			w.connected = false
-			return
-		}
-	}
-
 }
 
 // sendResponse 发送响应消息到服务端

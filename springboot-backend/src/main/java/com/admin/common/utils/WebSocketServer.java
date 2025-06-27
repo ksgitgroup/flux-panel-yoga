@@ -30,9 +30,6 @@ public class WebSocketServer extends TextWebSocketHandler {
     @Resource
     NodeService nodeService;
 
-    @Resource
-    CheckGostConfigAsync checkGostConfigAsync;
-
     // 存储所有活跃的 WebSocket 连接（
     private static final CopyOnWriteArraySet<WebSocketSession> activeSessions = new CopyOnWriteArraySet<>();
     
@@ -57,13 +54,7 @@ public class WebSocketServer extends TextWebSocketHandler {
                 if (message.getPayload().contains("memory_usage")){
                     // 先发送确认消息
                     sendToUser(session, "{\"type\":\"call\"}");
-                } else if (message.getPayload().contains("config_report")) {
-                    log.info("收到消息: {}", message.getPayload());
-                    JSONObject jsonObject = JSONObject.parseObject(message.getPayload());
-                    String string = jsonObject.getString("data");
-                    GostConfigDto gostConfigDto = JSONObject.parseObject(string, GostConfigDto.class);
-                    checkGostConfigAsync.cleanNodeConfigs(id, gostConfigDto);
-                } else if (message.getPayload().contains("requestId")) {
+                }else if (message.getPayload().contains("requestId")) {
                     log.info("收到消息: {}", message.getPayload());
                     // 处理命令响应消息
                     try {

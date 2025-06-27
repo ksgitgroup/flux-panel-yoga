@@ -23,17 +23,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Resource
     private WebSocketInterceptor webSocketInterceptor;
 
-    @Bean
-    public ServletContextInitializer websocketBufferConfig() {
-        return new ServletContextInitializer() {
-            @Override
-            public void onStartup(ServletContext servletContext) throws ServletException {
-                servletContext.setInitParameter("org.apache.tomcat.websocket.textBufferSize", String.valueOf(10 * 1024 * 1024));
-                servletContext.setInitParameter("org.apache.tomcat.websocket.binaryBufferSize", String.valueOf(10 * 1024 * 1024));
-            }
-        };
-    }
-
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry webSocketHandlerRegistry) {
         webSocketHandlerRegistry

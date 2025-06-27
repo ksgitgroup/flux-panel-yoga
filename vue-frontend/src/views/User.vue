@@ -1652,13 +1652,24 @@ export default {
   
   /* 移动端分页优化 */
   .mobile-pagination {
-    justify-content: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .mobile-pagination >>> .btn-prev {
+    flex-shrink: 0;
   }
   
   .mobile-pagination >>> .el-pager {
     display: flex;
-    flex-wrap: wrap;
+    flex: 1;
     justify-content: center;
+    margin: 0 8px;
+  }
+  
+  .mobile-pagination >>> .btn-next {
+    flex-shrink: 0;
   }
   
   .mobile-pagination >>> .el-pager li {

@@ -35,5 +35,6 @@ func (w *observerWrapper) Observe(ctx context.Context, events []observer.Event, 
 	if v == nil {
 		return nil
 	}
-	return v.Observe(ctx, events, opts...)
+	err := v.Observe(ctx, events, opts...)
+	return err
 }

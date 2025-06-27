@@ -26,7 +26,6 @@ server:
     uri-encoding: UTF-8
     max-thread: 800
     max-connections: 2000
-    max-swallow-size: 10MB
   shutdown: graceful
 
 mybatis-plus:

@@ -11,10 +11,12 @@ import com.admin.entity.Tunnel;
 import com.admin.mapper.NodeMapper;
 import com.admin.mapper.TunnelMapper;
 import com.admin.service.NodeService;
+import com.admin.service.TunnelService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -57,6 +59,10 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     
     @Resource
     private TunnelMapper tunnelMapper;
+
+    @Resource
+    @Lazy
+    private TunnelService tunnelService;
 
     @Value("${server-addr}")
     private String serverAddr;
@@ -107,7 +113,25 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         // 2. 构建更新对象并执行更新
         Node updateNode = buildUpdateNode(nodeUpdateDto);
         boolean result = this.updateById(updateNode);
-        
+
+        // 更新隧道入口ip
+        List<Tunnel> inNodeId = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", updateNode.getId()));
+        if (!inNodeId.isEmpty()) {
+            for (Tunnel tunnel : inNodeId) {
+                tunnel.setInIp(updateNode.getIp());
+            }
+            tunnelService.updateBatchById(inNodeId);
+        }
+
+        // 更新服务器出口ip
+        List<Tunnel> outNodeId = tunnelService.list(new QueryWrapper<Tunnel>().eq("out_node_id", updateNode.getId()));
+        if (!outNodeId.isEmpty()) {
+            for (Tunnel tunnel : outNodeId) {
+                tunnel.setOutIp(updateNode.getServerIp());
+            }
+            tunnelService.updateBatchById(outNodeId);
+        }
+
         return result ? R.ok(SUCCESS_UPDATE_MSG) : R.err(ERROR_UPDATE_MSG);
     }
 

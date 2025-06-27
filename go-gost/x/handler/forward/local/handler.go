@@ -24,7 +24,6 @@ import (
 	stats_wrapper "github.com/go-gost/x/observer/stats/wrapper"
 	xrecorder "github.com/go-gost/x/recorder"
 	"github.com/go-gost/x/registry"
-	"github.com/go-gost/x/traffic"
 )
 
 func init() {
@@ -34,12 +33,11 @@ func init() {
 }
 
 type forwardHandler struct {
-	hop            hop.Hop
-	md             metadata
-	options        handler.Options
-	recorder       recorder.RecorderObject
-	certPool       tls_util.CertPool
-	trafficManager traffic.Manager
+	hop      hop.Hop
+	md       metadata
+	options  handler.Options
+	recorder recorder.RecorderObject
+	certPool tls_util.CertPool
 }
 
 func NewHandler(opts ...handler.Option) handler.Handler {
@@ -49,8 +47,7 @@ func NewHandler(opts ...handler.Option) handler.Handler {
 	}
 
 	return &forwardHandler{
-		options:        options,
-		trafficManager: traffic.GetGlobalManager(),
+		options: options,
 	}
 }
 
@@ -103,75 +100,23 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 		ro.ClientIP = h
 	}
 
-	log := h.options.Logger.WithFields(map[string]any{
-		"remote": conn.RemoteAddr().String(),
-		"local":  conn.LocalAddr().String(),
-		"sid":    ro.SID,
-		"client": ro.ClientIP,
-	})
-
 	network := "tcp"
 	if _, ok := conn.(net.PacketConn); ok {
 		network = "udp"
 	}
 	ro.Network = network
 
-	connStats := xstats.NewStats(false) // false表示不在Get时清零
-	ccStats := xstats.NewStats(false)   // false表示不在Get时清零
-	conn = stats_wrapper.WrapConn(conn, connStats)
-
-	// 启动定期上报流量的goroutine
-	trafficCtx, trafficCancel := context.WithCancel(context.Background())
-	defer trafficCancel()
-
-	if h.trafficManager != nil {
-		go func() {
-			ticker := time.NewTicker(5 * time.Second)
-			defer ticker.Stop()
-
-			// 记录上次的流量值
-			var lastConnOutput, lastConnInput, lastCCOutput, lastCCInput uint64
-
-			for {
-				select {
-				case <-ticker.C:
-					// 获取当前流量统计（不清零）
-					connOutput := connStats.Get(stats.KindInputBytes)
-					connInput := connStats.Get(stats.KindOutputBytes)
-					ccOutput := ccStats.Get(stats.KindOutputBytes)
-					ccInput := ccStats.Get(stats.KindInputBytes)
-
-					// 计算增量
-					connOutputDelta := connOutput - lastConnOutput
-					connInputDelta := connInput - lastConnInput
-					ccOutputDelta := ccOutput - lastCCOutput
-					ccInputDelta := ccInput - lastCCInput
-
-					if connInputDelta > 0 || connOutputDelta > 0 {
-						h.trafficManager.RecordTraffic(ctx, ro.Service+":conn", int64(connInputDelta), int64(connOutputDelta))
-					}
-					if ccOutputDelta > 0 || ccInputDelta > 0 {
-						h.trafficManager.RecordTraffic(ctx, ro.Service+":cc", int64(ccOutputDelta), int64(ccInputDelta))
-					}
-
-					// 更新上次的值
-					lastConnOutput = connOutput
-					lastConnInput = connInput
-					lastCCOutput = ccOutput
-					lastCCInput = ccInput
-				case <-trafficCtx.Done():
-					return
-				}
-			}
-		}()
-	}
+	pStats := xstats.Stats{}
+	conn = stats_wrapper.WrapConn(conn, &pStats)
 
 	defer func() {
 		if err != nil {
 			ro.Err = err.Error()
 		}
+		ro.InputBytes = pStats.Get(stats.KindInputBytes)
+		ro.OutputBytes = pStats.Get(stats.KindOutputBytes)
 		ro.Duration = time.Since(start)
-		// 流量统计已经在定期上报中处理，这里不需要再次记录
+
 	}()
 
 	if !h.checkRateLimit(conn.RemoteAddr()) {
@@ -196,9 +141,6 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 			var buf bytes.Buffer
 			cc, err := h.options.Router.Dial(ctxvalue.ContextWithBuffer(ctx, &buf), "tcp", address)
 			ro.Route = buf.String()
-
-			cc = stats_wrapper.WrapConn(cc, ccStats)
-
 			return cc, err
 		}
 		sniffer := &forwarder.Sniffer{
@@ -223,7 +165,6 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 				forwarder.WithBypass(h.options.Bypass),
 				forwarder.WithHTTPKeepalive(h.md.httpKeepalive),
 				forwarder.WithRecorderObject(ro),
-				forwarder.WithLog(log),
 			)
 		case sniffing.ProtoTLS:
 			return sniffer.HandleTLS(ctx, conn,
@@ -231,14 +172,15 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 				forwarder.WithHop(h.hop),
 				forwarder.WithBypass(h.options.Bypass),
 				forwarder.WithRecorderObject(ro),
-				forwarder.WithLog(log),
 			)
 		}
 	}
 
 	target := &chain.Node{}
 	if h.hop != nil {
-		target = h.hop.Select(ctx, hop.ProtocolSelectOption(proto))
+		target = h.hop.Select(ctx,
+			hop.ProtocolSelectOption(proto),
+		)
 	}
 	if target == nil {
 		err := errors.New("node not available")
@@ -264,6 +206,8 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	cc, err := h.options.Router.Dial(ctxvalue.ContextWithBuffer(ctx, &buf), network, addr)
 	ro.Route = buf.String()
 	if err != nil {
+		// TODO: the router itself may be failed due to the failed node in the router,
+		// the dead marker may be a wrong operation.
 		if marker := target.Marker(); marker != nil {
 			marker.Mark()
 		}
@@ -272,9 +216,6 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 	if marker := target.Marker(); marker != nil {
 		marker.Reset()
 	}
-
-	cc = stats_wrapper.WrapConn(cc, ccStats)
-
 	defer cc.Close()
 
 	xnet.Transport(conn, cc)

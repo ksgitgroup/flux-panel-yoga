@@ -2,16 +2,16 @@ package com.admin.controller;
 
 import com.admin.common.aop.LogAnnotation;
 import com.admin.common.dto.FlowDto;
+import com.admin.common.dto.GostConfigDto;
 import com.admin.common.lang.R;
+import com.admin.common.task.CheckGostConfigAsync;
 import com.admin.common.utils.GostUtil;
 import com.admin.entity.*;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
@@ -54,6 +54,19 @@ public class FlowController extends BaseController {
     private static final ConcurrentHashMap<String, Object> USER_LOCKS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Object> TUNNEL_LOCKS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Object> FORWARD_LOCKS = new ConcurrentHashMap<>();
+
+
+    @Resource
+    CheckGostConfigAsync checkGostConfigAsync;
+
+    @PostMapping("/config")
+    @LogAnnotation
+    public String config(@RequestBody GostConfigDto gostConfigDto, String secret) {
+        Node node = nodeService.getOne(new QueryWrapper<Node>().eq("secret", secret));
+        if (node == null) return SUCCESS_RESPONSE;
+        checkGostConfigAsync.cleanNodeConfigs(node.getId().toString(), gostConfigDto);
+        return SUCCESS_RESPONSE;
+    }
 
 
     @RequestMapping("/test")

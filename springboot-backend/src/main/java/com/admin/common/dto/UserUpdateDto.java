@@ -12,9 +12,6 @@ public class UserUpdateDto {
     @NotNull(message = "用户ID不能为空")
     private Long id;
 
-    @NotBlank(message = "姓名不能为空")
-    private String name;
-
     @NotBlank(message = "用户名不能为空")
     private String user;
 

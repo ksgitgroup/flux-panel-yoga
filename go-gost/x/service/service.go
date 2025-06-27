@@ -338,31 +338,65 @@ func (s *defaultService) observeStats(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+
+			// First, try to send any pending events
 			if len(events) > 0 {
 				if err := s.options.observer.Observe(ctx, events); err == nil {
 					events = nil
 				}
-				break
+				continue
 			}
 
 			st := s.status.Stats()
-			if st == nil || !st.IsUpdated() {
-				break
+			if st == nil {
+				continue
 			}
 
-			evs := []observer.Event{
-				xstats.StatsEvent{
-					Kind:         "service",
-					Service:      s.name,
-					TotalConns:   st.Get(stats.KindTotalConns),
-					CurrentConns: st.Get(stats.KindCurrentConns),
-					InputBytes:   st.Get(stats.KindInputBytes),
-					OutputBytes:  st.Get(stats.KindOutputBytes),
-					TotalErrs:    st.Get(stats.KindTotalErrs),
-				},
-			}
-			if err := s.options.observer.Observe(ctx, evs); err != nil {
-				events = evs
+			isUpdated := st.IsUpdated()
+			if isUpdated {
+				inputBytes := st.Get(stats.KindInputBytes)
+				outputBytes := st.Get(stats.KindOutputBytes)
+
+				evs := []observer.Event{
+					xstats.StatsEvent{
+						Kind:         "service",
+						Service:      s.name,
+						TotalConns:   st.Get(stats.KindTotalConns),
+						CurrentConns: st.Get(stats.KindCurrentConns),
+						InputBytes:   inputBytes,
+						OutputBytes:  outputBytes,
+						TotalErrs:    st.Get(stats.KindTotalErrs),
+					},
+				}
+				if outputBytes > 0 || inputBytes > 0 {
+					reportItems := []TrafficReportItem{
+						{
+							N: s.name,
+							T: "cc",
+							U: int64(outputBytes),
+							D: int64(inputBytes),
+						},
+						{
+							N: s.name,
+							T: "conn",
+							U: int64(inputBytes),
+							D: int64(outputBytes),
+						},
+					}
+					success, err := sendTrafficReport(ctx, reportItems)
+					if err != nil {
+						fmt.Printf("发送流量报告失败: %v", err)
+					} else if success {
+						if xstats, ok := st.(*xstats.Stats); ok {
+							xstats.ResetTraffic(st.Get(stats.KindInputBytes)-inputBytes, st.Get(stats.KindOutputBytes)-outputBytes)
+						}
+					}
+				}
+
+				if err := s.options.observer.Observe(ctx, evs); err != nil {
+					fmt.Printf("发送观察器事件失败: %v", err)
+					events = evs
+				}
 			}
 
 		case <-ctx.Done():

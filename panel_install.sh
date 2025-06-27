@@ -191,9 +191,6 @@ install_panel() {
     configure_docker_ipv6
   fi
 
-  echo "🧹 清理环境信息"
-  $DOCKER_CMD down --rmi all --volumes --remove-orphans
-  echo "✅ 环境清理完成"
 
   cat > .env <<EOF
 DB_NAME=$DB_NAME

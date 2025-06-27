@@ -332,7 +332,7 @@
 
     <!-- 用户隧道权限分配对话框 -->
     <el-dialog 
-      :title="`用户 ${currentUser.name} 的隧道权限管理`" 
+      :title="`用户 ${currentUser.user} 的隧道权限管理`" 
       :visible.sync="tunnelDialogVisible" 
       width="50%"
       @close="resetTunnelDialog"

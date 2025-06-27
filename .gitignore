@@ -45,6 +45,8 @@ $RECYCLE.BIN/
 
 # IntelliJ IDEA
 .idea/
+.vitepress/dist/
+.vitepress/cache/
 *.iws
 *.iml
 *.ipr

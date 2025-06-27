@@ -27,6 +27,11 @@ server:
     max-thread: 800
     max-connections: 2000
   shutdown: graceful
+  error:
+    whitelabel:
+      enabled: false
+    include-message: always
+    include-binding-errors: always
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**Mapper.xml

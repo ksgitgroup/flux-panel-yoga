@@ -69,6 +69,10 @@ http://your-server-ip:6366
 - 用于展示在转发页面，面向用户的访问地址
 - 适用于有多个IP的服务器（如多线BGP）
 
+**兜底**：
+- 实在理解不到说明你没这个需求，都填节点的公网ip就行
+
+
 ### 节点状态说明
 
 - 🟢 **在线**: 节点正常运行，可以查看CPU、内存等系统信息
@@ -92,6 +96,8 @@ http://your-server-ip:6366
 # 示例安装命令（实际命令请从面板复制）
 curl -L https://your-panel-server:6365/agent/install | bash -s -- --server=your-panel-server:6365 --token=your-node-token
 ```
+如果/etc/gost/下存在gost.json和config.json，安装命令会跳过生成，使用当前存在的配置
+gost执行文件会强制更新
 
 ### 验证安装
 

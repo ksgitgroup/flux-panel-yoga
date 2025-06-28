@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+
 	"net/http"
+
 	"strings"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/go-gost/core/service"
 	"github.com/go-gost/x/config"
 	parser "github.com/go-gost/x/config/parsing/service"
+	kill "github.com/go-gost/x/internal/util/port"
 	"github.com/go-gost/x/registry"
 )
 
@@ -534,8 +537,24 @@ func pauseService(ctx *gin.Context) {
 		return
 	}
 
-	// 关闭服务但保持注册状态
+	// 获取服务地址用于强制断开连接
+	var serviceAddr string
+	cfg := config.Global()
+	for _, s := range cfg.Services {
+		if s.Name == name {
+			serviceAddr = s.Addr
+			break
+		}
+	}
+
+	// 使用和 updateService 相同的方法彻底断开所有连接
 	svc.Close()
+	registry.ServiceRegistry().Unregister(name)
+
+	// 强制断开端口的所有连接
+	if serviceAddr != "" {
+		_ = kill.ForceClosePortConnections(serviceAddr)
+	}
 
 	// 更新配置中的暂停状态
 	config.OnUpdate(func(c *config.Config) error {
@@ -893,8 +912,14 @@ func pauseServices(ctx *gin.Context) {
 			return
 		}
 
-		// 暂停服务
+		// 使用和 updateService 相同的方法彻底断开所有连接
 		stp.service.Close()
+		registry.ServiceRegistry().Unregister(stp.name)
+
+		// 强制断开端口的所有连接
+		if serviceConfig.Addr != "" {
+			_ = kill.ForceClosePortConnections(serviceConfig.Addr)
+		}
 
 		// 记录已暂停的服务
 		pausedServices = append(pausedServices, struct {

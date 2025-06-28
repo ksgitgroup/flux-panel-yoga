@@ -547,10 +547,6 @@ func pauseService(ctx *gin.Context) {
 		}
 	}
 
-	// 使用和 updateService 相同的方法彻底断开所有连接
-	svc.Close()
-	registry.ServiceRegistry().Unregister(name)
-
 	// 强制断开端口的所有连接
 	if serviceAddr != "" {
 		_ = kill.ForceClosePortConnections(serviceAddr)
@@ -911,10 +907,6 @@ func pauseServices(ctx *gin.Context) {
 			writeError(ctx, NewError(http.StatusInternalServerError, ErrCodeFailed, fmt.Sprintf("service %s configuration not found", stp.name)))
 			return
 		}
-
-		// 使用和 updateService 相同的方法彻底断开所有连接
-		stp.service.Close()
-		registry.ServiceRegistry().Unregister(stp.name)
 
 		// 强制断开端口的所有连接
 		if serviceConfig.Addr != "" {

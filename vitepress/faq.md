@@ -4,6 +4,8 @@
 📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1) | 🐛 [GitHub Issues](https://github.com/bqlpfy/forward-panel/issues) | 🚀 [快速开始](/getting-started)
 :::
 
+
+
 ## 日志查看
 
 ### 查看后端服务日志
@@ -14,18 +16,9 @@
 docker logs -f springboot-backend
 ```
 
-**说明**：
-- `docker logs` - 查看Docker容器日志
-- `-f` - 持续跟踪日志输出（类似tail -f）
-- `springboot-backend` - 后端服务容器名称
+按 `Ctrl+C` 退出日志查看
 
-**使用场景**：
-- API 接口报错
-- 用户登录问题
-- 数据库连接异常
-- 隧道/转发创建失败
-
-### 查看转发引擎日志
+### 查看节点日志
 
 当转发功能出现问题时，可以通过以下命令查看gost服务日志：
 
@@ -33,38 +26,108 @@ docker logs -f springboot-backend
 journalctl -u gost -f
 ```
 
-**说明**：
-- `journalctl` - 系统日志查看工具
-- `-u gost` - 指定查看gost服务的日志
-- `-f` - 持续跟踪日志输出
+按 `Ctrl+C` 退出日志查看
 
-**使用场景**：
-- 转发连接失败
-- 流量统计异常
-- 节点连接问题
-- 限速功能故障
+## 面板管理
 
-## 日志分析技巧
-
-### 常用日志筛选
-
-```bash
-# 查看最近100行日志
-docker logs --tail 100 springboot-backend
-
-# 查看指定时间段的日志
-journalctl -u gost --since "2024-01-01" --until "2024-01-02"
-
-# 搜索包含ERROR的日志
-docker logs springboot-backend | grep ERROR
+面板管理脚本提供交互式菜单：
+```
+===============================================
+          面板管理脚本
+===============================================
+请选择操作：
+1. 安装面板
+2. 更新面板
+3. 卸载面板
+4. 退出
+===============================================
 ```
 
-### 日志等级说明
+### 更新面板
 
-- **ERROR** - 错误信息，需要立即处理
-- **WARN** - 警告信息，建议关注
-- **INFO** - 一般信息，正常运行状态
-- **DEBUG** - 调试信息，详细执行过程
+当您需要更新到最新版本时，使用安装脚本的更新功能：
+
+```bash
+curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+```
+
+运行脚本后，在菜单中选择 **2. 更新面板**
+
+**更新过程包括**：
+- 🔽 下载最新的 docker-compose 配置文件
+- 🛑 停止当前运行的服务
+- ⬇️ 拉取最新的 Docker 镜像
+- 🔄 执行数据库结构更新（自动迁移）
+- 🚀 启动更新后的服务
+
+**注意事项**：
+- 更新过程会保留所有现有数据和配置
+- 数据库结构会自动更新，无需手动操作
+- 如果遇到问题，可查看日志诊断：
+  ```bash
+  docker logs -f springboot-backend
+  docker logs -f gost-mysql
+  ```
+  按 `Ctrl+C` 退出日志查看
+
+**健康检查**：
+更新脚本会自动等待服务启动并检查健康状态：
+- 后端服务：等待最多 90 秒
+- 数据库服务：等待最多 60 秒
+
+### 卸载面板
+
+如果需要完全移除面板：
+
+```bash
+curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+```
+
+运行脚本后，在菜单中选择 **3. 卸载面板**，然后输入 **y** 确认卸载
+
+**卸载操作包括**：
+- 🛑 停止并删除所有容器
+- 🧹 删除 Docker 镜像和数据卷
+- 📁 删除配置文件（docker-compose.yml、gost.sql、.env）
+
+⚠️ **重要警告**：
+- 卸载会**永久删除**所有数据，包括用户账号、转发规则、流量统计等
+
+## 节点管理
+
+节点管理脚本提供交互式菜单：
+```
+===============================================
+              管理脚本
+===============================================
+请选择操作：
+1. 安装
+2. 更新
+3. 卸载
+4. 退出
+===============================================
+```
+
+### 更新节点程序
+
+在节点服务器上更新 GOST 程序：
+
+```bash
+curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+```
+
+运行脚本后，在菜单中选择 **2. 更新**
+
+
+### 卸载节点程序
+
+完全移除节点上的 GOST 程序：
+
+```bash
+curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+```
+
+运行脚本后，在菜单中选择 **3. 卸载**，然后输入 **y** 确认卸载
 
 ## 获取更多帮助
 
@@ -92,8 +155,3 @@ docker logs springboot-backend | grep ERROR
 - 问题复现步骤
 - 相关配置文件（隐去敏感信息）
 
-### 文档资源
-
-- [使用指南](/guide) - 详细操作教程
-- [快速开始](/getting-started) - 安装和配置
-- [项目结构](/project-structure) - 技术架构说明 

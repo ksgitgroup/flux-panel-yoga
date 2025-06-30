@@ -48,7 +48,7 @@ journalctl -u gost -f
 当您需要更新到最新版本时，使用安装脚本的更新功能：
 
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 ```
 
 运行脚本后，在菜单中选择 **2. 更新面板**
@@ -80,7 +80,7 @@ curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/p
 如果需要完全移除面板：
 
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 ```
 
 运行脚本后，在菜单中选择 **3. 卸载面板**，然后输入 **y** 确认卸载
@@ -113,7 +113,7 @@ curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/p
 在节点服务器上更新 GOST 程序：
 
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+curl -L https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
 ```
 
 运行脚本后，在菜单中选择 **2. 更新**
@@ -124,7 +124,7 @@ curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/i
 完全移除节点上的 GOST 程序：
 
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/forward-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+curl -L https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
 ```
 
 运行脚本后，在菜单中选择 **3. 卸载**，然后输入 **y** 确认卸载

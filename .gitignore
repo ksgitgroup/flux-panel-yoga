@@ -174,7 +174,6 @@ build/
 *.dll
 *.so
 *.dylib
-gost
 your_app.exe
 
 # Go 测试二进制文件

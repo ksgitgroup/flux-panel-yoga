@@ -22,7 +22,7 @@
 我们提供了交互式安装脚本，会自动检测系统环境并引导您完成配置：
 
 ```bash
-curl -L https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 ```
 
 ### 安装流程说明
@@ -67,13 +67,13 @@ curl -L https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/panel_instal
 
 ```bash
 # 下载 docker-compose 配置（IPv4）
-curl -L -o docker-compose.yml https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose-v4.yml
+curl -L -o docker-compose.yml https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/docker-compose-v4.yml
 
 # 或下载 IPv6 配置
-curl -L -o docker-compose.yml https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/docker-compose-v6.yml
+curl -L -o docker-compose.yml https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/docker-compose-v6.yml
 
 # 下载数据库初始化文件
-curl -L -o gost.sql https://github.com/bqlpfy/forward-panel/raw/refs/heads/main/gost.sql
+curl -L -o gost.sql https://file.tes.cc/bqlpfy/forward-panel/refs/heads/main/gost.sql
 ```
 
 ### 2. 创建环境配置

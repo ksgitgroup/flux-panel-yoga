@@ -274,6 +274,9 @@ func pauseServices(req pauseServicesRequest) error {
 			return errors.New(fmt.Sprintf("service %s configuration not found", stp.name))
 		}
 
+		// 暂停服务
+		stp.service.Close()
+
 		// 强制断开端口的所有连接
 		if serviceConfig.Addr != "" {
 			_ = kill.ForceClosePortConnections(serviceConfig.Addr)

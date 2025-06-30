@@ -247,7 +247,8 @@
             <template slot="prepend">UDP</template>
           </el-input>
           <div class="form-hint">
-            部分专线需要指定才能转发udp
+            详细介绍查看文档中的监听地址说明
+            <el-link type="primary" href="https://tes.cc/guide.html#%E7%AC%AC%E4%BA%94%E6%AD%A5-%E5%88%9B%E5%BB%BA%E9%9A%A7%E9%81%93" target="_blank">详细说明</el-link>
           </div>
         </el-form-item>
 
@@ -593,41 +594,9 @@ export default {
         ],
         tcpListenAddr: [
           { required: true, message: '请输入TCP监听地址', trigger: 'blur' },
-          { 
-            validator: (rule, value, callback) => {
-              if (value) {
-                // 验证IP地址格式（包括0.0.0.0）
-                const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-                if (ipRegex.test(value)) {
-                  callback();
-                } else {
-                  callback(new Error('请输入有效的IP地址'));
-                }
-              } else {
-                callback();
-              }
-            }, 
-            trigger: 'blur' 
-          }
         ],
         udpListenAddr: [
           { required: true, message: '请输入UDP监听地址', trigger: 'blur' },
-          { 
-            validator: (rule, value, callback) => {
-              if (value) {
-                // 验证IP地址格式（包括0.0.0.0）
-                const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-                if (ipRegex.test(value)) {
-                  callback();
-                } else {
-                  callback(new Error('请输入有效的IP地址'));
-                }
-              } else {
-                callback();
-              }
-            }, 
-            trigger: 'blur' 
-          }
         ]
       },
       diagnosisDialogVisible: false,

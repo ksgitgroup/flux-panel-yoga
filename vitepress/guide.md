@@ -129,7 +129,7 @@ curl -L https://your-panel-server:6365/agent/install | bash -s -- --server=your-
 - **入口节点**: 选择流量入口节点
 - **起始端口**: 端口范围起始值（默认1）
 - **结束端口**: 端口范围结束值（默认65535）
-- **监听地址**: - **监听地址**: <span style="color: #c47f00;">
+- **监听地址**: <span style="color: #c47f00;">
   部分专线需要监听指定内网IP才能成功转发端口，所以才诞生了这两个配置，
   如果不理解就按照说明填写，服务器只有v4就填写
   <code style="background-color: #fff8e1; color: #c47f00; font-weight: bold; padding: 2px 4px; border-radius: 4px; font-family: monospace;">0.0.0.0</code>，

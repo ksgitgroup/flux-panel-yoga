@@ -9,7 +9,7 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
-    "vitepress": "^1.0.0-rc.4"
+    "vitepress": "^1.6.3"
   },
   "keywords": [
     "gost",
@@ -20,4 +20,4 @@
   ],
   "author": "bqlpfy",
   "license": "Apache-2.0"
-} 
+}

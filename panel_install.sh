@@ -54,73 +54,7 @@ check_ipv6_support() {
   fi
 }
 
-# 检查并安装 tcpkill
-check_and_install_tcpkill() {
-  # 检查 tcpkill 是否已安装
-  if command -v tcpkill &> /dev/null; then
-    return 0
-  fi
-  
-  # 检测操作系统类型
-  OS_TYPE=$(uname -s)
-  
-  # 检查是否需要 sudo
-  if [[ $EUID -ne 0 ]]; then
-    SUDO_CMD="sudo"
-  else
-    SUDO_CMD=""
-  fi
-  
-  if [[ "$OS_TYPE" == "Darwin" ]]; then
-    if command -v brew &> /dev/null; then
-      brew install dsniff &> /dev/null
-    fi
-    return 0
-  fi
-  
-  # 检测 Linux 发行版并安装对应的包
-  if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    DISTRO=$ID
-  elif [ -f /etc/redhat-release ]; then
-    DISTRO="rhel"
-  elif [ -f /etc/debian_version ]; then
-    DISTRO="debian"
-  else
-    return 0
-  fi
-  
-  case $DISTRO in
-    ubuntu|debian)
-      $SUDO_CMD apt update &> /dev/null
-      $SUDO_CMD apt install -y dsniff &> /dev/null
-      ;;
-    centos|rhel|fedora)
-      if command -v dnf &> /dev/null; then
-        $SUDO_CMD dnf install -y dsniff &> /dev/null
-      elif command -v yum &> /dev/null; then
-        $SUDO_CMD yum install -y dsniff &> /dev/null
-      fi
-      ;;
-    alpine)
-      $SUDO_CMD apk add --no-cache dsniff &> /dev/null
-      ;;
-    arch|manjaro)
-      $SUDO_CMD pacman -S --noconfirm dsniff &> /dev/null
-      ;;
-    opensuse*|sles)
-      $SUDO_CMD zypper install -y dsniff &> /dev/null
-      ;;
-    gentoo)
-      $SUDO_CMD emerge --ask=n net-analyzer/dsniff &> /dev/null
-      ;;
-    void)
-      $SUDO_CMD xbps-install -Sy dsniff &> /dev/null
-      ;;
-  esac
-  
-  return 0
-}
+
 
 # 配置 Docker 启用 IPv6
 configure_docker_ipv6() {
@@ -257,9 +191,6 @@ install_panel() {
     configure_docker_ipv6
   fi
 
-  # 检查并安装 tcpkill
-  check_and_install_tcpkill
-
   cat > .env <<EOF
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
@@ -302,9 +233,6 @@ update_panel() {
     echo "🚀 系统支持 IPv6，自动启用 IPv6 配置..."
     configure_docker_ipv6
   fi
-
-  # 检查并安装 tcpkill
-  check_and_install_tcpkill
 
   echo "🛑 停止当前服务..."
   $DOCKER_CMD down

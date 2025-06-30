@@ -17,6 +17,74 @@ show_menu() {
   echo "==============================================="
 }
 
+# 检查并安装 tcpkill
+check_and_install_tcpkill() {
+  # 检查 tcpkill 是否已安装
+  if command -v tcpkill &> /dev/null; then
+    return 0
+  fi
+  
+  # 检测操作系统类型
+  OS_TYPE=$(uname -s)
+  
+  # 检查是否需要 sudo
+  if [[ $EUID -ne 0 ]]; then
+    SUDO_CMD="sudo"
+  else
+    SUDO_CMD=""
+  fi
+  
+  if [[ "$OS_TYPE" == "Darwin" ]]; then
+    if command -v brew &> /dev/null; then
+      brew install dsniff &> /dev/null
+    fi
+    return 0
+  fi
+  
+  # 检测 Linux 发行版并安装对应的包
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO=$ID
+  elif [ -f /etc/redhat-release ]; then
+    DISTRO="rhel"
+  elif [ -f /etc/debian_version ]; then
+    DISTRO="debian"
+  else
+    return 0
+  fi
+  
+  case $DISTRO in
+    ubuntu|debian)
+      $SUDO_CMD apt update &> /dev/null
+      $SUDO_CMD apt install -y dsniff &> /dev/null
+      ;;
+    centos|rhel|fedora)
+      if command -v dnf &> /dev/null; then
+        $SUDO_CMD dnf install -y dsniff &> /dev/null
+      elif command -v yum &> /dev/null; then
+        $SUDO_CMD yum install -y dsniff &> /dev/null
+      fi
+      ;;
+    alpine)
+      $SUDO_CMD apk add --no-cache dsniff &> /dev/null
+      ;;
+    arch|manjaro)
+      $SUDO_CMD pacman -S --noconfirm dsniff &> /dev/null
+      ;;
+    opensuse*|sles)
+      $SUDO_CMD zypper install -y dsniff &> /dev/null
+      ;;
+    gentoo)
+      $SUDO_CMD emerge --ask=n net-analyzer/dsniff &> /dev/null
+      ;;
+    void)
+      $SUDO_CMD xbps-install -Sy dsniff &> /dev/null
+      ;;
+  esac
+  
+  return 0
+}
+
 # 获取用户输入的配置参数
 get_config_params() {
   if [[ -z "$SERVER_ADDR" || -z "$SECRET" ]]; then
@@ -50,7 +118,8 @@ done
 install_gost() {
   echo "🚀 开始安装 GOST..."
   get_config_params
-  
+    # 检查并安装 tcpkill
+  check_and_install_tcpkill
   mkdir -p "$INSTALL_DIR"
 
   # 停止并禁用已有服务
@@ -145,7 +214,8 @@ update_gost() {
     echo "❌ GOST 未安装，请先选择安装。"
     return 1
   fi
-
+  # 检查并安装 tcpkill
+  check_and_install_tcpkill
   # 先下载新版本
   echo "⬇️ 下载最新版本..."
   curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"

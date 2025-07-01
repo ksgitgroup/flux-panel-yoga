@@ -32,7 +32,27 @@
         >
           <div class="card-header">
             <div class="card-title">
-              <i class="el-icon-connection"></i>
+              <!-- 负载策略图标 -->
+              <span 
+                :title="getStrategyText(forward.strategy)"
+                class="strategy-icon"
+                :style="{ color: getStrategyIconColor(forward.strategy) }"
+              >
+                <!-- 随机模式 -->
+                <svg v-if="forward.strategy === 'rand'" class="strategy-svg" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M752.89 356.741h57.565v97.06L957.44 283.095l-146.939-167.04v110.817h-57.559c-164.813 0-272.317 127.002-354.427 239.053-73.697 100.72-137.492 195.748-240.292 195.748H66.56v129.92h91.617c164.813 0 257.813-135.014 339.968-247.07 73.698-100.773 151.7-187.782 254.746-187.782z m-446.632 74.291l21.335-28.907c17.515-23.803 35.835-49.045 55.777-74.092-59.044-57.267-130.12-99.533-225.193-99.533H66.56v129.874s24.699-1.239 91.617 0c64.784 1.434 105.416 28.954 148.08 72.658zM810.5 666.665h-57.559c-62.766 0-125.42-36.373-170.312-84.629a929.229 929.229 0 0 1-13.557 18.463c-19.702 26.87-40.832 55.824-64.144 84.337 60.585 61.368 148.383 111.703 248.013 111.703h57.56v111.406L957.44 736.947 810.501 570.214v96.451z" fill="currentColor"></path>
+                </svg>
+                <!-- 轮询模式 -->
+                <svg v-else-if="forward.strategy === 'round'" class="strategy-svg" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M920.1 603.5c-16.5-2.1-28.2-17-26.3-33.5 4.3-37.4 5.4-88.9 3.4-115.7-17.8-241.7-280.7-366-482.1-331.8-8.4 1.4-9.8 12.9-1.9 16.2 144.6 60.1 283.4 198.4 284.5 360.5 0.1 10.6-0.3 21.1-1.1 31.4-1.3 17-16.5 29.4-33.4 27.6l-59.1-6.2c-27.3-2.9-44.1 29.1-26.1 49.9l57 66.1 89.8 104.2c9.8 11.4 26.6 13.9 39.3 5.8L880 703.9l67.5-43.1c23.9-15.2 15.7-52-12.4-55.6l-15-1.7zM106.9 407.8c16.4 2.5 27.7 17.8 25.4 34.2-5.3 37.2-7.6 88.7-6.3 115.5 11.8 244.3 276 375.3 479 343.1 6.9-1.1 8.1-10.5 1.7-13.2-144.9-62.7-283.2-205.8-280.1-369.7 0.2-10.4 0.9-20.8 1.9-31 1.7-17.1 17.1-29.4 34.1-27.2l59.1 7.7c27.2 3.5 44.7-28 27.4-49.3l-55.3-67.5-87.1-106.5c-9.5-11.7-26.2-14.6-39.1-6.8l-117.8 71L81 349.6c-24.3 14.6-17 51.6 11 55.9l14.9 2.3z m31.2 4.9" fill="currentColor"></path>
+                </svg>
+                <!-- 主备模式 -->
+                <svg v-else-if="forward.strategy === 'fifo'" class="strategy-svg" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M224 548.544H109.568A36.544 36.544 0 0 1 73.024 512V219.456h548.544V512a36.544 36.544 0 0 1-36.544 36.544h-62.848a36.608 36.608 0 0 0 0 73.152h62.848A109.696 109.696 0 0 0 694.848 512V109.696A109.696 109.696 0 0 0 585.152 0H109.696A109.696 109.696 0 0 0 0 109.696V512a109.696 109.696 0 0 0 109.696 109.696H224a36.608 36.608 0 0 0 0-73.152zM73.024 109.696a36.48 36.48 0 0 1 36.544-36.544h475.456a36.544 36.544 0 0 1 36.544 36.544v36.608H73.024v-36.608z m841.152 292.608h-103.872a36.608 36.608 0 0 0 0 73.152h103.872a36.544 36.544 0 0 1 36.544 36.544v292.544H402.176V512a36.48 36.48 0 0 1 36.544-36.544h72.128a36.608 36.608 0 0 0 0-73.152H438.72A109.696 109.696 0 0 0 329.152 512v402.304A109.696 109.696 0 0 0 438.848 1024h475.456A109.696 109.696 0 0 0 1024 914.304V512a109.696 109.696 0 0 0-109.696-109.696z m36.544 512a36.544 36.544 0 0 1-36.544 36.544H438.72a36.544 36.544 0 0 1-36.544-36.544v-36.608h548.544v36.608z m0 0" fill="currentColor"></path>
+                </svg>
+                <!-- 未知策略 -->
+                <i v-else class="el-icon-question"></i>
+              </span>
               <span class="title-text">{{ forward.name }}</span>
             </div>
             <div class="card-actions">
@@ -82,17 +102,7 @@
               </div>
             </div>
 
-            <div class="info-row inline-on-mobile" v-if="hasMultipleTargetAddresses(forward.remoteAddr)">
-              <div class="info-item">
-                <span class="label">负载策略:</span>
-                <el-tag 
-                  :type="getStrategyType(forward.strategy)"
-                  size="small"
-                >
-                  {{ getStrategyText(forward.strategy) }}
-                </el-tag>
-              </div>
-            </div>
+
             
             <div class="info-row">
               <div class="info-item full-width">
@@ -1064,6 +1074,22 @@ export default {
           return '未知策略';
       }
     },
+
+
+
+        // 获取策略图标颜色
+    getStrategyIconColor(strategy) {
+      switch (strategy) {
+        case 'fifo':
+          return '#409EFF'; // 蓝色 - 主备模式
+        case 'round':
+          return '#67C23A'; // 绿色 - 轮询模式
+        case 'rand':
+          return '#E6A23C'; // 橙色 - 随机模式
+        default:
+          return '#909399'; // 灰色 - 默认
+      }
+    },
     
 
 
@@ -1335,6 +1361,17 @@ export default {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  
+  .strategy-icon {
+    font-size: 11px !important;
+    margin-right: 3px !important;
+    margin-left: 1px !important;
+  }
+  
+  .strategy-svg {
+    width: 11px !important;
+    height: 11px !important;
+  }
 }
 
 .card-title i {
@@ -1342,6 +1379,32 @@ export default {
   color: #409EFF;
   flex-shrink: 0;
   font-size: 14px;
+}
+
+.strategy-icon {
+  margin-right: 4px !important;
+  margin-left: 2px !important;
+  font-size: 12px !important;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.strategy-icon:hover {
+  opacity: 1;
+}
+
+.strategy-svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  vertical-align: middle;
+}
+
+.strategy-icon i {
+  font-size: 12px !important;
 }
 
 .title-text {

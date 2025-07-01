@@ -9,7 +9,7 @@
           @click="toggleMobileMenu"
           type="text">
         </el-button>
-        <span style="line-height: 50px">管理后台<span style="margin-left: 10px; font-size: 12px">1.0.0</span></span>
+        <span style="line-height: 50px">管理后台<span style="margin-left: 10px; font-size: 12px">1.0.1</span></span>
       </div>
       <div class="header-avatar">
         <el-avatar style="margin-right: 10px" size="medium" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>

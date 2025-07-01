@@ -89,6 +89,12 @@ public class FlowController extends BaseController {
         if (!isValidNode(secret)) {
             return SUCCESS_RESPONSE;
         }
+        if (flowDataList.isEmpty()) {
+            return SUCCESS_RESPONSE;
+        }
+        if(Objects.equals(flowDataList.get(0).getN(), "web_api")){
+            return SUCCESS_RESPONSE;
+        }
 
 
         // 2. 解析服务名称获取ID信息

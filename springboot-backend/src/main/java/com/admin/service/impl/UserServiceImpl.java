@@ -440,8 +440,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 关键字搜索
         if (StrUtil.isNotBlank(pageDto.getKeyword())) {
             queryWrapper.and(wrapper -> wrapper
-                .like("name", pageDto.getKeyword())
-                .or()
                 .like("user", pageDto.getKeyword())
             );
         }

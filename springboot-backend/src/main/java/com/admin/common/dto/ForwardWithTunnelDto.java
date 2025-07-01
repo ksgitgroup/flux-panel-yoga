@@ -84,6 +84,7 @@ public class ForwardWithTunnelDto {
      */
     private Long outFlow;
 
+    private String strategy;
 //    /**
 //     * 入口端口开始
 //     */

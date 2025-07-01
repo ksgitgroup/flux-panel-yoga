@@ -439,6 +439,25 @@ UPDATE \`node\`
 SET \`server_ip\` = \`ip\`
 WHERE \`server_ip\` IS NULL;
 
+-- node 表：修改 ip 字段类型为 longtext
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'node'
+        AND column_name = 'ip'
+        AND data_type = 'varchar'
+    ),
+    'ALTER TABLE \`node\` MODIFY COLUMN \`ip\` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;',
+    'SELECT "Column \`ip\` not exists or already modified in \`node\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 -- tunnel 表：添加 tcp_listen_addr、udp_listen_addr、protocol（如果不存在）
 
 -- tcp_listen_addr
@@ -517,6 +536,48 @@ DEALLOCATE PREPARE stmt;
 UPDATE \`tunnel\`
 SET \`traffic_ratio\` = 1.0
 WHERE \`traffic_ratio\` IS NULL;
+
+-- forward 表：修改 remote_addr 字段类型为 longtext
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'forward'
+        AND column_name = 'remote_addr'
+        AND data_type = 'varchar'
+    ),
+    'ALTER TABLE \`forward\` MODIFY COLUMN \`remote_addr\` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL;',
+    'SELECT "Column \`remote_addr\` not exists or already modified in \`forward\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- forward 表：添加 strategy 字段（负载均衡策略）
+SET @sql = (
+  SELECT IF(
+    NOT EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'forward'
+        AND column_name = 'strategy'
+    ),
+    'ALTER TABLE \`forward\` ADD COLUMN \`strategy\` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT "fifo" COMMENT "负载均衡策略";',
+    'SELECT "Column \`strategy\` already exists in \`forward\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 为现有数据设置默认负载均衡策略
+UPDATE \`forward\`
+SET \`strategy\` = 'fifo'
+WHERE \`strategy\` IS NULL;
 EOF
   
   # 检查数据库容器

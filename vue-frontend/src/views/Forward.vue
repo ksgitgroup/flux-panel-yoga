@@ -81,6 +81,18 @@
                 </el-tag>
               </div>
             </div>
+
+            <div class="info-row inline-on-mobile" v-if="hasMultipleTargetAddresses(forward.remoteAddr)">
+              <div class="info-item">
+                <span class="label">负载策略:</span>
+                <el-tag 
+                  :type="getStrategyType(forward.strategy)"
+                  size="small"
+                >
+                  {{ getStrategyText(forward.strategy) }}
+                </el-tag>
+              </div>
+            </div>
             
             <div class="info-row">
               <div class="info-item full-width">
@@ -124,8 +136,12 @@
                     ></el-button>
                   </div>
                   <div class="address-value">
-                    <span class="value address-text">
-                      {{ forward.remoteAddr }}
+                    <span 
+                      class="value address-text" 
+                      @click="showTargetAddressDialog(forward.remoteAddr, '目标地址')"
+                      :class="{ 'clickable': hasMultipleTargetAddresses(forward.remoteAddr) }"
+                    >
+                      {{ formatTargetAddress(forward.remoteAddr) }}
                     </span>
                   </div>
                 </div>
@@ -226,13 +242,35 @@
         <el-form-item label="远程地址" prop="remoteAddr">
           <el-input 
             v-model="forwardForm.remoteAddr" 
-            placeholder="例如: 192.168.1.100:8080 或 [2001:db8::1]:8080"
+            type="textarea"
+            :rows="4"
+            placeholder="一行一个地址"
             clearable
           >
-            <template slot="prepend">目标</template>
           </el-input>
           <div class="form-hint">
-            格式: IPv4（IP:端口）、IPv6（[IPv6]:端口）或域名:端口
+            格式: IPv4（IP:端口）、IPv6（[IPv6]:端口）或域名:端口<br>
+            支持多个地址，每行一个地址
+          </div>
+        </el-form-item>
+
+        <!-- 负载均衡策略选择 -->
+        <el-form-item 
+          label="负载策略" 
+          prop="strategy"
+          v-if="getAddressCount(forwardForm.remoteAddr) > 1"
+        >
+          <el-select 
+            v-model="forwardForm.strategy" 
+            placeholder="请选择负载均衡策略"
+            style="width: 100%;"
+          >
+            <el-option value="fifo" label="主备模式 - 自上而下"></el-option>
+            <el-option value="round" label="轮询模式 - 依次轮换"></el-option>
+            <el-option value="rand" label="随机模式 - 随机选择"></el-option>
+          </el-select>
+          <div class="form-hint">
+            多个目标地址的负载均衡策略，主备模式优先使用第一个地址
           </div>
         </el-form-item>
         
@@ -359,7 +397,8 @@ export default {
         name: '',
         tunnelId: null,
         inPort: null,
-        remoteAddr: ''
+        remoteAddr: '',
+        strategy: 'fifo' // 默认主备模式
       },
       
       // 表单验证规则
@@ -399,32 +438,38 @@ export default {
           { 
             validator: (rule, value, callback) => {
               if (value) {
-                // IPv4格式：192.168.1.1:8080
+                // 按行分割地址
+                const addresses = value.split('\n').map(addr => addr.trim()).filter(addr => addr);
+                
+                if (addresses.length === 0) {
+                  callback(new Error('请输入至少一个有效地址'));
+                  return;
+                }
+                
+                // 地址验证正则
                 const ipv4Pattern = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?):\d+$/;
-                
-                // IPv6格式（带方括号）：[2001:db8::1]:8080
-                const ipv6BracketPattern = /^\[([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]:\d+$/;
-                
-                // IPv6格式（简化版本，包括::1, ::, ::ffff:192.0.2.1等）
-                const ipv6SimplifiedPattern = /^\[(::1|::|::ffff:[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|([0-9a-fA-F]{1,4}:){1,7}:|:([0-9a-fA-F]{1,4}:){1,6}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,6}:([0-9a-fA-F]{1,4}:){1,6}[0-9a-fA-F]{1,4})\]:\d+$/;
-                
-                // 域名格式：example.com:8080
+                const ipv6FullPattern = /^\[((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))\]:\d+$/;
                 const domainPattern = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*:\d+$/;
                 
-                // 更完整的IPv6正则（支持各种压缩格式）
-                const ipv6FullPattern = /^\[((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))\]:\d+$/;
-                
-                if (ipv4Pattern.test(value) || ipv6FullPattern.test(value) || domainPattern.test(value)) {
-                  callback();
-                } else {
-                  callback(new Error('请输入正确的地址格式，如: 192.168.1.100:8080 或 [2001:db8::1]:8080 或 example.com:8080'));
+                // 验证每个地址
+                for (let i = 0; i < addresses.length; i++) {
+                  const addr = addresses[i];
+                  if (!ipv4Pattern.test(addr) && !ipv6FullPattern.test(addr) && !domainPattern.test(addr)) {
+                    callback(new Error(`第${i + 1}行地址格式错误: ${addr}\n请使用正确格式，如: 192.168.1.100:8080 或 [2001:db8::1]:8080 或 example.com:8080`));
+                    return;
+                  }
                 }
+                
+                callback();
               } else {
                 callback();
               }
             }, 
             trigger: 'blur' 
           }
+        ],
+        strategy: [
+          { required: true, message: '请选择负载均衡策略', trigger: 'change' }
         ]
       }
     }
@@ -550,7 +595,9 @@ export default {
       this.forwardForm = { 
         ...row,
         userId: row.userId, // 确保userId被正确设置
-        inPort: row.inPort || null // 设置入口端口
+        inPort: row.inPort || null, // 设置入口端口
+        remoteAddr: row.remoteAddr ? row.remoteAddr.split(',').map(addr => addr.trim()).join('\n') : '', // 将逗号分隔转换为换行分隔
+        strategy: row.strategy || 'fifo' // 设置负载均衡策略，默认主备模式
       };
       this.handleTunnelChange(row.tunnelId);
       this.dialogVisible = true;
@@ -654,6 +701,13 @@ export default {
         this.submitLoading = true;
         let res;
         
+        // 处理远程地址：将换行符转换为逗号分隔
+        const processedRemoteAddr = this.forwardForm.remoteAddr
+          .split('\n')
+          .map(addr => addr.trim())
+          .filter(addr => addr)
+          .join(',');
+
         if (this.isEdit) {
           // 更新时确保包含必要字段
           const updateData = {
@@ -662,7 +716,8 @@ export default {
             name: this.forwardForm.name,
             tunnelId: this.forwardForm.tunnelId,
             inPort: this.forwardForm.inPort || null,
-            remoteAddr: this.forwardForm.remoteAddr
+            remoteAddr: processedRemoteAddr,
+            strategy: this.getAddressCount(this.forwardForm.remoteAddr) > 1 ? this.forwardForm.strategy : 'fifo'
           };
           res = await updateForward(updateData);
         } else {
@@ -671,7 +726,8 @@ export default {
             name: this.forwardForm.name,
             tunnelId: this.forwardForm.tunnelId,
             inPort: this.forwardForm.inPort || null,
-            remoteAddr: this.forwardForm.remoteAddr
+            remoteAddr: processedRemoteAddr,
+            strategy: this.getAddressCount(this.forwardForm.remoteAddr) > 1 ? this.forwardForm.strategy : 'fifo'
           };
           res = await createForward(createData);
         }
@@ -701,7 +757,8 @@ export default {
         name: '',
         tunnelId: null,
         inPort: null,
-        remoteAddr: ''
+        remoteAddr: '',
+        strategy: 'fifo'
       };
       this.selectedTunnel = null;
       this.$nextTick(() => {
@@ -858,6 +915,74 @@ export default {
       this.addressDialogVisible = true;
     },
 
+    // 显示目标地址弹窗
+    showTargetAddressDialog(addressString, title) {
+      if (!addressString) return;
+      
+      const addresses = addressString.split(',').map(addr => addr.trim()).filter(addr => addr);
+      
+      // 如果只有一个地址，直接复制，不显示弹窗
+      if (addresses.length <= 1) {
+        this.copyToClipboard(addressString, title);
+        return;
+      }
+      
+      // 格式化地址列表
+      this.addressList = addresses.map((address, index) => {
+        // 提取IP部分用于显示
+        let displayIp = address;
+        if (address.includes(':')) {
+          if (address.startsWith('[')) {
+            // IPv6格式：[2001:db8::1]:8080
+            const match = address.match(/^\[(.+)\]:/);
+            displayIp = match ? match[1] : address;
+          } else {
+            // IPv4格式：192.168.1.1:8080 或域名格式
+            const lastColonIndex = address.lastIndexOf(':');
+            displayIp = lastColonIndex > 0 ? address.substring(0, lastColonIndex) : address;
+          }
+        }
+        
+        return {
+          id: index,
+          ip: displayIp,
+          address: address,
+          copying: false // 复制状态
+        };
+      });
+      
+      this.addressDialogTitle = `${title}列表 (共${addresses.length}个)`;
+      this.addressDialogVisible = true;
+    },
+
+    // 格式化目标地址显示
+    formatTargetAddress(addressString) {
+      if (!addressString) return '';
+      
+      const addresses = addressString.split(',').map(addr => addr.trim()).filter(addr => addr);
+      
+      if (addresses.length === 0) return '';
+      if (addresses.length === 1) return addresses[0];
+      
+      // 多个地址时显示第一个地址 + 数量提示
+      return `${addresses[0]} 等${addresses.length}个目标`;
+    },
+
+    // 检查是否有多个目标地址
+    hasMultipleTargetAddresses(addressString) {
+      if (!addressString) return false;
+      const addresses = addressString.split(',').map(addr => addr.trim()).filter(addr => addr);
+      return addresses.length > 1;
+    },
+
+    // 获取地址数量（用于表单中策略选择显示控制）
+    getAddressCount(addressString) {
+      if (!addressString) return 0;
+      // 按行分割地址
+      const addresses = addressString.split('\n').map(addr => addr.trim()).filter(addr => addr);
+      return addresses.length;
+    },
+
     // 复制单个地址
     async copyAddress(addressItem) {
       try {
@@ -909,6 +1034,34 @@ export default {
 
         default:
           return '未知';
+      }
+    },
+
+    // 获取策略类型
+    getStrategyType(strategy) {
+      switch (strategy) {
+        case 'fifo':
+          return 'primary'; // 蓝色 - 主备模式
+        case 'round':
+          return 'success'; // 绿色 - 轮询模式
+        case 'rand':
+          return 'warning'; // 橙色 - 随机模式
+        default:
+          return 'info';    // 默认
+      }
+    },
+
+    // 获取策略文本
+    getStrategyText(strategy) {
+      switch (strategy) {
+        case 'fifo':
+          return '主备模式';
+        case 'round':
+          return '轮询模式';
+        case 'rand':
+          return '随机模式';
+        default:
+          return '未知策略';
       }
     },
     

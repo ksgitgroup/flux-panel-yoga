@@ -428,8 +428,14 @@ func (w *WebSocketReporter) handleAddService(data interface{}) error {
 		return fmt.Errorf("序列化数据失败: %v", err)
 	}
 
+	// 预处理：将字符串格式的 duration 转换为纳秒数
+	processedData, err := w.preprocessDurationFields(jsonData)
+	if err != nil {
+		return fmt.Errorf("预处理duration字段失败: %v", err)
+	}
+
 	var services []config.ServiceConfig
-	if err := json.Unmarshal(jsonData, &services); err != nil {
+	if err := json.Unmarshal(processedData, &services); err != nil {
 		return fmt.Errorf("解析服务配置失败: %v", err)
 	}
 
@@ -443,8 +449,14 @@ func (w *WebSocketReporter) handleUpdateService(data interface{}) error {
 		return fmt.Errorf("序列化数据失败: %v", err)
 	}
 
+	// 预处理：将字符串格式的 duration 转换为纳秒数
+	processedData, err := w.preprocessDurationFields(jsonData)
+	if err != nil {
+		return fmt.Errorf("预处理duration字段失败: %v", err)
+	}
+
 	var services []config.ServiceConfig
-	if err := json.Unmarshal(jsonData, &services); err != nil {
+	if err := json.Unmarshal(processedData, &services); err != nil {
 		return fmt.Errorf("解析服务配置失败: %v", err)
 	}
 
@@ -976,4 +988,50 @@ func isValidHostname(hostname string) bool {
 	}
 
 	return true
+}
+
+// preprocessDurationFields 预处理 JSON 数据中的 duration 字段
+func (w *WebSocketReporter) preprocessDurationFields(jsonData []byte) ([]byte, error) {
+	var rawData interface{}
+	if err := json.Unmarshal(jsonData, &rawData); err != nil {
+		return nil, err
+	}
+
+	// 递归处理 duration 字段
+	processed := w.processDurationInData(rawData)
+
+	return json.Marshal(processed)
+}
+
+// processDurationInData 递归处理数据中的 duration 字段
+func (w *WebSocketReporter) processDurationInData(data interface{}) interface{} {
+	switch v := data.(type) {
+	case []interface{}:
+		// 处理数组
+		for i, item := range v {
+			v[i] = w.processDurationInData(item)
+		}
+		return v
+	case map[string]interface{}:
+		// 处理对象
+		for key, value := range v {
+			if key == "selector" {
+				// 处理 selector 对象中的 failTimeout
+				if selectorObj, ok := value.(map[string]interface{}); ok {
+					if failTimeoutVal, exists := selectorObj["failTimeout"]; exists {
+						if failTimeoutStr, ok := failTimeoutVal.(string); ok {
+							// 将字符串格式的 duration 转换为纳秒数
+							if duration, err := time.ParseDuration(failTimeoutStr); err == nil {
+								selectorObj["failTimeout"] = int64(duration)
+							}
+						}
+					}
+				}
+			}
+			v[key] = w.processDurationInData(value)
+		}
+		return v
+	default:
+		return v
+	}
 }

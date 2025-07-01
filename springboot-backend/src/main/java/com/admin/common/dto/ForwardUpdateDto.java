@@ -23,6 +23,8 @@ public class ForwardUpdateDto {
     
     @NotBlank(message = "远程地址不能为空")
     private String remoteAddr;
+
+    private String strategy;
     
     /**
      * 入口端口（可选，为空时自动分配）

@@ -727,7 +727,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 3. 根据隧道类型执行不同的诊断策略
         if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
             // 端口转发：只给入口节点发送诊断指令，ping谷歌DNS
-            DiagnosisResult inResult = performPingDiagnosisWithConnectionCheck(inNode, "8.8.8.8", "入口->外网");
+            DiagnosisResult inResult = performPingDiagnosisWithConnectionCheck(inNode, "www.google.com", "入口->外网");
             results.add(inResult);
         } else {
             // 隧道转发：入口ping出口，出口ping谷歌DNS
@@ -735,7 +735,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             results.add(inToOutResult);
 
             // 先检查出口节点的真实连接状态，然后再进行诊断
-            DiagnosisResult outToExternalResult = performPingDiagnosisWithConnectionCheck(outNode, "8.8.8.8", "出口->外网");
+            DiagnosisResult outToExternalResult = performPingDiagnosisWithConnectionCheck(outNode, "www.google.com", "出口->外网");
             results.add(outToExternalResult);
         }
 

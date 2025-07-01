@@ -31,21 +31,21 @@ public class GostUtil {
         return WebSocketServer.send_msg(node_id, req, "DeleteLimiters");
     }
 
-    public static GostDto AddService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel) {
+    public static GostDto AddService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel, String strategy) {
         JSONArray services = new JSONArray();
         String[] protocols = {"tcp", "udp"};
         for (String protocol : protocols) {
-            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel);
+            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel, strategy);
             services.add(service);
         }
         return WebSocketServer.send_msg(node_id, services, "AddService");
     }
 
-    public static GostDto UpdateService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel) {
+    public static GostDto UpdateService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel, String strategy) {
         JSONArray services = new JSONArray();
         String[] protocols = {"tcp", "udp"};
         for (String protocol : protocols) {
-            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel);
+            JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel, strategy);
             services.add(service);
         }
         return WebSocketServer.send_msg(node_id, services, "UpdateService");
@@ -58,6 +58,90 @@ public class GostUtil {
         services.add(name + "_udp");
         data.put("services", services);
         return WebSocketServer.send_msg(node_id, data, "DeleteService");
+    }
+
+    public static GostDto AddRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,  String protocol, String strategy) {
+        JSONObject data = new JSONObject();
+        data.put("name", name + "_tls");
+        data.put("addr", ":" + out_port);
+        JSONObject handler = new JSONObject();
+        handler.put("type", "relay");
+        data.put("handler", handler);
+        JSONObject listener = new JSONObject();
+        listener.put("type", protocol);
+        data.put("listener", listener);
+        JSONObject forwarder = new JSONObject();
+        JSONArray nodes = new JSONArray();
+
+        String[] split = remoteAddr.split(",");
+        int num = 1;
+        for (String addr : split) {
+            JSONObject node = new JSONObject();
+            node.put("name", "node_" + num );
+            node.put("addr", addr);
+            nodes.add(node);
+            num ++;
+        }
+        if (strategy == null || strategy.equals("")){
+            strategy = "fifo";
+        }
+        forwarder.put("nodes", nodes);
+        JSONObject selector = new JSONObject();
+        selector.put("strategy", strategy);
+        selector.put("maxFails", 1);
+        selector.put("failTimeout", "10s");
+        forwarder.put("selector", selector);
+
+        data.put("forwarder", forwarder);
+        JSONArray services = new JSONArray();
+        services.add(data);
+        return WebSocketServer.send_msg(node_id, services, "AddService");
+    }
+
+    public static GostDto UpdateRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,String protocol, String strategy) {
+        JSONObject data = new JSONObject();
+        data.put("name", name + "_tls");
+        data.put("addr", ":" + out_port);
+        JSONObject handler = new JSONObject();
+        handler.put("type", "relay");
+        data.put("handler", handler);
+        JSONObject listener = new JSONObject();
+        listener.put("type", protocol);
+        data.put("listener", listener);
+        JSONObject forwarder = new JSONObject();
+        JSONArray nodes = new JSONArray();
+
+        String[] split = remoteAddr.split(",");
+        int num = 1;
+        for (String addr : split) {
+            JSONObject node = new JSONObject();
+            node.put("name", "node_" + num );
+            node.put("addr", addr);
+            nodes.add(node);
+            num ++;
+        }
+        if (strategy == null || strategy.equals("")){
+            strategy = "fifo";
+        }
+        forwarder.put("nodes", nodes);
+        JSONObject selector = new JSONObject();
+        selector.put("strategy", strategy);
+        selector.put("maxFails", 1);
+        selector.put("failTimeout", "10s");
+        forwarder.put("selector", selector);
+
+        data.put("forwarder", forwarder);
+        JSONArray services = new JSONArray();
+        services.add(data);
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
+    }
+
+    public static GostDto DeleteRemoteService(Long node_id, String name) {
+        JSONArray data = new JSONArray();
+        data.add(name + "_tls");
+        JSONObject req = new JSONObject();
+        req.put("services", data);
+        return WebSocketServer.send_msg(node_id, req, "DeleteService");
     }
 
     public static GostDto PauseService(Long node_id, String name) {
@@ -162,60 +246,6 @@ public class GostUtil {
         return WebSocketServer.send_msg(node_id, data, "DeleteChains");
     }
 
-    public static GostDto AddRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,  String protocol) {
-        JSONObject data = new JSONObject();
-        data.put("name", name + "_tls");
-        data.put("addr", ":" + out_port);
-        JSONObject handler = new JSONObject();
-        handler.put("type", "relay");
-        data.put("handler", handler);
-        JSONObject listener = new JSONObject();
-        listener.put("type", protocol);
-        data.put("listener", listener);
-        JSONObject forwarder = new JSONObject();
-        JSONArray nodes = new JSONArray();
-        JSONObject node = new JSONObject();
-        node.put("name", name + "_node");
-        node.put("addr", remoteAddr);
-        nodes.add(node);
-        forwarder.put("nodes", nodes);
-        data.put("forwarder", forwarder);
-        JSONArray services = new JSONArray();
-        services.add(data);
-       return WebSocketServer.send_msg(node_id, services, "AddService");
-    }
-
-    public static GostDto UpdateRemoteService(Long node_id, String name, Integer out_port, String remoteAddr) {
-        JSONObject data = new JSONObject();
-        data.put("name", name + "_tls");
-        data.put("addr", ":" + out_port);
-        JSONObject handler = new JSONObject();
-        handler.put("type", "relay");
-        data.put("handler", handler);
-        JSONObject listener = new JSONObject();
-        listener.put("type", "tls");
-        data.put("listener", listener);
-        JSONObject forwarder = new JSONObject();
-        JSONArray nodes = new JSONArray();
-        JSONObject node = new JSONObject();
-        node.put("name", name + "_node");
-        node.put("addr", remoteAddr);
-        nodes.add(node);
-        forwarder.put("nodes", nodes);
-        data.put("forwarder", forwarder);
-        JSONArray services = new JSONArray();
-        services.add(data);
-        return WebSocketServer.send_msg(node_id, services, "UpdateService");
-    }
-
-    public static GostDto DeleteRemoteService(Long node_id, String name) {
-        JSONArray data = new JSONArray();
-        data.add(name + "_tls");
-        JSONObject req = new JSONObject();
-        req.put("services", data);
-        return WebSocketServer.send_msg(node_id, req, "DeleteService");
-    }
-
     private static JSONObject createLimiterData(Long name, String speed) {
         JSONObject data = new JSONObject();
         data.put("name", name.toString());
@@ -225,7 +255,7 @@ public class GostUtil {
         return data;
     }
 
-    private static JSONObject createServiceConfig(String name, Integer in_port, Integer limiter, String remoteAddr, String protocol, Integer fow_type, Tunnel tunnel) {
+    private static JSONObject createServiceConfig(String name, Integer in_port, Integer limiter, String remoteAddr, String protocol, Integer fow_type, Tunnel tunnel, String strategy) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_" + protocol);
         if (Objects.equals(protocol, "tcp")){
@@ -249,7 +279,7 @@ public class GostUtil {
 
         // 端口转发需要配置转发器
         if (isPortForwarding(fow_type)) {
-            JSONObject forwarder = createForwarder(protocol, remoteAddr);
+            JSONObject forwarder = createForwarder(protocol, remoteAddr, strategy);
             service.put("forwarder", forwarder);
         }
 
@@ -274,14 +304,31 @@ public class GostUtil {
         return listener;
     }
 
-    private static JSONObject createForwarder(String protocol, String remoteAddr) {
+    private static JSONObject createForwarder(String protocol, String remoteAddr, String strategy) {
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
-        JSONObject node = new JSONObject();
-        node.put("name", protocol);
-        node.put("addr", remoteAddr);
-        nodes.add(node);
+
+        String[] split = remoteAddr.split(",");
+        int num = 1;
+        for (String addr : split) {
+            JSONObject node = new JSONObject();
+            node.put("name", "node_" + num );
+            node.put("addr", addr);
+            nodes.add(node);
+            num ++;
+        }
+
+        if (strategy == null || strategy.equals("")){
+            strategy = "fifo";
+        }
+
         forwarder.put("nodes", nodes);
+
+        JSONObject selector = new JSONObject();
+        selector.put("strategy", strategy);
+        selector.put("maxFails", 1);
+        selector.put("failTimeout", "10s");
+        forwarder.put("selector", selector);
         return forwarder;
     }
 

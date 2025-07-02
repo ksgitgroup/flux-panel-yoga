@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -347,7 +348,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         }
 
         // 8. 调用Gost服务
-        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), forward.getTunnelId(), userTunnel);
+        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), userTunnel);
         GostDto gostResult;
         
         if ("PauseService".equals(gostMethod)) {
@@ -640,7 +641,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     private R createGostServices(Forward forward, Tunnel tunnel, Integer limiter, 
                                NodeInfo nodeInfo, UserTunnel userTunnel) {
-        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), forward.getTunnelId(), userTunnel);
+        String serviceName = buildServiceName(forward.getId(), forward.getUserId(),  userTunnel);
 
         // 隧道转发需要创建链和远程服务
         if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
@@ -675,7 +676,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     private R updateGostServices(Forward forward, Tunnel tunnel, Integer limiter, 
                                NodeInfo nodeInfo, UserTunnel userTunnel) {
-        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), forward.getTunnelId(), userTunnel);
+        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), userTunnel);
 
         // 隧道转发需要更新链和远程服务
         if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
@@ -714,7 +715,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         }
 
         // 2. 删除原有的Gost服务配置
-        R deleteResult = deleteOldGostServices(existForward, oldTunnel, userTunnel);
+        R deleteResult = deleteOldGostServices(existForward, oldTunnel);
         if (deleteResult.getCode() != 0) {
             // 删除失败时记录日志，但不影响后续创建（可能原配置已不存在）
             log.warn("删除原隧道{}的Gost配置失败: {}", oldTunnel.getId(), deleteResult.getMsg());
@@ -733,10 +734,10 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     /**
      * 删除原有的Gost服务（隧道变化时专用）
      */
-    private R deleteOldGostServices(Forward forward, Tunnel oldTunnel, UserTunnel userTunnel) {
+    private R deleteOldGostServices(Forward forward, Tunnel oldTunnel) {
         // 获取原隧道的用户隧道关系
         UserTunnel oldUserTunnel = getUserTunnel(forward.getUserId(), oldTunnel.getId().intValue());
-        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), forward.getTunnelId(), oldUserTunnel);
+        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), oldUserTunnel);
 
         // 获取原隧道的节点信息
         NodeInfo oldNodeInfo = getRequiredNodes(oldTunnel);
@@ -783,7 +784,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      * 删除Gost服务
      */
     private R deleteGostServices(Forward forward, Tunnel tunnel, NodeInfo nodeInfo, UserTunnel userTunnel) {
-        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), forward.getTunnelId(), userTunnel);
+        String serviceName = buildServiceName(forward.getId(), forward.getUserId(), userTunnel);
 
         // 删除主服务
         GostDto serviceResult = GostUtil.DeleteService(nodeInfo.getInNode().getId(), serviceName);
@@ -927,114 +928,63 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         return Objects.equals(gostResult.getMsg(), GOST_SUCCESS_MSG);
     }
 
-    /**
-     * 检查指定的入口端口是否可用
-     */
-    private boolean isInPortAvailable(Tunnel tunnel, Integer port) {
-        return isInPortAvailable(tunnel, port, null);
-    }
-    
+
     /**
      * 检查指定的入口端口是否可用（可排除指定的转发ID）
      */
     private boolean isInPortAvailable(Tunnel tunnel, Integer port, Long excludeForwardId) {
-        // 检查端口是否在隧道允许的范围内
-        if (port < tunnel.getInPortSta() || port > tunnel.getInPortEnd()) {
+        // 获取入口节点信息
+        Node inNode = nodeService.getNodeById(tunnel.getInNodeId());
+        if (inNode == null) {
             return false;
         }
         
-        // 获取所有使用相同入口节点的隧道
-        List<Tunnel> tunnelsWithSameInNode = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", tunnel.getInNodeId()));
-        Set<Long> tunnelIds = tunnelsWithSameInNode.stream()
-                .map(Tunnel::getId)
-                .collect(Collectors.toSet());
-
-        // 获取这些隧道的所有转发已使用的入口端口（排除指定的转发ID）
-        QueryWrapper<Forward> queryWrapper = new QueryWrapper<Forward>().in("tunnel_id", tunnelIds);
-        if (excludeForwardId != null) {
-            queryWrapper.ne("id", excludeForwardId);
+        // 检查端口是否在节点允许的范围内
+        if (port < inNode.getPortSta() || port > inNode.getPortEnd()) {
+            return false;
         }
         
-        List<Forward> usedForwards = this.list(queryWrapper);
-        Set<Integer> usedInPorts = usedForwards.stream()
-                .map(Forward::getInPort)
-                .filter(portNum -> portNum != null)
-                .collect(Collectors.toSet());
-
-        // 检查端口是否已被占用
-        return !usedInPorts.contains(port);
+        // 获取该节点上所有已被占用的端口（包括作为入口和出口使用的端口）
+        Set<Integer> usedPorts = getAllUsedPortsOnNode(tunnel.getInNodeId(), excludeForwardId);
+        
+        // 检查端口是否已被占用（在节点级别检查，考虑入口和出口端口）
+        return !usedPorts.contains(port);
     }
 
-    /**
-     * 为隧道分配一个可用的入口端口
-     */
-    private Integer allocateInPort(Tunnel tunnel) {
-        return allocateInPort(tunnel, null);
-    }
-    
     /**
      * 为隧道分配一个可用的入口端口（可排除指定的转发ID）
      */
     private Integer allocateInPort(Tunnel tunnel, Long excludeForwardId) {
-        // 获取所有使用相同入口节点的隧道
-        List<Tunnel> tunnelsWithSameInNode = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", tunnel.getInNodeId()));
-        Set<Long> tunnelIds = tunnelsWithSameInNode.stream()
-                .map(Tunnel::getId)
-                .collect(Collectors.toSet());
-
-        // 获取这些隧道的所有转发已使用的入口端口（排除指定的转发ID）
-        QueryWrapper<Forward> queryWrapper = new QueryWrapper<Forward>().in("tunnel_id", tunnelIds);
-        if (excludeForwardId != null) {
-            queryWrapper.ne("id", excludeForwardId);
-        }
-        
-        List<Forward> usedForwards = this.list(queryWrapper);
-        Set<Integer> usedInPorts = usedForwards.stream()
-                .map(Forward::getInPort)
-                .filter(port -> port != null)
-                .collect(Collectors.toSet());
-
-        // 在隧道端口范围内寻找未使用的端口
-        for (int port = tunnel.getInPortSta(); port <= tunnel.getInPortEnd(); port++) {
-            if (!usedInPorts.contains(port)) {
-                return port;
-            }
-        }
-        return null;
+        return allocatePortForNode(tunnel.getInNodeId(),  excludeForwardId);
     }
 
-    /**
-     * 为隧道分配一个可用的出口端口
-     */
-    private Integer allocateOutPort(Tunnel tunnel) {
-        return allocateOutPort(tunnel, null);
-    }
-    
     /**
      * 为隧道分配一个可用的出口端口（可排除指定的转发ID）
      */
     private Integer allocateOutPort(Tunnel tunnel, Long excludeForwardId) {
-        // 获取所有使用相同出口节点的隧道
-        List<Tunnel> tunnelsWithSameOutNode = tunnelService.list(new QueryWrapper<Tunnel>().eq("out_node_id", tunnel.getOutNodeId()));
-        Set<Long> tunnelIds = tunnelsWithSameOutNode.stream()
-                .map(Tunnel::getId)
-                .collect(Collectors.toSet());
+        return allocatePortForNode(tunnel.getOutNodeId(),  excludeForwardId);
+    }
 
-        // 获取这些隧道的所有转发已使用的出口端口（排除指定的转发ID）
-        QueryWrapper<Forward> queryWrapper = new QueryWrapper<Forward>().in("tunnel_id", tunnelIds);
-        if (excludeForwardId != null) {
-            queryWrapper.ne("id", excludeForwardId);
+    /**
+     * 为指定节点分配一个可用端口（通用方法）
+     * 
+     * @param nodeId 节点ID
+     * @param excludeForwardId 要排除的转发ID
+     * @return 可用端口号，如果没有可用端口则返回null
+     */
+    private Integer allocatePortForNode(Long nodeId,  Long excludeForwardId) {
+        // 获取节点信息
+        Node node = nodeService.getNodeById(nodeId);
+        if (node == null) {
+            return null;
         }
         
-        List<Forward> usedForwards = this.list(queryWrapper);
-        Set<Integer> usedOutPorts = usedForwards.stream()
-                .map(Forward::getOutPort)
-                .filter(port -> port != null)
-                .collect(Collectors.toSet());
+        // 获取该节点上所有已被占用的端口（包括作为入口和出口使用的端口）
+        Set<Integer> usedPorts = getAllUsedPortsOnNode(nodeId, excludeForwardId);
 
-        // 在隧道出口端口范围内寻找未使用的端口
-        for (int port = tunnel.getOutIpSta(); port <= tunnel.getOutIpEnd(); port++) {
-            if (!usedOutPorts.contains(port)) {
+        // 在节点端口范围内寻找未使用的端口
+        for (int port = node.getPortSta(); port <= node.getPortEnd(); port++) {
+            if (!usedPorts.contains(port)) {
                 return port;
             }
         }
@@ -1042,9 +992,63 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
+     * 获取指定节点上所有已被占用的端口（包括入口和出口端口）
+     * 
+     * @param nodeId 节点ID
+     * @param excludeForwardId 要排除的转发ID
+     * @return 已占用的端口集合
+     */
+    private Set<Integer> getAllUsedPortsOnNode(Long nodeId, Long excludeForwardId) {
+        Set<Integer> usedPorts = new HashSet<>();
+        
+        // 1. 收集该节点作为入口时占用的端口
+        List<Tunnel> inTunnels = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", nodeId));
+        if (!inTunnels.isEmpty()) {
+            Set<Long> inTunnelIds = inTunnels.stream()
+                    .map(Tunnel::getId)
+                    .collect(Collectors.toSet());
+            
+            QueryWrapper<Forward> inQueryWrapper = new QueryWrapper<Forward>().in("tunnel_id", inTunnelIds);
+            if (excludeForwardId != null) {
+                inQueryWrapper.ne("id", excludeForwardId);
+            }
+            
+            List<Forward> inForwards = this.list(inQueryWrapper);
+            for (Forward forward : inForwards) {
+                if (forward.getInPort() != null) {
+                    usedPorts.add(forward.getInPort());
+                }
+            }
+        }
+        
+        // 2. 收集该节点作为出口时占用的端口
+        List<Tunnel> outTunnels = tunnelService.list(new QueryWrapper<Tunnel>().eq("out_node_id", nodeId));
+        if (!outTunnels.isEmpty()) {
+            Set<Long> outTunnelIds = outTunnels.stream()
+                    .map(Tunnel::getId)
+                    .collect(Collectors.toSet());
+            
+            QueryWrapper<Forward> outQueryWrapper = new QueryWrapper<Forward>().in("tunnel_id", outTunnelIds);
+            if (excludeForwardId != null) {
+                outQueryWrapper.ne("id", excludeForwardId);
+            }
+            
+            List<Forward> outForwards = this.list(outQueryWrapper);
+            for (Forward forward : outForwards) {
+                if (forward.getOutPort() != null) {
+                    usedPorts.add(forward.getOutPort());
+                }
+            }
+        }
+        
+        return usedPorts;
+    }
+
+
+    /**
      * 构建服务名称，优化后减少重复查询
      */
-    private String buildServiceName(Long forwardId, Integer userId, Integer tunnelId, UserTunnel userTunnel) {
+    private String buildServiceName(Long forwardId, Integer userId, UserTunnel userTunnel) {
         int userTunnelId = (userTunnel != null) ? userTunnel.getId() : 0;
         return forwardId + "_" + userId + "_" + userTunnelId;
     }

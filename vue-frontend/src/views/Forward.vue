@@ -241,8 +241,11 @@
           >
             <template slot="prepend">端口</template>
           </el-input>
-          <div class="form-hint" v-if="selectedTunnel">
-            允许范围: {{ selectedTunnel.inPortSta }}-{{ selectedTunnel.inPortEnd }}，留空将自动分配可用端口
+          <div class="form-hint" v-if="selectedTunnel && selectedTunnel.inNodePortSta && selectedTunnel.inNodePortEnd">
+            允许范围: {{ selectedTunnel.inNodePortSta }}-{{ selectedTunnel.inNodePortEnd }}，留空将自动分配可用端口
+          </div>
+          <div class="form-hint" v-else-if="selectedTunnel">
+            已选择隧道: {{ selectedTunnel.name }}，留空将自动分配可用端口
           </div>
           <div class="form-hint" v-else>
             请先选择隧道以查看端口范围，留空将自动分配可用端口
@@ -430,10 +433,10 @@ export default {
                   return;
                 }
                 
-                // 检查是否在隧道允许范围内
-                if (this.selectedTunnel) {
-                  if (value < this.selectedTunnel.inPortSta || value > this.selectedTunnel.inPortEnd) {
-                    callback(new Error(`端口号必须在${this.selectedTunnel.inPortSta}-${this.selectedTunnel.inPortEnd}范围内`));
+                // 检查是否在节点允许范围内
+                if (this.selectedTunnel && this.selectedTunnel.inNodePortSta && this.selectedTunnel.inNodePortEnd) {
+                  if (value < this.selectedTunnel.inNodePortSta || value > this.selectedTunnel.inNodePortEnd) {
+                    callback(new Error(`端口号必须在${this.selectedTunnel.inNodePortSta}-${this.selectedTunnel.inNodePortEnd}范围内`));
                     return;
                   }
                 }
@@ -582,6 +585,8 @@ export default {
     async handleAdd() {
       this.isEdit = false;
       this.dialogTitle = '新增转发';
+      // 重置表单状态，确保selectedTunnel被清空
+      this.resetForm();
       
       try {
         // 只在没有隧道数据时才加载

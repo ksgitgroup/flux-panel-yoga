@@ -21,11 +21,7 @@
             f.out_flow AS outFlow,
             t.name AS tunnelName,
             t.in_ip AS inIp,
-            t.in_port_sta AS inPortSta,
-            t.in_port_end AS inPortEnd,
             t.out_ip AS outIp,
-            t.out_ip_sta AS outIpSta,
-            t.out_ip_end AS outIpEnd,
             t.type,
             t.protocol
         FROM 
@@ -55,11 +51,7 @@
             f.strategy AS strategy,
             t.name AS tunnelName,
             t.in_ip AS inIp,
-            t.in_port_sta AS inPortSta,
-            t.in_port_end AS inPortEnd,
             t.out_ip AS outIp,
-            t.out_ip_sta AS outIpSta,
-            t.out_ip_end AS outIpEnd,
             t.type,
             t.protocol
         FROM 

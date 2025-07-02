@@ -85,28 +85,4 @@ public class ForwardWithTunnelDto {
     private Long outFlow;
 
     private String strategy;
-//    /**
-//     * 入口端口开始
-//     */
-//    private Integer inPortSta;
-//
-//    /**
-//     * 入口端口结束
-//     */
-//    private Integer inPortEnd;
-//
-//    /**
-//     * 出口IP
-//     */
-//    private String outIp;
-//
-//    /**
-//     * 出口端口开始
-//     */
-//    private Integer outIpSta;
-//
-//    /**
-//     * 出口端口结束
-//     */
-//    private Integer outIpEnd;
 } 

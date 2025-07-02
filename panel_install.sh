@@ -458,6 +458,134 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+-- node 表：添加 version 字段（如果不存在）
+SET @sql = (
+  SELECT IF(
+    NOT EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'node'
+        AND column_name = 'version'
+    ),
+    'ALTER TABLE \`node\` ADD COLUMN \`version\` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL;',
+    'SELECT "Column \`version\` already exists in \`node\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- node 表：添加 port_sta 字段（如果不存在）
+SET @sql = (
+  SELECT IF(
+    NOT EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'node'
+        AND column_name = 'port_sta'
+    ),
+    'ALTER TABLE \`node\` ADD COLUMN \`port_sta\` INT(10) DEFAULT 1000 COMMENT "端口起始范围";',
+    'SELECT "Column \`port_sta\` already exists in \`node\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- node 表：添加 port_end 字段（如果不存在）
+SET @sql = (
+  SELECT IF(
+    NOT EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'node'
+        AND column_name = 'port_end'
+    ),
+    'ALTER TABLE \`node\` ADD COLUMN \`port_end\` INT(10) DEFAULT 65535 COMMENT "端口结束范围";',
+    'SELECT "Column \`port_end\` already exists in \`node\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 为现有节点设置默认端口范围
+UPDATE \`node\`
+SET \`port_sta\` = 1000, \`port_end\` = 65535
+WHERE \`port_sta\` IS NULL OR \`port_end\` IS NULL;
+
+-- tunnel 表：删除废弃字段（如果存在）
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'tunnel'
+        AND column_name = 'in_port_sta'
+    ),
+    'ALTER TABLE \`tunnel\` DROP COLUMN \`in_port_sta\`;',
+    'SELECT "Column \`in_port_sta\` not exists in \`tunnel\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'tunnel'
+        AND column_name = 'in_port_end'
+    ),
+    'ALTER TABLE \`tunnel\` DROP COLUMN \`in_port_end\`;',
+    'SELECT "Column \`in_port_end\` not exists in \`tunnel\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'tunnel'
+        AND column_name = 'out_ip_sta'
+    ),
+    'ALTER TABLE \`tunnel\` DROP COLUMN \`out_ip_sta\`;',
+    'SELECT "Column \`out_ip_sta\` not exists in \`tunnel\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE table_schema = DATABASE()
+        AND table_name = 'tunnel'
+        AND column_name = 'out_ip_end'
+    ),
+    'ALTER TABLE \`tunnel\` DROP COLUMN \`out_ip_end\`;',
+    'SELECT "Column \`out_ip_end\` not exists in \`tunnel\`";'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 -- tunnel 表：添加 tcp_listen_addr、udp_listen_addr、protocol（如果不存在）
 
 -- tcp_listen_addr

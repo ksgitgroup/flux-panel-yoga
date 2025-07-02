@@ -15,30 +15,15 @@ public class TunnelListDto {
     private String ip;
     
     /**
-     * 入口端口范围开始
+     * 入口节点端口起始范围
      */
-    private Integer inPortSta;
+    private Integer inNodePortSta;
     
     /**
-     * 入口端口范围结束
+     * 入口节点端口结束范围
      */
-    private Integer inPortEnd;
-    
-    /**
-     * 出口IP
-     */
-    private String outIp;
-    
-    /**
-     * 出口端口范围开始
-     */
-    private Integer outIpSta;
-    
-    /**
-     * 出口端口范围结束
-     */
-    private Integer outIpEnd;
-    
+    private Integer inNodePortEnd;
+
     /**
      * 隧道类型（1-端口转发，2-隧道转发）
      */

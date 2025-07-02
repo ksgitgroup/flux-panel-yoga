@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GOST 管理后台</title>
+    <script>
+      // 防止暗黑模式闪烁：在页面加载前立即应用主题
+      (function() {
+        const theme = localStorage.getItem('heroui-theme') || 'light';
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = 'dark';
+        } else {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.style.colorScheme = 'light';
+        }
+      })();
+    </script>
+    <style>
+      /* 防止页面闪烁的基础样式 */
+      :root {
+        --toaster-bg: #ffffff;
+        --toaster-color: #000000;
+        --toaster-border: #e5e7eb;
+      }
+      
+      html.dark {
+        --toaster-bg: #374151;
+        --toaster-color: #ffffff;
+        --toaster-border: #4b5563;
+      }
+      
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #f8fafc;
+        transition: background-color 0.2s ease;
+      }
+      
+      html.dark body {
+        background-color: #1f2937;
+      }
+      
+      #root {
+        min-height: 100vh;
+      }
+    </style>
+    <meta key="title" content="GOST 管理后台" property="og:title" />
+    <meta
+      content="GOST 代理管理系统 - 现代化的后台管理界面"
+      property="og:description"
+    />
+    <meta
+      content="GOST 代理管理系统 - 现代化的后台管理界面"
+      name="description"
+    />
+    <meta
+      key="viewport"
+      content="viewport-fit=cover, width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
+      name="viewport"
+    />
+    <link href="/favicon.ico" rel="icon" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

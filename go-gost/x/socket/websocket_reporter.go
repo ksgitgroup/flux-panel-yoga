@@ -781,10 +781,10 @@ func getMemoryInfo() MemoryInfo {
 }
 
 // StartWebSocketReporterWithConfig 使用配置启动WebSocket报告器
-func StartWebSocketReporterWithConfig(Addr string, Secret string) *WebSocketReporter {
+func StartWebSocketReporterWithConfig(Addr string, Secret string, Version string) *WebSocketReporter {
 
 	// 构建包含本机IP的WebSocket URL
-	var fullURL = "ws://" + Addr + "/system-info?type=1&secret=" + Secret
+	var fullURL = "ws://" + Addr + "/system-info?type=1&secret=" + Secret + "&version=" + Version
 
 	fmt.Printf("🔗 WebSocket连接URL: %s\n", fullURL)
 

@@ -18,4 +18,14 @@ public class NodeDto {
 
     @NotBlank(message = "服务器ip不能为空")
     private String serverIp;
+
+    @NotNull(message = "起始端口不能为空")
+    @Min(value = 1, message = "起始端口必须大于0")
+    @Max(value = 65535, message = "起始端口不能超过65535")
+    private Integer portSta;
+
+    @NotNull(message = "结束端口不能为空")
+    @Min(value = 1, message = "结束端口必须大于0")
+    @Max(value = 65535, message = "结束端口不能超过65535")
+    private Integer portEnd;
 } 

@@ -34,11 +34,13 @@ public class WebSocketInterceptor extends HttpSessionHandshakeInterceptor {
         ServletServerHttpRequest serverHttpRequest = (ServletServerHttpRequest) request;
         String secret = serverHttpRequest.getServletRequest().getParameter("secret");
         String type = serverHttpRequest.getServletRequest().getParameter("type");
+        String version = serverHttpRequest.getServletRequest().getParameter("version");
         if (Objects.equals(type, "1")) {
             Node node = nodeService.getOne(new QueryWrapper<Node>().eq("secret", secret));
             if (node == null) return false;
             attributes.put("id", node.getId());
             node.setStatus(1);
+            node.setVersion(version);
             nodeService.updateById(node);
         }else {
             boolean b = JwtUtil.validateToken(secret);

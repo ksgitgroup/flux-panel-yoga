@@ -37,6 +37,11 @@
             <i class="el-icon-position"></i>
             <span>{{ node.serverIp }}</span>
           </div>
+          
+          <div class="version-info">
+            <i class="el-icon-document"></i>
+            <span>版本: {{ node.version || '未知' }}</span>
+          </div>
         </div>
 
         <!-- 监控指标网格 -->
@@ -179,94 +184,46 @@
           ></el-input>
         </el-form-item>
         
-        <el-form-item label="入口IP" prop="ipList">
-          <div class="ip-input-container">
-            <!-- IP输入区域 -->
-            <div class="ip-input-section">
-              <el-input
-                v-model="newIpInput"
-                placeholder="输入IP地址或域名，按Enter添加"
-                clearable
-                @keyup.enter.native="addIp"
-                size="medium"
-                class="ip-input"
-                :disabled="nodeForm.ipList.length >= 10"
-              >
-                <template slot="append">
-                  <el-button 
-                    @click="addIp" 
-                    icon="el-icon-plus" 
-                    size="medium"
-                    :disabled="nodeForm.ipList.length >= 10 || !newIpInput.trim()"
-                    type="primary"
-                  >
-                    添加
-                  </el-button>
-                </template>
-              </el-input>
-              
-              <!-- 添加提示 -->
-              <div class="ip-input-tips">
-                <div class="tip-item">
-                  <i class="el-icon-info"></i>
-                  <span>支持IPv4、IPv6地址和域名格式</span>
-                </div>
-                <div class="tip-item count-tip">
-                  <i class="el-icon-document"></i>
-                  <span>已添加 {{ nodeForm.ipList.length }} / 10 个IP</span>
-                </div>
-              </div>
-            </div>
-            
-            <!-- 已添加的IP列表 -->
-            <div class="ip-list-section" v-if="nodeForm.ipList.length > 0">
-              <div class="ip-list-header">
-                <span class="list-title">
-                  <i class="el-icon-collection-tag"></i>
-                  已配置的入口IP
-                </span>
-                <el-button 
-                  size="mini" 
-                  type="text" 
-                  @click="clearAllIps"
-                  class="clear-all-btn"
-                >
-                  <i class="el-icon-delete"></i>
-                  清空全部
-                </el-button>
-              </div>
-              
-              <div class="ip-tags-grid">
-                <div 
-                  v-for="(ip, index) in nodeForm.ipList"
-                  :key="index"
-                  class="ip-tag-item"
-                >
-                  <el-tag
-                    :type="getIpTagType(ip)"
-                    size="medium"
-                    closable
-                    @close="removeIp(index)"
-                    class="ip-tag"
-                  >
-                    <i :class="getIpIcon(ip)" class="ip-icon"></i>
-                    {{ ip }}
-                  </el-tag>
-                </div>
-              </div>
-            </div>
-            
-            <!-- 空状态提示 -->
-            <div class="ip-empty-state" v-else>
-              <i class="el-icon-plus"></i>
-              <p>请添加至少一个入口IP地址</p>
-              <div class="example-ips">
-                <span class="example-label">示例：</span>
-                <el-tag size="mini" @click="fillExample('192.168.1.100')" class="example-tag">192.168.1.100</el-tag>
-                <el-tag size="mini" @click="fillExample('example.com')" class="example-tag">example.com</el-tag>
-              </div>
-            </div>
+        <el-form-item label="入口IP" prop="ipString">
+          <el-input 
+            v-model="nodeForm.ipString" 
+            type="textarea"
+            :rows="4"
+            placeholder="一行一个IP地址或域名"
+            clearable
+          >
+          </el-input>
+          <div class="form-hint">
+            格式: IPv4、IPv6地址或域名<br>
+            支持多个IP，每行一个地址，例如：<br>
+            192.168.1.100<br>
+            2001:db8::1<br>
+            example.com
           </div>
+        </el-form-item>
+
+        <el-divider content-position="left">端口配置</el-divider>
+
+        <el-form-item label="起始端口" prop="portSta">
+          <el-input-number
+            v-model="nodeForm.portSta"
+            :min="1"
+            :max="65535"
+            placeholder="起始端口"
+            style="width: 100%"
+            @change="handlePortStartChange"
+          ></el-input-number>
+        </el-form-item>
+
+        <el-form-item label="结束端口" prop="portEnd">
+          <el-input-number
+            v-model="nodeForm.portEnd"
+            :min="1"
+            :max="65535"
+            placeholder="结束端口"
+            style="width: 100%"
+            @change="handlePortEndChange"
+          ></el-input-number>
         </el-form-item>
    
         <el-alert
@@ -278,6 +235,13 @@
         </el-alert>
         <el-alert
           title="入口ip是用于展示在转发卡片中的地址，可以支持多个，比如有些专线是三线入口，这里可以填三个ip，或者手搓的BGP域名。不知道怎么填就填服务器ip"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 20px;">
+        </el-alert>
+        <el-alert
+          title="端口范围设定该节点可使用的端口区间，用于隧道和转发时的端口分配"
           type="info"
           :closable="false"
           show-icon
@@ -341,26 +305,45 @@ export default {
       nodeForm: {
         id: null,
         name: '',
-        ipList: [],
-        serverIp: ''
+        ipString: '',
+        serverIp: '',
+        portSta: 1000,
+        portEnd: 65535
       },
-      newIpInput: '',
       rules: {
         name: [
           { required: true, message: '请输入节点名称', trigger: 'blur' },
           { min: 2, message: '节点名称长度至少2位', trigger: 'blur' },
           { max: 50, message: '节点名称长度不能超过50位', trigger: 'blur' }
         ],
-        ipList: [
+        ipString: [
+          { required: true, message: '请输入入口IP地址', trigger: 'blur' },
           { 
             validator: (rule, value, callback) => {
-              if (!value || value.length === 0) {
-                callback(new Error('请至少添加一个入口IP地址'));
+              if (value) {
+                // 按行分割IP地址
+                const ips = value.split('\n').map(ip => ip.trim()).filter(ip => ip);
+                
+                if (ips.length === 0) {
+                  callback(new Error('请输入至少一个有效IP地址'));
+                  return;
+                }
+                
+                // 验证每个IP地址
+                for (let i = 0; i < ips.length; i++) {
+                  const ip = ips[i];
+                  if (!this.validateIp(ip)) {
+                    callback(new Error(`第${i + 1}行IP地址格式错误: ${ip}\n请使用正确格式，如: 192.168.1.100 或 2001:db8::1 或 example.com`));
+                    return;
+                  }
+                }
+                
+                callback();
               } else {
                 callback();
               }
             }, 
-            trigger: 'change' 
+            trigger: 'blur' 
           }
         ],
         serverIp: [
@@ -371,6 +354,24 @@ export default {
                 callback(new Error('请输入服务器IP地址'));
               } else if (!this.validateSingleIp(value.trim())) {
                 callback(new Error('请输入有效的IPv4、IPv6地址或域名'));
+              } else {
+                callback();
+              }
+            }, 
+            trigger: 'blur' 
+          }
+        ],
+        portSta: [
+          { required: true, message: '请输入起始端口', trigger: 'blur' },
+          { type: 'number', min: 1, max: 65535, message: '端口范围必须在1-65535之间', trigger: 'blur' }
+        ],
+        portEnd: [
+          { required: true, message: '请输入结束端口', trigger: 'blur' },
+          { type: 'number', min: 1, max: 65535, message: '端口范围必须在1-65535之间', trigger: 'blur' },
+          { 
+            validator: (rule, value, callback) => {
+              if (value && this.nodeForm.portSta && value < this.nodeForm.portSta) {
+                callback(new Error('结束端口不能小于起始端口'));
               } else {
                 callback();
               }
@@ -465,8 +466,10 @@ export default {
       this.nodeForm = {
         id: node.id,
         name: node.name,
-        ipList: node.ip ? (typeof node.ip === 'string' ? node.ip.split(',').filter(ip => ip.trim()) : []) : [],
-        serverIp: node.serverIp || ''
+        ipString: node.ip ? (typeof node.ip === 'string' ? node.ip.split(',').map(ip => ip.trim()).join('\n') : '') : '',
+        serverIp: node.serverIp || '',
+        portSta: node.portSta,
+        portEnd: node.portEnd
       };
       this.dialogVisible = true;
     },
@@ -524,15 +527,23 @@ export default {
           this.submitLoading = true;
           
           const apiCall = this.isEdit ? updateNode : createNode;
+          const ipString = this.nodeForm.ipString
+            .split('\n')
+            .map(ip => ip.trim())
+            .filter(ip => ip)
+            .join(',');
+            
           const submitData = {
             ...this.nodeForm,
-            ip: this.nodeForm.ipList.join(',') // 将IP数组转换为逗号分隔的字符串
+            ip: ipString // 将多行IP字符串转换为逗号分隔的字符串
           };
-          delete submitData.ipList; // 移除ipList字段
+          delete submitData.ipString; // 移除ipString字段
           const data = this.isEdit ? submitData : { 
             name: this.nodeForm.name, 
-            ip: this.nodeForm.ipList.join(','),
-            serverIp: this.nodeForm.serverIp
+            ip: ipString,
+            serverIp: this.nodeForm.serverIp,
+            portSta: this.nodeForm.portSta,
+            portEnd: this.nodeForm.portEnd
           };
           
           apiCall(data).then(res => {
@@ -546,8 +557,10 @@ export default {
                 const existingNode = this.nodeList.find(n => n.id === this.nodeForm.id);
                 if (existingNode) {
                   existingNode.name = this.nodeForm.name;
-                  existingNode.ip = this.nodeForm.ipList.join(','); // 正确设置IP字段
+                  existingNode.ip = ipString; // 正确设置IP字段
                   existingNode.serverIp = this.nodeForm.serverIp; // 更新服务器IP
+                  existingNode.portSta = this.nodeForm.portSta; // 更新起始端口
+                  existingNode.portEnd = this.nodeForm.portEnd; // 更新结束端口
                   existingNode.updatedTime = Date.now(); // 更新时间戳
                 }
               } else {
@@ -601,10 +614,11 @@ export default {
       this.nodeForm = {
         id: null,
         name: '',
-        ipList: [],
-        serverIp: ''
+        ipString: '',
+        serverIp: '',
+        portSta: 1000,
+        portEnd: 65535
       };
-      this.newIpInput = '';
       if (this.$refs.nodeForm) {
         this.$refs.nodeForm.clearValidate();
       }
@@ -872,146 +886,7 @@ export default {
       return false;
     },
     
-    // 添加IP地址
-    addIp() {
-      if (!this.newIpInput || !this.newIpInput.trim()) return;
-      
-      const ip = this.newIpInput.trim();
-      
-      // 检查数量限制
-      if (this.nodeForm.ipList.length >= 10) {
-        this.$message({
-          message: '最多只能添加10个IP地址',
-          type: 'warning',
-          duration: 3000,
-          showClose: true
-        });
-        return;
-      }
-      
-      // 验证IP格式
-      if (!this.validateIp(ip)) {
-        this.$message({
-          message: '请输入有效的IP地址或域名（支持IPv4、IPv6和域名格式）',
-          type: 'error',
-          duration: 3000,
-          showClose: true
-        });
-        return;
-      }
-      
-      // 检查是否已存在
-      if (this.nodeForm.ipList.includes(ip)) {
-        this.$message({
-          message: '该IP地址已存在',
-          type: 'warning',
-          duration: 3000,
-          showClose: true
-        });
-        return;
-      }
-      
-      // 添加到列表
-      this.nodeForm.ipList.push(ip);
-      this.newIpInput = '';
-      
-      // 触发表单验证
-      this.$nextTick(() => {
-        if (this.$refs.nodeForm) {
-          this.$refs.nodeForm.validateField('ipList');
-        }
-      });
-      
-    },
-    
-    // 移除IP地址
-    removeIp(index) {
-      const removedIp = this.nodeForm.ipList[index];
-      this.nodeForm.ipList.splice(index, 1);
-      
-      // 触发表单验证
-      this.$nextTick(() => {
-        if (this.$refs.nodeForm) {
-          this.$refs.nodeForm.validateField('ipList');
-        }
-      });
-      
-    
-    },
-    
-    // 清空所有IP地址
-    clearAllIps() {
-      this.$confirm('确定要清空所有IP地址吗？', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(() => {
-        const count = this.nodeForm.ipList.length;
-        this.nodeForm.ipList = [];
-        
-        // 触发表单验证
-        this.$nextTick(() => {
-          if (this.$refs.nodeForm) {
-            this.$refs.nodeForm.validateField('ipList');
-          }
-        });
-        
-        this.$message({
-          message: `已清空 ${count} 个IP地址`,
-          type: 'success',
-          duration: 2000
-        });
-      }).catch(() => {
-        // 用户取消
-      });
-    },
-    
-    // 填充示例IP
-    fillExample(exampleIp) {
-      if (this.nodeForm.ipList.includes(exampleIp)) {
-        this.$message({
-          message: '该示例IP已存在',
-          type: 'warning',
-          duration: 2000
-        });
-        return;
-      }
-      
-      if (this.nodeForm.ipList.length >= 10) {
-        this.$message({
-          message: '最多只能添加10个IP地址',
-          type: 'warning',
-          duration: 2000
-        });
-        return;
-      }
-      
-      this.newIpInput = exampleIp;
-      // 自动聚焦到输入框
-      this.$nextTick(() => {
-        const input = this.$el.querySelector('.ip-input input');
-        if (input) {
-          input.focus();
-        }
-      });
-    },
-    
-    // 获取IP类型图标
-    getIpIcon(ip) {
-      // IPv4格式验证
-      const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      
-      // IPv6格式验证
-      const ipv6Regex = /^((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/;
-      
-      if (ipv4Regex.test(ip)) {
-        return 'el-icon-monitor'; // IPv4
-      } else if (ipv6Regex.test(ip)) {
-        return 'el-icon-cpu'; // IPv6
-      } else {
-        return 'el-icon-link'; // 域名
-      }
-    },
+
     
     // 验证单个IP地址（用于服务器IP验证）
     validateSingleIp(ip) {
@@ -1077,22 +952,25 @@ export default {
       }
     },
     
-    // 获取IP标签类型（根据IP类型设置不同颜色）
-    getIpTagType(ip) {
-      // IPv4格式验证
-      const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      
-      // IPv6格式验证
-      const ipv6Regex = /^((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/;
-      
-      if (ipv4Regex.test(ip)) {
-        return 'primary'; // IPv4 - 蓝色
-      } else if (ipv6Regex.test(ip)) {
-        return 'success'; // IPv6 - 绿色
-      } else {
-        return 'warning'; // 域名 - 橙色
-      }
-    }
+    // 端口起始值变化处理
+    handlePortStartChange() {
+      this.$nextTick(() => {
+        if (this.$refs.nodeForm) {
+          this.$refs.nodeForm.validateField('portEnd');
+        }
+      });
+    },
+
+    // 端口结束值变化处理
+    handlePortEndChange() {
+      this.$nextTick(() => {
+        if (this.$refs.nodeForm) {
+          this.$refs.nodeForm.validateField('portEnd');
+        }
+      });
+    },
+
+
   }
 };
 </script>
@@ -1210,6 +1088,20 @@ export default {
 
 .server-info i {
   color: #409eff;
+  font-size: 12px;
+}
+
+.version-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.version-info i {
+  color: #67c23a;
   font-size: 12px;
 }
 
@@ -1378,6 +1270,10 @@ export default {
     font-size: 11px;
   }
 
+  .version-info {
+    font-size: 11px;
+  }
+
   .metrics-grid {
     gap: 6px;
     margin-bottom: 10px;
@@ -1425,239 +1321,12 @@ export default {
 
 
 
-/* IP输入组件样式 */
-.ip-input-container {
-  width: 100%;
-}
-
-/* IP输入区域 */
-.ip-input-section {
-  margin-bottom: 16px;
-}
-
-.ip-input {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-.ip-input-tips {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+/* 表单提示样式 */
+.form-hint {
   font-size: 12px;
   color: #909399;
-  margin-top: 6px;
-}
-
-.tip-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.tip-item i {
-  font-size: 14px;
-}
-
-.count-tip {
-  color: #606266;
-  font-weight: 500;
-}
-
-/* IP列表区域 */
-.ip-list-section {
-  background: #fafbfc;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 12px;
-}
-
-.ip-list-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e4e7ed;
-}
-
-.list-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #303133;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.list-title i {
-  color: #409eff;
-}
-
-.clear-all-btn {
-  color: #f56c6c;
-  padding: 4px 8px;
-}
-
-.clear-all-btn:hover {
-  color: #f02d2d;
-  background: rgba(245, 108, 108, 0.1);
-}
-
-.ip-tags-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
-}
-
-.ip-tag-item {
-  display: flex;
-  align-items: center;
-}
-
-.ip-tag {
-  font-family: monospace;
-  font-size: 12px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: space-between;
-  padding: 6px 12px;
-  border-radius: 6px;
-  transition: all 0.3s ease;
-}
-
-.ip-tag:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.ip-icon {
-  font-size: 14px;
-  margin-right: 4px;
-}
-
-/* 空状态样式 */
-.ip-empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  background: #fafbfc;
-  border: 2px dashed #d9d9d9;
-  border-radius: 8px;
-  color: #999;
-}
-
-.ip-empty-state i {
-  font-size: 48px;
-  margin-bottom: 12px;
-  color: #d9d9d9;
-}
-
-.ip-empty-state p {
-  font-size: 14px;
-  margin-bottom: 16px;
-  color: #666;
-}
-
-.example-ips {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.example-label {
-  font-size: 12px;
-  color: #909399;
-  margin-right: 4px;
-}
-
-.example-tag {
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-family: monospace;
-}
-
-.example-tag:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-/* 响应式样式 */
-@media (max-width: 768px) {
-  .ip-input-tips {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
-  
-  .ip-list-section {
-    padding: 12px;
-  }
-  
-  .ip-list-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  
-  .clear-all-btn {
-    align-self: flex-end;
-  }
-  
-  .ip-tags-grid {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-  
-  .ip-tag {
-    font-size: 11px;
-    padding: 5px 10px;
-  }
-  
-  .ip-empty-state {
-    padding: 30px 15px;
-  }
-  
-  .ip-empty-state i {
-    font-size: 36px;
-  }
-  
-  .example-ips {
-    flex-direction: column;
-    gap: 6px;
-  }
-  
-  .example-label {
-    margin-right: 0;
-    margin-bottom: 4px;
-  }
-}
-
-@media (max-width: 480px) {
-  .ip-input-section {
-    margin-bottom: 12px;
-  }
-  
-  .ip-list-section {
-    padding: 10px;
-  }
-  
-  .ip-tags-grid {
-    gap: 4px;
-  }
-  
-  .ip-tag {
-    font-size: 10px;
-    padding: 4px 8px;
-  }
-  
-  .ip-empty-state {
-    padding: 20px 10px;
-  }
+  margin-top: 5px;
+  line-height: 1.4;
 }
 
 /* 复制对话框样式 */

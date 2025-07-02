@@ -25,27 +25,7 @@ public class TunnelUpdateDto {
     @DecimalMin(value = "0.0", message = "流量倍率不能小于0.0")
     @DecimalMax(value = "100.0", message = "流量倍率不能大于100.0")
     private BigDecimal trafficRatio;
-    
-    @NotNull(message = "入口端口开始不能为空")
-    @Min(value = 1, message = "入口端口开始必须大于0")
-    @Max(value = 65535, message = "入口端口开始不能超过65535")
-    private Integer inPortSta;
-    
-    @NotNull(message = "入口端口结束不能为空")
-    @Min(value = 1, message = "入口端口结束必须大于0")
-    @Max(value = 65535, message = "入口端口结束不能超过65535")
-    private Integer inPortEnd;
-    
-    // 出口端口开始（对于隧道转发类型的隧道）
-    @Min(value = 1, message = "出口端口开始必须大于等于0")
-    @Max(value = 65535, message = "出口端口开始不能超过65535")
-    private Integer outIpSta;
-    
-    // 出口端口结束（对于隧道转发类型的隧道）
-    @Min(value = 1, message = "出口端口结束必须大于等于0")
-    @Max(value = 65535, message = "出口端口结束不能超过65535")
-    private Integer outIpEnd;
-    
+
     // TCP监听地址
     private String tcpListenAddr;
     

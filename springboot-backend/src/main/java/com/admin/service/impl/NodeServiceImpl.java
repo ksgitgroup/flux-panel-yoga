@@ -54,6 +54,12 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     /** 隧道使用检查相关消息 */
     private static final String ERROR_IN_NODE_IN_USE = "该节点还有 %d 个隧道作为入口节点在使用，请先删除相关隧道";
     private static final String ERROR_OUT_NODE_IN_USE = "该节点还有 %d 个隧道作为出口节点在使用，请先删除相关隧道";
+    
+    /** 端口范围验证相关消息 */
+    private static final String ERROR_PORT_STA_REQUIRED = "起始端口不能为空";
+    private static final String ERROR_PORT_END_REQUIRED = "结束端口不能为空";
+    private static final String ERROR_PORT_RANGE_INVALID = "端口必须在1-65535范围内";
+    private static final String ERROR_PORT_ORDER_INVALID = "结束端口不能小于起始端口";
 
     // ========== 依赖注入 ==========
     
@@ -188,6 +194,9 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         Node node = new Node();
         BeanUtils.copyProperties(nodeDto, node);
         
+        // 验证端口范围
+        validatePortRange(node.getPortSta(), node.getPortEnd());
+        
         // 设置默认属性
         node.setSecret(IdUtil.simpleUUID());
         node.setStatus(NODE_STATUS_ACTIVE);
@@ -212,6 +221,12 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         node.setName(nodeUpdateDto.getName());
         node.setIp(nodeUpdateDto.getIp());
         node.setServerIp(nodeUpdateDto.getServerIp());
+        node.setPortSta(nodeUpdateDto.getPortSta());
+        node.setPortEnd(nodeUpdateDto.getPortEnd());
+        
+        // 验证端口范围
+        validatePortRange(node.getPortSta(), node.getPortEnd());
+        
         node.setUpdatedTime(System.currentTimeMillis());
         return node;
     }
@@ -385,5 +400,34 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         // 计算冒号数量，IPv6地址至少有2个冒号
         long colonCount = address.chars().filter(ch -> ch == ':').count();
         return colonCount >= 2;
+    }
+
+    /**
+     * 验证端口范围的有效性
+     * 
+     * @param portSta 起始端口
+     * @param portEnd 结束端口
+     * @throws RuntimeException 当端口范围无效时抛出异常
+     */
+    private void validatePortRange(Integer portSta, Integer portEnd) {
+        // 检查起始端口是否为空
+        if (portSta == null) {
+            throw new RuntimeException(ERROR_PORT_STA_REQUIRED);
+        }
+        
+        // 检查结束端口是否为空
+        if (portEnd == null) {
+            throw new RuntimeException(ERROR_PORT_END_REQUIRED);
+        }
+        
+        // 检查端口范围是否在有效区间内
+        if (portSta < 1 || portSta > 65535 || portEnd < 1 || portEnd > 65535) {
+            throw new RuntimeException(ERROR_PORT_RANGE_INVALID);
+        }
+        
+        // 检查端口顺序是否正确
+        if (portEnd < portSta) {
+            throw new RuntimeException(ERROR_PORT_ORDER_INVALID);
+        }
     }
 }

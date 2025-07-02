@@ -181,25 +181,11 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             return nameValidationResult;
         }
 
-        // 3. 验证端口范围
-        R portValidationResult = validatePortRanges(tunnelUpdateDto);
-        if (portValidationResult.getCode() != 0) {
-            return portValidationResult;
-        }
 
-        // 4. 验证隧道转发类型的出口端口
-        if (existingTunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
-            R tunnelTypeValidationResult = validateTunnelForwardUpdate(tunnelUpdateDto);
-            if (tunnelTypeValidationResult.getCode() != 0) {
-                return tunnelTypeValidationResult;
-            }
-        }
 
         // 5. 更新允许修改的字段
         existingTunnel.setName(tunnelUpdateDto.getName());
         existingTunnel.setFlow(tunnelUpdateDto.getFlow());
-        existingTunnel.setInPortSta(tunnelUpdateDto.getInPortSta());
-        existingTunnel.setInPortEnd(tunnelUpdateDto.getInPortEnd());
         
         // 更新流量倍率
         if (tunnelUpdateDto.getTrafficRatio() != null) {
@@ -213,14 +199,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         if (StrUtil.isNotBlank(tunnelUpdateDto.getUdpListenAddr())) {
             existingTunnel.setUdpListenAddr(tunnelUpdateDto.getUdpListenAddr());
         }
-        
-        if (existingTunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
-            existingTunnel.setOutIpSta(tunnelUpdateDto.getOutIpSta());
-            existingTunnel.setOutIpEnd(tunnelUpdateDto.getOutIpEnd());
-        }else{
-            existingTunnel.setOutIpSta(tunnelUpdateDto.getInPortSta());
-            existingTunnel.setOutIpEnd(tunnelUpdateDto.getInPortEnd());
-        }
+
 
         // 6. 保存更新
         boolean result = this.updateById(existingTunnel);
@@ -315,51 +294,11 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         return R.ok();
     }
 
-    /**
-     * 验证端口范围
-     * 
-     * @param tunnelUpdateDto 更新数据传输对象
-     * @return 验证结果响应
-     */
-    private R validatePortRanges(TunnelUpdateDto tunnelUpdateDto) {
-        // 验证入口端口范围
-        if (tunnelUpdateDto.getInPortSta() > tunnelUpdateDto.getInPortEnd()) {
-            return R.err(ERROR_IN_PORT_RANGE_INVALID);
-        }
-        
-        // 验证出口端口范围（如果有的话）
-        if (tunnelUpdateDto.getOutIpSta() != null && tunnelUpdateDto.getOutIpEnd() != null) {
-            if (tunnelUpdateDto.getOutIpSta() > tunnelUpdateDto.getOutIpEnd()) {
-                return R.err(ERROR_OUT_PORT_RANGE_INVALID);
-            }
-        }
-        
-        return R.ok();
-    }
 
-    /**
-     * 验证隧道转发更新时的出口端口
-     * 
-     * @param tunnelUpdateDto 更新数据传输对象
-     * @return 验证结果响应
-     */
-    private R validateTunnelForwardUpdate(TunnelUpdateDto tunnelUpdateDto) {
-        // 验证出口端口参数不能为空
-        if (tunnelUpdateDto.getOutIpSta() == null || tunnelUpdateDto.getOutIpEnd() == null) {
-            return R.err(ERROR_OUT_PORT_REQUIRED);
-        }
-        
-        // 验证出口端口范围
-        if (tunnelUpdateDto.getOutIpSta() > tunnelUpdateDto.getOutIpEnd()) {
-            return R.err(ERROR_OUT_PORT_RANGE_INVALID);
-        }
-        
-        return R.ok();
-    }
 
     /**
      * 验证隧道转发创建时的必要参数
-     * 
+     *
      * @param tunnelDto 隧道创建数据传输对象
      * @return 验证结果响应
      */
@@ -368,17 +307,6 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         if (tunnelDto.getOutNodeId() == null) {
             return R.err(ERROR_OUT_NODE_REQUIRED);
         }
-        
-        // 验证出口端口参数不能为空
-        if (tunnelDto.getOutIpSta() == null || tunnelDto.getOutIpEnd() == null) {
-            return R.err(ERROR_OUT_PORT_REQUIRED);
-        }
-        
-        // 验证出口端口范围
-        if (tunnelDto.getOutIpSta() > tunnelDto.getOutIpEnd()) {
-            return R.err(ERROR_OUT_PORT_RANGE_INVALID);
-        }
-        
         return R.ok();
     }
 
@@ -398,11 +326,6 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 验证入口节点是否在线
         if (inNode.getStatus() != NODE_STATUS_ONLINE) {
             return NodeValidationResult.error(ERROR_IN_NODE_OFFLINE);
-        }
-
-        // 验证入口端口范围
-        if (tunnelDto.getInPortSta() > tunnelDto.getInPortEnd()) {
-            return NodeValidationResult.error(ERROR_IN_PORT_RANGE_INVALID);
         }
 
         return NodeValidationResult.success(inNode);
@@ -479,8 +402,6 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     private R setupPortForwardOutParameters(Tunnel tunnel, TunnelDto tunnelDto, String server_ip) {
         tunnel.setOutNodeId(tunnelDto.getInNodeId());
         tunnel.setOutIp(server_ip);
-        tunnel.setOutIpSta(tunnelDto.getInPortSta());
-        tunnel.setOutIpEnd(tunnelDto.getInPortEnd());
         return R.ok();
     }
 
@@ -519,15 +440,6 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         if (outNode.getStatus() != NODE_STATUS_ONLINE) {
             return R.err(ERROR_OUT_NODE_OFFLINE);
         }
-        
-        // 验证出口端口参数
-        if (tunnelDto.getOutIpSta() == null || tunnelDto.getOutIpEnd() == null) {
-            return R.err(ERROR_OUT_PORT_REQUIRED);
-        }
-        if (tunnelDto.getOutIpSta() > tunnelDto.getOutIpEnd()) {
-            return R.err(ERROR_OUT_PORT_RANGE_INVALID);
-        }
-        
         // 设置出口参数
         tunnel.setOutNodeId(tunnelDto.getOutNodeId());
         tunnel.setOutIp(outNode.getServerIp());
@@ -684,13 +596,18 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         dto.setId(tunnel.getId().intValue());
         dto.setName(tunnel.getName());
         dto.setIp(tunnel.getInIp());
-        dto.setInPortSta(tunnel.getInPortSta());
-        dto.setInPortEnd(tunnel.getInPortEnd());
-        dto.setOutIp(tunnel.getOutIp());
-        dto.setOutIpSta(tunnel.getOutIpSta());
-        dto.setOutIpEnd(tunnel.getOutIpEnd());
         dto.setType(tunnel.getType());
         dto.setProtocol(tunnel.getProtocol());
+        
+        // 获取入口节点的端口范围信息
+        if (tunnel.getInNodeId() != null) {
+            Node inNode = nodeService.getById(tunnel.getInNodeId());
+            if (inNode != null) {
+                dto.setInNodePortSta(inNode.getPortSta());
+                dto.setInNodePortEnd(inNode.getPortEnd());
+            }
+        }
+        
         return dto;
     }
 

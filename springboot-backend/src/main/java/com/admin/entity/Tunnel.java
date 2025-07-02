@@ -35,16 +35,6 @@ public class Tunnel extends BaseEntity {
     private String inIp;
 
     /**
-     * 入口端口开始
-     */
-    private Integer inPortSta;
-
-    /**
-     * 入口端口结束
-     */
-    private Integer inPortEnd;
-
-    /**
      * 出口节点ID
      */
     private Long outNodeId;
@@ -53,16 +43,6 @@ public class Tunnel extends BaseEntity {
      * 出口IP (兼容字段)
      */
     private String outIp;
-
-    /**
-     * 出口端口开始
-     */
-    private Integer outIpSta;
-
-    /**
-     * 出口端口结束
-     */
-    private Integer outIpEnd;
 
     /**
      * 隧道类型（1-端口转发，2-隧道转发）

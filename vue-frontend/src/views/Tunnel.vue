@@ -208,24 +208,7 @@
           </el-select>
       
         </el-form-item>
-        <el-form-item label="起始端口" prop="inPortSta">
-          <el-input-number
-              v-model="tunnelForm.inPortSta"
-              :min="1"
-              :max="65535"
-              placeholder="起始端口"
-              style="width: 100%"
-          ></el-input-number>
-        </el-form-item>
-        <el-form-item label="结束端口" prop="inPortEnd">
-          <el-input-number
-              v-model="tunnelForm.inPortEnd"
-              :min="1"
-              :max="65535"
-              placeholder="结束端口"
-              style="width: 100%"
-          ></el-input-number>
-        </el-form-item>
+
 
         <el-form-item label="监听地址" prop="tcpListenAddr">
           <el-input 
@@ -296,24 +279,6 @@
               </el-option>
             </el-select>
 
-          </el-form-item>
-          <el-form-item label="起始端口" prop="outIpSta">
-            <el-input-number
-                v-model="tunnelForm.outIpSta"
-                :min="1"
-                :max="65535"
-                placeholder="起始端口"
-                style="width: 100%"
-            ></el-input-number>
-          </el-form-item>
-          <el-form-item label="结束端口" prop="outIpEnd">
-            <el-input-number
-                v-model="tunnelForm.outIpEnd"
-                :min="1"
-                :max="65535"
-                placeholder="结束端口"
-                style="width: 100%"
-            ></el-input-number>
           </el-form-item>
         </template>
 
@@ -541,11 +506,7 @@ export default {
         id: null,
         name: '',
         inNodeId: null,
-        inPortSta: 1,
-        inPortEnd: 65535,
         outNodeId: null,
-        outIpSta: 1,
-        outIpEnd: 65535,
         type: 1,
         flow: 1,  // 默认单向计算
         status: 1,  // 默认启用
@@ -563,12 +524,6 @@ export default {
         inNodeId: [
           { required: true, message: '请选择入口节点', trigger: 'change' }
         ],
-        inPortSta: [
-          { required: true, message: '请输入起始端口', trigger: 'blur' }
-        ],
-        inPortEnd: [
-          { required: true, message: '请输入结束端口', trigger: 'blur' }
-        ],
         type: [
           { required: true, message: '请选择隧道类型', trigger: 'change' }
         ],
@@ -582,12 +537,6 @@ export default {
         // 隧道转发时的出口验证规则
         outNodeId: [
           { required: false, message: '请选择出口节点', trigger: 'change' }
-        ],
-        outIpSta: [
-          { required: false, message: '请输入起始端口', trigger: 'blur' }
-        ],
-        outIpEnd: [
-          { required: false, message: '请输入结束端口', trigger: 'blur' }
         ],
         protocol: [
           { required: false, message: '请选择协议类型', trigger: 'change' }
@@ -683,10 +632,6 @@ export default {
         name: tunnel.name,
         flow: tunnel.flow,
         trafficRatio: tunnel.trafficRatio || 1.0,
-        inPortSta: tunnel.inPortSta,
-        inPortEnd: tunnel.inPortEnd,
-        outIpSta: tunnel.outIpSta,
-        outIpEnd: tunnel.outIpEnd,
         tcpListenAddr: tunnel.tcpListenAddr || '0.0.0.0',
         udpListenAddr: tunnel.udpListenAddr || '0.0.0.0',
         // 以下字段不允许修改，但需要保留原值用于显示和提交
@@ -727,20 +672,14 @@ export default {
       if (value === 2) {
         // 隧道转发时，出口字段变为必填
         this.rules.outNodeId[0].required = true;
-        this.rules.outIpSta[0].required = true;
-        this.rules.outIpEnd[0].required = true;
         this.rules.protocol[0].required = true;
       } else {
         // 端口转发时，出口字段不必填
         this.rules.outNodeId[0].required = false;
-        this.rules.outIpSta[0].required = false;
-        this.rules.outIpEnd[0].required = false;
         this.rules.protocol[0].required = false;
         
         // 清空出口字段
         this.tunnelForm.outNodeId = null;
-        this.tunnelForm.outIpSta = null;
-        this.tunnelForm.outIpEnd = null;
         this.tunnelForm.protocol = 'tls'; // 重置为默认值
       }
     },
@@ -749,23 +688,10 @@ export default {
     handleSubmit() {
       this.$refs.tunnelForm.validate(valid => {
         if (valid) {
-          // 端口范围验证
-          if (this.tunnelForm.inPortSta > this.tunnelForm.inPortEnd) {
-            this.$message.error('入口起始端口不能大于结束端口');
-            return;
-          }
-
           // 隧道转发时验证入口和出口节点不能相同
           if (this.tunnelForm.type === 2 && 
               this.tunnelForm.inNodeId === this.tunnelForm.outNodeId) {
             this.$message.error('隧道转发模式下，入口和出口不能是同一个节点');
-            return;
-          }
-
-          if (this.tunnelForm.type === 2 && 
-              this.tunnelForm.outIpSta && this.tunnelForm.outIpEnd &&
-              this.tunnelForm.outIpSta > this.tunnelForm.outIpEnd) {
-            this.$message.error('出口起始端口不能大于结束端口');
             return;
           }
 
@@ -780,10 +706,6 @@ export default {
               name: data.name,
               flow: data.flow,
               trafficRatio: data.trafficRatio,
-              inPortSta: data.inPortSta,
-              inPortEnd: data.inPortEnd,
-              outIpSta: data.outIpSta,
-              outIpEnd: data.outIpEnd,
               tcpListenAddr: data.tcpListenAddr,
               udpListenAddr: data.udpListenAddr
             };
@@ -829,11 +751,7 @@ export default {
         id: null,
         name: '',
         inNodeId: null,
-        inPortSta: 1,
-        inPortEnd: 65535,
         outNodeId: null,
-        outIpSta: 1,
-        outIpEnd: 65535,
         type: 1,
         flow: 1,  // 默认单向计算
         status: 1,  // 默认启用

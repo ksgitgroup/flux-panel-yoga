@@ -49,8 +49,6 @@ public class CheckGostConfigAsync {
             cleanOrphanedServices(gostConfig, node);
             cleanOrphanedChains(gostConfig, node);
             cleanOrphanedLimiters(gostConfig, node);
-            syncLimiters(gostConfig, node);
-            syncServices(gostConfig, node);
         }
     }
 
@@ -64,36 +62,37 @@ public class CheckGostConfigAsync {
 
         for (ConfigItem service : gostConfig.getServices()) {
             safeExecute(() -> {
-                if (Objects.equals(service.getName(), "web_api")) {
-                    return; // 排除API服务
+
+                if (!Objects.equals(service.getName(), "web_api")){
+                    String[] serviceIds = parseServiceName(service.getName());
+                    if (serviceIds.length == 4) {
+                        String forwardId = serviceIds[0];
+                        String userId = serviceIds[1];
+                        String userTunnelId = serviceIds[2];
+                        String type = serviceIds[3];
+
+                        if (Objects.equals(type, "tcp")) { // 只处理TCP，避免重复处理
+                            Forward forward = forwardService.getById(forwardId);
+                            if (forward == null) {
+                                log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
+                                GostDto gostDto = GostUtil.DeleteService(node.getId(), forwardId + "_" + userId + "_" + userTunnelId);
+                                System.out.println(gostDto);
+                            }
+                        }
+
+
+                        if (Objects.equals(type, "tls")) {
+                            Forward forward = forwardService.getById(forwardId);
+                            if (forward == null) {
+                                log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
+                                GostUtil.DeleteRemoteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
+                            }
+                        }
+
+                    }
                 }
 
-                String[] serviceIds = parseServiceName(service.getName());
-                if (serviceIds.length == 4) {
-                    String forwardId = serviceIds[0];
-                    String userId = serviceIds[1];
-                    String userTunnelId = serviceIds[2];
-                    String type = serviceIds[3];
 
-                    if (Objects.equals(type, "tcp")) { // 只处理TCP，避免重复处理
-                        Forward forward = forwardService.getById(forwardId);
-                        if (forward == null) {
-                            log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
-                            GostDto gostDto = GostUtil.DeleteService(node.getId(), forwardId + "_" + userId + "_" + userTunnelId);
-                            System.out.println(gostDto);
-                        }
-                    }
-
-
-                    if (Objects.equals(type, "tls")) {
-                        Forward forward = forwardService.getById(forwardId);
-                        if (forward == null) {
-                            log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
-                            GostUtil.DeleteRemoteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
-                        }
-                    }
-
-                }
             }, "清理服务 " + service.getName());
         }
 
@@ -192,49 +191,6 @@ public class CheckGostConfigAsync {
                         }
                     }
                 }
-            }
-        }, "同步限流器 ");
-    }
-
-    /**
-     * 同步服务
-     */
-    private void syncServices(GostConfigDto gostConfig, Node node) {
-        List<Tunnel> tunnelList = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", node.getId()));
-        if (tunnelList == null || tunnelList.isEmpty()) return;
-        safeExecute(() -> {
-            StringBuilder tunnelIds = new StringBuilder();
-            for (Tunnel tunnel : tunnelList) {
-                tunnelIds.append(tunnel.getId()).append(",");
-            }
-            String ids = tunnelIds.deleteCharAt(tunnelIds.length() - 1).toString();
-            List<Forward> forwardList = forwardService.list(new QueryWrapper<Forward>().in("tunnel_id", ids));
-            if (forwardList != null && !forwardList.isEmpty()) {
-                List<ConfigItem> services = gostConfig.getServices();
-                List<Long> services_ids = new ArrayList<>();
-                List<Long>  forward_ids = new ArrayList<>();
-                if (services != null){
-                    for (ConfigItem limiter : services) {
-                        String[] strings = parseServiceName(limiter.getName());
-                        services_ids.add(Long.valueOf(strings[0]));
-                    }
-                }
-                for (Forward forward : forwardList) {
-                    forward_ids.add(forward.getId());
-                }
-                List<Long> diff = new ArrayList<>(forward_ids);
-                diff.removeAll(services_ids);
-                System.out.println(diff);
-                if (!diff.isEmpty()) {
-                    for (Long forward_id : diff) {
-                        Forward forward = forwardService.getById(forward_id);
-                        if (forward != null) {
-                            forwardService.updateForwardA(forward);
-                        }
-
-                    }
-                }
-
             }
         }, "同步限流器 ");
     }

@@ -120,10 +120,3 @@ curl -L https://raw.githubusercontent.com/BrunuhVille/flux-panel/refs/heads/main
 
 请确保在合法、合规、安全的前提下使用本项目。
 
-
----
-
-**⭐ 如果这个项目对您有帮助，请给个 Star 支持一下！**
-
-[![Star History Chart](https://api.star-history.com/svg?repos=bqlpfy/flux-panel&type=Date)](https://www.star-history.com/#bqlpfy/flux-panel&Date)
-

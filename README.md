@@ -76,13 +76,13 @@
 
 面板端：
 ```bash
-curl -L https://raw.githubusercontent.com/lyqray/flux-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://raw.githubusercontent.com/BrunuhVille/flux-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 
 ```
 
 节点端：
 ```bash
-curl -L https://raw.githubusercontent.com/lyqray/flux-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+curl -L https://raw.githubusercontent.com/BrunuhVille/flux-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
 
 ```
 
@@ -119,16 +119,6 @@ curl -L https://raw.githubusercontent.com/lyqray/flux-panel/refs/heads/main/inst
 作者对因使用本项目所造成的任何直接或间接损失概不负责，也不提供任何形式的担保或技术支持。
 
 请确保在合法、合规、安全的前提下使用本项目。
-
----
-## ⭐ 喝杯咖啡！
-
-| 网络       | 地址                                                                 |
-|------------|----------------------------------------------------------------------|
-| BNB(BEP20) | `0x755492c03728851bbf855daa28a1e089f9aca4d1`                          |
-| TRC20      | `TYh2L3xxXpuJhAcBWnt3yiiADiCSJLgUm7`                                  |
-| Aptos      | `0xf2f9fb14749457748506a8281628d556e8540d1eb586d202cd8b02b99d369ef8`  |
-
 
 
 ---

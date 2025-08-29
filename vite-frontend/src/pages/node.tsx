@@ -58,6 +58,9 @@ export default function NodePage() {
   const [dialogTitle, setDialogTitle] = useState('');
   const [isEdit, setIsEdit] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
   const [form, setForm] = useState<NodeForm>({
     id: null,
     name: '',
@@ -419,19 +422,29 @@ export default function NodePage() {
   };
 
   // 删除节点
-  const handleDelete = async (node: Node) => {
-    if (window.confirm(`确定要删除节点 "${node.name}" 吗？`)) {
-      try {
-        const res = await deleteNode(node.id);
-        if (res.code === 0) {
-          toast.success('删除成功');
-          setNodeList(prev => prev.filter(n => n.id !== node.id));
-        } else {
-          toast.error(res.msg || '删除失败');
-        }
-      } catch (error) {
-        toast.error('网络错误，请重试');
+  const handleDelete = (node: Node) => {
+    setNodeToDelete(node);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!nodeToDelete) return;
+    
+    setDeleteLoading(true);
+    try {
+      const res = await deleteNode(nodeToDelete.id);
+      if (res.code === 0) {
+        toast.success('删除成功');
+        setNodeList(prev => prev.filter(n => n.id !== nodeToDelete.id));
+        setDeleteModalOpen(false);
+        setNodeToDelete(null);
+      } else {
+        toast.error(res.msg || '删除失败');
       }
+    } catch (error) {
+      toast.error('网络错误，请重试');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -788,6 +801,8 @@ export default function NodePage() {
           onClose={() => setDialogVisible(false)}
           size="2xl"
           scrollBehavior="outside"
+          backdrop="blur"
+          placement="center"
         >
           <ModalContent>
             <ModalHeader>{dialogTitle}</ModalHeader>
@@ -883,12 +898,50 @@ export default function NodePage() {
           </ModalContent>
         </Modal>
 
+        {/* 删除确认模态框 */}
+        <Modal 
+          isOpen={deleteModalOpen}
+          onOpenChange={setDeleteModalOpen}
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
+        >
+          <ModalContent>
+            {(onClose) => (
+              <>
+                <ModalHeader className="flex flex-col gap-1">
+                  <h2 className="text-xl font-bold">确认删除</h2>
+                </ModalHeader>
+                <ModalBody>
+                  <p>确定要删除节点 <strong>"{nodeToDelete?.name}"</strong> 吗？</p>
+                  <p className="text-small text-default-500">此操作不可恢复，请谨慎操作。</p>
+                </ModalBody>
+                <ModalFooter>
+                  <Button variant="light" onPress={onClose}>
+                    取消
+                  </Button>
+                  <Button 
+                    color="danger" 
+                    onPress={confirmDelete}
+                    isLoading={deleteLoading}
+                  >
+                    {deleteLoading ? '删除中...' : '确认删除'}
+                  </Button>
+                </ModalFooter>
+              </>
+            )}
+          </ModalContent>
+        </Modal>
+
         {/* 安装命令模态框 */}
         <Modal 
           isOpen={installCommandModal} 
           onClose={() => setInstallCommandModal(false)}
           size="2xl"
-          scrollBehavior="outside"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             <ModalHeader>安装命令 - {currentNodeName}</ModalHeader>

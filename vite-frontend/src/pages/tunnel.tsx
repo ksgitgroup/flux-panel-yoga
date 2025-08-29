@@ -605,7 +605,9 @@ export default function TunnelPage() {
           isOpen={modalOpen}
           onOpenChange={setModalOpen}
           size="2xl"
-          scrollBehavior="outside"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             {(onClose) => (
@@ -878,7 +880,10 @@ export default function TunnelPage() {
         <Modal 
           isOpen={deleteModalOpen}
           onOpenChange={setDeleteModalOpen}
-          size="md"
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             {(onClose) => (
@@ -911,8 +916,10 @@ export default function TunnelPage() {
         <Modal 
           isOpen={diagnosisModalOpen}
           onOpenChange={setDiagnosisModalOpen}
-          size="3xl"
-          scrollBehavior="outside"
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             {(onClose) => (

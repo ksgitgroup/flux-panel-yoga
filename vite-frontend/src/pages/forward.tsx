@@ -138,13 +138,13 @@ export default function ForwardPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
   
-  // 显示模式状态 - 从localStorage读取，默认为分类显示
+  // 显示模式状态 - 从localStorage读取，默认为平铺显示
   const [viewMode, setViewMode] = useState<'grouped' | 'direct'>(() => {
     try {
       const savedMode = localStorage.getItem('forward-view-mode');
-      return (savedMode as 'grouped' | 'direct') || 'grouped';
+      return (savedMode as 'grouped' | 'direct') || 'direct';
     } catch {
-      return 'grouped';
+      return 'direct';
     }
   });
   
@@ -1547,8 +1547,10 @@ export default function ForwardPage() {
         <Modal 
           isOpen={modalOpen}
           onOpenChange={setModalOpen}
-          size="lg"
+          size="2xl"
           scrollBehavior="outside"
+          backdrop="blur"
+          placement="center"
         >
           <ModalContent>
             {(onClose) => (
@@ -1678,8 +1680,10 @@ export default function ForwardPage() {
         <Modal 
           isOpen={deleteModalOpen}
           onOpenChange={setDeleteModalOpen}
-          size="sm"
-          scrollBehavior="outside"
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             {(onClose) => (
@@ -1750,8 +1754,11 @@ export default function ForwardPage() {
             setSelectedTunnelForExport(null);
             setExportData('');
           }} 
-          size="2xl" 
-          scrollBehavior="outside"
+          
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             <ModalHeader className="flex flex-col gap-1">
@@ -1870,8 +1877,11 @@ export default function ForwardPage() {
         <Modal 
           isOpen={importModalOpen} 
           onClose={() => setImportModalOpen(false)} 
-          size="3xl" 
-          scrollBehavior="outside"
+          
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             <ModalHeader className="flex flex-col gap-1">
@@ -2007,8 +2017,11 @@ export default function ForwardPage() {
         <Modal 
           isOpen={diagnosisModalOpen}
           onOpenChange={setDiagnosisModalOpen}
-          size="3xl"
-          scrollBehavior="outside"
+          
+          size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
         >
           <ModalContent>
             {(onClose) => (

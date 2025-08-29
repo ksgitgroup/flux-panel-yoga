@@ -41,7 +41,7 @@ services:
       - gost-network
 
   backend:
-    image: lyqray/springboot-backend:latest
+    image: brunuhville/springboot-backend:latest
     container_name: springboot-backend
     restart: unless-stopped
     environment:

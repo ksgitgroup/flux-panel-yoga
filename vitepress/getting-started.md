@@ -2,10 +2,6 @@
 
 本指南将帮助您快速安装和配置flux-panel，让您在几分钟内开始使用流量转发功能。
 
-::: tip 需要帮助？
-📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1) | 🐛 [GitHub Issues](https://github.com/bqlpfy/flux-panel/issues) | 🤔 [常见问题](/faq)
-:::
-
 ## 系统要求
 
 在开始之前，请确保您的系统满足以下要求：

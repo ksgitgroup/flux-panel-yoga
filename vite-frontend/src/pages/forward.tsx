@@ -780,7 +780,7 @@ export default function ForwardPage() {
       await navigator.clipboard.writeText(text);
       toast.success(`已复制${label}`);
     } catch (error) {
-      toast.error('复制失败');
+      toast.error('复制失败：请使用https访问面板（例如nginx反代），http无法复制。');
     }
   };
 
@@ -792,7 +792,7 @@ export default function ForwardPage() {
       ));
       await copyToClipboard(addressItem.address, '地址');
     } catch (error) {
-      toast.error('复制失败');
+      toast.error('复制失败：请使用https访问面板（例如nginx反代），http无法复制。');
     } finally {
       setAddressList(prev => prev.map(item => 
         item.id === addressItem.id ? { ...item, copying: false } : item

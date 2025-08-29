@@ -485,7 +485,7 @@ export default function NodePage() {
       toast.success('安装命令已复制到剪贴板');
       setInstallCommandModal(false);
     } catch (error) {
-      toast.error('复制失败，请手动选择文本复制');
+      toast.error('复制失败，请手动选择文本复制。原因：请使用https访问面板（例如nginx反代），http无法复制。');
     }
   };
 

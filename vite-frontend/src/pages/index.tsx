@@ -302,7 +302,11 @@ export default function IndexPage() {
           </Card>
         </div>
       
-   
+               <div className="fixed inset-x-0 bottom-4 text-center py-4">
+               <p className="text-xs text-gray-400 dark:text-gray-500">
+                 v{ isWebView ? siteConfig.app_version : siteConfig.version}
+               </p>
+             </div>
 
         {/* 验证码弹层 */}
         {showCaptcha && (

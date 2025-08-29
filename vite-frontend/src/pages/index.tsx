@@ -53,7 +53,7 @@ export default function IndexPage() {
   const navigate = useNavigate();
   const tacInstanceRef = useRef<any>(null);
   const captchaContainerRef = useRef<HTMLDivElement>(null);
-  const [isWebView, setIsWebView] = useState(false);
+  const setIsWebView = useState(false);
   // 清理验证码实例
   useEffect(() => {
     return () => {

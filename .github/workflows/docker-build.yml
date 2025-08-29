@@ -1,194 +1,69 @@
-name: Build and Push Vue or Spring Boot Images
+# 定义工作流的名称，这个名字会显示在 GitHub 仓库的 "Actions" 页面上
+name: Deploy VitePress Docs to GitHub Pages
 
+# 定义触发这个工作流的事件
 on:
+  # 当有代码被推送到 'main' 分支时
   push:
-    branches:
-      - main
+    branches: [ main ]
+    # 路径过滤器：只有当 'vitepress/' 目录下的文件发生变化时，才触发
     paths:
-      - 'vue-frontend/**'
-      - 'vite-frontend/**'
-      - 'springboot-backend/**'
-      - 'go-gost/**'
-      - 'android-app/**'
-      - '.github/workflows/docker-build.yml'
-  # 支持手动触发 Action
+      - 'vitepress/**'
+  
+  # 允许你手动触发这个工作流
   workflow_dispatch:
 
+# 为工作流运行时所使用的 GITHUB_TOKEN 设置权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 定义工作流中要执行的任务
 jobs:
-  build-gost:
-    if: contains(github.event.head_commit.message, '[skip gost]') == false
-    name: Build & Compress GOST Binary
+  deploy:
+    # 指定此任务的部署环境
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    # 指定运行此任务的虚拟机环境
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    
+    # 定义构成任务的一系列连续步骤
     steps:
-      - uses: actions/checkout@v3
+      # 第1步：检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Check for GOST changes
-        uses: dorny/paths-filter@v2
-        id: gost-changes
-        with:
-          filters: |
-            gost:
-              - 'go-gost/**'
-
-      - name: Set up Go
-        if: steps.gost-changes.outputs.gost == 'true'
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-
-      - name: Cache Go modules
-        if: steps.gost-changes.outputs.gost == 'true'
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Install UPX
-        if: steps.gost-changes.outputs.gost == 'true'
-        run: |
-          wget https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-amd64_linux.tar.xz
-          tar -xf upx-4.2.1-amd64_linux.tar.xz
-          sudo mv upx-4.2.1-amd64_linux/upx /usr/local/bin/
-          rm -rf upx-4.2.1-amd64_linux*
-
-      - name: Build GOST binary
-        if: steps.gost-changes.outputs.gost == 'true'
-        working-directory: ./go-gost
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gost
-
-      - name: Compress with UPX
-        if: steps.gost-changes.outputs.gost == 'true'
-        working-directory: ./go-gost
-        run: |
-          upx --best --lzma gost
-
-      - name: Create or Update Release
-        if: steps.gost-changes.outputs.gost == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # 确保 tag 指向当前 commit
-          git tag -f gost-latest ${{ github.sha }}
-          git push origin gost-latest --force
-
-          # 检查 release 是否存在，不存在则创建
-          if gh release view gost-latest 2>/dev/null; then
-            echo "Release exists, will update assets"
-          else
-            echo "Release not found, creating new release"
-            gh release create gost-latest gost-latest \
-              --title "GOST Binary Latest" \
-              --notes "GOST binary compiled from commit ${{ github.sha }}
-          
-          - Platform: Linux AMD64
-          - Compressed with UPX
-          - Build date: ${{ github.event.head_commit.timestamp }}" \
-              --repo ${{ github.repository }}
-          fi
-
-          # 上传 asset 并覆盖同名文件
-          gh release upload gost-latest ./go-gost/gost --clobber
-
-
-  build-vite:
-    if: contains(github.event.head_commit.message, '[skip vite]') == false
-    name: Build & Push Vite Frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Check for Vite changes
-        uses: dorny/paths-filter@v2
-        id: vite-changes
-        with:
-          filters: |
-            vite:
-              - 'vite-frontend/**'
-
+      # 第2步：设置 Node.js 环境
       - name: Set up Node.js
-        if: steps.vite-changes.outputs.vite == 'true'
         uses: actions/setup-node@v4
         with:
+          # 指定使用的 Node.js 版本
           node-version: 20
+          # 注意：缓存功能已禁用。
 
-      - name: Set up Docker Buildx
-        if: steps.vite-changes.outputs.vite == 'true'
-        uses: docker/setup-buildx-action@v2
+      # 第3步：安装依赖
+      - name: Install dependencies
+        run: cd vitepress && npm ci
 
-      - name: Log in to DockerHub
-        if: steps.vite-changes.outputs.vite == 'true'
-        uses: docker/login-action@v2
+      # 第4步：构建 VitePress 站点
+      - name: Build VitePress site
+        run: cd vitepress && npx vitepress build
+
+      # 第5步：设置 Pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # 第6步：上传构建产物
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+          path: vitepress/.vitepress/dist
 
-      - name: Build and push Vite multi-arch image
-        if: steps.vite-changes.outputs.vite == 'true'
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --push \
-            -t lyqray/vite-frontend \
-            ./vite-frontend
+      # 第7步：部署到 GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
-  build-java:
-    if: contains(github.event.head_commit.message, '[skip java]') == false
-    name: Build & Push Spring Boot Backend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Check for Java changes
-        uses: dorny/paths-filter@v2
-        id: java-changes
-        with:
-          filters: |
-            java:
-              - 'springboot-backend/**'
-
-      - name: Set up JDK and Maven
-        if: steps.java-changes.outputs.java == 'true'
-        uses: actions/setup-java@v3
-        with:
-          java-version: 21
-          distribution: 'temurin'
-
-      - name: Cache Maven dependencies
-        if: steps.java-changes.outputs.java == 'true'
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-
-      - name: Build Java JAR
-        if: steps.java-changes.outputs.java == 'true'
-        working-directory: ./springboot-backend
-        run: mvn clean package -DskipTests
-
-      - name: Set up Docker Buildx
-        if: steps.java-changes.outputs.java == 'true'
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to DockerHub
-        if: steps.java-changes.outputs.java == 'true'
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Build and push Java multi-arch image
-        if: steps.java-changes.outputs.java == 'true'
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --push \
-            -t lyqray/springboot-backend \
-            ./springboot-backend

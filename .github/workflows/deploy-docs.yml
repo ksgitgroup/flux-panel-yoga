@@ -50,7 +50,7 @@ jobs:
 
       # 第4步：构建 VitePress 站点
       - name: Build VitePress site
-        run: cd vitepress && npm run docs:build
+        run: cd vitepress && npx vitepress build
 
       # 第5步：设置 Pages
       - name: Setup Pages

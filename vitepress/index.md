@@ -10,7 +10,7 @@ hero:
       text: 快速开始
       link: /getting-started
     - theme: alt
-      text: 查看源码（fork纪念版，原作者已删库）
+      text: 查看源码（仅为fork纪念版，原作者已删库。方便后人使用。十分少见的开源面板，不该就此断绝。）
       link: https://github.com/BrunuhVille/flux-panel
 
 features:

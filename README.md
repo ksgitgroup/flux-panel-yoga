@@ -12,7 +12,7 @@
 
 ---
 ## 文档地址
-- [文档地址](https://tes.cc)
+- [文档地址](https://brunuhville.github.io/flux-panel)
 ---
 ## 特性
 

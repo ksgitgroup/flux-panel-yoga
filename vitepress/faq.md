@@ -1,8 +1,5 @@
 # 常见问题
 
-::: tip 需要帮助？
-📱 [加入 Telegram 群组](https://t.me/+wdVDni1fdyI0YzE1) | 🐛 [GitHub Issues](https://github.com/bqlpfy/flux-panel/issues) | 🚀 [快速开始](/getting-started)
-:::
 
 ## 面板管理脚本
 

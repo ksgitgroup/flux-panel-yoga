@@ -39,3 +39,40 @@ journalctl -u gost -f
 
 按 `Ctrl+C` 退出日志查看
 
+### 屏蔽 http/tls/socks 协议
+
+屏蔽指定协议的方法，只需要在入口执行。出口无需执行
+
+1️⃣ 编辑配置文件
+
+打开 /etc/gost/config.json，添加以下字段：
+```
+"http": 1,
+"tls": 1,
+"socks": 1
+```
+
+2️⃣ 重启服务
+```
+sudo systemctl restart gost
+```
+
+3️⃣ 检查状态（可选）
+```
+sudo systemctl status gost
+```
+
+- 说明：
+  - 0 或不添加 → 不屏蔽对应协议
+  - 1 → 屏蔽对应协议
+
+完整的json文件
+```
+{
+  "addr":"127.0.0.1：6365",
+  "secret":"doraemon",
+  "http":1,
+  "tls":1,
+  "socks":1
+}
+```

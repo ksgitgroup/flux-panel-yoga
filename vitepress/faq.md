@@ -39,6 +39,8 @@ journalctl -u gost -f
 
 按 `Ctrl+C` 退出日志查看
 
+---
+
 ### 屏蔽 http/tls/socks 协议
 
 屏蔽指定协议的方法，只需要在入口执行。出口无需执行

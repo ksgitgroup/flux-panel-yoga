@@ -1,16 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import legacy from '@vitejs/plugin-legacy'
 
 export default defineConfig({
   plugins: [
-    react(),
-    legacy({
-      targets: ['defaults', 'not IE 11']
-    })
+    react()
   ],
-  base: './',    
+  base: './',
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -23,7 +19,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: false,  
+    minify: false,
     rollupOptions: {
       treeshake: false,
     }

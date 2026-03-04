@@ -28,6 +28,8 @@ build:dev:
   stage: build
   tags:
     - Rn1-Runner-General-01
+  variables:
+    GIT_DEPTH: "0"  # 必须拉取完整历史，否则推送到 GitHub 会报 unpack failed
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
@@ -147,6 +149,8 @@ sync:github:
   stage: sync
   tags:
     - Rn1-Runner-General-01
+  variables:
+    GIT_DEPTH: "0"  # 必须拉取完整历史，否则推送到 GitHub 会报 unpack failed
   needs:
     - build:prod     # 必须 prod 镜像推送成功后才同步
   rules:

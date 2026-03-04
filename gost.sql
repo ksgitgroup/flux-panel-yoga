@@ -296,7 +296,27 @@ ALTER TABLE `user_tunnel`
 --
 ALTER TABLE `vite_config`
   MODIFY `id` int(10) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
+-- --------------------------------------------------------
+
+--
+-- 表的结构 `diagnosis_record`
+--
+
+CREATE TABLE IF NOT EXISTS `diagnosis_record` (
+  `id` int(10) NOT NULL AUTO_INCREMENT,
+  `target_type` varchar(20) NOT NULL COMMENT 'forward 或 tunnel',
+  `target_id` int(10) NOT NULL COMMENT '转发或隧道ID',
+  `target_name` varchar(200) DEFAULT NULL COMMENT '名称快照',
+  `overall_success` tinyint(1) NOT NULL DEFAULT '1' COMMENT '整体是否成功',
+  `results_json` text COMMENT 'JSON格式的详细诊断结果',
+  `created_time` bigint(20) DEFAULT NULL COMMENT '诊断时间戳',
+  PRIMARY KEY (`id`),
+  KEY `idx_target` (`target_type`,`target_id`),
+  KEY `idx_created_time` (`created_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='诊断历史记录';
+
 COMMIT;
+
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;

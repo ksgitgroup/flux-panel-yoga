@@ -115,8 +115,20 @@ export default function AdminLayout({
         </svg>
       ),
       adminOnly: true
+    },
+    {
+      path: '/monitor',
+      label: '诊断看板',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+      ),
+      adminOnly: true
     }
   ];
+
 
   // 检查移动端
   const checkMobile = () => {
@@ -129,7 +141,7 @@ export default function AdminLayout({
   useEffect(() => {
     // 获取用户信息
     const name = localStorage.getItem('name') || 'Admin';
-    
+
     // 兼容处理：如果没有admin字段，根据role_id判断（0为管理员）
     let adminFlag = localStorage.getItem('admin') === 'true';
     if (localStorage.getItem('admin') === null) {
@@ -138,7 +150,7 @@ export default function AdminLayout({
       // 补充设置admin字段，避免下次再次判断
       localStorage.setItem('admin', adminFlag.toString());
     }
-    
+
     setUsername(name);
     setIsAdmin(adminFlag);
 
@@ -237,15 +249,15 @@ export default function AdminLayout({
   };
 
   // 过滤菜单项（根据权限）
-  const filteredMenuItems = menuItems.filter(item => 
+  const filteredMenuItems = menuItems.filter(item =>
     !item.adminOnly || isAdmin
   );
 
   return (
-          <div className={`flex ${isMobile ? 'min-h-screen' : 'h-screen'} bg-gray-100 dark:bg-black`}>
+    <div className={`flex ${isMobile ? 'min-h-screen' : 'h-screen'} bg-gray-100 dark:bg-black`}>
       {/* 移动端遮罩层 */}
       {isMobile && mobileMenuVisible && (
-        <div 
+        <div
           className="fixed inset-0 backdrop-blur-sm bg-white/50 dark:bg-black/30 z-40"
           onClick={hideMobileMenu}
         />
@@ -265,40 +277,40 @@ export default function AdminLayout({
         ${isMobile ? 'h-screen' : 'h-full'}
         ${isMobile ? 'top-0 left-0' : ''}
       `}>
-                 {/* Logo 区域 */}
-         <div className="px-3 py-3 h-14 flex items-center">
-           <div className="flex items-center gap-2 w-full">
-             <Logo size={24} />
-             <div className="flex-1 min-w-0">
-               <h1 className="text-sm font-bold text-foreground overflow-hidden whitespace-nowrap">{siteConfig.name}</h1>
-               <p className="text-xs text-default-500">v{siteConfig.version}</p>
-             </div>
-           </div>
-         </div>
+        {/* Logo 区域 */}
+        <div className="px-3 py-3 h-14 flex items-center">
+          <div className="flex items-center gap-2 w-full">
+            <Logo size={24} />
+            <div className="flex-1 min-w-0">
+              <h1 className="text-sm font-bold text-foreground overflow-hidden whitespace-nowrap">{siteConfig.name}</h1>
+              <p className="text-xs text-default-500">v{siteConfig.version}</p>
+            </div>
+          </div>
+        </div>
 
-                 {/* 菜单导航 */}
-         <nav className="flex-1 px-4 py-6 overflow-y-auto">
-           <ul className="space-y-1">
+        {/* 菜单导航 */}
+        <nav className="flex-1 px-4 py-6 overflow-y-auto">
+          <ul className="space-y-1">
             {filteredMenuItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <li key={item.path}>
-                                     <button
-                     onClick={() => handleMenuClick(item.path)}
-                     className={`
+                  <button
+                    onClick={() => handleMenuClick(item.path)}
+                    className={`
                        w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left
                        transition-colors duration-200 min-h-[44px]
-                       ${isActive 
-                         ? 'bg-primary-100 dark:bg-primary-600/20 text-primary-600 dark:text-primary-300' 
-                         : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900'
-                       }
+                       ${isActive
+                        ? 'bg-primary-100 dark:bg-primary-600/20 text-primary-600 dark:text-primary-300'
+                        : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900'
+                      }
                      `}
-                   >
-                     <div className="flex-shrink-0">
-                       {item.icon}
-                     </div>
-                     <span className="font-medium text-sm">{item.label}</span>
-                   </button>
+                  >
+                    <div className="flex-shrink-0">
+                      {item.icon}
+                    </div>
+                    <span className="font-medium text-sm">{item.label}</span>
+                  </button>
                 </li>
               );
             })}
@@ -308,8 +320,8 @@ export default function AdminLayout({
 
       {/* 主内容区域 */}
       <div className={`flex flex-col flex-1 ${isMobile ? 'min-h-0' : 'h-full overflow-hidden'}`}>
-                 {/* 顶部导航栏 */}
-         <header className="bg-white dark:bg-black shadow-md border-b border-gray-200 dark:border-gray-600 h-14 flex items-center justify-between px-4 lg:px-6 relative z-10">
+        {/* 顶部导航栏 */}
+        <header className="bg-white dark:bg-black shadow-md border-b border-gray-200 dark:border-gray-600 h-14 flex items-center justify-between px-4 lg:px-6 relative z-10">
           <div className="flex items-center gap-4">
             {/* 移动端菜单按钮 */}
             {isMobile && (
@@ -328,15 +340,15 @@ export default function AdminLayout({
 
           <div className="flex items-center gap-3">
             {/* 用户菜单 */}
-             <Dropdown placement="bottom-end">
-               <DropdownTrigger>
-                 <Button variant="light" className="text-sm font-medium text-foreground">
-                   {username}
-                   <svg className="w-4 h-4 ml-1" fill="currentColor" viewBox="0 0 20 20">
-                     <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                   </svg>
-                 </Button>
-               </DropdownTrigger>
+            <Dropdown placement="bottom-end">
+              <DropdownTrigger>
+                <Button variant="light" className="text-sm font-medium text-foreground">
+                  {username}
+                  <svg className="w-4 h-4 ml-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </Button>
+              </DropdownTrigger>
               <DropdownMenu aria-label="用户菜单">
                 <DropdownItem
                   key="change-password"
@@ -374,8 +386,8 @@ export default function AdminLayout({
       </div>
 
       {/* 修改密码弹窗 */}
-      <Modal 
-        isOpen={isOpen} 
+      <Modal
+        isOpen={isOpen}
         onOpenChange={() => {
           onOpenChange();
           resetPasswordForm();
@@ -385,51 +397,51 @@ export default function AdminLayout({
         backdrop="blur"
         placement="center"
       >
-                 <ModalContent>
-           {(onClose: () => void) => (
+        <ModalContent>
+          {(onClose: () => void) => (
             <>
               <ModalHeader className="flex flex-col gap-1">修改密码</ModalHeader>
               <ModalBody>
-                                 <div className="space-y-4">
-                   <Input
-                     label="新用户名"
-                     placeholder="请输入新用户名（至少3位）"
-                     value={passwordForm.newUsername}
-                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, newUsername: e.target.value }))}
-                     variant="bordered"
-                   />
-                   <Input
-                     label="当前密码"
-                     type="password"
-                     placeholder="请输入当前密码"
-                     value={passwordForm.currentPassword}
-                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
-                     variant="bordered"
-                   />
-                   <Input
-                     label="新密码"
-                     type="password"
-                     placeholder="请输入新密码（至少6位）"
-                     value={passwordForm.newPassword}
-                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
-                     variant="bordered"
-                   />
-                   <Input
-                     label="确认密码"
-                     type="password"
-                     placeholder="请再次输入新密码"
-                     value={passwordForm.confirmPassword}
-                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                     variant="bordered"
-                   />
-                 </div>
+                <div className="space-y-4">
+                  <Input
+                    label="新用户名"
+                    placeholder="请输入新用户名（至少3位）"
+                    value={passwordForm.newUsername}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, newUsername: e.target.value }))}
+                    variant="bordered"
+                  />
+                  <Input
+                    label="当前密码"
+                    type="password"
+                    placeholder="请输入当前密码"
+                    value={passwordForm.currentPassword}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                    variant="bordered"
+                  />
+                  <Input
+                    label="新密码"
+                    type="password"
+                    placeholder="请输入新密码（至少6位）"
+                    value={passwordForm.newPassword}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                    variant="bordered"
+                  />
+                  <Input
+                    label="确认密码"
+                    type="password"
+                    placeholder="请再次输入新密码"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    variant="bordered"
+                  />
+                </div>
               </ModalBody>
               <ModalFooter>
                 <Button color="default" variant="light" onPress={onClose}>
                   取消
                 </Button>
-                <Button 
-                  color="primary" 
+                <Button
+                  color="primary"
                   onPress={handlePasswordSubmit}
                   isLoading={passwordLoading}
                 >

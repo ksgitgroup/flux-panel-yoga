@@ -88,4 +88,10 @@ export const updateConfig = (name: string, value: string) => Network.post("/conf
 // 验证码相关接口
 export const checkCaptcha = () => Network.post("/captcha/check");
 export const generateCaptcha = () => Network.post(`/captcha/generate`);
-export const verifyCaptcha = (data: { captchaId: string; trackData: string }) => Network.post("/captcha/verify", data); 
+export const verifyCaptcha = (data: { captchaId: string; trackData: string }) => Network.post("/captcha/verify", data);
+
+// 诊断相关接口
+export const getDiagnosisSummary = () => Network.post("/diagnosis/summary");
+export const getDiagnosisHistory = (data: { targetType: string; targetId: number; limit?: number }) =>
+  Network.post("/diagnosis/history", data);
+export const runDiagnosisNow = () => Network.post("/diagnosis/run-now");

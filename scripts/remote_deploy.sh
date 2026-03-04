@@ -18,6 +18,18 @@ DEPLOY_DIR="${3:-/opt/1panel/apps/local/flux-panel}"
 echo "📂 部署目录: $DEPLOY_DIR"
 echo "🏷️  使用本地镜像 Tag: $IMAGE_BASE/...:$IMAGE_TAG"
 
+# 自动检测 Docker Compose 命令 (V1 vs V2)
+if docker compose version >/dev/null 2>&1; then
+  DOCKER_COMPOSE_CMD="docker compose"
+  echo "🐳 检测到 Docker Compose V2 系统插件: docker compose"
+elif docker-compose version >/dev/null 2>&1; then
+  DOCKER_COMPOSE_CMD="docker-compose"
+  echo "🐳 检测到 Docker Compose V1 独立二进制: docker-compose"
+else
+  echo "❌ 错误: 未找到 docker compose 也没有 docker-compose 指令！请确认已安装 docker-compose。"
+  exit 1
+fi
+
 cd "$DEPLOY_DIR"
 
 # 自动生成 .env（仅首次）
@@ -47,9 +59,9 @@ cp docker-compose-v6.yml docker-compose.yml
 # 因为镜像现在统一在 GitHub Actions 构建并推送到 Docker Hub了，
 # 无论 dev 还是 prod 环境，都需要先拉取远程最新镜像
 echo "📥 正在拉取 Docker Hub 上的最新镜像..."
-docker-compose pull
+$DOCKER_COMPOSE_CMD pull
 
 echo "🚀 启动容器..."
-docker-compose up -d --remove-orphans
+$DOCKER_COMPOSE_CMD up -d --remove-orphans
 
 echo "✅ 容器启动完成 → $IMAGE_TAG"

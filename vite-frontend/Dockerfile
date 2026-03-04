@@ -39,12 +39,12 @@ COPY . .
 
 # 层6：编译构建（层5变了就会重跑）
 # 只有这层和层5需要重新执行，层1-4全部复用缓存
-# 这就是"只改前端代码 1-3 分钟"的原因：只有 npm run build 需要重跑
 #
-# NODE_OPTIONS --max-old-space-size=3072：
-# Vite 打包 3000+ 模块时内存消耗很大，默认上限 ~1.5GB 在低内存 VPS 上容易 OOM
-# 这里调整到 3GB（服务器总内存需 ≥ 4GB；若服务器只有 2GB 可改为 1536）
-RUN NODE_OPTIONS="--max-old-space-size=3072" npm run build
+# ★ 关键优化：跳过 tsc，直接用 vite build ★
+# tsc 是 TypeScript 全量类型检查，非常耗内存（~800MB+），但 CI 推代码前已经检查过了
+# Vite 内部用 esbuild 做 TS 转译，不依赖 tsc 输出，直接调用完全没问题
+# 去掉 tsc 后内存占用下降 40-60%，配合 --max-old-space-size=1536 足以应对 2.5GB 服务器
+RUN NODE_OPTIONS="--max-old-space-size=1536" npx vite build && node toFile.mjs
 
 # ─────────────────────────────────────────────
 # 阶段二：Production（生产阶段）

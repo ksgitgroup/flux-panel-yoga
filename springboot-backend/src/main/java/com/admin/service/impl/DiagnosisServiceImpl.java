@@ -81,7 +81,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             try {
                 R result = forwardService.diagnoseForward(forward.getId().longValue());
                 boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
-                saveRecord("forward", forward.getId(), forward.getName(), success, result.getData());
+                saveRecord("forward", forward.getId().intValue(), forward.getName(), success, result.getData());
 
                 if (!success) {
                     failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）%n> %s",

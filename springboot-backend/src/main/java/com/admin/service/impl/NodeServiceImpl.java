@@ -74,6 +74,10 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     @Resource
     ViteConfigService viteConfigService;
 
+    /** 节点安装脚本的下载地址（可通过环境变量 INSTALL_SCRIPT_URL 覆盖） */
+    @Value("${INSTALL_SCRIPT_URL:https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/refs/heads/main/install.sh}")
+    private String installScriptUrl;
+
 
     // ========== 公共接口实现 ==========
 
@@ -339,8 +343,8 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
 
         StringBuilder command = new StringBuilder();
         
-        // 第一部分：下载安装脚本  
-        command.append("curl -L https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main/install.sh")
+        // 第一部分：下载安装脚本（URL 来自环境变量 INSTALL_SCRIPT_URL）
+        command.append("curl -L ").append(installScriptUrl)
                .append(" -o ./install.sh && chmod +x ./install.sh && ");
         
         // 处理服务器地址，如果是IPv6需要添加方括号

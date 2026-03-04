@@ -1,0 +1,170 @@
+# =============================================================
+# flux-panel GitLab CI/CD 流水线
+#
+# 必须在 GitLab → Settings → CI/CD → Variables 中配置：
+#   DEPLOY_DEV_HOST    开发服务器 SSH 地址（如 192.168.1.100）
+#   DEPLOY_DEV_USER    开发服务器 SSH 用户（如 root）
+#   DEPLOY_DEV_KEY     开发服务器 SSH 私钥（类型 File，保密）
+#   DEPLOY_PROD_HOST   生产服务器 SSH 地址
+#   DEPLOY_PROD_USER   生产服务器 SSH 用户
+#   DEPLOY_PROD_KEY    生产服务器 SSH 私钥（类型 File，保密）
+#   DB_PASSWORD        数据库密码（保密）
+#   JWT_SECRET         JWT 密钥（保密）
+#   DB_NAME            数据库名（如 gost）
+#   DB_USER            数据库用户
+#   FRONTEND_PORT      前端暴露端口（如 6366）
+#   BACKEND_PORT       后端暴露端口（如 6365）
+# =============================================================
+
+# 使用 GitLab 内置 Container Registry 作为镜像仓库
+# 镜像地址格式：registry.gitlab.kingsungsz.com/yoga/flux-panel-yoga/...
+variables:
+  REGISTRY: $CI_REGISTRY
+  IMAGE_BASE: $CI_REGISTRY_IMAGE
+  # 开发镜像 tag 用 commit 短 SHA，生产用 latest
+  DEV_TAG: "dev-$CI_COMMIT_SHORT_SHA"
+  PROD_TAG: "latest"
+
+stages:
+  - build
+  - deploy
+
+# =============================================================
+# 登录 GitLab Container Registry
+# =============================================================
+.registry_login: &registry_login
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+# =============================================================
+# 阶段1：构建镜像（仅限 dev 和 main 分支）
+# =============================================================
+build:dev:
+  stage: build
+  <<: *registry_login
+  tags:
+    - flux-panel-runner   # 与 Runner 注册时的 tag 对应
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+  script:
+    - echo "🔨 构建前端镜像 [dev]..."
+    - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
+    - docker push "$IMAGE_BASE/vite-frontend:$DEV_TAG"
+    - echo "🔨 构建后端镜像 [dev]..."
+    - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
+    - docker push "$IMAGE_BASE/springboot-backend:$DEV_TAG"
+    - echo "✅ 开发镜像构建并推送完成：$DEV_TAG"
+
+build:prod:
+  stage: build
+  <<: *registry_login
+  tags:
+    - flux-panel-runner
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - echo "🔨 构建前端镜像 [prod]..."
+    - docker build -t "$IMAGE_BASE/vite-frontend:$PROD_TAG" ./vite-frontend
+    - docker push "$IMAGE_BASE/vite-frontend:$PROD_TAG"
+    - echo "🔨 构建后端镜像 [prod]..."
+    - docker build -t "$IMAGE_BASE/springboot-backend:$PROD_TAG" ./springboot-backend
+    - docker push "$IMAGE_BASE/springboot-backend:$PROD_TAG"
+    - echo "✅ 生产镜像构建并推送完成：$PROD_TAG"
+
+# =============================================================
+# 阶段2：部署到开发服务器（自动触发，推送 dev 分支即部署）
+# =============================================================
+deploy:dev:
+  stage: deploy
+  tags:
+    - flux-panel-runner
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+  environment:
+    name: development
+    url: http://$DEPLOY_DEV_HOST:$FRONTEND_PORT
+  script:
+    - echo "🚀 部署到开发服务器 $DEPLOY_DEV_HOST ..."
+    # 配置 SSH
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - cp "$DEPLOY_DEV_KEY" ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -p 22 "$DEPLOY_DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+    # 将需要的文件传到服务器
+    - |
+      scp -i ~/.ssh/id_rsa \
+        docker-compose-v6.yml \
+        gost.sql \
+        "$DEPLOY_DEV_USER@$DEPLOY_DEV_HOST:/opt/flux-panel/"
+
+    # SSH 到服务器执行部署命令
+    - |
+      ssh -i ~/.ssh/id_rsa "$DEPLOY_DEV_USER@$DEPLOY_DEV_HOST" bash << EOF
+        set -e
+        cd /opt/flux-panel
+
+        # 登录 Registry 拉取最新镜像
+        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+        # 写入 .env（每次部署覆盖镜像 tag，其他变量保持稳定）
+        cat > .env << ENVEOF
+IMAGE_REGISTRY=$IMAGE_BASE
+IMAGE_TAG=$DEV_TAG
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+JWT_SECRET=$JWT_SECRET
+FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_PORT=$BACKEND_PORT
+ENVEOF
+
+        # 更新 compose 文件并重新部署
+        cp docker-compose-v6.yml docker-compose.yml
+        docker compose pull
+        docker compose up -d --remove-orphans
+        echo "✅ 开发环境部署完成"
+EOF
+
+# =============================================================
+# 阶段2：部署到生产服务器（手动触发，合并到 main 后人工确认）
+# =============================================================
+deploy:prod:
+  stage: deploy
+  tags:
+    - flux-panel-runner
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual   # 必须手动在 GitLab 界面点击才会执行
+  environment:
+    name: production
+    url: http://$DEPLOY_PROD_HOST:$FRONTEND_PORT
+  script:
+    - echo "🚀 部署到生产服务器 $DEPLOY_PROD_HOST ..."
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - cp "$DEPLOY_PROD_KEY" ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -p 22 "$DEPLOY_PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+    - |
+      scp -i ~/.ssh/id_rsa \
+        docker-compose-v6.yml \
+        gost.sql \
+        "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:/opt/flux-panel/"
+    - |
+      ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST" bash << EOF
+        set -e
+        cd /opt/flux-panel
+        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+        cat > .env << ENVEOF
+IMAGE_REGISTRY=$IMAGE_BASE
+IMAGE_TAG=$PROD_TAG
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+JWT_SECRET=$JWT_SECRET
+FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_PORT=$BACKEND_PORT
+ENVEOF
+        cp docker-compose-v6.yml docker-compose.yml
+        docker compose pull
+        docker compose up -d --remove-orphans
+        echo "✅ 生产环境部署完成"
+EOF

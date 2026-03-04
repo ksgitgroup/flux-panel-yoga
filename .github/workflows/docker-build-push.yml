@@ -27,7 +27,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 3. 启用 BuildKit（内存更高效的 Docker 构建引擎）
+      # 3. 生成日期 Tag (例如 2026.03.04)
+      - name: Generate date tag
+        id: date
+        run: echo "date_tag=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+
+      # 4. 启用 BuildKit（内存更高效的 Docker 构建引擎）
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -38,7 +43,9 @@ jobs:
         with:
           context: ./vite-frontend
           push: true
-          tags: amerluya/flux-panel-yoga-frontend:latest
+          tags: |
+            amerluya/flux-panel-yoga-frontend:latest
+            amerluya/flux-panel-yoga-frontend:${{ steps.date.outputs.date_tag }}
           # GitHub Actions Cache：package.json 不变则 npm install 层直接复用
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -49,6 +56,8 @@ jobs:
         with:
           context: ./springboot-backend
           push: true
-          tags: amerluya/flux-panel-yoga-backend:latest
+          tags: |
+            amerluya/flux-panel-yoga-backend:latest
+            amerluya/flux-panel-yoga-backend:${{ steps.date.outputs.date_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

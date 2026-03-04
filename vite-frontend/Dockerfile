@@ -43,8 +43,8 @@ COPY . .
 # ★ 关键优化：跳过 tsc，直接用 vite build ★
 # tsc 是 TypeScript 全量类型检查，非常耗内存（~800MB+），但 CI 推代码前已经检查过了
 # Vite 内部用 esbuild 做 TS 转译，不依赖 tsc 输出，直接调用完全没问题
-# 去掉 tsc 后内存占用下降 40-60%，配合 --max-old-space-size=1536 足以应对 2.5GB 服务器
-RUN NODE_OPTIONS="--max-old-space-size=1536" npx vite build && node toFile.mjs
+# 修改 NODE_OPTIONS 为 4096：允许 Node.js 使用你刚加的 4GB Swap 虚拟内存，解决 dev 流水线的 OOM
+RUN NODE_OPTIONS="--max-old-space-size=4096" npx vite build && node toFile.mjs
 
 # ─────────────────────────────────────────────
 # 阶段二：Production（生产阶段）

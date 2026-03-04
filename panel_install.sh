@@ -10,7 +10,7 @@ export LC_ALL=C
 # ──────────────────────────────────────────────────────────────────
 # 下载地址配置
 #
-# 默认从 GitHub 主仓库拉取（prokingyoga/yoga-panel）。
+# 默认从 GitHub 主仓库拉取（ksgitgroup/flux-panel-yoga）。
 # 如需指向开发环境或私有 GitLab 仓库，可在执行脚本前设置环境变量：
 #
 #   PANEL_BASE_URL=https://gitlab.kingsungsz.com/yoga/flux-panel-yoga/-/raw/main \

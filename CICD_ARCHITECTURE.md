@@ -28,13 +28,13 @@ git push origin main
 你不必（也不应该）让 GitLab 的 Runner 跑一段脚本去强推 GitHub，GitLab 本身内置了一个非常强大的功能叫做 **Repository Mirroring（仓库镜像）**。
 
 **操作步骤**：
-1. **在 GitHub 准备仓库**：如果你还没建，先在 GitHub 上建一个同名的空仓库（如 `prokingyoga/yoga-panel`），设为 Public 或 Private 均可。
+1. **在 GitHub 准备仓库**：如果你还没建，先在 GitHub 上建一个同名的空仓库（如 `ksgitgroup/flux-panel-yoga`），设为 Public 或 Private 均可。
 2. **在 GitHub 获取 Token**：前往 GitHub -> Settings -> Developer settings -> Personal access tokens (Classic) -> 生成一个拥有 `repo` 权限的新 Token 并复制。
 3. **在 GitLab 配置镜像**：
    - 登录你的 GitLab `Yoga-Panel` 项目。
    - 左下角进入 **Settings (设置)** -> **Repository (仓库)**。
    - 展开 **Mirroring repositories (镜像仓库)**。
-   - **Git repository URL**: 填入你要推送到哪里的 GitHub 地址，**注意格式必须带上用户名**。例如：`https://prokingyoga@github.com/prokingyoga/yoga-panel.git`
+   - **Git repository URL**: 填入你要推送到哪里的 GitHub 地址，**注意格式必须带上用户名**。例如：`https://github.com/ksgitgroup/flux-panel-yoga.git`
    - **Mirror direction**: 选择 `Push`（推送端）。
    - **Authentication method**: 选择 `Password`。
    - **Password**: 粘贴你刚才在 GitHub 生成的 Token。
@@ -59,14 +59,14 @@ git push origin main
 
 既然我们的终结点分发通道定在了 GitHub，那么我们在生产环境 C 上执行的脚本，其内部的拉取链接**必须全量指回 GitHub**。
 
-**注意**：之前我们已经把脚本全改成了 GitLab 的地址，为了适配这个新的闭环架构，我会把当前代码库中的配置文件重新修改，把下载地址指回你新公开的 `https://raw.githubusercontent.com/prokingyoga/yoga-panel`。
+**注意**：之前我们已经把脚本全改成了 GitLab 的地址，为了适配这个新的闭环架构，我会把当前代码库中的配置文件重新修改，把下载地址指回你新公开的 `https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga`。
 
 **服务器 C 的使用方法**：
 当 GitLab 同步完代码到 GitHub 后（通常只要几秒钟）：
 1. 登录服务器 C。
 2. 执行面向 GitHub 的安装或更新指令（如果 GitHub 也是私有的，需要加上 Token，如果是公有的直接跑即可）：
 ```bash
-curl -L https://raw.githubusercontent.com/prokingyoga/yoga-panel/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 ```
 3. 在脚本弹出的菜单中选择 **“更新面板”**。脚本就又会去最新的 GitHub 仓库里把更新下来的 `docker-compose.yml` 等拖下来，重新编排启动 Docker。
 

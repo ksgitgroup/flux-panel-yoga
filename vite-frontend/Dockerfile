@@ -25,13 +25,8 @@ WORKDIR /app
 # 纯前端代码改动不会影响这层 → 缓存命中
 COPY package*.json ./
 
-# 层4：安装依赖（只有 package.json 变了才重新安装）
-# 你改了 src/pages/xxx.tsx？这层还是缓存 → npm install 不会重跑
-# ★ 这就是为什么"只改前端代码"比"修改依赖"快得多 ★
-#
-# --legacy-peer-deps：使用宽松的对等依赖策略（npm v6 风格）
-# 原因：@heroui 各组件包的版本号不完全统一，若不加此参数 npm 会拒绝安装
-RUN npm install --legacy-peer-deps
+# 层4：安装依赖（层3变了才会重跑）
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm install --legacy-peer-deps
 
 # 层5：复制所有源代码（src, public, 配置文件等）
 # 每次改了任何前端文件，这层都会失效 → 导致层6也失效

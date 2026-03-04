@@ -1,11 +1,12 @@
 name: Build & Push Docker Images
 
 # 触发条件：GitHub Actions 负责编译；
-# 每次 sync:github 把 main 分支推过来后自动触发
+# 每次 sync:github 把 main 或 dev 分支推过来后自动触发
 on:
   push:
     branches:
       - main
+      - dev
 
 jobs:
   build-and-push:
@@ -27,37 +28,43 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 3. 生成日期 Tag (例如 2026.03.04)
-      - name: Generate date tag
-        id: date
-        run: echo "date_tag=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+      # 3. 根据分支生成不同的镜像 Tags
+      - name: Generate tags
+        id: tags
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            date_tag=$(date +'%Y.%m.%d')
+            echo "front_tags=amerluya/flux-panel-yoga-frontend:latest,amerluya/flux-panel-yoga-frontend:${date_tag}" >> $GITHUB_OUTPUT
+            echo "back_tags=amerluya/flux-panel-yoga-backend:latest,amerluya/flux-panel-yoga-backend:${date_tag}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref_name }}" = "dev" ]; then
+            # 兼容 GitLab CI 的 8 位 SHA 长度
+            short_sha="${GITHUB_SHA::8}"
+            echo "front_tags=amerluya/flux-panel-yoga-frontend:dev-${short_sha},amerluya/flux-panel-yoga-frontend:dev-latest" >> $GITHUB_OUTPUT
+            echo "back_tags=amerluya/flux-panel-yoga-backend:dev-${short_sha},amerluya/flux-panel-yoga-backend:dev-latest" >> $GITHUB_OUTPUT
+          fi
 
       # 4. 启用 BuildKit（内存更高效的 Docker 构建引擎）
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 4. 构建并推送前端镜像
+      # 5. 构建并推送前端镜像
       #    GitHub Actions runner 有 7GB RAM，彻底解决 Server B 内存不足问题
       - name: Build & Push Frontend
         uses: docker/build-push-action@v5
         with:
           context: ./vite-frontend
           push: true
-          tags: |
-            amerluya/flux-panel-yoga-frontend:latest
-            amerluya/flux-panel-yoga-frontend:${{ steps.date.outputs.date_tag }}
+          tags: ${{ steps.tags.outputs.front_tags }}
           # GitHub Actions Cache：package.json 不变则 npm install 层直接复用
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 5. 构建并推送后端镜像
+      # 6. 构建并推送后端镜像
       - name: Build & Push Backend
         uses: docker/build-push-action@v5
         with:
           context: ./springboot-backend
           push: true
-          tags: |
-            amerluya/flux-panel-yoga-backend:latest
-            amerluya/flux-panel-yoga-backend:${{ steps.date.outputs.date_tag }}
+          tags: ${{ steps.tags.outputs.back_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

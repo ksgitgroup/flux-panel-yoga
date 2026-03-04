@@ -20,7 +20,9 @@ stages:
   - sync        # 同步到 GitHub，让安装脚本从公开 URL 下载到最新代码
 
 # ──────────────────────────────────────────────────────────────
-# dev 分支构建：本地打包两个镜像，不推送
+# dev 分支同步：将 dev 分支推送到 GitHub 触发 Actions 构建
+# （原始在本地 Server B 上的 docker build 步骤已注释保留在下方，
+#   若未来 Server B 升级大内存，可恢复使用本地构建）
 # ──────────────────────────────────────────────────────────────
 build:dev:
   stage: build
@@ -29,11 +31,22 @@ build:dev:
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
-    - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$DEV_TAG ..."
-    - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
-    - echo "🔨 构建后端镜像 $IMAGE_BASE/springboot-backend:$DEV_TAG ..."
-    - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
-    - echo "✅ 构建完成，镜像已保存在服务器本地"
+    - echo "ℹ️ dev 镜像构建已移交给 GitHub Actions（解决服务器 B 内存不足）"
+    - echo "🔄 正在同步 dev 代码到 GitHub 以触发构建..."
+    - git config --global user.email "ci@gitlab.kingsungsz.com"
+    - git config --global user.name "GitLab CI"
+    - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
+    - git push github "HEAD:dev" --force
+    - echo "✅ dev 代码已推送到 GitHub，GitHub Actions 开始自动构建并在 Docker Hub 打上 dev-$CI_COMMIT_SHORT_SHA 标签"
+
+    # ========= 【历史保留】原始 Server B 本地编译脚本 =========
+    # - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$DEV_TAG ..."
+    # - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
+    # - echo "🔨 构建后端镜像 $IMAGE_BASE/springboot-backend:$DEV_TAG ..."
+    # - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
+    # - echo "🧹 清理 dangling 镜像以节省空间"
+    # - docker image prune -f
+    # ========================================================
 
 # ──────────────────────────────────────────────────────────────
 # prod 分支构建：本地打 latest 标签
@@ -77,8 +90,24 @@ deploy:dev:
     - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
     - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
     - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
-    # 执行部署脚本（含 .env 生成 / 更新 + docker compose up）
-    - bash "$DEPLOY_DIR/remote_deploy.sh" "$IMAGE_BASE" "$DEV_TAG" "$DEPLOY_DIR"
+    # 执行部署脚本之前，等待 GitHub Actions 的镜像编译推送到 Docker Hub
+    - echo "⏳ 等待 GitHub Actions 编译前端镜像 (amerluya/flux-panel-yoga-frontend:$DEV_TAG) ..."
+    - |
+      for i in {1..30}; do
+        if docker pull "amerluya/flux-panel-yoga-frontend:$DEV_TAG" >/dev/null 2>&1; then
+          echo "✅ 镜像拉取成功，GitHub Actions 构建完成！"
+          break
+        fi
+        echo "⏳ 镜像还在编译中（预计2-3分钟），等待 20 秒... ($i/30)"
+        sleep 20
+        if [ "$i" -eq 30 ]; then
+          echo "❌ 等待超时，请检查 GitHub Actions 日志！"
+          exit 1
+        fi
+      done
+    
+    # 执行部署脚本（含 .env 生成 / 更新 + docker compose pull + up）
+    - bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "$DEV_TAG" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
 # prod 部署：生产环境在另一台机器，需通过 SSH 进行远程部署

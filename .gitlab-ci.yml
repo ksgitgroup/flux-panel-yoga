@@ -44,11 +44,16 @@ build:prod:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
-    - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$PROD_TAG ..."
-    - docker build -t "$IMAGE_BASE/vite-frontend:$PROD_TAG" ./vite-frontend
-    - echo "🔨 构建后端镜像 $IMAGE_BASE/springboot-backend:$PROD_TAG ..."
-    - docker build -t "$IMAGE_BASE/springboot-backend:$PROD_TAG" ./springboot-backend
-    - echo "✅ 构建完成，镜像已保存在服务器本地"
+    - echo "🔨 构建前端镜像..."
+    - docker build -t "amerluya/flux-panel-yoga-frontend:latest" ./vite-frontend
+    - echo "🔨 构建后端镜像..."
+    - docker build -t "amerluya/flux-panel-yoga-backend:latest" ./springboot-backend
+    # 登录 Docker Hub 并推送（需要在 GitLab Variables 中配置 DOCKERHUB_USERNAME 和 DOCKERHUB_TOKEN）
+    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+    - docker push "amerluya/flux-panel-yoga-frontend:latest"
+    - docker push "amerluya/flux-panel-yoga-backend:latest"
+    - docker logout
+    - echo "✅ 镜像已推送到 Docker Hub"
 
 # ──────────────────────────────────────────────────────────────
 # dev 部署：Runner 即在服务器 B，镜像在本地，直接启动

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -98,7 +98,7 @@ const StatCard = ({ label, value, color }: { label: string; value: number | stri
 );
 
 // ─── 单条诊断记录行 ───────────────────────────────────────
-const RecordRow = ({ record, adminMode }: { record: DiagnosisRecord; adminMode: boolean }) => {
+const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord; adminMode: boolean }) => {
     const [expanded, setExpanded] = useState(false);
     const [history, setHistory] = useState<DiagnosisRecord[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -137,8 +137,8 @@ const RecordRow = ({ record, adminMode }: { record: DiagnosisRecord; adminMode: 
     return (
         <>
             <div className={`border rounded-xl transition-all duration-200 ${record.overallSuccess
-                    ? 'border-success-200 dark:border-success-700/40 bg-success-50/30 dark:bg-success-900/10'
-                    : 'border-danger-200 dark:border-danger-700/40 bg-danger-50/30 dark:bg-danger-900/10'
+                ? 'border-success-200 dark:border-success-700/40 bg-success-50/30 dark:bg-success-900/10'
+                : 'border-danger-200 dark:border-danger-700/40 bg-danger-50/30 dark:bg-danger-900/10'
                 }`}>
                 {/* 主行 */}
                 <div
@@ -196,8 +196,8 @@ const RecordRow = ({ record, adminMode }: { record: DiagnosisRecord; adminMode: 
                                 {results.map((r, i) => (
                                     <div key={i}
                                         className={`flex items-center justify-between text-xs px-3 py-1.5 rounded-lg ${r.success
-                                                ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-400'
-                                                : 'bg-danger-50 dark:bg-danger-900/20 text-danger-700 dark:text-danger-400'
+                                            ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-400'
+                                            : 'bg-danger-50 dark:bg-danger-900/20 text-danger-700 dark:text-danger-400'
                                             }`}
                                     >
                                         <span className="font-medium">{r.description}</span>
@@ -226,8 +226,8 @@ const RecordRow = ({ record, adminMode }: { record: DiagnosisRecord; adminMode: 
                                         onClick={() => openDetail(h)}
                                         title={formatTime(h.createdTime)}
                                         className={`w-6 h-6 rounded-md transition-all hover:scale-110 ${h.overallSuccess
-                                                ? 'bg-success-400 dark:bg-success-600'
-                                                : 'bg-danger-400 dark:bg-danger-600'
+                                            ? 'bg-success-400 dark:bg-success-600'
+                                            : 'bg-danger-400 dark:bg-danger-600'
                                             }`}
                                     />
                                 ))}
@@ -251,8 +251,8 @@ const RecordRow = ({ record, adminMode }: { record: DiagnosisRecord; adminMode: 
                         {selectedRecord && parseResults(selectedRecord.resultsJson).map((r, i) => (
                             <div key={i}
                                 className={`flex flex-col gap-1 p-3 rounded-xl ${r.success
-                                        ? 'bg-success-50 dark:bg-success-900/20'
-                                        : 'bg-danger-50 dark:bg-danger-900/20'
+                                    ? 'bg-success-50 dark:bg-success-900/20'
+                                    : 'bg-danger-50 dark:bg-danger-900/20'
                                     }`}
                             >
                                 <div className="flex justify-between items-center">

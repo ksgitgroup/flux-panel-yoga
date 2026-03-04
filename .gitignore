@@ -155,8 +155,13 @@ jspm_packages/
 .yarn-integrity
 
 # dotenv environment variables file
+# .env.example 是模板，允许进入 git
+# 其他所有 .env.* 文件含有真实密钥，绝对不能进 git
 .env
 .env.local
+.env.dev
+.env.prod
+.env.staging
 .env.development.local
 .env.test.local
 .env.production.local

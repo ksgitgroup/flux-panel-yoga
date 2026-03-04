@@ -21,9 +21,11 @@ services:
     networks:
       - gost-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\" 2>/dev/null || exit 1"]
+      interval: 10s
       timeout: 10s
       retries: 10
+      start_period: 30s
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin

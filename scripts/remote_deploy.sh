@@ -54,6 +54,17 @@ else
   sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|" .env
 fi
 
+# 安全检查：确保 gost.sql 是一个文件而不是空文件夹（Docker 挂载神坑防御）
+if [ -d "gost.sql" ]; then
+  echo "⚠️  检测到 gost.sql 是一个目录（Docker 挂载残留），正在修复..."
+  rm -rf gost.sql
+fi
+if [ ! -f "gost.sql" ]; then
+  echo "❌ 错误: gost.sql 文件不存在！请确保 CI 流水线已正确复制该文件。"
+  exit 1
+fi
+echo "✅ gost.sql 文件校验通过"
+
 cp docker-compose-v6.yml docker-compose.yml
 
 # 因为镜像现在统一在 GitHub Actions 构建并推送到 Docker Hub了，

@@ -2,17 +2,18 @@
 # flux-panel GitLab CI/CD 流水线
 #
 # 架构：GitLab Runner 安装在服务器 B 上（shell executor）
-#   → CI 直接在服务器本地执行命令，无需 SSH
+#   → deploy:dev 直接本机执行（无 SSH）
+#   → deploy:prod SSH 到生产服务器
 #
 # 流程：
 #   推送 dev  → build:dev  → deploy:dev（自动）
 #   推送 main → build:prod → deploy:prod（手动触发）
 #
-# GitLab CI/CD Variables（Settings → CI/CD → Variables）：
-#   开发环境（dev）：无需配置任何变量！
-#   生产环境（prod）：
+# GitLab CI/CD Variables 配置（Settings → CI/CD → Variables）：
+#   开发环境：无需配置任何变量！
+#   生产环境（将来用）：
 #     DEPLOY_PROD_HOST  生产服务器 IP
-#     DEPLOY_PROD_USER  SSH 用户（如 root）
+#     DEPLOY_PROD_USER  SSH 用户
 #     DEPLOY_PROD_KEY   SSH 私钥（类型 File）
 # =============================================================
 
@@ -27,7 +28,7 @@ stages:
   - deploy
 
 # ──────────────────────────────────────────────────────────────
-# 构建：dev 分支 → 打 dev-<sha> 标签
+# dev 分支：构建并推送镜像（打 dev-<sha> 标签）
 # ──────────────────────────────────────────────────────────────
 build:dev:
   stage: build
@@ -38,16 +39,16 @@ build:dev:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - echo "🔨 构建前端镜像 tag=$DEV_TAG ..."
+    - echo "🔨 构建前端 $DEV_TAG"
     - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
     - docker push "$IMAGE_BASE/vite-frontend:$DEV_TAG"
-    - echo "🔨 构建后端镜像 tag=$DEV_TAG ..."
+    - echo "🔨 构建后端 $DEV_TAG"
     - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
     - docker push "$IMAGE_BASE/springboot-backend:$DEV_TAG"
-    - echo "✅ 镜像推送完成 → $DEV_TAG"
+    - echo "✅ 构建推送完成 $DEV_TAG"
 
 # ──────────────────────────────────────────────────────────────
-# 构建：main 分支 → 打 latest 标签
+# main 分支：构建并推送镜像（打 latest 标签）
 # ──────────────────────────────────────────────────────────────
 build:prod:
   stage: build
@@ -58,20 +59,16 @@ build:prod:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - echo "🔨 构建前端镜像 tag=$PROD_TAG ..."
+    - echo "🔨 构建前端 $PROD_TAG"
     - docker build -t "$IMAGE_BASE/vite-frontend:$PROD_TAG" ./vite-frontend
     - docker push "$IMAGE_BASE/vite-frontend:$PROD_TAG"
-    - echo "🔨 构建后端镜像 tag=$PROD_TAG ..."
+    - echo "🔨 构建后端 $PROD_TAG"
     - docker build -t "$IMAGE_BASE/springboot-backend:$PROD_TAG" ./springboot-backend
     - docker push "$IMAGE_BASE/springboot-backend:$PROD_TAG"
-    - echo "✅ 镜像推送完成 → $PROD_TAG"
+    - echo "✅ 构建推送完成 $PROD_TAG"
 
 # ──────────────────────────────────────────────────────────────
-# 部署：Runner 在服务器 B → 本机直接执行，无需 SSH
-#
-# .env 处理：
-#   首次（.env 不存在）→ 用 echo 自动生成，随机强密码
-#   非首次（.env 已存在）→ 只用 sed 更新 IMAGE_REGISTRY / IMAGE_TAG
+# dev 部署：Runner 在服务器 B → 直接本机执行 deploy 脚本
 # ──────────────────────────────────────────────────────────────
 deploy:dev:
   stage: deploy
@@ -82,37 +79,15 @@ deploy:dev:
   environment:
     name: development
   script:
-    - mkdir -p $DEPLOY_DIR && cd $DEPLOY_DIR
-    - cp $CI_PROJECT_DIR/docker-compose-v6.yml docker-compose.yml
-    - cp $CI_PROJECT_DIR/gost.sql gost.sql
-    - |
-      if [ ! -f .env ]; then
-        echo "📝 首次部署：自动生成 .env ..."
-        DB_NAME="gost_$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c6)"
-        DB_USER="user_$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c8)"
-        DB_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c24)"
-        JWT_SECRET="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c32)"
-        echo "IMAGE_REGISTRY=$IMAGE_BASE" > .env
-        echo "IMAGE_TAG=$DEV_TAG" >> .env
-        echo "DB_NAME=$DB_NAME" >> .env
-        echo "DB_USER=$DB_USER" >> .env
-        echo "DB_PASSWORD=$DB_PASSWORD" >> .env
-        echo "JWT_SECRET=$JWT_SECRET" >> .env
-        echo "FRONTEND_PORT=6366" >> .env
-        echo "BACKEND_PORT=6365" >> .env
-        echo "✅ .env 已生成（随机密码）"
-      else
-        echo "⏭️ .env 已存在，仅更新镜像信息..."
-        sed -i "s|^IMAGE_REGISTRY=.*|IMAGE_REGISTRY=$IMAGE_BASE|" .env
-        sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$DEV_TAG|" .env
-      fi
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - docker compose pull
-    - docker compose up -d --remove-orphans
-    - echo "✅ 开发环境部署完成 → $DEV_TAG"
+    - mkdir -p $DEPLOY_DIR
+    - cp $CI_PROJECT_DIR/docker-compose-v6.yml $DEPLOY_DIR/docker-compose-v6.yml
+    - cp $CI_PROJECT_DIR/gost.sql $DEPLOY_DIR/gost.sql
+    - cp $CI_PROJECT_DIR/scripts/remote_deploy.sh $DEPLOY_DIR/remote_deploy.sh
+    - chmod +x $DEPLOY_DIR/remote_deploy.sh
+    - bash $DEPLOY_DIR/remote_deploy.sh "$IMAGE_BASE" "$DEV_TAG" "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
-# 部署：生产服务器（不同机器，需要 SSH）→ 手动触发
+# prod 部署：SSH 到生产服务器 → 手动触发
 # ──────────────────────────────────────────────────────────────
 deploy:prod:
   stage: deploy
@@ -128,31 +103,5 @@ deploy:prod:
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - cp "$DEPLOY_PROD_KEY" ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -p 22 "$DEPLOY_PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-    - scp -i ~/.ssh/id_rsa docker-compose-v6.yml gost.sql "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:$DEPLOY_DIR/"
-    - |
-      ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST" bash -s << 'ENDSSH'
-        set -e
-        cd /opt/1panel/apps/local/flux-panel
-        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-        if [ ! -f .env ]; then
-          DB_NAME="gost_$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c6)"
-          DB_USER="user_$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c8)"
-          DB_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c24)"
-          JWT_SECRET="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c32)"
-          echo "IMAGE_REGISTRY=$IMAGE_BASE" > .env
-          echo "IMAGE_TAG=$PROD_TAG" >> .env
-          echo "DB_NAME=$DB_NAME" >> .env
-          echo "DB_USER=$DB_USER" >> .env
-          echo "DB_PASSWORD=$DB_PASSWORD" >> .env
-          echo "JWT_SECRET=$JWT_SECRET" >> .env
-          echo "FRONTEND_PORT=6366" >> .env
-          echo "BACKEND_PORT=6365" >> .env
-        else
-          sed -i "s|^IMAGE_REGISTRY=.*|IMAGE_REGISTRY=$IMAGE_BASE|" .env
-          sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$PROD_TAG|" .env
-        fi
-        cp docker-compose-v6.yml docker-compose.yml
-        docker compose pull
-        docker compose up -d --remove-orphans
-        echo "✅ 生产环境部署完成"
-ENDSSH
+    - scp -i ~/.ssh/id_rsa docker-compose-v6.yml gost.sql scripts/remote_deploy.sh "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:$DEPLOY_DIR/"
+    - ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST" "chmod +x $DEPLOY_DIR/remote_deploy.sh && bash $DEPLOY_DIR/remote_deploy.sh '$IMAGE_BASE' '$PROD_TAG' '$CI_REGISTRY_USER' '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY' '$DEPLOY_DIR'"

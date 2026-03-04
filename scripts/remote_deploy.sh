@@ -1,33 +1,24 @@
 #!/bin/bash
 # ============================================================
-# remote_deploy.sh — 部署脚本（由 CI/CD 通过 SSH 调用）
+# remote_deploy.sh — 部署脚本（纯本地镜像版）
 #
 # 用法：
-#   bash remote_deploy.sh <IMAGE_BASE> <IMAGE_TAG> \
-#        <REGISTRY_USER> <REGISTRY_PASS> <REGISTRY> <DEPLOY_DIR>
+#   bash remote_deploy.sh <IMAGE_BASE> <IMAGE_TAG> <DEPLOY_DIR>
 #
 # 功能：
-#   1. 登录 Docker Registry
-#   2. 首次运行时自动生成 .env（随机密码）
-#   3. 非首次只更新 IMAGE_REGISTRY / IMAGE_TAG
-#   4. docker compose pull && up
+#   1. 自动生成 .env 或更新镜像版本参数
+#   2. 直接使用本地打好的镜像启动（无需 pull）
 # ============================================================
 set -e
 
 IMAGE_BASE="$1"
 IMAGE_TAG="$2"
-REGISTRY_USER="$3"
-REGISTRY_PASS="$4"
-REGISTRY="$5"
-DEPLOY_DIR="${6:-/opt/1panel/apps/local/flux-panel}"
+DEPLOY_DIR="${3:-/opt/1panel/apps/local/flux-panel}"
 
 echo "📂 部署目录: $DEPLOY_DIR"
-echo "🏷️  镜像 Tag: $IMAGE_TAG"
+echo "🏷️  使用本地镜像 Tag: $IMAGE_BASE/...:$IMAGE_TAG"
 
 cd "$DEPLOY_DIR"
-
-# 登录 Registry
-docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASS" "$REGISTRY"
 
 # 自动生成 .env（仅首次）
 if [ ! -f .env ]; then
@@ -52,6 +43,8 @@ else
 fi
 
 cp docker-compose-v6.yml docker-compose.yml
-docker compose pull
+
+# 剔除 docker login 和 docker compose pull，因为镜像是就在本机刚打完的
 docker compose up -d --remove-orphans
-echo "✅ 部署完成 → $IMAGE_TAG"
+
+echo "✅ 容器启动完成 → $IMAGE_TAG"

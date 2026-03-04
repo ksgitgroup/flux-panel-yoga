@@ -85,6 +85,8 @@ deploy:dev:
   script:
     # 确保部署目录存在
     - mkdir -p "$DEPLOY_DIR"
+    # 防御性清理：如果 gost.sql 被 Docker 意外创建为目录，先删掉
+    - '[ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true'
     # 从仓库复制所需文件到部署目录
     - cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
     - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"

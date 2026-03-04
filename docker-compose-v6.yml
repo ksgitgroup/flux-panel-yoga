@@ -53,7 +53,6 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_DIR: /app/logs
       JAVA_OPTS: "-Xms256m -Xmx512m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
-      INSTALL_SCRIPT_URL: ${INSTALL_SCRIPT_URL:-}
     ports:
       - "${BACKEND_PORT}:6365"
     volumes:

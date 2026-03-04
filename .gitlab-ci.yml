@@ -35,8 +35,7 @@ build:dev:
     - echo "🔄 正在同步 dev 代码到 GitHub 以触发构建..."
     - git config --global user.email "ci@gitlab.kingsungsz.com"
     - git config --global user.name "GitLab CI"
-    - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
-    - git push github "HEAD:dev" --force
+    - git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:dev" --force
     - echo "✅ dev 代码已推送到 GitHub，GitHub Actions 开始自动构建并在 Docker Hub 打上 dev-$CI_COMMIT_SHORT_SHA 标签"
 
     # ========= 【历史保留】原始 Server B 本地编译脚本 =========
@@ -64,8 +63,7 @@ build:prod:
     - echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."
     - git config --global user.email "ci@gitlab.kingsungsz.com"
     - git config --global user.name "GitLab CI"
-    - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
-    - git push github "HEAD:main" --force
+    - git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:main" --force
     - echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建并推送镜像到 Docker Hub"
 
 

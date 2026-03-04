@@ -1,79 +1,80 @@
 # =============================================================
 # flux-panel GitLab CI/CD 流水线
 #
+# 设计原则：
+#   - DB_PASSWORD / JWT_SECRET / 端口等配置，只存在于目标服务器的
+#     .env 文件中，首次部署时手动配置一次即可。CI/CD 不接触它们。
+#   - CI/CD 变量中只需配置 SSH 连接信息（非敏感 + 密钥）。
+#
 # 必须在 GitLab → Settings → CI/CD → Variables 中配置：
-#   DEPLOY_DEV_HOST    开发服务器 SSH 地址（如 192.168.1.100）
+#   DEPLOY_DEV_HOST    开发服务器 IP（如 192.168.1.100）
 #   DEPLOY_DEV_USER    开发服务器 SSH 用户（如 root）
-#   DEPLOY_DEV_KEY     开发服务器 SSH 私钥（类型 File，保密）
-#   DEPLOY_PROD_HOST   生产服务器 SSH 地址
-#   DEPLOY_PROD_USER   生产服务器 SSH 用户
-#   DEPLOY_PROD_KEY    生产服务器 SSH 私钥（类型 File，保密）
-#   DB_PASSWORD        数据库密码（保密）
-#   JWT_SECRET         JWT 密钥（保密）
-#   DB_NAME            数据库名（如 gost）
-#   DB_USER            数据库用户
-#   FRONTEND_PORT      前端暴露端口（如 6366）
-#   BACKEND_PORT       后端暴露端口（如 6365）
+#   DEPLOY_DEV_KEY     SSH 私钥内容（类型选 File，打开 Masked）
+#   DEPLOY_PROD_HOST   生产服务器 IP（可选，生产环境才需要）
+#   DEPLOY_PROD_USER   生产服务器 SSH 用户（可选）
+#   DEPLOY_PROD_KEY    生产服务器 SSH 私钥（可选，类型 File）
+#
+# 服务器上首次手动配置（只做一次）：
+#   mkdir -p /opt/flux-panel
+#   cp .env.example /opt/flux-panel/.env
+#   vi /opt/flux-panel/.env     # 填入密码、端口等真实值
 # =============================================================
 
-# 使用 GitLab 内置 Container Registry 作为镜像仓库
-# 镜像地址格式：registry.gitlab.kingsungsz.com/yoga/flux-panel-yoga/...
 variables:
-  REGISTRY: $CI_REGISTRY
   IMAGE_BASE: $CI_REGISTRY_IMAGE
-  # 开发镜像 tag 用 commit 短 SHA，生产用 latest
   DEV_TAG: "dev-$CI_COMMIT_SHORT_SHA"
   PROD_TAG: "latest"
+  DEPLOY_DIR: "/opt/flux-panel"
 
 stages:
   - build
   - deploy
 
-# =============================================================
-# 登录 GitLab Container Registry
-# =============================================================
-.registry_login: &registry_login
-  before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-
-# =============================================================
-# 阶段1：构建镜像（仅限 dev 和 main 分支）
-# =============================================================
+# ──────────────────────────────────────────────────────────────
+# 构建：dev 分支 → 打 dev-<sha> 标签
+# ──────────────────────────────────────────────────────────────
 build:dev:
   stage: build
-  <<: *registry_login
   tags:
-    - flux-panel-runner   # 与 Runner 注册时的 tag 对应
+    - flux-panel-runner
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - echo "🔨 构建前端镜像 [dev]..."
+    - echo "🔨 构建前端镜像..."
     - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
     - docker push "$IMAGE_BASE/vite-frontend:$DEV_TAG"
-    - echo "🔨 构建后端镜像 [dev]..."
+    - echo "🔨 构建后端镜像..."
     - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
     - docker push "$IMAGE_BASE/springboot-backend:$DEV_TAG"
-    - echo "✅ 开发镜像构建并推送完成：$DEV_TAG"
+    - echo "✅ 镜像推送完成 → $DEV_TAG"
 
+# ──────────────────────────────────────────────────────────────
+# 构建：main 分支 → 打 latest 标签
+# ──────────────────────────────────────────────────────────────
 build:prod:
   stage: build
-  <<: *registry_login
   tags:
     - flux-panel-runner
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - echo "🔨 构建前端镜像 [prod]..."
+    - echo "🔨 构建前端镜像（生产）..."
     - docker build -t "$IMAGE_BASE/vite-frontend:$PROD_TAG" ./vite-frontend
     - docker push "$IMAGE_BASE/vite-frontend:$PROD_TAG"
-    - echo "🔨 构建后端镜像 [prod]..."
+    - echo "🔨 构建后端镜像（生产）..."
     - docker build -t "$IMAGE_BASE/springboot-backend:$PROD_TAG" ./springboot-backend
     - docker push "$IMAGE_BASE/springboot-backend:$PROD_TAG"
-    - echo "✅ 生产镜像构建并推送完成：$PROD_TAG"
+    - echo "✅ 镜像推送完成 → $PROD_TAG"
 
-# =============================================================
-# 阶段2：部署到开发服务器（自动触发，推送 dev 分支即部署）
-# =============================================================
+# ──────────────────────────────────────────────────────────────
+# 部署：自动部署到开发服务器
+# CI 只更新 IMAGE_REGISTRY 和 IMAGE_TAG 两行，
+# 服务器本地 .env 中的 DB 密码 / JWT / 端口等完全不经过 CI
+# ──────────────────────────────────────────────────────────────
 deploy:dev:
   stage: deploy
   tags:
@@ -82,62 +83,53 @@ deploy:dev:
     - if: $CI_COMMIT_BRANCH == "dev"
   environment:
     name: development
-    url: http://$DEPLOY_DEV_HOST:$FRONTEND_PORT
+    url: http://$DEPLOY_DEV_HOST
   script:
     - echo "🚀 部署到开发服务器 $DEPLOY_DEV_HOST ..."
-    # 配置 SSH
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - cp "$DEPLOY_DEV_KEY" ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -p 22 "$DEPLOY_DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-    # 将需要的文件传到服务器
+    # 将 compose 文件和 sql 同步到服务器（结构变更时生效）
     - |
       scp -i ~/.ssh/id_rsa \
         docker-compose-v6.yml \
         gost.sql \
-        "$DEPLOY_DEV_USER@$DEPLOY_DEV_HOST:/opt/flux-panel/"
+        "$DEPLOY_DEV_USER@$DEPLOY_DEV_HOST:$DEPLOY_DIR/"
 
-    # SSH 到服务器执行部署命令
+    # SSH：只更新镜像地址和 Tag，其余 .env 变量保持不变
     - |
-      ssh -i ~/.ssh/id_rsa "$DEPLOY_DEV_USER@$DEPLOY_DEV_HOST" bash << EOF
+      ssh -i ~/.ssh/id_rsa "$DEPLOY_DEV_USER@$DEPLOY_DEV_HOST" << 'SSHEOF'
         set -e
         cd /opt/flux-panel
 
-        # 登录 Registry 拉取最新镜像
-        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+        # 用 CI 内置凭据登录 Registry（无需人工配置）
+        docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
 
-        # 写入 .env（每次部署覆盖镜像 tag，其他变量保持稳定）
-        cat > .env << ENVEOF
-IMAGE_REGISTRY=$IMAGE_BASE
-IMAGE_TAG=$DEV_TAG
-DB_NAME=$DB_NAME
-DB_USER=$DB_USER
-DB_PASSWORD=$DB_PASSWORD
-JWT_SECRET=$JWT_SECRET
-FRONTEND_PORT=$FRONTEND_PORT
-BACKEND_PORT=$BACKEND_PORT
-ENVEOF
+        # 只改这两行，保留服务器上人工配置的其他变量
+        sed -i "s|^IMAGE_REGISTRY=.*|IMAGE_REGISTRY=${IMAGE_BASE}|" .env
+        sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${DEV_TAG}|" .env
 
-        # 更新 compose 文件并重新部署
         cp docker-compose-v6.yml docker-compose.yml
         docker compose pull
         docker compose up -d --remove-orphans
-        echo "✅ 开发环境部署完成"
-EOF
+        echo "✅ 开发环境部署完成 → ${DEV_TAG}"
+SSHEOF
 
-# =============================================================
-# 阶段2：部署到生产服务器（手动触发，合并到 main 后人工确认）
-# =============================================================
+# ──────────────────────────────────────────────────────────────
+# 部署：手动触发，部署到生产服务器
+# 合并到 main 后需在 GitLab UI 手动点击 ▶ 才会执行
+# ──────────────────────────────────────────────────────────────
 deploy:prod:
   stage: deploy
   tags:
     - flux-panel-runner
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
-      when: manual   # 必须手动在 GitLab 界面点击才会执行
+      when: manual
   environment:
     name: production
-    url: http://$DEPLOY_PROD_HOST:$FRONTEND_PORT
+    url: http://$DEPLOY_PROD_HOST
   script:
     - echo "🚀 部署到生产服务器 $DEPLOY_PROD_HOST ..."
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -147,24 +139,16 @@ deploy:prod:
       scp -i ~/.ssh/id_rsa \
         docker-compose-v6.yml \
         gost.sql \
-        "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:/opt/flux-panel/"
+        "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:$DEPLOY_DIR/"
     - |
-      ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST" bash << EOF
+      ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST" << 'SSHEOF'
         set -e
         cd /opt/flux-panel
-        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-        cat > .env << ENVEOF
-IMAGE_REGISTRY=$IMAGE_BASE
-IMAGE_TAG=$PROD_TAG
-DB_NAME=$DB_NAME
-DB_USER=$DB_USER
-DB_PASSWORD=$DB_PASSWORD
-JWT_SECRET=$JWT_SECRET
-FRONTEND_PORT=$FRONTEND_PORT
-BACKEND_PORT=$BACKEND_PORT
-ENVEOF
+        docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+        sed -i "s|^IMAGE_REGISTRY=.*|IMAGE_REGISTRY=${IMAGE_BASE}|" .env
+        sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PROD_TAG}|" .env
         cp docker-compose-v6.yml docker-compose.yml
         docker compose pull
         docker compose up -d --remove-orphans
-        echo "✅ 生产环境部署完成"
-EOF
+        echo "✅ 生产环境部署完成 → ${PROD_TAG}"
+SSHEOF

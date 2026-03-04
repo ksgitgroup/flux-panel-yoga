@@ -7,20 +7,38 @@ export LC_ALL=C
 
 
 
-# 全局下载地址配置
-DOCKER_COMPOSEV4_URL="https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main/docker-compose-v4.yml"
-DOCKER_COMPOSEV6_URL="https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main/docker-compose-v6.yml"
-GOST_SQL_URL="https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main/gost.sql"
-PROXY_SH_URL="https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main/proxy.sh"
+# ──────────────────────────────────────────────────────────────────
+# 下载地址配置
+#
+# 默认从 GitHub 主仓库拉取（prokingyoga/yoga-panel）。
+# 如需指向开发环境或私有 GitLab 仓库，可在执行脚本前设置环境变量：
+#
+#   PANEL_BASE_URL=https://gitlab.kingsungsz.com/yoga/flux-panel-yoga/-/raw/main \
+#     bash panel_install.sh
+#
+# 注意：PANEL_BASE_URL 应以 /raw/<分支名> 结尾，且不带末尾斜杠
+# ──────────────────────────────────────────────────────────────────
 
-COUNTRY=$(curl -s https://ipinfo.io/country)
-if [ "$COUNTRY" = "CN" ]; then
-    # 拼接 URL
-    DOCKER_COMPOSEV4_URL="https://ghfast.top/${DOCKER_COMPOSEV4_URL}"
-    DOCKER_COMPOSEV6_URL="https://ghfast.top/${DOCKER_COMPOSEV6_URL}"
-    GOST_SQL_URL="https://ghfast.top/${GOST_SQL_URL}"
-    PROXY_SH_URL="https://ghfast.top/${PROXY_SH_URL}"
+# 默认值：指向 GitHub 主仓库 main 分支
+_DEFAULT_BASE_URL="https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main"
+
+# 优先使用外部传入的 PANEL_BASE_URL，否则使用默认值
+PANEL_BASE_URL="${PANEL_BASE_URL:-$_DEFAULT_BASE_URL}"
+
+# 中国大陆加速（仅对 GitHub 原始地址生效，GitLab 私有地址无需加速）
+COUNTRY=$(curl -s --connect-timeout 5 https://ipinfo.io/country 2>/dev/null || echo "")
+if [ "$COUNTRY" = "CN" ] && [[ "$PANEL_BASE_URL" == *"githubusercontent.com"* ]]; then
+    PANEL_BASE_URL="https://ghfast.top/${PANEL_BASE_URL}"
+    echo "🇨🇳 检测到中国大陆网络，启用加速镜像"
 fi
+
+# 从 PANEL_BASE_URL 拼接各资源地址（支持从任意 Git 托管服务拉取）
+DOCKER_COMPOSEV4_URL="${PANEL_BASE_URL}/docker-compose-v4.yml"
+DOCKER_COMPOSEV6_URL="${PANEL_BASE_URL}/docker-compose-v6.yml"
+GOST_SQL_URL="${PANEL_BASE_URL}/gost.sql"
+PROXY_SH_URL="${PANEL_BASE_URL}/proxy.sh"
+
+echo "📡 代码源地址: $PANEL_BASE_URL"
 
 
 

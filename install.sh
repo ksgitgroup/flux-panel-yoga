@@ -1,12 +1,25 @@
 #!/bin/bash
-# 下载地址
-DOWNLOAD_URL="https://github.com/prokingyoga/yoga-panel/releases/download/gost-latest/gost"
-INSTALL_DIR="/etc/gost"
-COUNTRY=$(curl -s https://ipinfo.io/country)
-if [ "$COUNTRY" = "CN" ]; then
-    # 拼接 URL
+# ──────────────────────────────────────────────────────────────────
+# Gost 二进制下载地址
+#
+# 默认从 GitHub Releases 下载最新版 gost 二进制。
+# 如需使用其他来源（如私有存储或内网镜像），可在执行前设置环境变量：
+#
+#   GOST_DOWNLOAD_URL=https://your-mirror.example.com/gost bash install.sh
+#
+# ──────────────────────────────────────────────────────────────────
+_DEFAULT_GOST_URL="https://github.com/prokingyoga/yoga-panel/releases/download/gost-latest/gost"
+
+# 优先使用外部传入的 GOST_DOWNLOAD_URL
+DOWNLOAD_URL="${GOST_DOWNLOAD_URL:-$_DEFAULT_GOST_URL}"
+
+# 中国大陆加速（仅对 GitHub 原始地址生效）
+COUNTRY=$(curl -s --connect-timeout 5 https://ipinfo.io/country 2>/dev/null || echo "")
+if [ "$COUNTRY" = "CN" ] && [[ "$DOWNLOAD_URL" == *"github.com"* ]]; then
     DOWNLOAD_URL="https://ghfast.top/${DOWNLOAD_URL}"
+    echo "🇨🇳 检测到中国大陆网络，启用加速镜像"
 fi
+echo "📡 Gost 下载地址: $DOWNLOAD_URL"
 
 
 

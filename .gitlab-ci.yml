@@ -10,7 +10,7 @@
 
 variables:
   IMAGE_BASE: "flux-panel-local"             # 本地镜像命名空间（无需 Registry）
-  DEV_TAG: "dev-$CI_COMMIT_SHORT_SHA"        # dev 镜像 tag，如 dev-9c56fc8a
+  DEV_TAG: "dev-latest"                       # dev 统一使用滚动标签，避免 SHA 不一致
   PROD_TAG: "latest"                          # prod 镜像 tag
   DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"  # 服务器 B 部署目录
 
@@ -93,11 +93,12 @@ deploy:dev:
     - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
     - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
     # 执行部署脚本之前，等待 GitHub Actions 的镜像编译推送到 Docker Hub
-    - echo "⏳ 等待 GitHub Actions 编译前端镜像 (amerluya/flux-panel-yoga-frontend:$DEV_TAG) ..."
+    # 注意：GitHub 的 commit SHA 和 GitLab 不一致，所以统一用 dev-latest 滚动标签
+    - echo "⏳ 等待 GitHub Actions 编译后端镜像 (amerluya/flux-panel-yoga-backend:$DEV_TAG) ..."
     - |
       for i in {1..30}; do
-        if docker pull "amerluya/flux-panel-yoga-frontend:$DEV_TAG" >/dev/null 2>&1; then
-          echo "✅ 镜像拉取成功，GitHub Actions 构建完成！"
+        if docker pull "amerluya/flux-panel-yoga-backend:$DEV_TAG" >/dev/null 2>&1; then
+          echo "✅ 后端镜像拉取成功，GitHub Actions 构建完成！"
           break
         fi
         echo "⏳ 镜像还在编译中（预计2-3分钟），等待 20 秒... ($i/30)"

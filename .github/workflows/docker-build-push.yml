@@ -37,10 +37,9 @@ jobs:
             echo "front_tags=amerluya/flux-panel-yoga-frontend:latest,amerluya/flux-panel-yoga-frontend:${date_tag}" >> $GITHUB_OUTPUT
             echo "back_tags=amerluya/flux-panel-yoga-backend:latest,amerluya/flux-panel-yoga-backend:${date_tag}" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref_name }}" = "dev" ]; then
-            # 兼容 GitLab CI 的 8 位 SHA 长度
-            short_sha="${GITHUB_SHA::8}"
-            echo "front_tags=amerluya/flux-panel-yoga-frontend:dev-${short_sha},amerluya/flux-panel-yoga-frontend:dev-latest" >> $GITHUB_OUTPUT
-            echo "back_tags=amerluya/flux-panel-yoga-backend:dev-${short_sha},amerluya/flux-panel-yoga-backend:dev-latest" >> $GITHUB_OUTPUT
+            # dev 分支只用 dev-latest 滚动标签（避免 Docker Hub 被历史镜像塞满）
+            echo "front_tags=amerluya/flux-panel-yoga-frontend:dev-latest" >> $GITHUB_OUTPUT
+            echo "back_tags=amerluya/flux-panel-yoga-backend:dev-latest" >> $GITHUB_OUTPUT
           fi
 
       # 4. 启用 BuildKit（内存更高效的 Docker 构建引擎）

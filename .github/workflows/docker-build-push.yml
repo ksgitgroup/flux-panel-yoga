@@ -1,0 +1,54 @@
+name: Build & Push Docker Images
+
+# 触发条件：GitHub Actions 负责编译；
+# 每次 sync:github 把 main 分支推过来后自动触发
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    name: Build Docker Images (7GB RAM)
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 拉取代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. 登录 Docker Hub
+      #    需要在 GitHub 仓库 Settings → Secrets → Actions 中配置：
+      #      DOCKERHUB_USERNAME = amerluya
+      #      DOCKERHUB_TOKEN    = Docker Hub Access Token
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 3. 启用 BuildKit（内存更高效的 Docker 构建引擎）
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 4. 构建并推送前端镜像
+      #    GitHub Actions runner 有 7GB RAM，彻底解决 Server B 内存不足问题
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./vite-frontend
+          push: true
+          tags: amerluya/flux-panel-yoga-frontend:latest
+          # GitHub Actions Cache：package.json 不变则 npm install 层直接复用
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 5. 构建并推送后端镜像
+      - name: Build & Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./springboot-backend
+          push: true
+          tags: amerluya/flux-panel-yoga-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

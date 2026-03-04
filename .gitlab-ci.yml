@@ -45,16 +45,16 @@ build:prod:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
-    - echo "🔨 构建前端镜像..."
-    - docker build -t "amerluya/flux-panel-yoga-frontend:latest" ./vite-frontend
-    - echo "🔨 构建后端镜像..."
-    - docker build -t "amerluya/flux-panel-yoga-backend:latest" ./springboot-backend
-    # 登录 Docker Hub 并推送（需要在 GitLab Variables 中配置 DOCKERHUB_USERNAME 和 DOCKERHUB_TOKEN）
-    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-    - docker push "amerluya/flux-panel-yoga-frontend:latest"
-    - docker push "amerluya/flux-panel-yoga-backend:latest"
-    - docker logout
-    - echo "✅ 镜像已推送到 Docker Hub"
+    # Docker 镜像构建已移交给 GitHub Actions（7GB RAM，免费）
+    # 触发方式：sync:github 把代码推到 GitHub main 后，GitHub Actions 自动触发
+    # 这里只做代码同步，不在内存受限的 Server B 上做 docker build
+    - echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."
+    - git config --global user.email "ci@gitlab.kingsungsz.com"
+    - git config --global user.name "GitLab CI"
+    - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
+    - git push github "HEAD:main" --force
+    - echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建并推送镜像到 Docker Hub"
+
 
 # ──────────────────────────────────────────────────────────────
 # dev 部署：Runner 即在服务器 B，镜像在本地，直接启动

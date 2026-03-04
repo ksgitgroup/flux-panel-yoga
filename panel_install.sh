@@ -20,7 +20,7 @@ export LC_ALL=C
 # ──────────────────────────────────────────────────────────────────
 
 # 默认值：指向 GitHub 主仓库 main 分支
-_DEFAULT_BASE_URL="https://raw.githubusercontent.com/prokingyoga/yoga-panel/refs/heads/main"
+_DEFAULT_BASE_URL="https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/refs/heads/main"
 
 # 优先使用外部传入的 PANEL_BASE_URL，否则使用默认值
 PANEL_BASE_URL="${PANEL_BASE_URL:-$_DEFAULT_BASE_URL}"

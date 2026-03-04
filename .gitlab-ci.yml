@@ -17,6 +17,7 @@ variables:
 stages:
   - build
   - deploy
+  - sync        # 同步到 GitHub，让安装脚本从公开 URL 下载到最新代码
 
 # ──────────────────────────────────────────────────────────────
 # dev 分支构建：本地打包两个镜像，不推送
@@ -107,3 +108,29 @@ deploy:prod:
     - ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST"
         "chmod +x $DEPLOY_DIR/remote_deploy.sh &&
          bash $DEPLOY_DIR/remote_deploy.sh '$IMAGE_BASE' '$PROD_TAG' '$DEPLOY_DIR'"
+
+# ──────────────────────────────────────────────────────────────
+# 同步到 GitHub：确保 panel_install.sh 和 docker-compose 等文件
+# 在 raw.githubusercontent.com 上始终是最新版本（供用户一键安装）
+#
+# 需要在 GitLab Settings → CI/CD → Variables 中配置：
+#   GITHUB_TOKEN：GitHub Personal Access Token（勾选 repo 权限）
+# ──────────────────────────────────────────────────────────────
+sync:github:
+  stage: sync
+  tags:
+    - Rn1-Runner-General-01
+  needs:
+    - build:prod     # 必须 prod 镜像推送成功后才同步
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - echo "🔄 同步代码到 GitHub ksgitgroup/flux-panel-yoga ..."
+    # 配置 git 用户信息（Runner 机器上需要有身份才能提交）
+    - git config --global user.email "ci@gitlab.kingsungsz.com"
+    - git config --global user.name "GitLab CI"
+    # 添加 GitHub 远端（用 Token 嵌入 URL，避免 SSH 配置）
+    - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
+    # 强制推送当前 main 分支到 GitHub main 分支
+    - git push github "HEAD:main" --force
+    - echo "✅ 已同步到 GitHub，安装脚本即时生效"

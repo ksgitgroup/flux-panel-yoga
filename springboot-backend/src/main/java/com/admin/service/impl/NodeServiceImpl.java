@@ -75,7 +75,7 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     ViteConfigService viteConfigService;
 
     /** 节点安装脚本的下载地址（可通过环境变量 INSTALL_SCRIPT_URL 覆盖） */
-    @Value("${INSTALL_SCRIPT_URL:https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/refs/heads/main/install.sh}")
+    @Value("${INSTALL_SCRIPT_URL:https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/refs/heads/dev/install.sh}")
     private String installScriptUrl;
 
 

@@ -8,7 +8,7 @@
 #   GOST_DOWNLOAD_URL=https://your-mirror.example.com/gost bash install.sh
 #
 # ──────────────────────────────────────────────────────────────────
-_DEFAULT_GOST_URL="https://github.com/ksgitgroup/flux-panel-yoga/releases/download/gost-latest/gost"
+_DEFAULT_GOST_URL="https://github.com/BrunuhVille/flux-panel/releases/download/gost-latest/gost"
 
 # 优先使用外部传入的 GOST_DOWNLOAD_URL
 DOWNLOAD_URL="${GOST_DOWNLOAD_URL:-$_DEFAULT_GOST_URL}"

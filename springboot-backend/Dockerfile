@@ -20,16 +20,21 @@ WORKDIR /app
 # 层2：只复制 Maven 的依赖描述文件
 # pom.xml 定义了所有 Java 依赖（类似 package.json）
 # 只有 pom.xml 变化（新增/删除依赖）时这层才失效
-# 改了 Java 业务代码？这层还是缓存 → Maven 不会重新下载所有 jar 包
 COPY pom.xml .
 
-# 层3：复制 Java 源代码（src 目录）
-# 每次改了任何 .java 文件，这层就失效 → 层4也跟着失效
+# 层3：预下载所有 Maven 依赖，形成独立缓存层
+# ★ 只要 pom.xml 不变，这层永远命中缓存，不会重新下载 jar 包 ★
+# 改了 .java 业务代码？这层命中缓存 → 依赖不重载
+RUN mvn dependency:go-offline -B
+
+# 层4：复制 Java 源代码（src 目录）
+# 每次改了任何 .java 文件，这层就失效 → 层5也跟着失效
+# 但 pom.xml 层（层2、3）依然是缓存 → 依赖不重载
 COPY src ./src
 
-# 层4：Maven 编译打包（-DskipTests 跳过单元测试加快速度）
-# 只有 pom.xml 或 src 变了才重跑这一步
-# 这一步耗时最长（编译 Java），所以"后端改动 3-5 分钟"主要在这里
+# 层5：Maven 编译打包（-DskipTests 跳过单元测试加快速度）
+# 只有 src 或 pom.xml 变了才重跑这一步
+# 这一步耗时最长，但有了层3的依赖缓存后，重跑时间大幅缩短
 RUN mvn clean package -DskipTests
 
 # ─────────────────────────────────────────────

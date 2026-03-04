@@ -1,29 +1,25 @@
 # =============================================================
-# flux-panel GitLab CI/CD 流水线 (免 Registry 本地化版)
+# flux-panel GitLab CI/CD 流水线（免 Registry 本地化版）
 #
 # 架构：GitLab Runner 安装在服务器 B 上（shell executor）
-#   → 不依赖远程镜像仓库（Docker Registry）
-#   → dev 环境：直接在服务器 B 打包镜像并原地启动（docker up）
+#   dev 推送 → build:dev → deploy:dev（全自动）
+#   main 推送 → build:prod（自动）→ deploy:prod（手动触发）
 #
-# 流程：
-#   推送 dev  → build:dev  → deploy:dev（自动）
-#   推送 main → build:prod → deploy:prod（手动触发）
-#
+# 镜像管理：纯本地，不推送任何 Registry
 # =============================================================
 
 variables:
-  # 改为本地镜像命名空间，不使用 $CI_REGISTRY_IMAGE
-  IMAGE_BASE: "flux-panel-local"
-  DEV_TAG: "dev-$CI_COMMIT_SHORT_SHA"
-  PROD_TAG: "latest"
-  DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"
+  IMAGE_BASE: "flux-panel-local"             # 本地镜像命名空间（无需 Registry）
+  DEV_TAG: "dev-$CI_COMMIT_SHORT_SHA"        # dev 镜像 tag，如 dev-9c56fc8a
+  PROD_TAG: "latest"                          # prod 镜像 tag
+  DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"  # 服务器 B 部署目录
 
 stages:
   - build
   - deploy
 
 # ──────────────────────────────────────────────────────────────
-# dev 分支：在服务器 B 纯本地构建镜像（不 Push）
+# dev 分支构建：本地打包两个镜像，不推送
 # ──────────────────────────────────────────────────────────────
 build:dev:
   stage: build
@@ -32,14 +28,14 @@ build:dev:
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
-    - echo "🔨 构建前端 $DEV_TAG..."
+    - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$DEV_TAG ..."
     - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
-    - echo "🔨 构建后端 $DEV_TAG..."
+    - echo "🔨 构建后端镜像 $IMAGE_BASE/springboot-backend:$DEV_TAG ..."
     - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
-    - echo "✅ 构建完成！镜像保留在服务器本机 → $DEV_TAG"
+    - echo "✅ 构建完成，镜像已保存在服务器本地"
 
 # ──────────────────────────────────────────────────────────────
-# main 分支：构建并推送镜像（打 latest 标签，暂存本地）
+# prod 分支构建：本地打 latest 标签
 # ──────────────────────────────────────────────────────────────
 build:prod:
   stage: build
@@ -48,44 +44,52 @@ build:prod:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
-    - echo "🔨 构建前端 $PROD_TAG..."
+    - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$PROD_TAG ..."
     - docker build -t "$IMAGE_BASE/vite-frontend:$PROD_TAG" ./vite-frontend
-    - echo "🔨 构建后端 $PROD_TAG..."
+    - echo "🔨 构建后端镜像 $IMAGE_BASE/springboot-backend:$PROD_TAG ..."
     - docker build -t "$IMAGE_BASE/springboot-backend:$PROD_TAG" ./springboot-backend
-    - echo "✅ 构建完成！镜像保留在服务器本机 → $PROD_TAG"
+    - echo "✅ 构建完成，镜像已保存在服务器本地"
 
 # ──────────────────────────────────────────────────────────────
-# dev 部署：Runner 即服务器 B，镜像已在本地，直接重启容器
+# dev 部署：Runner 即在服务器 B，镜像在本地，直接启动
 # ──────────────────────────────────────────────────────────────
 deploy:dev:
   stage: deploy
   tags:
     - Rn1-Runner-General-01
+  needs:
+    - build:dev   # 明确声明依赖，保证 build 完成后才部署
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   environment:
     name: development
   script:
-    - mkdir -p $DEPLOY_DIR
-    - cp $CI_PROJECT_DIR/docker-compose-v6.yml $DEPLOY_DIR/docker-compose-v6.yml
-    - cp $CI_PROJECT_DIR/gost.sql $DEPLOY_DIR/gost.sql
-    - cp $CI_PROJECT_DIR/scripts/remote_deploy.sh $DEPLOY_DIR/remote_deploy.sh
-    - chmod +x $DEPLOY_DIR/remote_deploy.sh
-    # 删除了 Registry 相关参数传递
-    - bash $DEPLOY_DIR/remote_deploy.sh "$IMAGE_BASE" "$DEV_TAG" "$DEPLOY_DIR"
+    # 确保部署目录存在
+    - mkdir -p "$DEPLOY_DIR"
+    # 从仓库复制所需文件到部署目录
+    - cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
+    - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
+    - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
+    - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
+    # 执行部署脚本（含 .env 生成 / 更新 + docker compose up）
+    - bash "$DEPLOY_DIR/remote_deploy.sh" "$IMAGE_BASE" "$DEV_TAG" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
-# prod 部署：由于在另一台服务器，免 Registry 方案下会比较复杂，
-# 建议 Prod 环境必须配置一个 Registry，或后续考虑 scp 镜像包。
-# 这里暂时保持原样，只更新参数列表。
+# prod 部署：生产环境在另一台机器，需通过 SSH 进行远程部署
+# 需要在 GitLab 的 Settings -> CI/CD -> Variables 中配置：
+#   DEPLOY_PROD_HOST：生产服务器 IP
+#   DEPLOY_PROD_USER：登录用户名（如 root）
+#   DEPLOY_PROD_KEY：服务器 SSH 私钥（File 类型变量）
 # ──────────────────────────────────────────────────────────────
 deploy:prod:
   stage: deploy
   tags:
     - Rn1-Runner-General-01
+  needs:
+    - build:prod
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
+      when: manual    # 生产部署需要手动确认触发
   environment:
     name: production
     url: http://$DEPLOY_PROD_HOST
@@ -93,5 +97,8 @@ deploy:prod:
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - cp "$DEPLOY_PROD_KEY" ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -p 22 "$DEPLOY_PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-    - scp -i ~/.ssh/id_rsa docker-compose-v6.yml gost.sql scripts/remote_deploy.sh "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:$DEPLOY_DIR/"
-    - ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST" "chmod +x $DEPLOY_DIR/remote_deploy.sh && bash $DEPLOY_DIR/remote_deploy.sh '$IMAGE_BASE' '$PROD_TAG' '$DEPLOY_DIR'"
+    - scp -i ~/.ssh/id_rsa docker-compose-v6.yml gost.sql scripts/remote_deploy.sh
+        "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:$DEPLOY_DIR/"
+    - ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST"
+        "chmod +x $DEPLOY_DIR/remote_deploy.sh &&
+         bash $DEPLOY_DIR/remote_deploy.sh '$IMAGE_BASE' '$PROD_TAG' '$DEPLOY_DIR'"

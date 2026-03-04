@@ -40,7 +40,11 @@ COPY . .
 # 层6：编译构建（层5变了就会重跑）
 # 只有这层和层5需要重新执行，层1-4全部复用缓存
 # 这就是"只改前端代码 1-3 分钟"的原因：只有 npm run build 需要重跑
-RUN npm run build
+#
+# NODE_OPTIONS --max-old-space-size=3072：
+# Vite 打包 3000+ 模块时内存消耗很大，默认上限 ~1.5GB 在低内存 VPS 上容易 OOM
+# 这里调整到 3GB（服务器总内存需 ≥ 4GB；若服务器只有 2GB 可改为 1536）
+RUN NODE_OPTIONS="--max-old-space-size=3072" npm run build
 
 # ─────────────────────────────────────────────
 # 阶段二：Production（生产阶段）

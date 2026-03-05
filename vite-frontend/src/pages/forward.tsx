@@ -43,7 +43,8 @@ import {
   resumeForwardService,
   diagnoseForward,
   updateForwardOrder,
-  copyForward
+  copyForward,
+  getDiagnosisLatestBatch
 } from "@/api";
 import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
@@ -112,6 +113,20 @@ interface DiagnosisHistoryItem {
   id: number;
   overallSuccess: boolean;
   resultsJson: string;
+  averageTime?: number;
+  packetLoss?: number;
+  createdTime: number;
+}
+
+interface DiagnosisBatchItem {
+  id: number;
+  targetType: string;
+  targetId: number;
+  targetName: string;
+  overallSuccess: boolean;
+  resultsJson: string;
+  averageTime?: number;
+  packetLoss?: number;
   createdTime: number;
 }
 
@@ -162,6 +177,14 @@ export default function ForwardPage() {
 
   // 搜索关键字状态
   const [searchKeyword, setSearchKeyword] = useState("");
+
+  // 高级筛选状态
+  const [tunnelFilter, setTunnelFilter] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'paused'>('all');
+  const [healthFilter, setHealthFilter] = useState<'all' | 'healthy' | 'unhealthy' | 'unknown'>('all');
+
+  // 诊断数据映射 (forwardId -> DiagnosisBatchItem)
+  const [diagnosisMap, setDiagnosisMap] = useState<Record<number, DiagnosisBatchItem>>({});
 
   // 模态框状态
   const [modalOpen, setModalOpen] = useState(false);
@@ -286,11 +309,14 @@ export default function ForwardPage() {
       ]);
 
       if (forwardsRes.code === 0) {
-        const forwardsData = forwardsRes.data?.map((forward: any) => ({
+        const forwardsData: Forward[] = forwardsRes.data?.map((forward: any) => ({
           ...forward,
           serviceRunning: forward.status === 1
         })) || [];
         setForwards(forwardsData);
+
+        // 加载诊断数据
+        loadDiagnosisData(forwardsData);
 
         // 初始化拖拽排序顺序
         if (viewMode === 'direct') {
@@ -356,6 +382,20 @@ export default function ForwardPage() {
       toast.error('加载数据失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 加载批量诊断数据
+  const loadDiagnosisData = async (forwardsData: Forward[]) => {
+    try {
+      const ids = forwardsData.map(f => f.id);
+      if (ids.length === 0) return;
+      const resp = await getDiagnosisLatestBatch({ targetType: 'forward', targetIds: ids });
+      if (resp.code === 0 && resp.data) {
+        setDiagnosisMap(resp.data);
+      }
+    } catch {
+      // silent
     }
   };
 
@@ -1155,6 +1195,29 @@ export default function ForwardPage() {
       }
     }
 
+    // 隧道筛选
+    if (tunnelFilter !== null) {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.tunnelId === tunnelFilter);
+    }
+
+    // 状态筛选
+    if (statusFilter === 'running') {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.status === 1);
+    } else if (statusFilter === 'paused') {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.status === 0);
+    }
+
+    // 健康状况筛选
+    if (healthFilter !== 'all') {
+      filteredForwards = filteredForwards.filter((f: Forward) => {
+        const diag = diagnosisMap[f.id];
+        if (healthFilter === 'healthy') return diag && diag.overallSuccess;
+        if (healthFilter === 'unhealthy') return diag && !diag.overallSuccess;
+        if (healthFilter === 'unknown') return !diag;
+        return true;
+      });
+    }
+
     // 关键词搜索过滤
     if (searchKeyword.trim()) {
       const lowerKeyword = searchKeyword.toLowerCase();
@@ -1263,6 +1326,23 @@ export default function ForwardPage() {
                 </div>
               )}
               <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
+              {/* 诊断健康+延迟徽标 */}
+              {(() => {
+                const diag = diagnosisMap[forward.id];
+                if (!diag) return null;
+                const latencyMs = diag.averageTime;
+                const latencyColor = !latencyMs || latencyMs < 0 ? 'default' : latencyMs < 50 ? 'success' : latencyMs < 150 ? 'warning' : 'danger';
+                return (
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${diag.overallSuccess ? 'bg-success-500' : 'bg-danger-500 animate-pulse'}`} />
+                    {latencyMs && latencyMs > 0 && (
+                      <Chip size="sm" variant="flat" color={latencyColor as any} className="text-[10px] h-5 min-w-0 px-1.5">
+                        {latencyMs.toFixed(0)}ms
+                      </Chip>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             {/* 第二行：隧道名 + 状态开关 */}
             <div className="flex justify-between items-center">
@@ -1513,6 +1593,66 @@ export default function ForwardPage() {
 
 
         </div>
+      </div>
+
+      {/* 筛选区域 */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {/* 隧道筛选 */}
+        <select
+          className="text-xs px-2 py-1.5 rounded-lg border border-default-200 dark:border-default-300 bg-transparent outline-none focus:border-primary"
+          value={tunnelFilter ?? ''}
+          onChange={(e) => setTunnelFilter(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">全部隧道</option>
+          {tunnels.map(t => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+
+        {/* 状态筛选 */}
+        <div className="flex gap-1">
+          {([['all', '全部', 'default'], ['running', '运行中', 'success'], ['paused', '已暂停', 'warning']] as const).map(([key, label, color]) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={statusFilter === key ? 'solid' : 'bordered'}
+              color={color as any}
+              onPress={() => setStatusFilter(key)}
+              className="min-w-0 px-2 h-7 text-xs"
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+
+        {/* 健康状况筛选 */}
+        <div className="flex gap-1">
+          {([['all', '全部', 'default'], ['healthy', '健康', 'success'], ['unhealthy', '异常', 'danger'], ['unknown', '未诊断', 'default']] as const).map(([key, label, color]) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={healthFilter === key ? 'solid' : 'bordered'}
+              color={color as any}
+              onPress={() => setHealthFilter(key)}
+              className="min-w-0 px-2 h-7 text-xs"
+            >
+              {key === 'healthy' ? '🟢 ' : key === 'unhealthy' ? '🔴 ' : key === 'unknown' ? '⚪ ' : ''}{label}
+            </Button>
+          ))}
+        </div>
+
+        {/* 重置筛选 */}
+        {(tunnelFilter !== null || statusFilter !== 'all' || healthFilter !== 'all') && (
+          <Button
+            size="sm"
+            variant="light"
+            color="default"
+            onPress={() => { setTunnelFilter(null); setStatusFilter('all'); setHealthFilter('all'); }}
+            className="text-xs h-7"
+          >
+            重置
+          </Button>
+        )}
       </div>
 
 
@@ -2221,7 +2361,7 @@ export default function ForwardPage() {
                         </Card>
                       );
                     })}
-                    
+
                     {/* 历史记录展示 */}
                     {diagnosisHistory.length > 0 && (
                       <div className="mt-8">
@@ -2231,8 +2371,8 @@ export default function ForwardPage() {
                             let parsedResults = [];
                             try {
                               parsedResults = JSON.parse(item.resultsJson);
-                            } catch(e) {}
-                            
+                            } catch (e) { }
+
                             return (
                               <AccordionItem
                                 key={item.id}

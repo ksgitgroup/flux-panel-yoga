@@ -309,6 +309,8 @@ CREATE TABLE IF NOT EXISTS `diagnosis_record` (
   `target_name` varchar(200) DEFAULT NULL COMMENT '名称快照',
   `overall_success` tinyint(1) NOT NULL DEFAULT '1' COMMENT '整体是否成功',
   `results_json` text COMMENT 'JSON格式的详细诊断结果',
+  `average_time` double DEFAULT NULL COMMENT '平均延迟(ms)',
+  `packet_loss` double DEFAULT NULL COMMENT '丢包率(%)',
   `created_time` bigint(20) DEFAULT NULL COMMENT '诊断时间戳',
   PRIMARY KEY (`id`),
   KEY `idx_target` (`target_type`,`target_id`),

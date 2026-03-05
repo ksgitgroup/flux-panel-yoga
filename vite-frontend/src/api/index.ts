@@ -97,3 +97,8 @@ export const getDiagnosisHistory = (data: { targetType: string; targetId: number
   Network.post("/diagnosis/history", data);
 export const runDiagnosisNow = () => Network.post("/diagnosis/run-now");
 export const testWebhook = () => Network.post("/diagnosis/test-webhook");
+export const getDiagnosisLatestBatch = (data: { targetType: string; targetIds: number[] }) =>
+  Network.post("/diagnosis/latest-batch", data);
+export const getDiagnosisTrend = (data?: { hours?: number }) =>
+  Network.post("/diagnosis/trend", data || {});
+

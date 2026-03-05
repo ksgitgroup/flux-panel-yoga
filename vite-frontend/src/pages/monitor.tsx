@@ -7,7 +7,8 @@ import { Divider } from "@heroui/divider";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { ScrollShadow } from "@heroui/scroll-shadow";
 import toast from 'react-hot-toast';
-import { getDiagnosisSummary, getDiagnosisHistory, runDiagnosisNow } from '@/api';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { getDiagnosisSummary, getDiagnosisHistory, getDiagnosisTrend, runDiagnosisNow } from '@/api';
 import { isAdmin } from '@/utils/auth';
 
 // ─── 类型定义 ────────────────────────────────────────────
@@ -18,6 +19,8 @@ interface DiagnosisRecord {
     targetName: string;
     overallSuccess: boolean;
     resultsJson: string;
+    averageTime?: number;
+    packetLoss?: number;
     createdTime: number;
 }
 
@@ -38,11 +41,21 @@ interface SummaryData {
     totalCount: number;
     successCount: number;
     failCount: number;
+    avgLatency?: number;
     lastRunTime?: number;
     records: DiagnosisRecord[];
 }
 
-// ─── 图标 ────────────────────────────────────────────────
+interface TrendPoint {
+    time: number;
+    hour: string;
+    success: number;
+    fail: number;
+    total: number;
+    avgLatency?: number;
+}
+
+// ─── 图标组件 ────────────────────────────────────────────
 const HeartbeatIcon = ({ className }: { className?: string }) => (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
         strokeLinecap="round" strokeLinejoin="round">
@@ -78,6 +91,15 @@ const formatTime = (ts?: number) => {
     return new Date(ts).toLocaleString('zh-CN', { hour12: false });
 };
 
+const formatRelativeTime = (ts?: number) => {
+    if (!ts) return '—';
+    const diff = Date.now() - ts;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
+    return `${Math.floor(diff / 86400000)} 天前`;
+};
+
 const parseResults = (resultsJson: string): ResultItem[] => {
     try {
         const data = JSON.parse(resultsJson);
@@ -87,18 +109,42 @@ const parseResults = (resultsJson: string): ResultItem[] => {
     }
 };
 
+const getLatencyColor = (ms?: number) => {
+    if (ms === undefined || ms === null || ms < 0) return 'text-gray-400';
+    if (ms < 30) return 'text-emerald-500';
+    if (ms < 50) return 'text-green-500';
+    if (ms < 100) return 'text-blue-500';
+    if (ms < 150) return 'text-yellow-500';
+    if (ms < 200) return 'text-orange-500';
+    return 'text-red-500';
+};
+
+const getLatencyLabel = (ms?: number) => {
+    if (ms === undefined || ms === null || ms < 0) return '—';
+    return `${ms.toFixed(1)}ms`;
+};
+
 // ─── 统计卡组件 ──────────────────────────────────────────
-const StatCard = ({ label, value, color }: { label: string; value: number | string; color: string }) => (
-    <Card className="flex-1 min-w-[140px]">
-        <CardBody className="py-4 px-5">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-            <p className={`text-3xl font-bold ${color}`}>{value}</p>
+const StatCard = ({ label, value, subtitle, icon, color, bgColor }: {
+    label: string; value: number | string; subtitle?: string;
+    icon: React.ReactNode; color: string; bgColor: string;
+}) => (
+    <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+        <CardBody className="p-4">
+            <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+                    <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                    {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+                </div>
+                <div className={`p-2 rounded-xl ${bgColor}`}>{icon}</div>
+            </div>
         </CardBody>
     </Card>
 );
 
 // ─── 单条诊断记录行 ───────────────────────────────────────
-const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord; adminMode: boolean }) => {
+const RecordRow = ({ record }: { record: DiagnosisRecord }) => {
     const [expanded, setExpanded] = useState(false);
     const [history, setHistory] = useState<DiagnosisRecord[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -133,6 +179,7 @@ const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord;
     };
 
     const results = parseResults(record.resultsJson);
+    const latency = record.averageTime ?? (results.length > 0 && results[0]?.averageTime > 0 ? results[0].averageTime : undefined);
 
     return (
         <>
@@ -162,22 +209,26 @@ const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord;
                     {/* 名称 */}
                     <span className="font-medium text-sm flex-1 truncate">{record.targetName}</span>
 
+                    {/* 延迟 */}
+                    <span className={`text-xs font-mono flex-shrink-0 ${getLatencyColor(latency)}`}>
+                        {getLatencyLabel(latency)}
+                    </span>
+
                     {/* 状态 */}
                     <Chip size="sm" color={record.overallSuccess ? 'success' : 'danger'} variant="flat">
                         {record.overallSuccess ? '正常' : '异常'}
                     </Chip>
 
-                    {/* 延迟摘要 */}
+                    {/* 链路摘要 */}
                     {results.length > 0 && (
-                        <span className="text-xs text-gray-500 hidden sm:block">
-                            {results.filter(r => r.success).length}/{results.length} 链路正常
-                            {results[0]?.averageTime > 0 && ` · ${results[0].averageTime.toFixed(1)}ms`}
+                        <span className="text-xs text-gray-500 hidden sm:block flex-shrink-0">
+                            {results.filter(r => r.success).length}/{results.length}
                         </span>
                     )}
 
                     {/* 时间 */}
                     <span className="text-xs text-gray-400 hidden md:block flex-shrink-0">
-                        {formatTime(record.createdTime)}
+                        {formatRelativeTime(record.createdTime)}
                     </span>
 
                     {/* 展开箭头 */}
@@ -195,15 +246,20 @@ const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord;
                             <div className="space-y-1">
                                 {results.map((r, i) => (
                                     <div key={i}
-                                        className={`flex items-center justify-between text-xs px-3 py-1.5 rounded-lg ${r.success
+                                        className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg ${r.success
                                             ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-400'
                                             : 'bg-danger-50 dark:bg-danger-900/20 text-danger-700 dark:text-danger-400'
                                             }`}
                                     >
-                                        <span className="font-medium">{r.description}</span>
-                                        <span className="ml-2 flex-shrink-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-medium">{r.description}</span>
+                                            <span className="text-gray-400 hidden sm:inline">
+                                                {r.nodeName} → {r.targetIp}:{r.targetPort}
+                                            </span>
+                                        </div>
+                                        <span className="ml-2 flex-shrink-0 font-mono">
                                             {r.success
-                                                ? `✓ ${r.averageTime > 0 ? r.averageTime.toFixed(1) + 'ms' : 'OK'}`
+                                                ? `✓ ${r.averageTime > 0 ? r.averageTime.toFixed(1) + 'ms' : 'OK'}${r.packetLoss > 0 ? ` | ${r.packetLoss.toFixed(1)}%丢包` : ''}`
                                                 : `✗ ${r.message || '失败'}`}
                                         </span>
                                     </div>
@@ -224,12 +280,14 @@ const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord;
                                     <button
                                         key={h.id}
                                         onClick={() => openDetail(h)}
-                                        title={formatTime(h.createdTime)}
-                                        className={`w-6 h-6 rounded-md transition-all hover:scale-110 ${h.overallSuccess
+                                        title={`${formatTime(h.createdTime)}${h.averageTime && h.averageTime > 0 ? ` · ${h.averageTime.toFixed(1)}ms` : ''}`}
+                                        className={`w-7 h-7 rounded-md transition-all hover:scale-110 flex items-center justify-center text-white text-[10px] font-mono ${h.overallSuccess
                                             ? 'bg-success-400 dark:bg-success-600'
                                             : 'bg-danger-400 dark:bg-danger-600'
                                             }`}
-                                    />
+                                    >
+                                        {h.averageTime && h.averageTime > 0 ? Math.round(h.averageTime) : (h.overallSuccess ? '✓' : '✗')}
+                                    </button>
                                 ))}
                                 {history.length === 0 && (
                                     <p className="text-xs text-gray-400">暂无历史数据</p>
@@ -284,18 +342,162 @@ const RecordRow = ({ record, adminMode: _adminMode }: { record: DiagnosisRecord;
     );
 };
 
+// ─── 趋势图组件 ──────────────────────────────────────────
+const TrendChart = ({ data }: { data: TrendPoint[] }) => {
+    if (!data || data.length === 0) return null;
+
+    return (
+        <Card className="border border-gray-200 dark:border-default-200 shadow-md">
+            <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                    <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
+                        <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
+                    </svg>
+                    <h2 className="text-base font-semibold">24 小时健康趋势</h2>
+                    <div className="flex items-center gap-3 ml-auto text-xs">
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 rounded-sm bg-emerald-400/80"></span> 成功
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 rounded-sm bg-red-400/80"></span> 失败
+                        </span>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardBody className="pt-0">
+                <div className="h-48 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data} barGap={0} barCategoryGap="20%">
+                            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                            <XAxis
+                                dataKey="hour"
+                                tick={{ fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+                                interval={2}
+                            />
+                            <YAxis
+                                tick={{ fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+                                allowDecimals={false}
+                            />
+                            <Tooltip
+                                content={({ active, payload, label }) => {
+                                    if (active && payload && payload.length) {
+                                        const successVal = payload.find(p => p.dataKey === 'success')?.value || 0;
+                                        const failVal = payload.find(p => p.dataKey === 'fail')?.value || 0;
+                                        return (
+                                            <div className="bg-white dark:bg-default-100 border border-default-200 rounded-lg shadow-lg p-3 text-sm">
+                                                <p className="font-medium mb-1">{label}</p>
+                                                <p className="text-emerald-600">✓ 成功: {String(successVal)}</p>
+                                                <p className="text-red-500">✗ 失败: {String(failVal)}</p>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }}
+                            />
+                            <Bar dataKey="success" fill="#34d399" radius={[2, 2, 0, 0]} opacity={0.85} />
+                            <Bar dataKey="fail" fill="#f87171" radius={[2, 2, 0, 0]} opacity={0.85} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            </CardBody>
+        </Card>
+    );
+};
+
+// ─── 延迟趋势图组件 ──────────────────────────────────────
+const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
+    const filteredData = data.filter(d => d.avgLatency !== undefined && d.avgLatency !== null);
+    if (filteredData.length === 0) return null;
+
+    return (
+        <Card className="border border-gray-200 dark:border-default-200 shadow-md">
+            <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                    <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <h2 className="text-base font-semibold">平均延迟趋势</h2>
+                </div>
+            </CardHeader>
+            <CardBody className="pt-0">
+                <div className="h-40 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={data}>
+                            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                            <XAxis
+                                dataKey="hour"
+                                tick={{ fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+                                interval={2}
+                            />
+                            <YAxis
+                                tick={{ fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+                                tickFormatter={(v) => `${v}ms`}
+                            />
+                            <Tooltip
+                                content={({ active, payload, label }) => {
+                                    if (active && payload && payload.length && payload[0].value !== undefined) {
+                                        return (
+                                            <div className="bg-white dark:bg-default-100 border border-default-200 rounded-lg shadow-lg p-3 text-sm">
+                                                <p className="font-medium">{label}</p>
+                                                <p className="text-blue-500">延迟: {Number(payload[0].value).toFixed(1)}ms</p>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }}
+                            />
+                            <defs>
+                                <linearGradient id="latencyGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+                                </linearGradient>
+                            </defs>
+                            <Area
+                                type="monotone"
+                                dataKey="avgLatency"
+                                stroke="#3b82f6"
+                                strokeWidth={2}
+                                fill="url(#latencyGradient)"
+                                dot={false}
+                                activeDot={{ r: 4, stroke: '#3b82f6', strokeWidth: 2, fill: '#fff' }}
+                                connectNulls
+                            />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </CardBody>
+        </Card>
+    );
+};
+
 // ─── 主页面 ───────────────────────────────────────────────
 export default function MonitorPage() {
     const [summary, setSummary] = useState<SummaryData | null>(null);
+    const [trend, setTrend] = useState<TrendPoint[]>([]);
     const [loading, setLoading] = useState(true);
     const [triggering, setTriggering] = useState(false);
     const [filter, setFilter] = useState<'all' | 'success' | 'fail'>('all');
+    const [typeFilter, setTypeFilter] = useState<'all' | 'tunnel' | 'forward'>('all');
+    const [searchQuery, setSearchQuery] = useState('');
     const admin = isAdmin();
 
     const loadSummary = useCallback(async () => {
         try {
-            const resp = await getDiagnosisSummary();
-            if (resp.code === 0) setSummary(resp.data);
+            const [summaryResp, trendResp] = await Promise.all([
+                getDiagnosisSummary(),
+                getDiagnosisTrend({ hours: 24 })
+            ]);
+            if (summaryResp.code === 0) setSummary(summaryResp.data);
+            if (trendResp.code === 0) setTrend(trendResp.data || []);
         } catch {
             /* silent */
         } finally {
@@ -305,7 +507,6 @@ export default function MonitorPage() {
 
     useEffect(() => {
         loadSummary();
-        // 每 60 秒自动刷新
         const timer = setInterval(loadSummary, 60_000);
         return () => clearInterval(timer);
     }, [loadSummary]);
@@ -316,8 +517,11 @@ export default function MonitorPage() {
         try {
             const resp = await runDiagnosisNow();
             if (resp.code === 0) {
-                toast.success('诊断任务已启动，请稍后刷新查看结果');
-                setTimeout(loadSummary, 5000);
+                toast.success('诊断任务已启动，约10-30秒后自动刷新');
+                // 分批刷新以捕获进度
+                setTimeout(loadSummary, 8000);
+                setTimeout(loadSummary, 20000);
+                setTimeout(loadSummary, 35000);
             } else {
                 toast.error(resp.msg || '启动失败');
             }
@@ -329,10 +533,21 @@ export default function MonitorPage() {
     };
 
     const filteredRecords = (summary?.records || []).filter(r => {
-        if (filter === 'success') return r.overallSuccess;
-        if (filter === 'fail') return !r.overallSuccess;
+        if (filter === 'success' && !r.overallSuccess) return false;
+        if (filter === 'fail' && r.overallSuccess) return false;
+        if (typeFilter !== 'all' && r.targetType !== typeFilter) return false;
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            return r.targetName.toLowerCase().includes(q);
+        }
         return true;
     });
+
+    // 分类统计
+    const tunnelRecords = (summary?.records || []).filter(r => r.targetType === 'tunnel');
+    const forwardRecords = (summary?.records || []).filter(r => r.targetType === 'forward');
+    const tunnelFails = tunnelRecords.filter(r => !r.overallSuccess).length;
+    const forwardFails = forwardRecords.filter(r => !r.overallSuccess).length;
 
     if (loading) {
         return (
@@ -343,16 +558,19 @@ export default function MonitorPage() {
     }
 
     const noData = !summary || summary.totalCount === 0;
+    const healthRate = summary && summary.totalCount > 0
+        ? Math.round((summary.successCount / summary.totalCount) * 100)
+        : 0;
 
     return (
-        <div className="p-6 max-w-5xl mx-auto space-y-6">
+        <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-5">
             {/* 标题栏 */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3">
-                    <HeartbeatIcon className="w-8 h-8 text-primary" />
+                    <HeartbeatIcon className="w-7 h-7 text-primary" />
                     <div>
-                        <h1 className="text-2xl font-bold">诊断看板</h1>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                        <h1 className="text-xl lg:text-2xl font-bold">诊断看板</h1>
+                        <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">
                             实时监控所有隧道和转发的连通状态
                         </p>
                     </div>
@@ -369,7 +587,7 @@ export default function MonitorPage() {
                     {admin && (
                         <Button
                             color="primary"
-                            startContent={<PlayIcon className="w-4 h-4" />}
+                            startContent={<PlayIcon className="w-3.5 h-3.5" />}
                             onPress={handleRunNow}
                             isLoading={triggering}
                             size="sm"
@@ -382,39 +600,128 @@ export default function MonitorPage() {
 
             {/* 统计卡 */}
             {!noData && (
-                <div className="flex gap-4 flex-wrap">
-                    <StatCard label="监控对象" value={summary!.totalCount} color="text-primary" />
-                    <StatCard label="正常" value={summary!.successCount} color="text-success-600" />
-                    <StatCard label="异常" value={summary!.failCount}
-                        color={summary!.failCount > 0 ? 'text-danger-600' : 'text-gray-400'} />
-                    <Card className="flex-1 min-w-[140px]">
-                        <CardBody className="py-4 px-5">
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">上次诊断</p>
-                            <p className="text-sm font-medium">{formatTime(summary!.lastRunTime)}</p>
-                        </CardBody>
-                    </Card>
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <StatCard
+                        label="健康率"
+                        value={`${healthRate}%`}
+                        subtitle={`${summary!.successCount}/${summary!.totalCount} 通过`}
+                        color={healthRate >= 90 ? 'text-emerald-600' : healthRate >= 70 ? 'text-yellow-600' : 'text-red-600'}
+                        bgColor={healthRate >= 90 ? 'bg-emerald-100 dark:bg-emerald-500/20' : healthRate >= 70 ? 'bg-yellow-100 dark:bg-yellow-500/20' : 'bg-red-100 dark:bg-red-500/20'}
+                        icon={
+                            <svg className={`w-5 h-5 ${healthRate >= 90 ? 'text-emerald-600' : healthRate >= 70 ? 'text-yellow-600' : 'text-red-600'}`} fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                        }
+                    />
+                    <StatCard
+                        label="隧道"
+                        value={`${tunnelRecords.length - tunnelFails}/${tunnelRecords.length}`}
+                        subtitle={tunnelFails > 0 ? `${tunnelFails} 异常` : '全部正常'}
+                        color={tunnelFails > 0 ? 'text-red-600' : 'text-purple-600'}
+                        bgColor="bg-purple-100 dark:bg-purple-500/20"
+                        icon={
+                            <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                            </svg>
+                        }
+                    />
+                    <StatCard
+                        label="转发"
+                        value={`${forwardRecords.length - forwardFails}/${forwardRecords.length}`}
+                        subtitle={forwardFails > 0 ? `${forwardFails} 异常` : '全部正常'}
+                        color={forwardFails > 0 ? 'text-red-600' : 'text-blue-600'}
+                        bgColor="bg-blue-100 dark:bg-blue-500/20"
+                        icon={
+                            <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                        }
+                    />
+                    <StatCard
+                        label="平均延迟"
+                        value={summary!.avgLatency !== null && summary!.avgLatency !== undefined ? `${summary!.avgLatency}ms` : '—'}
+                        subtitle="所有链路均值"
+                        color={getLatencyColor(summary!.avgLatency ?? undefined)}
+                        bgColor="bg-orange-100 dark:bg-orange-500/20"
+                        icon={
+                            <svg className="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                        }
+                    />
+                    <StatCard
+                        label="上次诊断"
+                        value={formatRelativeTime(summary!.lastRunTime)}
+                        subtitle={formatTime(summary!.lastRunTime)}
+                        color="text-gray-700 dark:text-gray-300"
+                        bgColor="bg-gray-100 dark:bg-gray-500/20"
+                        icon={
+                            <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                            </svg>
+                        }
+                    />
                 </div>
             )}
 
-            {/* 内容区 */}
-            <Card className="shadow-md">
+            {/* 趋势图区域 */}
+            {!noData && trend.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <TrendChart data={trend} />
+                    <LatencyTrendChart data={trend} />
+                </div>
+            )}
+
+            {/* 列表区 */}
+            <Card className="shadow-md border border-gray-200 dark:border-default-200">
                 <CardHeader className="pb-3">
-                    <div className="flex justify-between items-center w-full flex-wrap gap-2">
-                        <h2 className="text-lg font-semibold">最新状态</h2>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full gap-3">
+                        <h2 className="text-lg font-semibold flex-shrink-0">诊断详情</h2>
                         {!noData && (
-                            <div className="flex gap-1">
-                                {(['all', 'success', 'fail'] as const).map((f) => (
-                                    <Button
-                                        key={f}
-                                        size="sm"
-                                        variant={filter === f ? 'solid' : 'bordered'}
-                                        color={f === 'success' ? 'success' : f === 'fail' ? 'danger' : 'default'}
-                                        onPress={() => setFilter(f)}
-                                        className="min-w-0"
-                                    >
-                                        {f === 'all' ? '全部' : f === 'success' ? '正常' : '异常'}
-                                    </Button>
-                                ))}
+                            <div className="flex flex-wrap gap-2 items-center">
+                                {/* 搜索 */}
+                                <input
+                                    type="text"
+                                    placeholder="搜索名称..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent outline-none focus:border-primary w-32"
+                                />
+
+                                {/* 类型筛选 */}
+                                <div className="flex gap-1">
+                                    {(['all', 'tunnel', 'forward'] as const).map((f) => (
+                                        <Button
+                                            key={f}
+                                            size="sm"
+                                            variant={typeFilter === f ? 'solid' : 'bordered'}
+                                            color={f === 'tunnel' ? 'secondary' : f === 'forward' ? 'primary' : 'default'}
+                                            onPress={() => setTypeFilter(f)}
+                                            className="min-w-0 px-2.5 h-7 text-xs"
+                                        >
+                                            {f === 'all' ? '全部' : f === 'tunnel' ? '隧道' : '转发'}
+                                        </Button>
+                                    ))}
+                                </div>
+
+                                {/* 分隔 */}
+                                <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 hidden sm:block" />
+
+                                {/* 状态筛选 */}
+                                <div className="flex gap-1">
+                                    {(['all', 'success', 'fail'] as const).map((f) => (
+                                        <Button
+                                            key={f}
+                                            size="sm"
+                                            variant={filter === f ? 'solid' : 'bordered'}
+                                            color={f === 'success' ? 'success' : f === 'fail' ? 'danger' : 'default'}
+                                            onPress={() => setFilter(f)}
+                                            className="min-w-0 px-2.5 h-7 text-xs"
+                                        >
+                                            {f === 'all' ? '全部' : f === 'success' ? '正常' : '异常'}
+                                        </Button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -438,11 +745,11 @@ export default function MonitorPage() {
                             )}
                         </div>
                     ) : (
-                        <ScrollShadow className="max-h-[60vh]">
+                        <ScrollShadow className="max-h-[55vh]">
                             <div className="space-y-2 pr-1">
                                 {filteredRecords.length > 0
                                     ? filteredRecords.map((r) => (
-                                        <RecordRow key={`${r.targetType}_${r.targetId}`} record={r} adminMode={admin} />
+                                        <RecordRow key={`${r.targetType}_${r.targetId}`} record={r} />
                                     ))
                                     : (
                                         <p className="text-sm text-center text-gray-400 py-8">

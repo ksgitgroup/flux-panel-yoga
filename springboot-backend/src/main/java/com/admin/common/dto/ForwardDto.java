@@ -31,4 +31,8 @@ public class ForwardDto {
 
     private String interfaceName;
 
+    private Integer protocolId;
+
+    private String tagIds;
+
 } 

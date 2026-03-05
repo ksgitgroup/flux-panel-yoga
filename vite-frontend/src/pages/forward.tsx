@@ -46,10 +46,23 @@ import {
   resumeForwardService,
   diagnoseForward,
   updateForwardOrder,
-  getDiagnosisLatestBatch
+  getDiagnosisLatestBatch,
+  getProtocolList,
+  getTagList
 } from "@/api";
 import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
+
+interface Protocol {
+  id: number;
+  name: string;
+}
+
+interface Tag {
+  id: number;
+  name: string;
+  color: string;
+}
 
 interface Forward {
   id: number;
@@ -69,6 +82,8 @@ interface Forward {
   userName?: string;
   userId?: number;
   inx?: number;
+  protocolId?: number;
+  tagIds?: string;
 }
 
 interface Tunnel {
@@ -87,6 +102,8 @@ interface ForwardForm {
   remoteAddr: string;
   interfaceName?: string;
   strategy: string;
+  protocolId: number | null;
+  tagIds: string[];
 }
 
 interface AddressItem {
@@ -149,6 +166,8 @@ export default function ForwardPage() {
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
+  const [protocols, setProtocols] = useState<Protocol[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
 
   // 检测是否为移动端
   const [isMobile, setIsMobile] = useState(false);
@@ -184,6 +203,8 @@ export default function ForwardPage() {
   const [tunnelFilter, setTunnelFilter] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'paused'>('all');
   const [healthFilter, setHealthFilter] = useState<'all' | 'healthy' | 'unhealthy' | 'unknown'>('all');
+  const [protocolFilter, setProtocolFilter] = useState<number | null>(null);
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
 
   // 诊断数据映射 (forwardId -> DiagnosisBatchItem)
   const [diagnosisMap, setDiagnosisMap] = useState<Record<number, DiagnosisBatchItem>>({});
@@ -230,7 +251,9 @@ export default function ForwardPage() {
     inPort: null,
     remoteAddr: '',
     interfaceName: '',
-    strategy: 'fifo'
+    strategy: 'fifo',
+    protocolId: null,
+    tagIds: []
   });
 
   // 表单验证错误
@@ -301,13 +324,14 @@ export default function ForwardPage() {
     }
   };
 
-  // 加载所有数据
   const loadData = async (lod = true) => {
     setLoading(lod);
     try {
-      const [forwardsRes, tunnelsRes] = await Promise.all([
+      const [forwardsRes, tunnelsRes, protocolsRes, tagsRes] = await Promise.all([
         getForwardList(),
-        userTunnel()
+        userTunnel(),
+        getProtocolList(),
+        getTagList()
       ]);
 
       if (forwardsRes.code === 0) {
@@ -379,6 +403,9 @@ export default function ForwardPage() {
       } else {
         console.warn('获取隧道列表失败:', tunnelsRes.msg);
       }
+
+      if (protocolsRes.code === 0) setProtocols(protocolsRes.data || []);
+      if (tagsRes.code === 0) setTags(tagsRes.data || []);
     } catch (error) {
       console.error('加载数据失败:', error);
       toast.error('加载数据失败');
@@ -500,7 +527,9 @@ export default function ForwardPage() {
       inPort: null,
       remoteAddr: '',
       interfaceName: '',
-      strategy: 'fifo'
+      strategy: 'fifo',
+      protocolId: null,
+      tagIds: []
     });
     setSelectedTunnel(null);
     setErrors({});
@@ -518,7 +547,9 @@ export default function ForwardPage() {
       inPort: forward.inPort,
       remoteAddr: forward.remoteAddr.split(',').join('\n'),
       interfaceName: forward.interfaceName || '',
-      strategy: forward.strategy || 'fifo'
+      strategy: forward.strategy || 'fifo',
+      protocolId: forward.protocolId || null,
+      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : []
     });
     const tunnel = tunnels.find(t => t.id === forward.tunnelId);
     setSelectedTunnel(tunnel || null);
@@ -535,7 +566,9 @@ export default function ForwardPage() {
       inPort: null, // 不复制端口，让系统自动分配
       remoteAddr: forward.remoteAddr.split(',').join('\n'),
       interfaceName: forward.interfaceName || '',
-      strategy: forward.strategy || 'fifo'
+      strategy: forward.strategy || 'fifo',
+      protocolId: forward.protocolId || null,
+      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : []
     });
     const tunnel = tunnels.find(t => t.id === forward.tunnelId);
     setSelectedTunnel(tunnel || null);
@@ -614,7 +647,9 @@ export default function ForwardPage() {
           inPort: form.inPort,
           remoteAddr: processedRemoteAddr,
           interfaceName: form.interfaceName,
-          strategy: addressCount > 1 ? form.strategy : 'fifo'
+          strategy: addressCount > 1 ? form.strategy : 'fifo',
+          protocolId: form.protocolId,
+          tagIds: form.tagIds ? form.tagIds.join(',') : null
         };
         res = await updateForward(updateData);
       } else {
@@ -625,7 +660,9 @@ export default function ForwardPage() {
           inPort: form.inPort,
           remoteAddr: processedRemoteAddr,
           interfaceName: form.interfaceName,
-          strategy: addressCount > 1 ? form.strategy : 'fifo'
+          strategy: addressCount > 1 ? form.strategy : 'fifo',
+          protocolId: form.protocolId,
+          tagIds: form.tagIds ? form.tagIds.join(',') : null
         };
         res = await createForward(createData);
       }
@@ -1220,17 +1257,29 @@ export default function ForwardPage() {
       });
     }
 
-    // 关键词搜索过滤
-    if (searchKeyword.trim()) {
-      const lowerKeyword = searchKeyword.toLowerCase();
+    // 协议筛选
+    if (protocolFilter !== null) {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.protocolId === protocolFilter);
+    }
+
+    // 标签筛选
+    if (tagFilters.length > 0) {
       filteredForwards = filteredForwards.filter((f: Forward) => {
-        const portStr = f.inPort ? f.inPort.toString() : "";
+        if (!f.tagIds) return false;
+        const fTags = f.tagIds.split(',').filter(Boolean);
+        return tagFilters.every(t => fTags.includes(t));
+      });
+    }
+
+    // 关键词搜索过滤
+    if (searchKeyword && searchKeyword.trim()) {
+      const keyword = searchKeyword.toLowerCase().trim();
+      filteredForwards = filteredForwards.filter((f: Forward) => {
         return (
-          (f.name && f.name.toLowerCase().includes(lowerKeyword)) ||
-          (f.remoteAddr && f.remoteAddr.toLowerCase().includes(lowerKeyword)) ||
-          (f.inIp && f.inIp.toLowerCase().includes(lowerKeyword)) ||
-          portStr.includes(lowerKeyword) ||
-          (f.tunnelName && f.tunnelName.toLowerCase().includes(lowerKeyword))
+          (f.name && f.name.toLowerCase().includes(keyword)) ||
+          (f.remoteAddr && f.remoteAddr.toLowerCase().includes(keyword)) ||
+          (f.inIp && f.inIp.toLowerCase().includes(keyword)) ||
+          (f.inPort && f.inPort.toString().includes(keyword))
         );
       });
     }
@@ -1626,6 +1675,62 @@ export default function ForwardPage() {
 
           <Divider orientation="vertical" className="h-6 hidden sm:block" />
 
+          {/* 协议筛选 */}
+          <div className="w-full sm:w-48">
+            <Select
+              aria-label="筛选协议"
+              placeholder="🌐 全部协议"
+              selectedKeys={protocolFilter !== null ? new Set([protocolFilter.toString()]) : new Set([])}
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0];
+                setProtocolFilter(selected ? Number(selected) : null);
+              }}
+              size="sm"
+              variant="flat"
+              className="max-w-full"
+            >
+              {[
+                <SelectItem key="all" textValue="全部协议">
+                  全部协议
+                </SelectItem>,
+                ...protocols.map(p => (
+                  <SelectItem key={p.id.toString()} textValue={p.name}>
+                    {p.name}
+                  </SelectItem>
+                ))
+              ]}
+            </Select>
+          </div>
+
+          <Divider orientation="vertical" className="h-6 hidden sm:block" />
+
+          {/* 标签筛选 */}
+          <div className="w-full sm:w-64">
+            <Select
+              aria-label="筛选标签"
+              placeholder="🏷️ 选择标签"
+              selectionMode="multiple"
+              selectedKeys={new Set(tagFilters)}
+              onSelectionChange={(keys) => {
+                setTagFilters(Array.from(keys) as string[]);
+              }}
+              size="sm"
+              variant="flat"
+              className="max-w-full"
+            >
+              {tags.map(t => (
+                <SelectItem key={t.id.toString()} textValue={t.name}>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
+                    <span>{t.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </Select>
+          </div>
+
+          <Divider orientation="vertical" className="h-6 hidden sm:block" />
+
           {/* 状态筛选 */}
           <Tabs
             selectedKey={statusFilter}
@@ -1932,6 +2037,44 @@ export default function ForwardPage() {
                     variant="bordered"
                     description="用于多IP服务器指定使用那个IP请求远程地址，不懂的默认为空就行"
                   />
+
+                  <Select
+                    label="协议 (Protocol)"
+                    placeholder="选择协议 (可选)"
+                    selectedKeys={form.protocolId ? [form.protocolId.toString()] : []}
+                    onSelectionChange={(keys) => {
+                      const selectedKey = Array.from(keys)[0] as string;
+                      setForm(prev => ({ ...prev, protocolId: selectedKey ? parseInt(selectedKey) : null }));
+                    }}
+                    variant="bordered"
+                  >
+                    {[
+                      <SelectItem key="" textValue="无协议">无协议</SelectItem>,
+                      ...protocols.map(p => (
+                        <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
+                      ))
+                    ]}
+                  </Select>
+
+                  <Select
+                    label="标签 (Tags)"
+                    placeholder="选择标签 (多项选择)"
+                    selectionMode="multiple"
+                    selectedKeys={form.tagIds ? new Set(form.tagIds) : new Set([])}
+                    onSelectionChange={(keys) => {
+                      setForm(prev => ({ ...prev, tagIds: Array.from(keys) as string[] }));
+                    }}
+                    variant="bordered"
+                  >
+                    {tags.map(t => (
+                      <SelectItem key={t.id.toString()} textValue={t.name}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
+                          <span>{t.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </Select>
 
                   {getAddressCount(form.remoteAddr) > 1 && (
                     <Select

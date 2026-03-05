@@ -105,9 +105,10 @@ deploy:dev:
     - bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "$DEV_TAG" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
-# prod 部署：Runner 在服务器 C（Rn2-Runner-General-01），本地部署
+# prod 部署：Runner 在服务器 C（Rn2-US-Runner-Gereral），本地部署
 #
 # 和 dev 部署完全一样的模式：Runner 就在目标机器上，直接操作
+# Runner 的 config.toml 已配置 clone_url = SSH，自动通过 SSH 拉取代码
 # ──────────────────────────────────────────────────────────────
 deploy:prod:
   stage: deploy

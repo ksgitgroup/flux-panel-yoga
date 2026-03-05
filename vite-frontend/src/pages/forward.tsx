@@ -42,7 +42,8 @@ import {
   pauseForwardService,
   resumeForwardService,
   diagnoseForward,
-  updateForwardOrder
+  updateForwardOrder,
+  copyForward
 } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
 
@@ -471,6 +472,21 @@ export default function ForwardPage() {
     setSelectedTunnel(tunnel || null);
     setErrors({});
     setModalOpen(true);
+  };
+
+  // 复制转发
+  const handleCopy = async (forward: Forward) => {
+    try {
+      const res = await copyForward({ id: forward.id });
+      if (res.code === 0) {
+        toast.success(`转发「${forward.name}」复制成功`);
+        loadData(false);
+      } else {
+        toast.error(res.msg || '复制失败');
+      }
+    } catch {
+      toast.error('复制转发出错');
+    }
   };
 
   // 显示删除确认
@@ -1329,6 +1345,21 @@ export default function ForwardPage() {
               }
             >
               诊断
+            </Button>
+            <Button
+              size="sm"
+              variant="flat"
+              color="secondary"
+              onPress={() => handleCopy(forward)}
+              className="flex-1 min-h-8"
+              startContent={
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                  <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                </svg>
+              }
+            >
+              复制
             </Button>
             <Button
               size="sm"

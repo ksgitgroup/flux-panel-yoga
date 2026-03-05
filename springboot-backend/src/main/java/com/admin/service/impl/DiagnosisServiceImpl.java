@@ -17,6 +17,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -43,6 +44,25 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
     @Autowired
     private ViteConfigMapper viteConfigMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @javax.annotation.PostConstruct
+    public void initDatabaseSchema() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE diagnosis_record ADD COLUMN average_time DOUBLE DEFAULT NULL COMMENT '平均延迟(ms)'");
+            log.info("数据库升级: 已添加 average_time 列");
+        } catch (Exception e) {
+            // 列可能已存在，忽略错误
+        }
+        try {
+            jdbcTemplate.execute("ALTER TABLE diagnosis_record ADD COLUMN packet_loss DOUBLE DEFAULT NULL COMMENT '丢包率(%)'");
+            log.info("数据库升级: 已添加 packet_loss 列");
+        } catch (Exception e) {
+            // 列可能已存在，忽略错误
+        }
+    }
 
     // ────────────────────────────────────────────────
     // 核心：全量诊断

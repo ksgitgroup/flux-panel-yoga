@@ -7,15 +7,21 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 import org.aspectj.apache.bcel.generic.RET;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 
 public class GostUtil {
+    private static final Logger log = LoggerFactory.getLogger(GostUtil.class);
 
 
     public static GostDto AddLimiters(Long node_id, Long name, String speed) {
         JSONObject data = createLimiterData(name, speed);
-        return WebSocketServer.send_msg(node_id, data, "AddLimiters");
+        log.info("[GOST] AddLimiters → 节点:{}, 限流器:{}, 速度:{}MB", node_id, name, speed);
+        GostDto result = WebSocketServer.send_msg(node_id, data, "AddLimiters");
+        log.info("[GOST] AddLimiters ← 节点:{}, 响应:{}", node_id, result != null ? result.getMsg() : "null");
+        return result;
     }
 
     public static GostDto UpdateLimiters(Long node_id, Long name, String speed) {
@@ -39,7 +45,11 @@ public class GostUtil {
             JSONObject service = createServiceConfig(name, in_port, limiter, remoteAddr, protocol, fow_type, tunnel, strategy, interfaceName);
             services.add(service);
         }
-        return WebSocketServer.send_msg(node_id, services, "AddService");
+        log.info("[GOST] AddService → 节点:{}, name:{}, 入口端口:{}, 远程地址:{}, 转发类型:{}, 策略:{}", node_id, name, in_port, remoteAddr, fow_type, strategy);
+        log.debug("[GOST] AddService 完整JSON: {}", services.toJSONString());
+        GostDto result = WebSocketServer.send_msg(node_id, services, "AddService");
+        log.info("[GOST] AddService ← 节点:{}, 响应:{}", node_id, result != null ? result.getMsg() : "null");
+        return result;
     }
 
     public static GostDto UpdateService(Long node_id, String name, Integer in_port, Integer limiter, String remoteAddr, Integer fow_type, Tunnel tunnel, String strategy, String interfaceName) {
@@ -104,7 +114,11 @@ public class GostUtil {
         data.put("forwarder", forwarder);
         JSONArray services = new JSONArray();
         services.add(data);
-        return WebSocketServer.send_msg(node_id, services, "AddService");
+        log.info("[GOST] AddRemoteService → 节点:{}, name:{}_tls, 出口端口:{}, 远程地址:{}, 协议:{}", node_id, name, out_port, remoteAddr, protocol);
+        log.debug("[GOST] AddRemoteService 完整JSON: {}", services.toJSONString());
+        GostDto result = WebSocketServer.send_msg(node_id, services, "AddService");
+        log.info("[GOST] AddRemoteService ← 节点:{}, 响应:{}", node_id, result != null ? result.getMsg() : "null");
+        return result;
     }
 
     public static GostDto UpdateRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,String protocol, String strategy, String interfaceName) {
@@ -236,7 +250,11 @@ public class GostUtil {
         data.put("name", name + "_chains");
         data.put("hops", hops);
 
-        return WebSocketServer.send_msg(node_id, data, "AddChains");
+        log.info("[GOST] AddChains → 节点:{}, chain:{}_chains, 远程地址:{}, 协议:{}", node_id, name, remoteAddr, protocol);
+        log.debug("[GOST] AddChains 完整JSON: {}", data.toJSONString());
+        GostDto result = WebSocketServer.send_msg(node_id, data, "AddChains");
+        log.info("[GOST] AddChains ← 节点:{}, 响应:{}", node_id, result != null ? result.getMsg() : "null");
+        return result;
     }
 
     public static GostDto UpdateChains(Long node_id, String name, String remoteAddr, String protocol, String interfaceName) {

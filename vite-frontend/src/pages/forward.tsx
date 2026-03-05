@@ -11,6 +11,8 @@ import { Switch } from "@heroui/switch";
 import { Alert } from "@heroui/alert";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Divider } from "@heroui/divider";
+import { Tabs, Tab } from "@heroui/tabs";
+import { SpeedBadge } from "@/components/SpeedBadge";
 import toast from 'react-hot-toast';
 import {
   DndContext,
@@ -1329,17 +1331,14 @@ export default function ForwardPage() {
               {/* 诊断健康+延迟徽标 */}
               {(() => {
                 const diag = diagnosisMap[forward.id];
-                if (!diag) return null;
-                const latencyMs = diag.averageTime;
-                const latencyColor = !latencyMs || latencyMs < 0 ? 'default' : latencyMs < 50 ? 'success' : latencyMs < 150 ? 'warning' : 'danger';
                 return (
-                  <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${diag.overallSuccess ? 'bg-success-500' : 'bg-danger-500 animate-pulse'}`} />
-                    {latencyMs && latencyMs > 0 && (
-                      <Chip size="sm" variant="flat" color={latencyColor as any} className="text-[10px] h-5 min-w-0 px-1.5">
-                        {latencyMs.toFixed(0)}ms
-                      </Chip>
-                    )}
+                  <div className="flex-shrink-0 ml-auto">
+                    <SpeedBadge
+                      averageTime={diag?.averageTime}
+                      packetLoss={diag?.packetLoss}
+                      overallSuccess={diag?.overallSuccess}
+                      compact
+                    />
                   </div>
                 );
               })()}
@@ -1596,74 +1595,115 @@ export default function ForwardPage() {
       </div>
 
       {/* 筛选区域 - 高级美化版 */}
-      <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-6 p-4 bg-default-50/50 dark:bg-default-100/20 rounded-2xl border border-divider shadow-sm">
-        <div className="flex flex-wrap items-center gap-3 w-full">
-          {/* 隧道筛选 - 使用 Select */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 p-4 bg-default-50/50 dark:bg-default-100/20 rounded-2xl border border-divider shadow-sm">
+        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-4 w-full md:w-auto">
+          {/* 隧道筛选 */}
           <div className="w-full sm:w-48">
-            <select
-              className="w-full text-xs h-10 px-3 rounded-xl border border-default-200 dark:border-default-300 bg-white dark:bg-default-100 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none cursor-pointer"
-              value={tunnelFilter ?? ''}
-              onChange={(e) => setTunnelFilter(e.target.value ? Number(e.target.value) : null)}
+            <Select
+              aria-label="筛选隧道"
+              placeholder="📂 全部隧道"
+              selectedKeys={tunnelFilter !== null ? new Set([tunnelFilter.toString()]) : new Set([])}
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0];
+                setTunnelFilter(selected ? Number(selected) : null);
+              }}
+              size="sm"
+              variant="flat"
+              className="max-w-full"
             >
-              <option value="">📂 全部隧道</option>
-              {tunnels.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+              {[
+                <SelectItem key="all" textValue="全部隧道">
+                  全部隧道
+                </SelectItem>,
+                ...tunnels.map(t => (
+                  <SelectItem key={t.id.toString()} textValue={t.name}>
+                    {t.name}
+                  </SelectItem>
+                ))
+              ]}
+            </Select>
           </div>
 
-          <Divider orientation="vertical" className="h-6 hidden md:block" />
+          <Divider orientation="vertical" className="h-6 hidden sm:block" />
 
-          {/* 状态筛选 - 简练风格 */}
-          <div className="flex bg-default-100 dark:bg-default-200 p-1 rounded-xl">
-            {([['all', '全部'], ['running', '运行中'], ['paused', '已暂停']] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setStatusFilter(key)}
-                className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all ${statusFilter === key
-                  ? 'bg-white dark:bg-default-500 shadow-sm text-foreground'
-                  : 'text-default-500 hover:text-default-700'
-                  }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* 状态筛选 */}
+          <Tabs
+            selectedKey={statusFilter}
+            onSelectionChange={(key) => setStatusFilter(key as any)}
+            size="sm"
+            color="primary"
+            variant="light"
+            radius="lg"
+            classNames={{
+              tabList: "bg-default-100 dark:bg-default-200",
+              cursor: "bg-white dark:bg-default-500 shadow-sm",
+              tab: "px-4",
+            }}
+          >
+            <Tab key="all" title="全部状态" />
+            <Tab key="running" title="运行中" />
+            <Tab key="paused" title="已暂停" />
+          </Tabs>
 
-          {/* 健康率筛选 - 简练风格 */}
-          <div className="flex bg-default-100 dark:bg-default-200 p-1 rounded-xl">
-            {([['all', '全部'], ['healthy', '健康'], ['unhealthy', '异常']] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setHealthFilter(key)}
-                className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${healthFilter === key
-                  ? 'bg-white dark:bg-default-500 shadow-sm text-foreground'
-                  : 'text-default-500 hover:text-default-700'
-                  }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${key === 'healthy' ? 'bg-success-500' : key === 'unhealthy' ? 'bg-danger-500' : 'bg-default-400'}`} />
-                {label}
-              </button>
-            ))}
-          </div>
+          <Divider orientation="vertical" className="h-6 hidden sm:block" />
 
-          {/* 重置按钮 */}
+          {/* 健康率筛选 */}
+          <Tabs
+            selectedKey={healthFilter}
+            onSelectionChange={(key) => setHealthFilter(key as any)}
+            size="sm"
+            color="danger"
+            variant="light"
+            radius="lg"
+            classNames={{
+              tabList: "bg-default-100 dark:bg-default-200",
+              cursor: "bg-white dark:bg-default-500 shadow-sm",
+              tab: "px-4",
+            }}
+          >
+            <Tab key="all" title="全部健康度" />
+            <Tab
+              key="healthy"
+              title={
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success-500" />正常
+                </div>
+              }
+            />
+            <Tab
+              key="unhealthy"
+              title={
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-danger-500" />异常
+                </div>
+              }
+            />
+          </Tabs>
+        </div>
+
+        {/* 重置按钮 */}
+        <div className="flex items-center gap-3">
           {(tunnelFilter !== null || statusFilter !== 'all' || healthFilter !== 'all') && (
             <Button
               size="sm"
               variant="light"
               color="danger"
-              onPress={() => { setTunnelFilter(null); setStatusFilter('all'); setHealthFilter('all'); }}
-              className="text-xs h-9 px-3 rounded-xl"
+              onPress={() => {
+                setTunnelFilter(null);
+                setStatusFilter('all');
+                setHealthFilter('all');
+              }}
+              className="text-xs h-9 px-3 rounded-xl flex-shrink-0"
               startContent={
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               }
             >
               重置筛选
             </Button>
           )}
-
-          <div className="ml-auto text-xs text-default-400 font-medium">
+          <div className="text-xs text-default-400 font-medium">
             共 {getSortedForwards().length} 个结果
           </div>
         </div>

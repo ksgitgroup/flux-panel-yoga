@@ -6,6 +6,7 @@ import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { ScrollShadow } from "@heroui/scroll-shadow";
+import { Tabs, Tab } from "@heroui/tabs";
 import toast from 'react-hot-toast';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { getDiagnosisSummary, getDiagnosisHistory, getDiagnosisTrend, runDiagnosisNow } from '@/api';
@@ -678,7 +679,7 @@ export default function MonitorPage() {
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center w-full gap-4 p-4 bg-default-50/50 dark:bg-default-100/20 rounded-2xl border border-divider shadow-sm">
                         <h2 className="text-lg font-semibold flex-shrink-0 hidden md:block">诊断明细</h2>
                         {!noData && (
-                            <div className="flex flex-wrap gap-3 items-center w-full md:w-auto">
+                            <div className="flex flex-col sm:flex-row flex-wrap gap-4 items-start sm:items-center w-full md:w-auto">
                                 {/* 搜索 */}
                                 <div className="relative w-full sm:w-48">
                                     <input
@@ -686,7 +687,7 @@ export default function MonitorPage() {
                                         placeholder="搜索名称..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-default-200 dark:border-default-700 bg-white dark:bg-default-100 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                        className="w-full pl-8 pr-3 py-1.5 text-xs h-9 rounded-xl border border-default-200 dark:border-default-700 bg-white dark:bg-default-100 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                                     />
                                     <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                 </div>
@@ -694,36 +695,78 @@ export default function MonitorPage() {
                                 <Divider orientation="vertical" className="h-6 hidden sm:block" />
 
                                 {/* 类型筛选 */}
-                                <div className="flex bg-default-100 dark:bg-default-200 p-1 rounded-xl">
-                                    {(['all', 'tunnel', 'forward'] as const).map((f) => (
-                                        <button
-                                            key={f}
-                                            onClick={() => setTypeFilter(f)}
-                                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${typeFilter === f
-                                                ? 'bg-white dark:bg-default-500 shadow-sm text-foreground'
-                                                : 'text-default-500 hover:text-default-700'
-                                                }`}
-                                        >
-                                            {f === 'all' ? '全部' : f === 'tunnel' ? '隧道' : '转发'}
-                                        </button>
-                                    ))}
-                                </div>
+                                <Tabs
+                                    selectedKey={typeFilter}
+                                    onSelectionChange={(key) => setTypeFilter(key as any)}
+                                    size="sm"
+                                    color="default"
+                                    variant="light"
+                                    radius="lg"
+                                    classNames={{
+                                        tabList: "bg-default-100 dark:bg-default-200",
+                                        cursor: "bg-white dark:bg-default-500 shadow-sm",
+                                        tab: "px-4",
+                                    }}
+                                >
+                                    <Tab key="all" title="全部类型" />
+                                    <Tab key="tunnel" title="隧道" />
+                                    <Tab key="forward" title="转发" />
+                                </Tabs>
+
+                                <Divider orientation="vertical" className="h-6 hidden sm:block" />
 
                                 {/* 状态筛选 */}
-                                <div className="flex bg-default-100 dark:bg-default-200 p-1 rounded-xl">
-                                    {(['all', 'success', 'fail'] as const).map((f) => (
-                                        <button
-                                            key={f}
-                                            onClick={() => setFilter(f)}
-                                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${filter === f
-                                                ? 'bg-white dark:bg-default-500 shadow-sm text-foreground'
-                                                : 'text-default-500 hover:text-default-700'
-                                                }`}
-                                        >
-                                            {f === 'all' ? '全部' : f === 'success' ? '正常' : '异常'}
-                                        </button>
-                                    ))}
-                                </div>
+                                <Tabs
+                                    selectedKey={filter}
+                                    onSelectionChange={(key) => setFilter(key as any)}
+                                    size="sm"
+                                    color={filter === 'success' ? 'success' : filter === 'fail' ? 'danger' : 'default'}
+                                    variant="light"
+                                    radius="lg"
+                                    classNames={{
+                                        tabList: "bg-default-100 dark:bg-default-200",
+                                        cursor: "bg-white dark:bg-default-500 shadow-sm",
+                                        tab: "px-4",
+                                    }}
+                                >
+                                    <Tab key="all" title="全部状态" />
+                                    <Tab
+                                        key="success"
+                                        title={
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-success-500" />正常
+                                            </div>
+                                        }
+                                    />
+                                    <Tab
+                                        key="fail"
+                                        title={
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-danger-500" />异常
+                                            </div>
+                                        }
+                                    />
+                                </Tabs>
+
+                                {/* 重置按钮 */}
+                                {(typeFilter !== 'all' || filter !== 'all' || searchQuery !== '') && (
+                                    <Button
+                                        size="sm"
+                                        variant="flat"
+                                        color="danger"
+                                        onPress={() => {
+                                            setTypeFilter('all');
+                                            setFilter('all');
+                                            setSearchQuery('');
+                                        }}
+                                        className="text-xs h-9 px-3 rounded-xl flex-shrink-0"
+                                        startContent={
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        }
+                                    >
+                                        重置筛选
+                                    </Button>
+                                )}
                             </div>
                         )}
                     </div>

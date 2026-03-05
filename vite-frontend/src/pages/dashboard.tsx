@@ -477,48 +477,6 @@ export default function DashboardPage() {
     }
   };
 
-  const groupedForwards = () => {
-    const groups: { [key: string]: { tunnelName: string; forwards: Forward[] } } = {};
-    forwardList.forEach(forward => {
-      const tunnelName = forward.tunnelName || '未知隧道';
-      if (!groups[tunnelName]) {
-        groups[tunnelName] = {
-          tunnelName,
-          forwards: []
-        };
-      }
-      groups[tunnelName].forwards.push(forward);
-    });
-    return Object.values(groups);
-  };
-
-  const formatInAddress = (ipString: string, port: number): string => {
-    if (!ipString || !port) return '';
-
-    const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
-
-    if (ips.length === 0) return '';
-
-    if (ips.length === 1) {
-      const ip = ips[0];
-      if (ip.includes(':') && !ip.startsWith('[')) {
-        return `[${ip}]:${port}`;
-      } else {
-        return `${ip}:${port}`;
-      }
-    }
-
-    const firstIp = ips[0];
-    let formattedFirstIp;
-
-    if (firstIp.includes(':') && !firstIp.startsWith('[')) {
-      formattedFirstIp = `[${firstIp}]`;
-    } else {
-      formattedFirstIp = firstIp;
-    }
-
-    return `${formattedFirstIp}:${port} (+${ips.length - 1})`;
-  };
 
   const formatRemoteAddress = (remoteAddr: string): string => {
     if (!remoteAddr) return '';
@@ -534,12 +492,6 @@ export default function DashboardPage() {
     return `${addresses[0]} (+${addresses.length - 1})`;
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _hasMultipleIps = (ipString: string): boolean => {
-    if (!ipString) return false;
-    const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
-    return ips.length > 1;
-  };
 
   const hasMultipleRemoteAddresses = (remoteAddr: string): boolean => {
     if (!remoteAddr) return false;
@@ -547,36 +499,6 @@ export default function DashboardPage() {
     return addresses.length > 1;
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _showAddressModal = (ipString: string, port: number, title: string) => {
-    if (!ipString || !port) return;
-
-    const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
-
-    if (ips.length <= 1) {
-      copyToClipboard(formatInAddress(ipString, port));
-      return;
-    }
-
-    const formattedList = ips.map((ip, index) => {
-      let formattedAddress;
-      if (ip.includes(':') && !ip.startsWith('[')) {
-        formattedAddress = `[${ip}]:${port}`;
-      } else {
-        formattedAddress = `${ip}:${port}`;
-      }
-      return {
-        id: index,
-        ip: ip,
-        address: formattedAddress,
-        copying: false
-      };
-    });
-
-    setAddressList(formattedList);
-    setAddressModalTitle(`${title} (${ips.length}个)`);
-    setAddressModalOpen(true);
-  };
 
   const showRemoteAddressModal = (remoteAddr: string, title: string) => {
     if (!remoteAddr) return;
@@ -838,10 +760,11 @@ export default function DashboardPage() {
             <CardBody className="pt-0 px-2 lg:px-4">
               {statisticsFlows.length === 0 ? (
                 <div className="text-center py-12">
-                  <svg className="w-12 h-12 text-default-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-12 h-12 text-default-400 mx-auto mb-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
-                  <p className="text-default-500">今日暂无流量统计数据产生</p>
+                  <p className="text-default-500 font-medium">数据采集中...</p>
+                  <p className="text-xs text-default-400 mt-1">系统每小时自动采集流量数据，请稍候</p>
                 </div>
               ) : (
                 <div className="space-y-4">

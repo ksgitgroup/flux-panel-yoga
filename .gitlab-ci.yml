@@ -50,121 +50,118 @@ build:dev:
     # ========================================================
 
 # ──────────────────────────────────────────────────────────────
-# prod 分支构建：本地打 latest 标签
+# prod 分支构建：推送到 GitHub 触发 Actions 构建 latest 镜像
 # ──────────────────────────────────────────────────────────────
 build:prod:
   stage: build
   tags:
     - Rn1-Runner-General-01
+  variables:
+    GIT_DEPTH: "50"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
-    # Docker 镜像构建已移交给 GitHub Actions（7GB RAM，免费）
-    # 触发方式：sync:github 把代码推到 GitHub main 后，GitHub Actions 自动触发
-    # 这里只做代码同步，不在内存受限的 Server B 上做 docker build
     - echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."
     - git config --global user.email "ci@gitlab.kingsungsz.com"
     - git config --global user.name "GitLab CI"
     - git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/main" --force
-    - echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建并推送镜像到 Docker Hub"
+    - echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建 amerluya/flux-panel-yoga-*:latest"
 
 
 # ──────────────────────────────────────────────────────────────
-# dev 部署：Runner 即在服务器 B，镜像在本地，直接启动
+# dev 部署：Runner 在服务器 B，拉取 Docker Hub dev-latest 镜像
 # ──────────────────────────────────────────────────────────────
 deploy:dev:
   stage: deploy
   tags:
     - Rn1-Runner-General-01
   needs:
-    - build:dev   # 明确声明依赖，保证 build 完成后才部署
+    - build:dev
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   environment:
     name: development
   script:
-    # 确保部署目录存在
     - mkdir -p "$DEPLOY_DIR"
-    # 防御性清理：如果 gost.sql 被 Docker 意外创建为目录，先删掉
     - '[ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true'
-    # 从仓库复制所需文件到部署目录
     - cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
     - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
     - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
     - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
-    # 执行部署脚本之前，等待 GitHub Actions 的镜像编译推送到 Docker Hub
-    # 注意：GitHub 的 commit SHA 和 GitLab 不一致，所以统一用 dev-latest 滚动标签
     - echo "⏳ 等待 GitHub Actions 编译后端镜像 (amerluya/flux-panel-yoga-backend:$DEV_TAG) ..."
     - |
       for i in {1..30}; do
         if docker pull "amerluya/flux-panel-yoga-backend:$DEV_TAG" >/dev/null 2>&1; then
-          echo "✅ 后端镜像拉取成功，GitHub Actions 构建完成！"
+          echo "✅ 后端镜像拉取成功！"
           break
         fi
-        echo "⏳ 镜像还在编译中（预计2-3分钟），等待 20 秒... ($i/30)"
+        echo "⏳ 等待编译中... ($i/30)"
         sleep 20
         if [ "$i" -eq 30 ]; then
           echo "❌ 等待超时，请检查 GitHub Actions 日志！"
           exit 1
         fi
       done
-    
-    # 执行部署脚本（含 .env 生成 / 更新 + docker compose pull + up）
     - bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "$DEV_TAG" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
-# prod 部署：生产环境在另一台机器，需通过 SSH 进行远程部署
-# 需要在 GitLab 的 Settings -> CI/CD -> Variables 中配置：
-#   DEPLOY_PROD_HOST：生产服务器 IP
-#   DEPLOY_PROD_USER：登录用户名（如 root）
-#   DEPLOY_PROD_KEY：服务器 SSH 私钥（File 类型变量）
+# prod 部署：Runner 在服务器 C（Rn2-Runner-General-01），本地部署
+#
+# 和 dev 部署完全一样的模式：Runner 就在目标机器上，直接操作
 # ──────────────────────────────────────────────────────────────
 deploy:prod:
   stage: deploy
   tags:
-    - Rn1-Runner-General-01
+    - Rn2-US-Runner-Gereral        # 🖥️ Server C 上的 Runner
   needs:
     - build:prod
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
-      when: manual    # 生产部署需要手动确认触发
+      when: manual                  # ⚠️ 生产部署需要手动确认
   environment:
     name: production
-    url: http://$DEPLOY_PROD_HOST
   script:
-    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    - cp "$DEPLOY_PROD_KEY" ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -p 22 "$DEPLOY_PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-    - scp -i ~/.ssh/id_rsa docker-compose-v6.yml gost.sql scripts/remote_deploy.sh
-        "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST:$DEPLOY_DIR/"
-    - ssh -i ~/.ssh/id_rsa "$DEPLOY_PROD_USER@$DEPLOY_PROD_HOST"
-        "chmod +x $DEPLOY_DIR/remote_deploy.sh &&
-         bash $DEPLOY_DIR/remote_deploy.sh '$IMAGE_BASE' '$PROD_TAG' '$DEPLOY_DIR'"
+    - DEPLOY_DIR="/opt/1panel/apps/local/flux-panel"
+    - mkdir -p "$DEPLOY_DIR"
+    - '[ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true'
+    - cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
+    - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
+    - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
+    - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
+    # 等待 GitHub Actions 编译 latest 镜像
+    - echo "⏳ 等待 GitHub Actions 编译 (amerluya/flux-panel-yoga-backend:$PROD_TAG) ..."
+    - |
+      for i in {1..30}; do
+        if docker pull "amerluya/flux-panel-yoga-backend:$PROD_TAG" >/dev/null 2>&1; then
+          echo "✅ 镜像拉取成功！"
+          break
+        fi
+        echo "⏳ 等待编译中... ($i/30)"
+        sleep 20
+        if [ "$i" -eq 30 ]; then
+          echo "❌ 等待超时，请检查 GitHub Actions 日志！"
+          exit 1
+        fi
+      done
+    - bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "$PROD_TAG" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
-# 同步到 GitHub：确保 panel_install.sh 和 docker-compose 等文件
-# 在 raw.githubusercontent.com 上始终是最新版本（供用户一键安装）
-#
-# 需要在 GitLab Settings → CI/CD → Variables 中配置：
-#   GITHUB_TOKEN：GitHub Personal Access Token（勾选 repo 权限）
+# 同步到 GitHub（main 分支）
 # ──────────────────────────────────────────────────────────────
 sync:github:
   stage: sync
   tags:
     - Rn1-Runner-General-01
   variables:
-    GIT_DEPTH: "50"  # 避免全量拉取(0)导致卡死，50 层足够让 GitHub 识别并接受 Push
+    GIT_DEPTH: "50"
   needs:
-    - build:prod     # 必须 prod 镜像推送成功后才同步
+    - build:prod
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
     - echo "🔄 同步代码到 GitHub ksgitgroup/flux-panel-yoga ..."
-    # 配置 git 用户信息（Runner 机器上需要有身份才能提交）
     - git config --global user.email "ci@gitlab.kingsungsz.com"
     - git config --global user.name "GitLab CI"
-    # 添加 GitHub 远端（用 Token 嵌入 URL，避免 SSH 配置）
     - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
-    # 强制推送当前 main 分支到 GitHub main 分支
     - git push github "HEAD:main" --force
-    - echo "✅ 已同步到 GitHub，安装脚本即时生效"
+    - echo "✅ 已同步到 GitHub"

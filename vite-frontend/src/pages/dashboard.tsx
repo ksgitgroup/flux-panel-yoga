@@ -41,6 +41,7 @@ interface Forward {
   remoteAddr: string;
   inFlow: number;
   outFlow: number;
+  status: number;
 }
 
 interface AddressItem {
@@ -533,7 +534,8 @@ export default function DashboardPage() {
     return `${addresses[0]} (+${addresses.length - 1})`;
   };
 
-  const hasMultipleIps = (ipString: string): boolean => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _hasMultipleIps = (ipString: string): boolean => {
     if (!ipString) return false;
     const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
     return ips.length > 1;
@@ -545,7 +547,8 @@ export default function DashboardPage() {
     return addresses.length > 1;
   };
 
-  const showAddressModal = (ipString: string, port: number, title: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _showAddressModal = (ipString: string, port: number, title: string) => {
     if (!ipString || !port) return;
 
     const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);

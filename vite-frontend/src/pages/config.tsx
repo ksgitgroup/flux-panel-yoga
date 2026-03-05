@@ -8,7 +8,7 @@ import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
 import toast from 'react-hot-toast';
-import { updateConfigs } from '@/api';
+import { updateConfigs, testWebhook } from '@/api';
 import { SettingsIcon } from '@/components/icons';
 
 import { isAdmin } from '@/utils/auth';
@@ -162,6 +162,7 @@ export default function ConfigPage() {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
+  const [testingWebhook, setTestingWebhook] = useState(false);
 
   // 权限检查
   useEffect(() => {
@@ -432,6 +433,41 @@ export default function ConfigPage() {
 
                 {/* 渲染配置项 */}
                 {renderConfigItem(item)}
+
+                {/* 企业微信 Webhook 测试按钮 */}
+                {item.key === 'wechat_webhook_url' && configs['wechat_webhook_url'] && (
+                  <Button
+                    size="sm"
+                    color="success"
+                    variant="flat"
+                    className="mt-2"
+                    isLoading={testingWebhook}
+                    onPress={async () => {
+                      setTestingWebhook(true);
+                      try {
+                        // 先保存当前配置，确保 webhook URL 已生效
+                        await updateConfigs(configs);
+                        const res = await testWebhook();
+                        if (res.code === 0) {
+                          toast.success(res.data || '测试消息已发送，请检查企业微信群');
+                        } else {
+                          toast.error(res.msg || '发送失败');
+                        }
+                      } catch {
+                        toast.error('测试推送出错');
+                      } finally {
+                        setTestingWebhook(false);
+                      }
+                    }}
+                    startContent={
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
+                      </svg>
+                    }
+                  >
+                    发送测试消息
+                  </Button>
+                )}
 
                 {/* 分隔线 */}
                 {!isLastItem && (

@@ -56,6 +56,10 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
+# 从 GitHub Actions 传入的分支名（dev 或 main），用于构建正确的安装脚本 URL
+ARG GIT_BRANCH=dev
+ENV GIT_BRANCH=${GIT_BRANCH}
+
 # 层9：安装字体（某些 PDF/图表功能需要，较慢但缓存后不会重跑）
 # 换用中科大镜像加速 apt-get（避免国内访问 Ubuntu 源超时）
 RUN sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list \

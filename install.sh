@@ -8,7 +8,16 @@
 #   GOST_DOWNLOAD_URL=https://your-mirror.example.com/gost bash install.sh
 #
 # ──────────────────────────────────────────────────────────────────
-_DEFAULT_GOST_URL="https://github.com/BrunuhVille/flux-panel/releases/download/gost-latest/gost"
+_GOST_RELEASE_BASE="https://github.com/ksgitgroup/flux-panel-yoga/releases/download/gost-latest"
+
+# 自动检测 CPU 架构，选择对应的 gost 二进制文件
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64|amd64)   GOST_FILE="gost-amd64" ;;
+  aarch64|arm64)   GOST_FILE="gost-arm64" ;;
+  *)               echo "❌ 不支持的 CPU 架构: $ARCH"; exit 1 ;;
+esac
+_DEFAULT_GOST_URL="${_GOST_RELEASE_BASE}/${GOST_FILE}"
 
 # 优先使用外部传入的 GOST_DOWNLOAD_URL
 DOWNLOAD_URL="${GOST_DOWNLOAD_URL:-$_DEFAULT_GOST_URL}"
@@ -19,7 +28,7 @@ if [ "$COUNTRY" = "CN" ] && [[ "$DOWNLOAD_URL" == *"github.com"* ]]; then
     DOWNLOAD_URL="https://ghfast.top/${DOWNLOAD_URL}"
     echo "🇨🇳 检测到中国大陆网络，启用加速镜像"
 fi
-echo "📡 Gost 下载地址: $DOWNLOAD_URL"
+echo "📡 Gost 下载地址: $DOWNLOAD_URL (架构: $ARCH → $GOST_FILE)"
 
 
 

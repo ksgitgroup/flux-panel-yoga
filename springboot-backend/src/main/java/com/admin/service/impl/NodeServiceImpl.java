@@ -74,9 +74,13 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     @Resource
     ViteConfigService viteConfigService;
 
-    /** 节点安装脚本的下载地址（可通过环境变量 INSTALL_SCRIPT_URL 覆盖） */
-    @Value("${INSTALL_SCRIPT_URL:https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/refs/heads/dev/install.sh}")
-    private String installScriptUrl;
+    /** 当前构建分支（由 GitHub Actions → Dockerfile → ENV 自动注入） */
+    @Value("${GIT_BRANCH:dev}")
+    private String gitBranch;
+
+    /** 可选：完全覆盖安装脚本 URL（如果不设置则按分支自动拼接） */
+    @Value("${INSTALL_SCRIPT_URL:}")
+    private String installScriptUrlOverride;
 
 
     // ========== 公共接口实现 ==========
@@ -343,8 +347,17 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
 
         StringBuilder command = new StringBuilder();
         
-        // 第一部分：下载安装脚本（URL 来自环境变量 INSTALL_SCRIPT_URL）
-        command.append("curl -L ").append(installScriptUrl)
+        // 构建安装脚本 URL：优先使用环境变量覆盖，否则按当前分支自动拼接
+        String scriptUrl;
+        if (installScriptUrlOverride != null && !installScriptUrlOverride.isEmpty()) {
+            scriptUrl = installScriptUrlOverride;
+        } else {
+            scriptUrl = "https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/refs/heads/"
+                    + gitBranch + "/install.sh";
+        }
+        
+        // 第一部分：下载安装脚本
+        command.append("curl -L ").append(scriptUrl)
                .append(" -o ./install.sh && chmod +x ./install.sh && ");
         
         // 处理服务器地址，如果是IPv6需要添加方括号

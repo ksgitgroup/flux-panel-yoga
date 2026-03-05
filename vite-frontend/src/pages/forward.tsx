@@ -474,19 +474,21 @@ export default function ForwardPage() {
     setModalOpen(true);
   };
 
-  // 复制转发
-  const handleCopy = async (forward: Forward) => {
-    try {
-      const res = await copyForward({ id: forward.id });
-      if (res.code === 0) {
-        toast.success(`转发「${forward.name}」复制成功`);
-        loadData(false);
-      } else {
-        toast.error(res.msg || '复制失败');
-      }
-    } catch {
-      toast.error('复制转发出错');
-    }
+  // 复制转发（打开新建弹窗，预填原转发配置供重命名）
+  const handleCopy = (forward: Forward) => {
+    setIsEdit(false);
+    setForm({
+      name: forward.name + ' (副本)',
+      tunnelId: forward.tunnelId,
+      inPort: null, // 不复制端口，让系统自动分配
+      remoteAddr: forward.remoteAddr.split(',').join('\n'),
+      interfaceName: forward.interfaceName || '',
+      strategy: forward.strategy || 'fifo'
+    });
+    const tunnel = tunnels.find(t => t.id === forward.tunnelId);
+    setSelectedTunnel(tunnel || null);
+    setErrors({});
+    setModalOpen(true);
   };
 
   // 显示删除确认
@@ -1214,17 +1216,14 @@ export default function ForwardPage() {
     return (
       <Card key={forward.id} className="group shadow-sm border border-divider hover:shadow-md transition-shadow duration-200">
         <CardHeader className="pb-2">
-          <div className="flex justify-between items-start w-full">
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-foreground truncate text-sm">{forward.name}</h3>
-              <p className="text-xs text-default-500 truncate">{forward.tunnelName}</p>
-            </div>
-            <div className="flex items-center gap-1.5 ml-2">
+          <div className="w-full space-y-1">
+            {/* 第一行：转发名称（独占一行，不截断） */}
+            <div className="flex items-center gap-2">
               {viewMode === 'direct' && (
                 <div
-                  className={`cursor-grab active:cursor-grabbing p-2 text-default-400 hover:text-default-600 transition-colors touch-manipulation ${isMobile
-                    ? 'opacity-100' // 移动端始终显示
-                    : 'opacity-0 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+                  className={`cursor-grab active:cursor-grabbing p-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation flex-shrink-0 ${isMobile
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover:opacity-100'
                     }`}
                   {...listeners}
                   title={isMobile ? "长按拖拽排序" : "拖拽排序"}
@@ -1235,20 +1234,27 @@ export default function ForwardPage() {
                   </svg>
                 </div>
               )}
-              <Switch
-                size="sm"
-                isSelected={forward.serviceRunning}
-                onValueChange={() => handleServiceToggle(forward)}
-                isDisabled={forward.status !== 1 && forward.status !== 0}
-              />
-              <Chip
-                color={statusDisplay.color as any}
-                variant="flat"
-                size="sm"
-                className="text-xs"
-              >
-                {statusDisplay.text}
-              </Chip>
+              <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
+            </div>
+            {/* 第二行：隧道名 + 状态开关 */}
+            <div className="flex justify-between items-center">
+              <p className="text-xs text-default-500 truncate">{forward.tunnelName}</p>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Switch
+                  size="sm"
+                  isSelected={forward.serviceRunning}
+                  onValueChange={() => handleServiceToggle(forward)}
+                  isDisabled={forward.status !== 1 && forward.status !== 0}
+                />
+                <Chip
+                  color={statusDisplay.color as any}
+                  variant="flat"
+                  size="sm"
+                  className="text-xs"
+                >
+                  {statusDisplay.text}
+                </Chip>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -1302,28 +1308,34 @@ export default function ForwardPage() {
 
             {/* 统计信息 */}
             <div className="flex items-center justify-between pt-2 border-t border-divider">
-              <Chip color={strategyDisplay.color as any} variant="flat" size="sm" className="text-xs">
-                {strategyDisplay.text}
-              </Chip>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
+                <Chip color={strategyDisplay.color as any} variant="flat" size="sm" className="text-xs">
+                  {strategyDisplay.text}
+                </Chip>
                 <Chip variant="flat" size="sm" className="text-xs" color="primary">
                   ↑{formatFlow(forward.inFlow || 0)}
                 </Chip>
-
+                <Chip variant="flat" size="sm" className="text-xs" color="success">
+                  ↓{formatFlow(forward.outFlow || 0)}
+                </Chip>
               </div>
-              <Chip variant="flat" size="sm" className="text-xs" color="success">
-                ↓{formatFlow(forward.outFlow || 0)}
-              </Chip>
             </div>
+            {/* 创建时间 */}
+            {forward.createdTime && (
+              <div className="text-xs text-default-400">
+                创建于 {new Date(forward.createdTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
           </div>
 
-          <div className="flex gap-1.5 mt-3">
+          {/* 操作按钮 2x2 网格 */}
+          <div className="grid grid-cols-2 gap-1.5 mt-3">
             <Button
               size="sm"
               variant="flat"
               color="primary"
               onPress={() => handleEdit(forward)}
-              className="flex-1 min-h-8"
+              className="min-h-8"
               startContent={
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -1337,7 +1349,7 @@ export default function ForwardPage() {
               variant="flat"
               color="warning"
               onPress={() => handleDiagnose(forward)}
-              className="flex-1 min-h-8"
+              className="min-h-8"
               startContent={
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -1351,7 +1363,7 @@ export default function ForwardPage() {
               variant="flat"
               color="secondary"
               onPress={() => handleCopy(forward)}
-              className="flex-1 min-h-8"
+              className="min-h-8"
               startContent={
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
@@ -1366,7 +1378,7 @@ export default function ForwardPage() {
               variant="flat"
               color="danger"
               onPress={() => handleDelete(forward)}
-              className="flex-1 min-h-8"
+              className="min-h-8"
               startContent={
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />

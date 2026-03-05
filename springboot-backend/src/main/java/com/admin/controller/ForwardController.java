@@ -5,6 +5,7 @@ import com.admin.common.annotation.RequireRole;
 import com.admin.common.dto.ForwardDto;
 import com.admin.common.dto.ForwardUpdateDto;
 import com.admin.common.lang.R;
+import com.admin.entity.Forward;
 import com.admin.service.ForwardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
@@ -95,6 +96,29 @@ public class ForwardController extends BaseController {
     @PostMapping("/update-order")
     public R updateForwardOrder(@RequestBody Map<String, Object> params) {
         return forwardService.updateForwardOrder(params);
+    }
+
+    /**
+     * 复制转发
+     * @param params 包含id的参数（要复制的转发ID）
+     * @return 创建结果
+     */
+    @LogAnnotation
+    @PostMapping("/copy")
+    public R copyForward(@RequestBody Map<String, Object> params) {
+        Long id = Long.valueOf(params.get("id").toString());
+        Forward original = forwardService.getById(id);
+        if (original == null) {
+            return R.err("原转发不存在");
+        }
+        ForwardDto dto = new ForwardDto();
+        dto.setName(original.getName() + " (副本)");
+        dto.setTunnelId(original.getTunnelId());
+        dto.setRemoteAddr(original.getRemoteAddr());
+        dto.setStrategy(original.getStrategy());
+        dto.setInterfaceName(original.getInterfaceName());
+        // inPort 不复制，让系统自动分配新端口
+        return forwardService.createForward(dto);
     }
 
 }

@@ -8,6 +8,7 @@ import { Chip } from "@heroui/chip";
 import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Alert } from "@heroui/alert";
+import { Accordion, AccordionItem } from "@heroui/accordion";
 import toast from 'react-hot-toast';
 
 
@@ -17,7 +18,8 @@ import {
   updateTunnel, 
   deleteTunnel,
   getNodeList,
-  diagnoseTunnel
+  diagnoseTunnel,
+  getDiagnosisHistory
 } from "@/api";
 
 interface Tunnel {
@@ -42,6 +44,13 @@ interface Node {
   id: number;
   name: string;
   status: number; // 1: 在线, 0: 离线
+}
+
+interface DiagnosisHistoryItem {
+  id: number;
+  overallSuccess: boolean;
+  resultsJson: string;
+  createdTime: number;
 }
 
 interface TunnelForm {
@@ -92,6 +101,8 @@ export default function TunnelPage() {
   const [tunnelToDelete, setTunnelToDelete] = useState<Tunnel | null>(null);
   const [currentDiagnosisTunnel, setCurrentDiagnosisTunnel] = useState<Tunnel | null>(null);
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
+  const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   
   // 表单状态
   const [form, setForm] = useState<TunnelForm>({
@@ -292,17 +303,35 @@ export default function TunnelPage() {
     }
   };
 
+  const loadDiagnosisHistory = async (tunnelId: number) => {
+    setHistoryLoading(true);
+    try {
+      const res = await getDiagnosisHistory({ targetType: 'tunnel', targetId: tunnelId, limit: 10 });
+      if (res.code === 0 && res.data && res.data.records) {
+        setDiagnosisHistory(res.data.records);
+      }
+    } catch (err) {
+      console.error("加载历史记录失败", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   // 诊断隧道
   const handleDiagnose = async (tunnel: Tunnel) => {
     setCurrentDiagnosisTunnel(tunnel);
     setDiagnosisModalOpen(true);
     setDiagnosisLoading(true);
     setDiagnosisResult(null);
+    setDiagnosisHistory([]);
+
+    loadDiagnosisHistory(tunnel.id);
 
     try {
       const response = await diagnoseTunnel(tunnel.id);
       if (response.code === 0) {
         setDiagnosisResult(response.data);
+        loadDiagnosisHistory(tunnel.id);
       } else {
         toast.error(response.msg || '诊断失败');
         setDiagnosisResult({
@@ -1019,6 +1048,72 @@ export default function TunnelPage() {
                           </Card>
                         );
                       })}
+                      
+                      {/* 历史记录展示 */}
+                      {diagnosisHistory.length > 0 && (
+                        <div className="mt-8">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold">最近10次诊断历史</h3>
+                            {historyLoading && <Spinner size="sm" />}
+                          </div>
+                          <Accordion variant="splitted">
+                            {diagnosisHistory.map((item) => {
+                              let parsedResults: any[] = [];
+                              try {
+                                parsedResults = JSON.parse(item.resultsJson);
+                              } catch(e) {}
+                              
+                              return (
+                                <AccordionItem
+                                  key={item.id}
+                                  aria-label={`历史记录 ${item.id}`}
+                                  title={
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm">
+                                        {new Date(item.createdTime).toLocaleString("zh-CN")}
+                                      </span>
+                                      <Chip size="sm" color={item.overallSuccess ? "success" : "danger"} variant="flat">
+                                        {item.overallSuccess ? "成功" : "失败"}
+                                      </Chip>
+                                    </div>
+                                  }
+                                >
+                                  <div className="space-y-3">
+                                    {parsedResults.map((r: any, idx: number) => (
+                                      <div key={idx} className="bg-default-50 p-3 rounded-lg text-sm border border-divider">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                                            r.success ? 'bg-success text-white' : 'bg-danger text-white'
+                                          }`}>
+                                            {r.success ? '✓' : '✗'}
+                                          </div>
+                                          <div className="font-semibold">{r.description} ({r.nodeName})</div>
+                                        </div>
+                                        
+                                        <div className="text-default-500 mt-1 flex items-center justify-between">
+                                          <span>目标: <code className="font-mono bg-default-100 px-1 rounded">{r.targetIp}{r.targetPort ? ':' + r.targetPort : ''}</code></span>
+                                        </div>
+                                        
+                                        {r.success ? (
+                                          <div className="text-default-400 mt-2 flex gap-4 bg-default-100/50 p-2 rounded">
+                                            <span>延迟: <strong className="text-primary">{r.averageTime?.toFixed(0)}</strong> ms</span>
+                                            <span>丢包: <strong className="text-warning">{r.packetLoss?.toFixed(1)}</strong> %</span>
+                                          </div>
+                                        ) : (
+                                          <div className="text-danger mt-2 bg-danger-50 p-2 rounded text-xs border border-danger-100">
+                                            {r.message}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </AccordionItem>
+                              );
+                            })}
+                          </Accordion>
+                        </div>
+                      )}
+
                     </div>
                   ) : (
                     <div className="text-center py-16">

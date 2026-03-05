@@ -65,6 +65,7 @@ export const diagnoseForward = (forwardId: number) => Network.post("/forward/dia
 
 // 转发排序操作
 export const updateForwardOrder = (data: { forwards: Array<{ id: number; inx: number }> }) => Network.post("/forward/update-order", data);
+export const copyForward = (data: { id: number }) => Network.post("/forward/copy", data);
 
 // 限速规则CRUD操作 - 全部使用POST请求
 export const createSpeedLimit = (data: any) => Network.post("/speed-limit/create", data);
@@ -95,3 +96,4 @@ export const getDiagnosisSummary = () => Network.post("/diagnosis/summary");
 export const getDiagnosisHistory = (data: { targetType: string; targetId: number; limit?: number }) =>
   Network.post("/diagnosis/history", data);
 export const runDiagnosisNow = () => Network.post("/diagnosis/run-now");
+export const testWebhook = () => Network.post("/diagnosis/test-webhook");

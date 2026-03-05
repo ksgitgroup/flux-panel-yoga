@@ -58,8 +58,10 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
         List<String> failureMessages = new ArrayList<>();
 
-        // 1. 诊断所有隧道
-        List<Tunnel> tunnels = tunnelService.list();
+        // 1. 诊断所有活跃隧道（排除已禁用的）
+        List<Tunnel> tunnels = tunnelService.list().stream()
+                .filter(t -> t.getStatus() != null && t.getStatus() == 1)
+                .collect(Collectors.toList());
         for (Tunnel tunnel : tunnels) {
             try {
                 R result = tunnelService.diagnoseTunnel(tunnel.getId());
@@ -75,11 +77,13 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             }
         }
 
-        // 2. 诊断所有转发
-        List<Forward> forwards = forwardService.list();
+        // 2. 诊断所有活跃转发（排除已暂停的）
+        List<Forward> forwards = forwardService.list().stream()
+                .filter(f -> f.getStatus() != null && f.getStatus() == 1)
+                .collect(Collectors.toList());
         for (Forward forward : forwards) {
             try {
-                R result = forwardService.diagnoseForward(forward.getId().longValue());
+                R result = forwardService.diagnoseForward(forward.getId().longValue(), true);
                 boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
                 saveRecord("forward", forward.getId().intValue(), forward.getName(), success, result.getData());
 

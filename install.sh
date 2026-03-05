@@ -30,8 +30,12 @@ if [ "$COUNTRY" = "CN" ] && [[ "$DOWNLOAD_URL" == *"github.com"* ]]; then
 fi
 echo "📡 Gost 下载地址: $DOWNLOAD_URL (架构: $ARCH → $GOST_FILE)"
 
-
-
+# 安装目录和权限配置
+INSTALL_DIR="/etc/gost"
+SUDO_CMD=""
+if [ "$(id -u)" -ne 0 ]; then
+    SUDO_CMD="sudo"
+fi
 # 显示菜单
 show_menu() {
   echo "==============================================="

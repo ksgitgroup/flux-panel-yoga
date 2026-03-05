@@ -151,9 +151,9 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
         // 获取当前所有有效的隧道和转发 ID 列表，用于剔除已删除的资源
         // 这一步是解决用户提到的“已删除资源仍显示在统计中”的问题
-        Set<Integer> activeTunnelIds = tunnelMapper.selectList(null).stream()
+        Set<Integer> activeTunnelIds = tunnelService.list().stream()
                 .map(t -> t.getId().intValue()).collect(Collectors.toSet());
-        Set<Integer> activeForwardIds = forwardMapper.selectList(null).stream()
+        Set<Integer> activeForwardIds = forwardService.list().stream()
                 .map(f -> f.getId().intValue()).collect(Collectors.toSet());
 
         // 按 targetType+targetId 分组，保留最新且有效的

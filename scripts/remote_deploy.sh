@@ -54,9 +54,18 @@ BACKEND_PORT=6365
 EOF
   echo "✅ .env 已生成"
 else
-  echo "⏭️  .env 已存在，仅更新镜像标签..."
-  sed -i "s|^IMAGE_REGISTRY=.*|IMAGE_REGISTRY=$IMAGE_BASE|" .env
-  sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|" .env
+  echo "⏭️  .env 已存在，更新镜像标签..."
+  # 安全更新：如果字段存在则替换，不存在则追加
+  if grep -q '^IMAGE_REGISTRY=' .env; then
+    sed -i "s|^IMAGE_REGISTRY=.*|IMAGE_REGISTRY=$IMAGE_BASE|" .env
+  else
+    echo "IMAGE_REGISTRY=$IMAGE_BASE" >> .env
+  fi
+  if grep -q '^IMAGE_TAG=' .env; then
+    sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|" .env
+  else
+    echo "IMAGE_TAG=$IMAGE_TAG" >> .env
+  fi
 fi
 
 # 读取 .env 中的数据库变量，后面导入 SQL 时需要

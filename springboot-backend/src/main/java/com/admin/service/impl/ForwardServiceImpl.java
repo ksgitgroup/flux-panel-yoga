@@ -433,13 +433,26 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
     @Override
     public R diagnoseForward(Long id) {
-        // 1. 获取当前用户信息
-        UserInfo currentUser = getCurrentUserInfo();
+        return diagnoseForward(id, false);
+    }
 
-        // 2. 检查转发是否存在且用户有权限访问
-        Forward forward = validateForwardExists(id, currentUser);
-        if (forward == null) {
-            return R.err("转发不存在");
+    @Override
+    public R diagnoseForward(Long id, boolean isSystemTask) {
+        Forward forward;
+        if (isSystemTask) {
+            forward = this.getById(id);
+            if (forward == null) {
+                return R.err("转发不存在");
+            }
+        } else {
+            // 1. 获取当前用户信息
+            UserInfo currentUser = getCurrentUserInfo();
+
+            // 2. 检查转发是否存在且用户有权限访问
+            forward = validateForwardExists(id, currentUser);
+            if (forward == null) {
+                return R.err("转发不存在");
+            }
         }
 
         // 3. 获取隧道信息

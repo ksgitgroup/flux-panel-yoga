@@ -83,7 +83,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                 .collect(Collectors.toList());
         for (Forward forward : forwards) {
             try {
-                R result = forwardService.diagnoseForward(forward.getId().longValue());
+                R result = forwardService.diagnoseForward(forward.getId().longValue(), true);
                 boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
                 saveRecord("forward", forward.getId().intValue(), forward.getName(), success, result.getData());
 

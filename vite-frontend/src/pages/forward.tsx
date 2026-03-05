@@ -45,6 +45,7 @@ import {
   updateForwardOrder,
   copyForward
 } from "@/api";
+import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
 
 interface Forward {
@@ -107,6 +108,13 @@ interface DiagnosisResult {
   }>;
 }
 
+interface DiagnosisHistoryItem {
+  id: number;
+  overallSuccess: boolean;
+  resultsJson: string;
+  createdTime: number;
+}
+
 // 添加分组接口
 interface UserGroup {
   userId: number | null;
@@ -167,6 +175,8 @@ export default function ForwardPage() {
   const [forwardToDelete, setForwardToDelete] = useState<Forward | null>(null);
   const [currentDiagnosisForward, setCurrentDiagnosisForward] = useState<Forward | null>(null);
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
+  const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
 
@@ -646,17 +656,35 @@ export default function ForwardPage() {
     }
   };
 
+  const loadDiagnosisHistory = async (forwardId: number) => {
+    setHistoryLoading(true);
+    try {
+      const res = await getDiagnosisHistory({ targetType: 'forward', targetId: forwardId, limit: 10 });
+      if (res.code === 0 && res.data && res.data.records) {
+        setDiagnosisHistory(res.data.records);
+      }
+    } catch (err) {
+      console.error("加载历史记录失败", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   // 诊断转发
   const handleDiagnose = async (forward: Forward) => {
     setCurrentDiagnosisForward(forward);
     setDiagnosisModalOpen(true);
     setDiagnosisLoading(true);
     setDiagnosisResult(null);
+    setDiagnosisHistory([]);
+
+    loadDiagnosisHistory(forward.id);
 
     try {
       const response = await diagnoseForward(forward.id);
       if (response.code === 0) {
         setDiagnosisResult(response.data);
+        loadDiagnosisHistory(forward.id);
       } else {
         toast.error(response.msg || '诊断失败');
         setDiagnosisResult({
@@ -2193,6 +2221,63 @@ export default function ForwardPage() {
                         </Card>
                       );
                     })}
+                    
+                    {/* 历史记录展示 */}
+                    {diagnosisHistory.length > 0 && (
+                      <div className="mt-8">
+                        <h3 className="text-lg font-bold mb-4">最近10次诊断历史</h3>
+                        <Accordion variant="splitted">
+                          {diagnosisHistory.map((item) => {
+                            let parsedResults = [];
+                            try {
+                              parsedResults = JSON.parse(item.resultsJson);
+                            } catch(e) {}
+                            
+                            return (
+                              <AccordionItem
+                                key={item.id}
+                                aria-label={`历史记录 ${item.id}`}
+                                title={
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm">
+                                      {new Date(item.createdTime).toLocaleString("zh-CN")}
+                                    </span>
+                                    <Chip size="sm" color={item.overallSuccess ? "success" : "danger"} variant="flat">
+                                      {item.overallSuccess ? "成功" : "失败"}
+                                    </Chip>
+                                  </div>
+                                }
+                              >
+                                <div className="space-y-3">
+                                  {parsedResults.map((r: any, idx: number) => (
+                                    <div key={idx} className="bg-default-50 p-3 rounded-lg text-sm">
+                                      <div className="font-semibold">{r.description} ({r.nodeName})</div>
+                                      <div className="text-default-500 mt-1 flex items-center justify-between">
+                                        <span>目标: {r.targetIp}{r.targetPort ? ':' + r.targetPort : ''}</span>
+                                        <span className={r.success ? "text-success" : "text-danger"}>
+                                          {r.success ? "连接成功" : "连接失败"}
+                                        </span>
+                                      </div>
+                                      {r.success ? (
+                                        <div className="text-default-400 mt-1 flex gap-4">
+                                          <span>延迟: {r.averageTime?.toFixed(0)} ms</span>
+                                          <span>丢包: {r.packetLoss?.toFixed(1)}%</span>
+                                        </div>
+                                      ) : (
+                                        <div className="text-danger mt-1">
+                                          {r.message}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </AccordionItem>
+                            );
+                          })}
+                        </Accordion>
+                      </div>
+                    )}
+
                   </div>
                 ) : (
                   <div className="text-center py-16">

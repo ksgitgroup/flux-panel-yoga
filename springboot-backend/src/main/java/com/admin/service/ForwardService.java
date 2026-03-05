@@ -74,6 +74,14 @@ public interface ForwardService extends IService<Forward> {
     R diagnoseForward(Long id);
 
     /**
+     * 转发诊断功能（支持系统后台任务跳过鉴权）
+     * @param id 转发ID
+     * @param isSystemTask 是否系统自动任务
+     * @return 诊断结果
+     */
+    R diagnoseForward(Long id, boolean isSystemTask);
+
+    /**
      * 更新转发排序
      * @param params 包含forwards数组的参数
      * @return 更新结果

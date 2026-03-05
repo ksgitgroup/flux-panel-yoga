@@ -149,10 +149,30 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                 new QueryWrapper<DiagnosisRecord>().orderByDesc("created_time")
         );
 
-        // 按 targetType+targetId 分组，保留最新
+        // 获取当前所有有效的隧道和转发 ID 列表，用于剔除已删除的资源
+        // 这一步是解决用户提到的“已删除资源仍显示在统计中”的问题
+        Set<Integer> activeTunnelIds = tunnelMapper.selectList(null).stream()
+                .map(t -> t.getId().intValue()).collect(Collectors.toSet());
+        Set<Integer> activeForwardIds = forwardMapper.selectList(null).stream()
+                .map(f -> f.getId().intValue()).collect(Collectors.toSet());
+
+        // 按 targetType+targetId 分组，保留最新且有效的
         Map<String, DiagnosisRecord> latestMap = new LinkedHashMap<>();
         for (DiagnosisRecord r : all) {
-            String key = r.getTargetType() + "_" + r.getTargetId();
+            String targetType = r.getTargetType();
+            Integer targetId = r.getTargetId();
+            
+            // 校验资源是否还存在
+            boolean exists = false;
+            if ("tunnel".equals(targetType)) {
+                exists = activeTunnelIds.contains(targetId);
+            } else if ("forward".equals(targetType)) {
+                exists = activeForwardIds.contains(targetId);
+            }
+            
+            if (!exists) continue; // 剔除已删除的资源
+
+            String key = targetType + "_" + targetId;
             latestMap.putIfAbsent(key, r);
         }
 
@@ -161,6 +181,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         long totalCount = latestRecords.size();
         long failCount = latestRecords.stream().filter(r -> !Boolean.TRUE.equals(r.getOverallSuccess())).count();
         long successCount = totalCount - failCount;
+
 
         // 计算平均延迟
         double avgLatency = latestRecords.stream()

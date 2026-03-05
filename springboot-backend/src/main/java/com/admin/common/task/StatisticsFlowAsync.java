@@ -30,7 +30,30 @@ public class StatisticsFlowAsync {
     @Resource
     StatisticsFlowService statisticsFlowService;
 
+    @PostConstruct
+    public void init() {
+        // 项目启动时，如果当前小时还没有记录，则跑一次统计，防止仪表盘24h图表完全空白
+        try {
+            LocalDateTime currentHour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
+            String hourString = currentHour.format(DateTimeFormatter.ofPattern("HH:mm"));
+            
+            long count = statisticsFlowService.count(
+                    new LambdaQueryWrapper<StatisticsFlow>()
+                            .eq(StatisticsFlow::getTime, hourString)
+                            .gt(StatisticsFlow::getCreatedTime, System.currentTimeMillis() - 3600000)
+            );
+            
+            if (count == 0) {
+                log.info("[流量统计] 启动初始化：当前小时暂无记录，执行首次采样...");
+                statistics_flow();
+            }
+        } catch (Exception e) {
+            log.error("[流量统计] 初始化失败", e);
+        }
+    }
+
     @Scheduled(cron = "0 0 * * * ?")
+
     public void statistics_flow() {
         LocalDateTime currentHour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
         String hourString = currentHour.format(DateTimeFormatter.ofPattern("HH:mm"));

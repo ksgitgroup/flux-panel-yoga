@@ -675,56 +675,59 @@ export default function MonitorPage() {
             {/* 列表区 */}
             <Card className="shadow-md border border-gray-200 dark:border-default-200">
                 <CardHeader className="pb-3">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full gap-3">
-                        <h2 className="text-lg font-semibold flex-shrink-0">诊断详情</h2>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center w-full gap-4 p-4 bg-default-50/50 dark:bg-default-100/20 rounded-2xl border border-divider shadow-sm">
+                        <h2 className="text-lg font-semibold flex-shrink-0 hidden md:block">诊断明细</h2>
                         {!noData && (
-                            <div className="flex flex-wrap gap-2 items-center">
+                            <div className="flex flex-wrap gap-3 items-center w-full md:w-auto">
                                 {/* 搜索 */}
-                                <input
-                                    type="text"
-                                    placeholder="搜索名称..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent outline-none focus:border-primary w-32"
-                                />
+                                <div className="relative w-full sm:w-48">
+                                    <input
+                                        type="text"
+                                        placeholder="搜索名称..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-default-200 dark:border-default-700 bg-white dark:bg-default-100 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                    />
+                                    <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                </div>
+
+                                <Divider orientation="vertical" className="h-6 hidden sm:block" />
 
                                 {/* 类型筛选 */}
-                                <div className="flex gap-1">
+                                <div className="flex bg-default-100 dark:bg-default-200 p-1 rounded-xl">
                                     {(['all', 'tunnel', 'forward'] as const).map((f) => (
-                                        <Button
+                                        <button
                                             key={f}
-                                            size="sm"
-                                            variant={typeFilter === f ? 'solid' : 'bordered'}
-                                            color={f === 'tunnel' ? 'secondary' : f === 'forward' ? 'primary' : 'default'}
-                                            onPress={() => setTypeFilter(f)}
-                                            className="min-w-0 px-2.5 h-7 text-xs"
+                                            onClick={() => setTypeFilter(f)}
+                                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${typeFilter === f
+                                                ? 'bg-white dark:bg-default-500 shadow-sm text-foreground'
+                                                : 'text-default-500 hover:text-default-700'
+                                                }`}
                                         >
                                             {f === 'all' ? '全部' : f === 'tunnel' ? '隧道' : '转发'}
-                                        </Button>
+                                        </button>
                                     ))}
                                 </div>
 
-                                {/* 分隔 */}
-                                <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 hidden sm:block" />
-
                                 {/* 状态筛选 */}
-                                <div className="flex gap-1">
+                                <div className="flex bg-default-100 dark:bg-default-200 p-1 rounded-xl">
                                     {(['all', 'success', 'fail'] as const).map((f) => (
-                                        <Button
+                                        <button
                                             key={f}
-                                            size="sm"
-                                            variant={filter === f ? 'solid' : 'bordered'}
-                                            color={f === 'success' ? 'success' : f === 'fail' ? 'danger' : 'default'}
-                                            onPress={() => setFilter(f)}
-                                            className="min-w-0 px-2.5 h-7 text-xs"
+                                            onClick={() => setFilter(f)}
+                                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${filter === f
+                                                ? 'bg-white dark:bg-default-500 shadow-sm text-foreground'
+                                                : 'text-default-500 hover:text-default-700'
+                                                }`}
                                         >
                                             {f === 'all' ? '全部' : f === 'success' ? '正常' : '异常'}
-                                        </Button>
+                                        </button>
                                     ))}
                                 </div>
                             </div>
                         )}
                     </div>
+
                 </CardHeader>
 
                 <Divider />

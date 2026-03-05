@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 
-import { getUserPackageInfo, getDiagnosisLatestBatch } from "@/api";
+import { getUserPackageInfo, getDiagnosisLatestBatch, getDiagnosisSummary } from "@/api";
 import { Link } from "react-router-dom";
 
 interface UserInfo {
@@ -70,6 +70,12 @@ interface DiagnosisBatchItem {
   createdTime: number;
 }
 
+interface DiagnosisSummary {
+  totalCount: number;
+  successCount: number;
+  avgLatency?: number;
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [userInfo, setUserInfo] = useState<UserInfo>({} as UserInfo);
@@ -84,6 +90,7 @@ export default function DashboardPage() {
 
   // 告警状态
   const [unhealthyForwards, setUnhealthyForwards] = useState<Forward[]>([]);
+  const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | null>(null);
   const [diagnosisChecked, setDiagnosisChecked] = useState(false);
 
   // 检查有效期通知
@@ -214,6 +221,9 @@ export default function DashboardPage() {
 
         // 检查有效期并显示通知
         checkExpirationNotifications(data.userInfo, data.tunnelPermissions || []);
+
+        // 获取诊断总结数据
+        loadDiagnosisSummary();
       } else {
         toast.error(res.msg || '获取套餐信息失败');
       }
@@ -222,6 +232,17 @@ export default function DashboardPage() {
       toast.error('获取套餐信息失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDiagnosisSummary = async () => {
+    try {
+      const resp = await getDiagnosisSummary();
+      if (resp.code === 0) {
+        setDiagnosisSummary(resp.data);
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -726,6 +747,53 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* 系统级状态 & 告警汇总 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 lg:mb-8">
+        {/* 健康率摘要 */}
+        {diagnosisSummary && (
+          <Card className="border border-divider shadow-sm bg-default-50/50">
+            <CardBody className="py-3 px-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${Math.round((diagnosisSummary.successCount / diagnosisSummary.totalCount) * 100) >= 90 ? 'bg-success-100 text-success-600' : 'bg-warning-100 text-warning-600'}`}>
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                </div>
+                <div>
+                  <p className="text-xs text-default-500 font-medium">全站健康率</p>
+                  <p className={`text-xl font-bold ${Math.round((diagnosisSummary.successCount / diagnosisSummary.totalCount) * 100) >= 90 ? 'text-success-600' : 'text-warning-600'}`}>
+                    {Math.round((diagnosisSummary.successCount / diagnosisSummary.totalCount) * 100)}%
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] text-default-400 capitalize">{diagnosisSummary.successCount}/{diagnosisSummary.totalCount} 通过</p>
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* 平均延迟摘要 */}
+        {diagnosisSummary && (
+          <Card className="border border-divider shadow-sm bg-default-50/50">
+            <CardBody className="py-3 px-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary-100 text-primary-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                </div>
+                <div>
+                  <p className="text-xs text-default-500 font-medium">全网平均延迟</p>
+                  <p className="text-xl font-bold text-primary-600">{diagnosisSummary.avgLatency ? `${diagnosisSummary.avgLatency.toFixed(0)}ms` : '--'}</p>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* 快速直达按钮 */}
+        <Button as={Link} to="/monitor" variant="flat" color="secondary" className="h-full min-h-[58px] font-medium shadow-sm">
+          查看完整诊断报告 →
+        </Button>
+      </div>
+
       {/* 系统级告警：仅在查出异常且检测完成时显示 */}
       {diagnosisChecked && unhealthyForwards.length > 0 && (
         <Card className="mb-6 lg:mb-8 border border-danger-200 bg-danger-50 dark:bg-danger-900/10 shadow-sm animate-pulse-once">
@@ -747,6 +815,7 @@ export default function DashboardPage() {
           </CardBody>
         </Card>
       )}
+
 
       {/* 核心业务排版区：图表 + 快捷入口 */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 mb-6 lg:mb-8">

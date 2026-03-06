@@ -16,7 +16,7 @@ public class DatabaseInitService {
 
     @PostConstruct
     public void initDatabase() {
-        log.info("开始检查并自动更新数据库表结构（Phase 4）...");
+        log.info(">>>>>> [DatabaseInit] 启动全自动数据库版本检测与同步 (Phase 4) <<<<<<");
 
         // 1. Create Protocol Table
         try {
@@ -29,9 +29,8 @@ public class DatabaseInitService {
                     "PRIMARY KEY (`id`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='转发协议表'";
             jdbcTemplate.execute(createProtocolTable);
-            log.info("数据库校验: protocol 表检查/创建成功");
             
-            // Try to insert defaults (IGNORE prevents duplicate key errors)
+            // Try to insert defaults
             jdbcTemplate.execute("INSERT IGNORE INTO `protocol` (`id`, `name`, `description`, `created_time`) VALUES " +
                     "(1, 'TCP', '标准TCP转发', UNIX_TIMESTAMP() * 1000), " +
                     "(2, 'UDP', '标准UDP转发', UNIX_TIMESTAMP() * 1000), " +
@@ -40,8 +39,9 @@ public class DatabaseInitService {
                     "(5, 'Vmess', 'Vmess代理协议', UNIX_TIMESTAMP() * 1000), " +
                     "(6, 'Trojan', 'Trojan代理协议', UNIX_TIMESTAMP() * 1000), " +
                     "(7, 'HTTP', 'HTTP代理协议', UNIX_TIMESTAMP() * 1000)");
+            log.info("[DatabaseInit] Protocol 表校验及初始数据同步成功");
         } catch (Exception e) {
-            log.error("数据库升级异常 (protocol 表): {}", e.getMessage());
+            log.error("[DatabaseInit] Protocol 表升级失败: {}", e.getMessage());
         }
 
         // 2. Create Tag Table
@@ -54,32 +54,45 @@ public class DatabaseInitService {
                     "PRIMARY KEY (`id`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='标签管理表'";
             jdbcTemplate.execute(createTagTable);
-            log.info("数据库校验: tag 表检查/创建成功");
 
             jdbcTemplate.execute("INSERT IGNORE INTO `tag` (`id`, `name`, `color`, `created_time`) VALUES " +
                     "(1, '游戏加速', 'success', UNIX_TIMESTAMP() * 1000), " +
                     "(2, '海外节点', 'primary', UNIX_TIMESTAMP() * 1000), " +
                     "(3, '内网穿透', 'warning', UNIX_TIMESTAMP() * 1000), " +
                     "(4, '测试节点', 'default', UNIX_TIMESTAMP() * 1000)");
+            log.info("[DatabaseInit] Tag 表校验及初始数据同步成功");
         } catch (Exception e) {
-            log.error("数据库升级异常 (tag 表): {}", e.getMessage());
+            log.error("[DatabaseInit] Tag 表升级失败: {}", e.getMessage());
         }
 
-        // 3. Modify Forward Table 
-        // Adding protocol_id
+        // 3. Modify Forward Table (Incremental Update)
         try {
-            jdbcTemplate.execute("ALTER TABLE `forward` ADD COLUMN `protocol_id` int(10) DEFAULT NULL COMMENT '关联的协议ID'");
-            log.info("数据库升级: 已在 forward 表添加 protocol_id 列");
+            // Robustly add columns only if they don't exist
+            updateColumn("forward", "protocol_id", "int(10) DEFAULT NULL COMMENT '关联的协议ID'");
+            updateColumn("forward", "tag_ids", "varchar(255) DEFAULT NULL COMMENT '关联的标签ID列表(逗号分隔)'");
+            log.info("[DatabaseInit] Forward 表字段增量升级检测完成");
         } catch (Exception e) {
-            // 列可能已存在，忽略错误
+            log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
         }
+        
+        log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
+    }
 
-        // Adding tag_ids
+    private void updateColumn(String tableName, String columnName, String definition) {
         try {
-            jdbcTemplate.execute("ALTER TABLE `forward` ADD COLUMN `tag_ids` varchar(255) DEFAULT NULL COMMENT '关联的标签ID列表(逗号分隔)'");
-            log.info("数据库升级: 已在 forward 表添加 tag_ids 列");
+            // Check if column exists
+            String checkSql = String.format(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '%s' AND column_name = '%s' AND table_schema = DATABASE()",
+                tableName, columnName
+            );
+            Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class);
+            if (count != null && count == 0) {
+                String alterSql = String.format("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, columnName, definition);
+                jdbcTemplate.execute(alterSql);
+                log.info("[DatabaseInit] 成功向表 {} 添加字段 {}", tableName, columnName);
+            }
         } catch (Exception e) {
-            // 列可能已存在，忽略错误
+            log.warn("[DatabaseInit] 尝试更新表 {} 字段 {} 时发生非关键性异常: {}", tableName, columnName, e.getMessage());
         }
     }
 }

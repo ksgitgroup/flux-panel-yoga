@@ -74,7 +74,11 @@ interface DiagnosisBatchItem {
 interface DiagnosisSummary {
   totalCount: number;
   successCount: number;
+  failCount: number;
+  healthRate: number;
   avgLatency?: number;
+  lastRunTime?: number;
+  recentFailures: DiagnosisBatchItem[];
 }
 
 export default function DashboardPage() {
@@ -294,27 +298,11 @@ export default function DashboardPage() {
 
   // 处理24小时流量统计数据
   const processFlowChartData = () => {
-    // 生成最近24小时的时间数组（从当前小时往前推24小时）
-    const now = new Date();
-    const hours: string[] = [];
-    for (let i = 23; i >= 0; i--) {
-      const time = new Date(now.getTime() - i * 60 * 60 * 1000);
-      const hourString = time.getHours().toString().padStart(2, '0') + ':00';
-      hours.push(hourString);
-    }
-
-    // 创建数据映射
-    const flowMap = new Map<string, number>();
-    statisticsFlows.forEach(item => {
-      flowMap.set(item.time, item.flow || 0);
-    });
-
-    // 生成图表数据，没有数据的小时显示为0
-    return hours.map(hour => ({
-      time: hour,
-      flow: flowMap.get(hour) || 0,
-      // 格式化显示用的流量值
-      formattedFlow: formatFlow(flowMap.get(hour) || 0)
+    // 后端现在返回严格按时间正序排列的 24 条记录
+    return statisticsFlows.map(item => ({
+      time: item.time,
+      flow: item.flow || 0,
+      formattedFlow: formatFlow(item.flow || 0)
     }));
   };
 
@@ -672,74 +660,101 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* 系统级状态 & 告警汇总 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 lg:mb-8">
-        {/* 健康率摘要 */}
-        {diagnosisSummary && (
-          <Card className="border border-divider shadow-sm bg-default-50/50">
-            <CardBody className="py-3 px-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${Math.round((diagnosisSummary.successCount / diagnosisSummary.totalCount) * 100) >= 90 ? 'bg-success-100 text-success-600' : 'bg-warning-100 text-warning-600'}`}>
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                </div>
-                <div>
-                  <p className="text-xs text-default-500 font-medium">全站健康率</p>
-                  <p className={`text-xl font-bold ${Math.round((diagnosisSummary.successCount / diagnosisSummary.totalCount) * 100) >= 90 ? 'text-success-600' : 'text-warning-600'}`}>
-                    {Math.round((diagnosisSummary.successCount / diagnosisSummary.totalCount) * 100)}%
-                  </p>
-                </div>
+      {/* 服务健康雷达 & 最近异常 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 lg:mb-8">
+        <Card className="lg:col-span-1 border border-gray-200 dark:border-default-200 shadow-md">
+          <CardHeader className="pb-0 pt-4 px-4 flex-col items-start">
+            <h4 className="font-bold text-lg">服务健康雷达</h4>
+            <p className="text-tiny text-default-500 uppercase">实时连通性概览</p>
+          </CardHeader>
+          <CardBody className="overflow-visible py-4 flex flex-col items-center justify-center min-h-[200px]">
+            <div className="relative flex flex-col items-center">
+              <div className={`text-6xl font-bold mb-2 ${(diagnosisSummary?.healthRate || 100) >= 90 ? 'text-success' :
+                  (diagnosisSummary?.healthRate || 100) >= 70 ? 'text-warning' : 'text-danger'
+                }`}>
+                {diagnosisSummary?.healthRate ?? 100}%
               </div>
-              <div className="text-right">
-                <p className="text-[10px] text-default-400 capitalize">{diagnosisSummary.successCount}/{diagnosisSummary.totalCount} 通过</p>
-              </div>
-            </CardBody>
-          </Card>
-        )}
+              <div className="text-default-500 font-medium">全局健康率</div>
 
-        {/* 平均延迟摘要 */}
-        {diagnosisSummary && (
-          <Card className="border border-divider shadow-sm bg-default-50/50">
-            <CardBody className="py-3 px-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary-100 text-primary-600">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              <div className="mt-6 w-full flex justify-around gap-4">
+                <div className="text-center">
+                  <p className="text-xs text-default-400">平均延迟</p>
+                  <p className="font-semibold">{diagnosisSummary?.avgLatency ? `${diagnosisSummary.avgLatency.toFixed(0)}ms` : '--'}</p>
                 </div>
-                <div>
-                  <p className="text-xs text-default-500 font-medium">全网平均延迟</p>
-                  <p className="text-xl font-bold text-primary-600">{diagnosisSummary.avgLatency ? `${diagnosisSummary.avgLatency.toFixed(0)}ms` : '--'}</p>
+                <div className="text-center">
+                  <p className="text-xs text-default-400">总异常</p>
+                  <p className="font-semibold text-danger">{diagnosisSummary?.failCount || 0}</p>
                 </div>
               </div>
-            </CardBody>
-          </Card>
-        )}
 
-        {/* 快速直达按钮 */}
-        <Button as={Link} to="/monitor" variant="flat" color="secondary" className="h-full min-h-[58px] font-medium shadow-sm">
-          查看完整诊断报告 →
-        </Button>
-      </div>
-
-      {/* 系统级告警：仅在查出异常且检测完成时显示 */}
-      {diagnosisChecked && unhealthyForwards.length > 0 && (
-        <Card className="mb-6 lg:mb-8 border border-danger-200 bg-danger-50 dark:bg-danger-900/10 shadow-sm animate-pulse-once">
-          <CardBody className="py-4 px-5">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4 text-danger-600 dark:text-danger-500">
-                <svg className="w-9 h-9 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                <div>
-                  <h3 className="text-lg font-bold">系统告警：发现 {unhealthyForwards.length} 个异常转发</h3>
-                  <p className="text-sm opacity-90 mt-0.5">检测到部分节点网络连通性异常，可能影响您的服务稳定性，请立即排查。</p>
+              {diagnosisSummary?.lastRunTime && (
+                <div className="text-[10px] text-default-400 mt-6 border-t border-divider pt-2 w-full text-center">
+                  最后诊断: {new Date(diagnosisSummary.lastRunTime).toLocaleString()}
                 </div>
-              </div>
-              <Button as={Link} to="/monitor" color="danger" variant="solid" className="font-medium px-6 flex-shrink-0 w-full sm:w-auto">
-                前往诊断面板处理
-              </Button>
+              )}
             </div>
           </CardBody>
         </Card>
-      )}
+
+        <Card className="lg:col-span-2 border border-gray-200 dark:border-default-200 shadow-md">
+          <CardHeader className="flex justify-between items-center px-4 pt-4">
+            <div className="flex flex-col">
+              <p className="text-md font-bold">最近异常记录</p>
+              <p className="text-small text-default-500">检测发现故障的资源列表</p>
+            </div>
+            <Button as={Link} to="/monitor" size="sm" variant="flat" color="primary">
+              查看全部
+            </Button>
+          </CardHeader>
+          <CardBody className="px-4 py-2">
+            {(!diagnosisSummary?.recentFailures || diagnosisSummary.recentFailures.length === 0) ? (
+              <div className="flex flex-col items-center justify-center h-full py-12 text-default-400">
+                <div className="p-4 rounded-full bg-success-50 dark:bg-success-900/10 mb-4 transition-transform hover:scale-110">
+                  <svg className="w-10 h-10 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="font-medium text-default-600">一切正常</p>
+                <p className="text-xs">当前系统未检测到任何连通性问题</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="text-xs text-default-400 uppercase border-b border-divider">
+                    <tr>
+                      <th className="px-3 py-3 font-semibold">检测对象</th>
+                      <th className="px-3 py-3 font-semibold">状态码</th>
+                      <th className="px-3 py-3 font-semibold">延迟/丢包</th>
+                      <th className="px-3 py-3 text-right font-semibold">发生时间</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default-100">
+                    {diagnosisSummary.recentFailures.map((record) => (
+                      <tr key={record.id} className="hover:bg-default-50 dark:hover:bg-default-100/30 transition-colors group">
+                        <td className="px-3 py-3">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-danger group-hover:underline cursor-pointer">{record.targetName}</span>
+                            <span className="text-[10px] text-default-400">{record.targetType === 'tunnel' ? '隧道' : '转发'}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 font-mono text-xs">
+                          <span className="px-2 py-0.5 rounded bg-danger-100 dark:bg-danger-900/30 text-danger-600">FAILED</span>
+                        </td>
+                        <td className="px-3 py-3 text-default-500 font-mono text-xs">
+                          {record.averageTime ? `${record.averageTime}ms` : '-'} / {record.packetLoss}%
+                        </td>
+                        <td className="px-3 py-3 text-right text-default-400 text-xs">
+                          {new Date(record.createdTime).toLocaleTimeString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
 
 
       {/* 核心业务排版区：图表 + 快捷入口 */}

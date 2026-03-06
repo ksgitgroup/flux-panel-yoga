@@ -194,8 +194,16 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         summary.put("totalCount", totalCount);
         summary.put("successCount", successCount);
         summary.put("failCount", failCount);
+        summary.put("healthRate", totalCount > 0 ? Math.round((successCount * 100.0 / totalCount) * 10.0) / 10.0 : 100.0);
         summary.put("avgLatency", avgLatency >= 0 ? Math.round(avgLatency * 10.0) / 10.0 : null);
         summary.put("records", latestRecords);
+        
+        // 最近异常记录 (最多5条)
+        List<DiagnosisRecord> recentFailures = latestRecords.stream()
+                .filter(r -> !Boolean.TRUE.equals(r.getOverallSuccess()))
+                .limit(5)
+                .collect(Collectors.toList());
+        summary.put("recentFailures", recentFailures);
 
         // 最近一次全量诊断时间
         Optional<DiagnosisRecord> latest = all.stream().findFirst();
@@ -227,6 +235,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         }
 
         // 获取指定类型的所有记录（按时间倒序）
+        // 为了支持趋势图，我们需要获取每个 ID 的最近若干条记录
         List<DiagnosisRecord> all = this.list(
                 new QueryWrapper<DiagnosisRecord>()
                         .eq("target_type", targetType)
@@ -234,13 +243,35 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                         .orderByDesc("created_time")
         );
 
-        // 按 targetId 分组取最新一条
-        Map<Integer, DiagnosisRecord> latestMap = new LinkedHashMap<>();
-        for (DiagnosisRecord r : all) {
-            latestMap.putIfAbsent(r.getTargetId(), r);
+        // 按 targetId 分组
+        Map<Integer, List<DiagnosisRecord>> grouped = all.stream()
+                .collect(Collectors.groupingBy(DiagnosisRecord::getTargetId));
+
+        Map<Integer, Map<String, Object>> resultMap = new LinkedHashMap<>();
+        for (Integer id : targetIds) {
+            List<DiagnosisRecord> records = grouped.getOrDefault(id, Collections.emptyList());
+            if (!records.isEmpty()) {
+                Map<String, Object> item = new HashMap<>();
+                DiagnosisRecord latest = records.get(0);
+                
+                // 放入最新记录的所有字段
+                item.put("id", latest.getId());
+                item.put("targetType", latest.getTargetType());
+                item.put("targetId", latest.getTargetId());
+                item.put("targetName", latest.getTargetName());
+                item.put("overallSuccess", latest.getOverallSuccess());
+                item.put("averageTime", latest.getAverageTime());
+                item.put("packetLoss", latest.getPacketLoss());
+                item.put("createdTime", latest.getCreatedTime());
+                
+                // 放入历史记录 (最多最近10条)
+                item.put("history", records.stream().limit(10).collect(Collectors.toList()));
+                
+                resultMap.put(id, item);
+            }
         }
 
-        return R.ok(latestMap);
+        return R.ok(resultMap);
     }
 
     @Override

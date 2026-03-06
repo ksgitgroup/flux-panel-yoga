@@ -535,6 +535,7 @@ export default function TunnelPage() {
                             averageTime={diag?.averageTime}
                             packetLoss={diag?.packetLoss}
                             overallSuccess={diag?.overallSuccess}
+                            history={diag?.history}
                             compact
                           />
                         );

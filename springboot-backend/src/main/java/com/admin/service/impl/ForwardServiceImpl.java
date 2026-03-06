@@ -514,6 +514,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         double totalLatency = 0;
         double totalLoss = 0;
         boolean allSuccess = true;
+        List<DiagnosisResult> results = new ArrayList<>();
+        String[] remoteAddresses = forward.getRemoteAddr() != null ? forward.getRemoteAddr().split(",") : new String[0];
 
         if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
             // 端口转发：入口节点直接TCP ping目标地址

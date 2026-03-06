@@ -656,6 +656,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         double totalLatency = 0;
         double totalLoss = 0;
         boolean allSuccess = true;
+        List<DiagnosisResult> results = new ArrayList<>();
 
         // 3. 根据隧道类型执行不同的诊断策略
         if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {

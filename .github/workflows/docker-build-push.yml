@@ -31,7 +31,7 @@ jobs:
       - name: Read build metadata
         id: meta
         run: |
-          app_version=$(node -p "require('./vite-frontend/package.json').version")
+          app_version=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
           short_sha="${GITHUB_SHA::7}"
           build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           echo "app_version=$app_version" >> $GITHUB_OUTPUT

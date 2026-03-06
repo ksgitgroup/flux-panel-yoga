@@ -25,3 +25,12 @@
 8. 审查仪表盘流量数据链路，确认原接口对普通用户返回账号流量，对管理员也未聚合，因此“全站”文案不准确。
 9. 在后端为管理员补全站聚合流量逻辑，并在前端把图表升级为更清晰的趋势面板和摘要指标。
 10. 执行 `./scripts/verify_build.sh` 与 `./scripts/build_docker.sh`，确认源码构建与 Docker 镜像构建均通过。
+
+## 2026-03-06 CI Compatibility Walkthrough
+
+1. 复盘本地联调问题，确认 `./scripts/build_docker.sh` 之后如果不重建运行中的容器，`localhost` 仍会保留旧镜像。
+2. 复盘 GitLab `build:dev` 失败日志，确认 shell runner 上没有 `node`，而 `.gitlab-ci.yml` 被改出了不必要的运行时依赖。
+3. 将 GitLab CI 与 GitHub Actions 的版本读取改回 `awk`，避免增加新的 runner 前置依赖。
+4. 保留 GitHub 额外版本标签用于追踪，但恢复 GitLab Dev/Prod 实际部署入口仍使用 `dev-latest` / `latest`。
+5. 新增 `scripts/reload_local_stack.sh`，将本地容器重建命令固定下来，避免 compose project name 再次写错。
+6. 将 `.gitlab-ci.yml` 与 `.github/workflows/*.yml` 的 YAML 解析检查并入 `./scripts/verify_build.sh`。

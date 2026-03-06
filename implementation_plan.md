@@ -18,3 +18,10 @@
 2. 统一前端、后端、CI 与镜像标签的版本语义，收口到 release version + git short SHA。
 3. 强化 `ship_dev` 前置校验，确保本地真实构建成功后才允许推送 `dev`。
 4. 修正仪表盘 24 小时流量图的数据范围与展示方式，管理员显示全站聚合，普通用户显示账号范围。
+
+## 2026-03-06 CI Hardening Addendum
+
+1. 去掉 GitLab shell runner 对 `node` 的隐式依赖，避免构建环境差异导致 `build:dev` 失败。
+2. 保持 Dev/Prod 实际部署入口仍使用 `dev-latest` / `latest`，把可追踪版本标签作为附加信息而非部署前提。
+3. 为本地 Docker 联调补一个固定的容器重载入口，避免 build 成功但 localhost 仍跑旧容器。
+4. 把 CI YAML 语法检查并入本地校验流程，阻止坏掉的 `.gitlab-ci.yml` 再次被推送。

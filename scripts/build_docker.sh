@@ -11,7 +11,7 @@ cd "$ROOT_DIR"
 
 TAG=${1:-local}
 REGISTRY=${2:-flux-panel}
-APP_VERSION="$(node -p "require('./vite-frontend/package.json').version" 2>/dev/null || echo '0.0.0')"
+APP_VERSION="$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json 2>/dev/null || echo '0.0.0')"
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo 'local')"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'local')"
 BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -89,8 +89,8 @@ if [ "$TAG" = "local" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "构建成功！"
     docker images | grep "$REGISTRY"
     echo "================================================================="
-    echo "提示: 您可以使用以下命令启动容器 (需先配置 .env):"
-    echo "docker-compose -f docker-compose-v4.local.yml up -d"
+    echo "提示: 如需让 localhost 立即加载新代码，请继续执行："
+    echo "./scripts/reload_local_stack.sh"
     exit 0
 fi
 

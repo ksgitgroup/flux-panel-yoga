@@ -30,7 +30,7 @@ configure_macos_toolchain() {
 configure_macos_toolchain
 
 read_release_version() {
-    node -p "require('./vite-frontend/package.json').version"
+    awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json
 }
 
 read_backend_version() {
@@ -80,6 +80,14 @@ export VITE_BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
 echo "🏷️ 发布版本: v$RELEASE_VERSION"
 echo "🧬 构建标识: ${CURRENT_BRANCH}.${CURRENT_SHA}"
+
+if command -v ruby >/dev/null 2>&1; then
+    echo "🧾 正在校验 CI YAML 语法..."
+    ruby -e 'require "yaml"; YAML.load_file(".gitlab-ci.yml"); Dir.glob(".github/workflows/*.yml").each { |file| YAML.load_file(file) }; puts "✅ CI YAML 语法校验通过"' || {
+        echo "❌ CI YAML 语法校验失败。"
+        exit 1
+    }
+fi
 
 # 2. 运行 Maven 编译
 echo "📦 正在执行 mvn package..."

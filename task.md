@@ -30,3 +30,11 @@
 - 已把 `./scripts/verify_build.sh` 升级为真实构建门禁：后端 `mvn clean package` + 前端 `npm run build` + 版本一致性检查。
 - 已将仪表盘流量图改为范围明确的趋势卡片；管理员使用全站聚合流量，普通用户显示账号范围流量。
 - 已完成本地源码构建校验与本地 Docker 镜像构建校验。
+
+## 2026-03-06 CI Compatibility Result
+
+- 已修复 `.gitlab-ci.yml` YAML 语法问题。
+- 已移除 GitLab shell runner 对 `node` 的依赖，改用 `awk` 读取版本号。
+- 已恢复 Dev/Prod 实际部署仍使用 `dev-latest` / `latest`，避免破坏既有部署入口。
+- 已新增 `scripts/reload_local_stack.sh`，专门处理“本地镜像已构建但容器仍是旧版本”的问题。
+- 已将 CI YAML 语法检查纳入 `./scripts/verify_build.sh`。

@@ -699,11 +699,12 @@ export default function MonitorPage() {
                                 selectedKey={typeFilter}
                                 onSelectionChange={(key) => setTypeFilter(key as any)}
                                 size="sm"
-                                variant="solid"
+                                variant="bordered"
                                 radius="lg"
                                 classNames={{
-                                    tabList: "bg-default-100 dark:bg-default-200 p-1",
-                                    cursor: "bg-white dark:bg-default-500 shadow-sm",
+                                    tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
+                                    cursor: "bg-white dark:bg-default-300 shadow-sm",
+                                    tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-medium",
                                     tab: "h-8 px-4",
                                 }}
                             >

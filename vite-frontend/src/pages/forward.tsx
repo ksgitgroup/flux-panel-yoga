@@ -48,7 +48,8 @@ import {
   updateForwardOrder,
   getDiagnosisLatestBatch,
   getProtocolList,
-  getTagList
+  getTagList,
+  createTag
 } from "@/api";
 import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
@@ -169,6 +170,34 @@ export default function ForwardPage() {
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+
+  // 快速创建标签
+  const createQuickTag = async (name: string) => {
+    try {
+      const res = await createTag({ name, color: 'primary' });
+      if (res.code === 0) {
+        toast.success('标签创建成功');
+        // 重新加载标签列表
+        const tagsRes = await getTagList();
+        if (tagsRes.code === 0) {
+          setTags(tagsRes.data);
+          // 自动选中新创建的标签
+          const newTag = tagsRes.data.find((t: Tag) => t.name === name);
+          if (newTag) {
+            setForm(prev => ({
+              ...prev,
+              tagIds: [...(prev.tagIds || []), newTag.id.toString()]
+            }));
+          }
+        }
+      } else {
+        toast.error('创建标签失败: ' + res.msg);
+      }
+    } catch (error) {
+      console.error('快速创建标签出错:', error);
+      toast.error('网络错误，创建失败');
+    }
+  };
 
   // 检测是否为移动端
   const [isMobile, setIsMobile] = useState(false);
@@ -1378,12 +1407,32 @@ export default function ForwardPage() {
                   </svg>
                 </div>
               )}
-              <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
+              <div className="flex flex-col min-w-0 flex-1">
+                <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
+                {(() => {
+                  const diag = diagnosisMap[forward.id];
+                  if (!diag?.history || diag.history.length === 0) return null;
+                  return (
+                    <div className="flex gap-1 mt-1 overflow-x-auto no-scrollbar py-0.5" style={{ scrollbarWidth: 'none' }}>
+                      {diag.history.slice(0, 10).map((h, i) => (
+                        <div
+                          key={i}
+                          className={`flex-shrink-0 w-7 h-5 rounded flex items-center justify-center text-[9px] font-bold shadow-sm transition-transform hover:scale-110 cursor-help ${h.overallSuccess ? 'bg-success-400 text-white' : 'bg-danger-400 text-white'
+                            }`}
+                          title={`时间: ${new Date(h.createdTime).toLocaleString()}\n${h.overallSuccess ? `延迟: ${Math.round(h.averageTime || 0)}ms` : '故障'}`}
+                        >
+                          {h.overallSuccess ? (h.averageTime ? Math.round(h.averageTime) : '✓') : '✗'}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
               {/* 诊断健康+延迟徽标 */}
               {(() => {
                 const diag = diagnosisMap[forward.id];
                 return (
-                  <div className="flex-shrink-0 ml-auto">
+                  <div className="flex-shrink-0 ml-auto self-start">
                     <SpeedBadge
                       averageTime={diag?.averageTime}
                       packetLoss={diag?.packetLoss}
@@ -1396,7 +1445,7 @@ export default function ForwardPage() {
               })()}
             </div>
             {/* 第二行：隧道名 + 状态开关 */}
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mt-1">
               <p className="text-xs text-default-500 truncate">{forward.tunnelName}</p>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <Switch
@@ -1673,12 +1722,13 @@ export default function ForwardPage() {
               selectedKey={statusFilter}
               onSelectionChange={(key) => setStatusFilter(key as any)}
               size="sm"
-              variant="solid"
+              variant="bordered"
               radius="lg"
               classNames={{
-                tabList: "bg-default-100 dark:bg-default-200 p-1",
-                cursor: "bg-white dark:bg-default-500 shadow-sm",
-                tab: "h-8",
+                tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
+                cursor: "bg-white dark:bg-default-300 shadow-sm",
+                tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-medium",
+                tab: "h-8 px-3",
               }}
             >
               <Tab key="all" title="全部" />
@@ -1795,34 +1845,50 @@ export default function ForwardPage() {
               </Select>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">资源标签</label>
-              <Select
-                aria-label="筛选标签"
-                placeholder="多选标签"
-                selectionMode="multiple"
-                selectedKeys={new Set(tagFilters)}
-                onSelectionChange={(keys) => {
-                  setTagFilters(Array.from(keys) as string[]);
-                }}
-                size="sm"
-                variant="bordered"
-              >
-                {tags.map(t => (
-                  <SelectItem key={t.id.toString()} textValue={t.name}>
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2.5 h-2.5 rounded-full ${t.color === 'default' ? 'bg-default-400' :
-                        t.color === 'primary' ? 'bg-primary' :
-                          t.color === 'secondary' ? 'bg-secondary' :
-                            t.color === 'success' ? 'bg-success' :
-                              t.color === 'warning' ? 'bg-warning' :
-                                t.color === 'danger' ? 'bg-danger' : `bg-${t.color}-500`
-                        }`} />
-                      <span>{t.name}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </Select>
+            <div className="flex flex-col gap-2 flex-grow min-w-0">
+              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">资源标签 (多选)</label>
+              <div className="flex flex-wrap gap-2 py-1 max-h-[120px] overflow-y-auto no-scrollbar">
+                <Chip
+                  size="sm"
+                  variant={tagFilters.length === 0 ? "solid" : "flat"}
+                  color={tagFilters.length === 0 ? "primary" : "default"}
+                  className="cursor-pointer transition-all hover:scale-105"
+                  onClick={() => setTagFilters([])}
+                >
+                  全部 ({forwards.length})
+                </Chip>
+                {tags.map(t => {
+                  const count = forwards.filter(f => f.tagIds?.includes(t.id.toString())).length;
+                  const isSelected = tagFilters.includes(t.id.toString());
+                  return (
+                    <Chip
+                      key={t.id}
+                      size="sm"
+                      variant={isSelected ? "solid" : "flat"}
+                      color={isSelected ? "primary" : "default"}
+                      className={`cursor-pointer transition-all hover:scale-105 ${isSelected ? 'shadow-md' : 'opacity-80 hover:opacity-100'}`}
+                      onClick={() => {
+                        if (isSelected) {
+                          setTagFilters(prev => prev.filter(id => id !== t.id.toString()));
+                        } else {
+                          setTagFilters(prev => [...prev, t.id.toString()]);
+                        }
+                      }}
+                      startContent={
+                        <div className={`w-1.5 h-1.5 rounded-full ml-1 ${t.color === 'default' ? 'bg-default-400' :
+                          t.color === 'primary' ? 'bg-white' :
+                            t.color === 'secondary' ? 'bg-white' :
+                              t.color === 'success' ? 'bg-white' :
+                                t.color === 'warning' ? 'bg-white' :
+                                  t.color === 'danger' ? 'bg-white' : `bg-${t.color}-500`
+                          }`} />
+                      }
+                    >
+                      {t.name} ({count})
+                    </Chip>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -2095,25 +2161,45 @@ export default function ForwardPage() {
                     ]}
                   </Select>
 
-                  <Select
-                    label="标签 (Tags)"
-                    placeholder="选择标签 (多项选择)"
-                    selectionMode="multiple"
-                    selectedKeys={form.tagIds ? new Set(form.tagIds) : new Set([])}
-                    onSelectionChange={(keys) => {
-                      setForm(prev => ({ ...prev, tagIds: Array.from(keys) as string[] }));
-                    }}
-                    variant="bordered"
-                  >
-                    {tags.map(t => (
-                      <SelectItem key={t.id.toString()} textValue={t.name}>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
-                          <span>{t.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </Select>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">标签 (Tags)</label>
+                      <Button
+                        size="tiny"
+                        variant="light"
+                        color="primary"
+                        startContent={<i className="i-lucide-plus w-3 h-3" />}
+                        className="h-6 text-[10px] px-2 min-w-0"
+                        onPress={() => {
+                          const name = prompt("请输入新标签名称:");
+                          if (name && name.trim()) {
+                            createQuickTag(name.trim());
+                          }
+                        }}
+                      >
+                        快速新建
+                      </Button>
+                    </div>
+                    <Select
+                      placeholder="选择标签 (多项选择)"
+                      selectionMode="multiple"
+                      selectedKeys={form.tagIds ? new Set(form.tagIds) : new Set([])}
+                      onSelectionChange={(keys) => {
+                        setForm(prev => ({ ...prev, tagIds: Array.from(keys) as string[] }));
+                      }}
+                      variant="bordered"
+                      classNames={{ content: "text-sm", trigger: "h-10" }}
+                    >
+                      {tags.map(t => (
+                        <SelectItem key={t.id.toString()} textValue={t.name}>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
+                            <span>{t.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </div>
 
                   {getAddressCount(form.remoteAddr) > 1 && (
                     <Select

@@ -89,4 +89,8 @@ public class ForwardWithTunnelDto {
     private Integer inx;
 
     private String interfaceName;
+
+    private Integer protocolId;
+
+    private String tagIds;
 }

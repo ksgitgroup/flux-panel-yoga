@@ -97,3 +97,20 @@ export const getDiagnosisHistory = (data: { targetType: string; targetId: number
   Network.post("/diagnosis/history", data);
 export const runDiagnosisNow = () => Network.post("/diagnosis/run-now");
 export const testWebhook = () => Network.post("/diagnosis/test-webhook");
+export const getDiagnosisLatestBatch = (data: { targetType: string; targetIds: number[] }) =>
+  Network.post("/diagnosis/latest-batch", data);
+export const getDiagnosisTrend = (data?: { hours?: number }) =>
+  Network.post("/diagnosis/trend", data || {});
+
+// Protocol 操作
+export const createProtocol = (data: any) => Network.post("/protocol/create", data);
+export const getProtocolList = () => Network.post("/protocol/list");
+export const updateProtocol = (data: any) => Network.post("/protocol/update", data);
+export const deleteProtocol = (id: number) => Network.post("/protocol/delete", { id });
+
+// Tag 操作
+export const createTag = (data: any) => Network.post("/tag/create", data);
+export const getTagList = () => Network.post("/tag/list");
+export const updateTag = (data: any) => Network.post("/tag/update", data);
+export const deleteTag = (id: number) => Network.post("/tag/delete", { id });
+

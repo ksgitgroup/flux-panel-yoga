@@ -12,15 +12,17 @@ import { Accordion, AccordionItem } from "@heroui/accordion";
 import toast from 'react-hot-toast';
 
 
-import { 
-  createTunnel, 
-  getTunnelList, 
-  updateTunnel, 
+import {
+  createTunnel,
+  getTunnelList,
+  updateTunnel,
   deleteTunnel,
   getNodeList,
   diagnoseTunnel,
-  getDiagnosisHistory
+  getDiagnosisHistory,
+  getDiagnosisLatestBatch
 } from "@/api";
+import { SpeedBadge } from "@/components/SpeedBadge";
 
 interface Tunnel {
   id: number;
@@ -89,7 +91,7 @@ export default function TunnelPage() {
   const [loading, setLoading] = useState(true);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
-  
+
   // 模态框状态
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -103,7 +105,7 @@ export default function TunnelPage() {
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
   const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  
+
   // 表单状态
   const [form, setForm] = useState<TunnelForm>({
     name: '',
@@ -118,9 +120,12 @@ export default function TunnelPage() {
     trafficRatio: 1.0,
     status: 1
   });
-  
+
   // 表单验证错误
-  const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+  // 诊断数据映射 (tunnelId -> batch item)
+  const [diagnosisMap, setDiagnosisMap] = useState<Record<number, any>>({});
 
   useEffect(() => {
     loadData();
@@ -134,13 +139,30 @@ export default function TunnelPage() {
         getTunnelList(),
         getNodeList()
       ]);
-      
+
       if (tunnelsRes.code === 0) {
-        setTunnels(tunnelsRes.data || []);
+        const tunnelList = tunnelsRes.data || [];
+        setTunnels(tunnelList);
+        // 批量获取隧道诊断数据
+        if (tunnelList.length > 0) {
+          try {
+            const diagRes = await getDiagnosisLatestBatch({
+              targetType: 'tunnel',
+              targetIds: tunnelList.map((t: Tunnel) => t.id)
+            });
+            if (diagRes.code === 0 && diagRes.data) {
+              const map: Record<number, any> = {};
+              diagRes.data.forEach((item: any) => {
+                map[item.targetId] = item;
+              });
+              setDiagnosisMap(map);
+            }
+          } catch { /* silent */ }
+        }
       } else {
         toast.error(tunnelsRes.msg || '获取隧道列表失败');
       }
-      
+
       if (nodesRes.code === 0) {
         setNodes(nodesRes.data || []);
       } else {
@@ -156,30 +178,30 @@ export default function TunnelPage() {
 
   // 表单验证
   const validateForm = (): boolean => {
-    const newErrors: {[key: string]: string} = {};
-    
+    const newErrors: { [key: string]: string } = {};
+
     if (!form.name.trim()) {
       newErrors.name = '请输入隧道名称';
     } else if (form.name.length < 2 || form.name.length > 50) {
       newErrors.name = '隧道名称长度应在2-50个字符之间';
     }
-    
+
     if (!form.inNodeId) {
       newErrors.inNodeId = '请选择入口节点';
     }
-    
+
     if (!form.tcpListenAddr.trim()) {
       newErrors.tcpListenAddr = '请输入TCP监听地址';
     }
-    
+
     if (!form.udpListenAddr.trim()) {
       newErrors.udpListenAddr = '请输入UDP监听地址';
     }
-    
+
     if (form.trafficRatio < 0.0 || form.trafficRatio > 100.0) {
       newErrors.trafficRatio = '流量倍率必须在0.0-100.0之间';
     }
-    
+
     // 隧道转发时的验证
     if (form.type === 2) {
       if (!form.outNodeId) {
@@ -187,12 +209,12 @@ export default function TunnelPage() {
       } else if (form.inNodeId === form.outNodeId) {
         newErrors.outNodeId = '隧道转发模式下，入口和出口不能是同一个节点';
       }
-      
+
       if (!form.protocol) {
         newErrors.protocol = '请选择协议类型';
       }
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -246,7 +268,7 @@ export default function TunnelPage() {
 
   const confirmDelete = async () => {
     if (!tunnelToDelete) return;
-    
+
     setDeleteLoading(true);
     try {
       const response = await deleteTunnel(tunnelToDelete.id);
@@ -279,15 +301,15 @@ export default function TunnelPage() {
   // 提交表单
   const handleSubmit = async () => {
     if (!validateForm()) return;
-    
+
     setSubmitLoading(true);
     try {
       const data = { ...form };
-      
-      const response = isEdit 
+
+      const response = isEdit
         ? await updateTunnel(data)
         : await createTunnel(data);
-        
+
       if (response.code === 0) {
         toast.success(isEdit ? '更新成功' : '创建成功');
         setModalOpen(false);
@@ -374,12 +396,12 @@ export default function TunnelPage() {
   // 获取显示的IP（处理多IP）
   const getDisplayIp = (ipString?: string): string => {
     if (!ipString) return '-';
-    
+
     const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
-    
+
     if (ips.length === 0) return '-';
     if (ips.length === 1) return ips[0];
-    
+
     return `${ips[0]} 等${ips.length}个`;
   };
 
@@ -430,7 +452,7 @@ export default function TunnelPage() {
   // 获取连接质量
   const getQualityDisplay = (averageTime?: number, packetLoss?: number) => {
     if (averageTime === undefined || packetLoss === undefined) return null;
-    
+
     if (averageTime < 30 && packetLoss === 0) return { text: '🚀 优秀', color: 'success' };
     if (averageTime < 50 && packetLoss === 0) return { text: '✨ 很好', color: 'success' };
     if (averageTime < 100 && packetLoss < 1) return { text: '👍 良好', color: 'primary' };
@@ -441,710 +463,723 @@ export default function TunnelPage() {
 
   if (loading) {
     return (
-      
-        <div className="flex items-center justify-center h-64">
-          <div className="flex items-center gap-3">
-            <Spinner size="sm" />
-            <span className="text-default-600">正在加载...</span>
-          </div>
+
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center gap-3">
+          <Spinner size="sm" />
+          <span className="text-default-600">正在加载...</span>
         </div>
-      
+      </div>
+
     );
   }
 
   return (
-    
-      <div className="px-3 lg:px-6 py-8">
-        {/* 页面头部 */}
-        <div className="flex items-center justify-between mb-6">
+
+    <div className="px-3 lg:px-6 py-8">
+      {/* 页面头部 */}
+      <div className="flex items-center justify-between mb-6">
         <div className="flex-1">
         </div>
 
         <Button
-              size="sm"
-              variant="flat"
-              color="primary"
-              onPress={handleAdd}
-             
-            >
-              新增
-            </Button>
-     
+          size="sm"
+          variant="flat"
+          color="primary"
+          onPress={handleAdd}
+
+        >
+          新增
+        </Button>
+
+      </div>
+
+      {/* 隧道卡片网格 */}
+      {tunnels.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          {tunnels.map((tunnel) => {
+            const statusDisplay = getStatusDisplay(tunnel.status);
+            const typeDisplay = getTypeDisplay(tunnel.type);
+
+            return (
+              <Card key={tunnel.id} className="shadow-sm border border-divider hover:shadow-md transition-shadow duration-200">
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-start w-full">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-foreground truncate text-sm">{tunnel.name}</h3>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Chip
+                          color={typeDisplay.color as any}
+                          variant="flat"
+                          size="sm"
+                          className="text-xs"
+                        >
+                          {typeDisplay.text}
+                        </Chip>
+                        <Chip
+                          color={statusDisplay.color as any}
+                          variant="flat"
+                          size="sm"
+                          className="text-xs"
+                        >
+                          {statusDisplay.text}
+                        </Chip>
+                      </div>
+                    </div>
+                    {/* 测速徽章 */}
+                    <div className="flex-shrink-0">
+                      {(() => {
+                        const diag = diagnosisMap[tunnel.id];
+                        return (
+                          <SpeedBadge
+                            averageTime={diag?.averageTime}
+                            packetLoss={diag?.packetLoss}
+                            overallSuccess={diag?.overallSuccess}
+                            history={diag?.history}
+                            compact
+                          />
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardBody className="pt-0 pb-3">
+                  <div className="space-y-2">
+                    {/* 流程展示 */}
+                    <div className="space-y-1.5">
+                      <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-default-600">入口节点</span>
+                        </div>
+                        <code className="text-xs font-mono text-foreground block truncate">
+                          {getNodeName(tunnel.inNodeId)}
+                        </code>
+                        <code className="text-xs font-mono text-default-500 block truncate">
+                          {getDisplayIp(tunnel.inIp)}
+                        </code>
+                      </div>
+
+                      <div className="text-center py-0.5">
+                        <svg className="w-3 h-3 text-default-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
+                      </div>
+
+                      <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-default-600">
+                            {tunnel.type === 1 ? '出口节点（同入口）' : '出口节点'}
+                          </span>
+                        </div>
+                        <code className="text-xs font-mono text-foreground block truncate">
+                          {tunnel.type === 1 ? getNodeName(tunnel.inNodeId) : getNodeName(tunnel.outNodeId)}
+                        </code>
+                        <code className="text-xs font-mono text-default-500 block truncate">
+                          {tunnel.type === 1 ? getDisplayIp(tunnel.inIp) : getDisplayIp(tunnel.outIp)}
+                        </code>
+                      </div>
+                    </div>
+
+                    {/* 配置信息 */}
+                    <div className="flex justify-between items-center pt-2 border-t border-divider">
+                      <div className="text-left">
+                        <div className="text-xs font-medium text-foreground">
+                          {getFlowDisplay(tunnel.flow)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-medium text-foreground">
+                          {tunnel.trafficRatio}x
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <div className="flex gap-1.5 mt-3">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="primary"
+                      onPress={() => handleEdit(tunnel)}
+                      className="flex-1 min-h-8"
+                      startContent={
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                        </svg>
+                      }
+                    >
+                      编辑
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="warning"
+                      onPress={() => handleDiagnose(tunnel)}
+                      className="flex-1 min-h-8"
+                      startContent={
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      }
+                    >
+                      诊断
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="danger"
+                      onPress={() => handleDelete(tunnel)}
+                      className="flex-1 min-h-8"
+                      startContent={
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 012 0v4a1 1 0 11-2 0V7zM12 7a1 1 0 012 0v4a1 1 0 11-2 0V7z" clipRule="evenodd" />
+                        </svg>
+                      }
+                    >
+                      删除
+                    </Button>
+                  </div>
+                </CardBody>
+              </Card>
+            );
+          })}
         </div>
-
-        {/* 隧道卡片网格 */}
-        {tunnels.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-            {tunnels.map((tunnel) => {
-              const statusDisplay = getStatusDisplay(tunnel.status);
-              const typeDisplay = getTypeDisplay(tunnel.type);
-              
-              return (
-                <Card key={tunnel.id} className="shadow-sm border border-divider hover:shadow-md transition-shadow duration-200">
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-start w-full">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-foreground truncate text-sm">{tunnel.name}</h3>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <Chip 
-                            color={typeDisplay.color as any} 
-                            variant="flat" 
-                            size="sm"
-                            className="text-xs"
-                          >
-                            {typeDisplay.text}
-                          </Chip>
-                          <Chip 
-                            color={statusDisplay.color as any} 
-                            variant="flat" 
-                            size="sm"
-                            className="text-xs"
-                          >
-                            {statusDisplay.text}
-                          </Chip>
-                        </div>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  
-                  <CardBody className="pt-0 pb-3">
-                    <div className="space-y-2">
-                      {/* 流程展示 */}
-                      <div className="space-y-1.5">
-                        <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-default-600">入口节点</span>
-                          </div>
-                          <code className="text-xs font-mono text-foreground block truncate">
-                            {getNodeName(tunnel.inNodeId)}
-                          </code>
-                          <code className="text-xs font-mono text-default-500 block truncate">
-                            {getDisplayIp(tunnel.inIp)}
-                          </code>
-                        </div>
-                        
-                        <div className="text-center py-0.5">
-                          <svg className="w-3 h-3 text-default-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                          </svg>
-                        </div>
-                        
-                        <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-default-600">
-                              {tunnel.type === 1 ? '出口节点（同入口）' : '出口节点'}
-                            </span>
-                          </div>
-                          <code className="text-xs font-mono text-foreground block truncate">
-                            {tunnel.type === 1 ? getNodeName(tunnel.inNodeId) : getNodeName(tunnel.outNodeId)}
-                          </code>
-                          <code className="text-xs font-mono text-default-500 block truncate">
-                            {tunnel.type === 1 ? getDisplayIp(tunnel.inIp) : getDisplayIp(tunnel.outIp)}
-                          </code>
-                        </div>
-                      </div>
-
-                      {/* 配置信息 */}
-                      <div className="flex justify-between items-center pt-2 border-t border-divider">
-                        <div className="text-left">
-                          <div className="text-xs font-medium text-foreground">
-                            {getFlowDisplay(tunnel.flow)}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs font-medium text-foreground">
-                            {tunnel.trafficRatio}x
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                    
-                    <div className="flex gap-1.5 mt-3">
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="primary"
-                        onPress={() => handleEdit(tunnel)}
-                        className="flex-1 min-h-8"
-                        startContent={
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                          </svg>
-                        }
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="warning"
-                        onPress={() => handleDiagnose(tunnel)}
-                        className="flex-1 min-h-8"
-                        startContent={
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                        }
-                      >
-                        诊断
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="danger"
-                        onPress={() => handleDelete(tunnel)}
-                        className="flex-1 min-h-8"
-                        startContent={
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 012 0v4a1 1 0 11-2 0V7zM12 7a1 1 0 012 0v4a1 1 0 11-2 0V7z" clipRule="evenodd" />
-                          </svg>
-                        }
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </CardBody>
-                </Card>
-              );
-            })}
-          </div>
-        ) : (
-          /* 空状态 */
-          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
-            <CardBody className="text-center py-16">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">暂无隧道配置</h3>
-                  <p className="text-default-500 text-sm mt-1">还没有创建任何隧道配置，点击上方按钮开始创建</p>
-                </div>
+      ) : (
+        /* 空状态 */
+        <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+          <CardBody className="text-center py-16">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                </svg>
               </div>
-            </CardBody>
-          </Card>
-        )}
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">暂无隧道配置</h3>
+                <p className="text-default-500 text-sm mt-1">还没有创建任何隧道配置，点击上方按钮开始创建</p>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
-        {/* 新增/编辑模态框 */}
-        <Modal 
-          isOpen={modalOpen}
-          onOpenChange={setModalOpen}
-          size="2xl"
+      {/* 新增/编辑模态框 */}
+      <Modal
+        isOpen={modalOpen}
+        onOpenChange={setModalOpen}
+        size="2xl"
         scrollBehavior="outside"
         backdrop="blur"
         placement="center"
-        >
-          <ModalContent>
-            {(onClose) => (
-              <>
-                <ModalHeader className="flex flex-col gap-1">
-                  <h2 className="text-xl font-bold">
-                    {isEdit ? '编辑隧道' : '新增隧道'}
-                  </h2>
-                  <p className="text-small text-default-500">
-                    {isEdit ? '修改现有隧道配置的信息' : '创建新的隧道配置'}
-                  </p>
-                </ModalHeader>
-                <ModalBody>
-                  <div className="space-y-4">
-                    <Input
-                      label="隧道名称"
-                      placeholder="请输入隧道名称"
-                      value={form.name}
-                      onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
-                      isInvalid={!!errors.name}
-                      errorMessage={errors.name}
-                      variant="bordered"
-                    />
-                    
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <h2 className="text-xl font-bold">
+                  {isEdit ? '编辑隧道' : '新增隧道'}
+                </h2>
+                <p className="text-small text-default-500">
+                  {isEdit ? '修改现有隧道配置的信息' : '创建新的隧道配置'}
+                </p>
+              </ModalHeader>
+              <ModalBody>
+                <div className="space-y-4">
+                  <Input
+                    label="隧道名称"
+                    placeholder="请输入隧道名称"
+                    value={form.name}
+                    onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                    isInvalid={!!errors.name}
+                    errorMessage={errors.name}
+                    variant="bordered"
+                  />
+
+                  <Select
+                    label="隧道类型"
+                    placeholder="请选择隧道类型"
+                    selectedKeys={[form.type.toString()]}
+                    onSelectionChange={(keys) => {
+                      const selectedKey = Array.from(keys)[0] as string;
+                      if (selectedKey) {
+                        handleTypeChange(parseInt(selectedKey));
+                      }
+                    }}
+                    isInvalid={!!errors.type}
+                    errorMessage={errors.type}
+                    variant="bordered"
+                    isDisabled={isEdit}
+                  >
+                    <SelectItem key="1">端口转发</SelectItem>
+                    <SelectItem key="2">隧道转发</SelectItem>
+                  </Select>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Select
-                      label="隧道类型"
-                      placeholder="请选择隧道类型"
-                      selectedKeys={[form.type.toString()]}
+                      label="流量计算"
+                      placeholder="请选择流量计算方式"
+                      selectedKeys={[form.flow.toString()]}
                       onSelectionChange={(keys) => {
                         const selectedKey = Array.from(keys)[0] as string;
                         if (selectedKey) {
-                          handleTypeChange(parseInt(selectedKey));
+                          setForm(prev => ({ ...prev, flow: parseInt(selectedKey) }));
                         }
                       }}
-                      isInvalid={!!errors.type}
-                      errorMessage={errors.type}
+                      isInvalid={!!errors.flow}
+                      errorMessage={errors.flow}
                       variant="bordered"
-                      isDisabled={isEdit}
                     >
-                      <SelectItem key="1">端口转发</SelectItem>
-                      <SelectItem key="2">隧道转发</SelectItem>
+                      <SelectItem key="1">单向计算（仅上传）</SelectItem>
+                      <SelectItem key="2">双向计算（上传+下载）</SelectItem>
                     </Select>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="流量倍率"
+                      placeholder="请输入流量倍率"
+                      type="number"
+                      value={form.trafficRatio.toString()}
+                      onChange={(e) => setForm(prev => ({
+                        ...prev,
+                        trafficRatio: parseFloat(e.target.value) || 0
+                      }))}
+                      isInvalid={!!errors.trafficRatio}
+                      errorMessage={errors.trafficRatio}
+                      variant="bordered"
+                      endContent={
+                        <div className="pointer-events-none flex items-center">
+                          <span className="text-default-400 text-small">x</span>
+                        </div>
+                      }
+                    />
+                  </div>
+
+                  <Divider />
+                  <h3 className="text-lg font-semibold">入口配置</h3>
+
+                  <Select
+                    label="入口节点"
+                    placeholder="请选择入口节点"
+                    selectedKeys={form.inNodeId ? [form.inNodeId.toString()] : []}
+                    onSelectionChange={(keys) => {
+                      const selectedKey = Array.from(keys)[0] as string;
+                      if (selectedKey) {
+                        setForm(prev => ({ ...prev, inNodeId: parseInt(selectedKey) }));
+                      }
+                    }}
+                    isInvalid={!!errors.inNodeId}
+                    errorMessage={errors.inNodeId}
+                    variant="bordered"
+                    isDisabled={isEdit}
+                  >
+                    {nodes.map((node) => (
+                      <SelectItem
+                        key={node.id}
+                        textValue={`${node.name} (${node.status === 1 ? '在线' : '离线'})`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>{node.name}</span>
+                          <Chip
+                            color={node.status === 1 ? 'success' : 'danger'}
+                            variant="flat"
+                            size="sm"
+                          >
+                            {node.status === 1 ? '在线' : '离线'}
+                          </Chip>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </Select>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="TCP监听地址"
+                      placeholder="请输入TCP监听地址"
+                      value={form.tcpListenAddr}
+                      onChange={(e) => setForm(prev => ({ ...prev, tcpListenAddr: e.target.value }))}
+                      isInvalid={!!errors.tcpListenAddr}
+                      errorMessage={errors.tcpListenAddr}
+                      variant="bordered"
+                      startContent={
+                        <div className="pointer-events-none flex items-center">
+                          <span className="text-default-400 text-small">TCP</span>
+                        </div>
+                      }
+                    />
+
+                    <Input
+                      label="UDP监听地址"
+                      placeholder="请输入UDP监听地址"
+                      value={form.udpListenAddr}
+                      onChange={(e) => setForm(prev => ({ ...prev, udpListenAddr: e.target.value }))}
+                      isInvalid={!!errors.udpListenAddr}
+                      errorMessage={errors.udpListenAddr}
+                      variant="bordered"
+                      startContent={
+                        <div className="pointer-events-none flex items-center">
+                          <span className="text-default-400 text-small">UDP</span>
+                        </div>
+                      }
+                    />
+                  </div>
+
+                  {/* 隧道转发时显示出口网卡配置 */}
+                  {form.type === 2 && (
+                    <Input
+                      label="出口网卡名或IP"
+                      placeholder="请输入出口网卡名或IP"
+                      value={form.interfaceName}
+                      onChange={(e) => setForm(prev => ({ ...prev, interfaceName: e.target.value }))}
+                      isInvalid={!!errors.interfaceName}
+                      errorMessage={errors.interfaceName}
+                      variant="bordered"
+                    />
+                  )}
+
+                  {/* 隧道转发时显示出口配置 */}
+                  {form.type === 2 && (
+                    <>
+                      <Divider />
+                      <h3 className="text-lg font-semibold">出口配置</h3>
+
                       <Select
-                        label="流量计算"
-                        placeholder="请选择流量计算方式"
-                        selectedKeys={[form.flow.toString()]}
+                        label="协议类型"
+                        placeholder="请选择协议类型"
+                        selectedKeys={[form.protocol]}
                         onSelectionChange={(keys) => {
                           const selectedKey = Array.from(keys)[0] as string;
                           if (selectedKey) {
-                            setForm(prev => ({ ...prev, flow: parseInt(selectedKey) }));
+                            setForm(prev => ({ ...prev, protocol: selectedKey }));
                           }
                         }}
-                        isInvalid={!!errors.flow}
-                        errorMessage={errors.flow}
+                        isInvalid={!!errors.protocol}
+                        errorMessage={errors.protocol}
                         variant="bordered"
                       >
-                        <SelectItem key="1">单向计算（仅上传）</SelectItem>
-                        <SelectItem key="2">双向计算（上传+下载）</SelectItem>
+                        <SelectItem key="tls">TLS</SelectItem>
+                        <SelectItem key="wss">WSS</SelectItem>
+                        <SelectItem key="tcp">TCP</SelectItem>
+                        <SelectItem key="mtls">MTLS</SelectItem>
+                        <SelectItem key="mwss">MWSS</SelectItem>
+                        <SelectItem key="mtcp">MTCP</SelectItem>
                       </Select>
 
-                      <Input
-                        label="流量倍率"
-                        placeholder="请输入流量倍率"
-                        type="number"
-                        value={form.trafficRatio.toString()}
-                        onChange={(e) => setForm(prev => ({ 
-                          ...prev, 
-                          trafficRatio: parseFloat(e.target.value) || 0
-                        }))}
-                        isInvalid={!!errors.trafficRatio}
-                        errorMessage={errors.trafficRatio}
+                      <Select
+                        label="出口节点"
+                        placeholder="请选择出口节点"
+                        selectedKeys={form.outNodeId ? [form.outNodeId.toString()] : []}
+                        onSelectionChange={(keys) => {
+                          const selectedKey = Array.from(keys)[0] as string;
+                          if (selectedKey) {
+                            setForm(prev => ({ ...prev, outNodeId: parseInt(selectedKey) }));
+                          }
+                        }}
+                        isInvalid={!!errors.outNodeId}
+                        errorMessage={errors.outNodeId}
                         variant="bordered"
-                        endContent={
-                          <div className="pointer-events-none flex items-center">
-                            <span className="text-default-400 text-small">x</span>
-                          </div>
-                        }
-                      />
-                    </div>
-
-                    <Divider />
-                    <h3 className="text-lg font-semibold">入口配置</h3>
-
-                    <Select
-                      label="入口节点"
-                      placeholder="请选择入口节点"
-                      selectedKeys={form.inNodeId ? [form.inNodeId.toString()] : []}
-                      onSelectionChange={(keys) => {
-                        const selectedKey = Array.from(keys)[0] as string;
-                        if (selectedKey) {
-                          setForm(prev => ({ ...prev, inNodeId: parseInt(selectedKey) }));
-                        }
-                      }}
-                      isInvalid={!!errors.inNodeId}
-                      errorMessage={errors.inNodeId}
-                      variant="bordered"
-                      isDisabled={isEdit}
-                    >
-                      {nodes.map((node) => (
-                        <SelectItem 
-                          key={node.id}
-                          textValue={`${node.name} (${node.status === 1 ? '在线' : '离线'})`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span>{node.name}</span>
-                            <Chip 
-                              color={node.status === 1 ? 'success' : 'danger'} 
-                              variant="flat" 
-                              size="sm"
-                            >
-                              {node.status === 1 ? '在线' : '离线'}
-                            </Chip>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </Select>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Input
-                        label="TCP监听地址"
-                        placeholder="请输入TCP监听地址"
-                        value={form.tcpListenAddr}
-                        onChange={(e) => setForm(prev => ({ ...prev, tcpListenAddr: e.target.value }))}
-                        isInvalid={!!errors.tcpListenAddr}
-                        errorMessage={errors.tcpListenAddr}
-                        variant="bordered"
-                        startContent={
-                          <div className="pointer-events-none flex items-center">
-                            <span className="text-default-400 text-small">TCP</span>
-                          </div>
-                        }
-                      />
-
-                      <Input
-                        label="UDP监听地址"
-                        placeholder="请输入UDP监听地址"
-                        value={form.udpListenAddr}
-                        onChange={(e) => setForm(prev => ({ ...prev, udpListenAddr: e.target.value }))}
-                        isInvalid={!!errors.udpListenAddr}
-                        errorMessage={errors.udpListenAddr}
-                        variant="bordered"
-                        startContent={
-                          <div className="pointer-events-none flex items-center">
-                            <span className="text-default-400 text-small">UDP</span>
-                          </div>
-                        }
-                      />
-                    </div>
-
-                    {/* 隧道转发时显示出口网卡配置 */}
-                    {form.type === 2 && (
-                      <Input
-                        label="出口网卡名或IP"
-                        placeholder="请输入出口网卡名或IP"
-                        value={form.interfaceName}
-                        onChange={(e) => setForm(prev => ({ ...prev, interfaceName: e.target.value }))}
-                        isInvalid={!!errors.interfaceName}
-                        errorMessage={errors.interfaceName}
-                        variant="bordered"
-                      />
-                    )}
-
-                    {/* 隧道转发时显示出口配置 */}
-                    {form.type === 2 && (
-                      <>
-                        <Divider />
-                        <h3 className="text-lg font-semibold">出口配置</h3>
-
-                        <Select
-                          label="协议类型"
-                          placeholder="请选择协议类型"
-                          selectedKeys={[form.protocol]}
-                          onSelectionChange={(keys) => {
-                            const selectedKey = Array.from(keys)[0] as string;
-                            if (selectedKey) {
-                              setForm(prev => ({ ...prev, protocol: selectedKey }));
-                            }
-                          }}
-                          isInvalid={!!errors.protocol}
-                          errorMessage={errors.protocol}
-                          variant="bordered"
-                        >
-                          <SelectItem key="tls">TLS</SelectItem>
-                          <SelectItem key="wss">WSS</SelectItem>
-                          <SelectItem key="tcp">TCP</SelectItem>
-                          <SelectItem key="mtls">MTLS</SelectItem>
-                          <SelectItem key="mwss">MWSS</SelectItem>
-                          <SelectItem key="mtcp">MTCP</SelectItem>
-                        </Select>
-
-                        <Select
-                          label="出口节点"
-                          placeholder="请选择出口节点"
-                          selectedKeys={form.outNodeId ? [form.outNodeId.toString()] : []}
-                          onSelectionChange={(keys) => {
-                            const selectedKey = Array.from(keys)[0] as string;
-                            if (selectedKey) {
-                              setForm(prev => ({ ...prev, outNodeId: parseInt(selectedKey) }));
-                            }
-                          }}
-                          isInvalid={!!errors.outNodeId}
-                          errorMessage={errors.outNodeId}
-                          variant="bordered"
-                          isDisabled={isEdit}
-                        >
-                          {nodes.map((node) => (
-                            <SelectItem 
-                              key={node.id}
-                              textValue={`${node.name} (${node.status === 1 ? '在线' : '离线'})`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span>{node.name}</span>
-                                <div className="flex items-center gap-2">
-                                  <Chip 
-                                    color={node.status === 1 ? 'success' : 'danger'} 
-                                    variant="flat" 
-                                    size="sm"
-                                  >
-                                    {node.status === 1 ? '在线' : '离线'}
-                                  </Chip>
-                                  {form.inNodeId === node.id && (
-                                    <Chip color="warning" variant="flat" size="sm">
-                                      已选为入口
-                                    </Chip>
-                                  )}
-                                </div>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </Select>
-                      </>
-                    )}
-
-                    <Alert
-                        color="primary"
-                        variant="flat"
-                        title="TCP,UDP监听地址"
-                        description="V6或者双栈填写[::],V4填写0.0.0.0。不懂的就去看文档网站内的说明"
-                        className="mt-4"
-                      />
-                      <Alert
-                        color="primary"
-                        variant="flat"
-                        title="出口网卡名或IP"
-                        description="用于多IP服务器指定使用那个IP和出口服务器通讯，不懂的默认为空就行"
-                        className="mt-4"
-                      />
-                  </div>
-                </ModalBody>
-                <ModalFooter>
-                  <Button variant="light" onPress={onClose}>
-                    取消
-                  </Button>
-                  <Button 
-                    color="primary" 
-                    onPress={handleSubmit}
-                    isLoading={submitLoading}
-                  >
-                    {submitLoading ? (isEdit ? '更新中...' : '创建中...') : (isEdit ? '更新' : '创建')}
-                  </Button>
-                </ModalFooter>
-              </>
-            )}
-          </ModalContent>
-        </Modal>
-
-        {/* 删除确认模态框 */}
-        <Modal 
-          isOpen={deleteModalOpen}
-          onOpenChange={setDeleteModalOpen}
-          size="2xl"
-        scrollBehavior="outside"
-        backdrop="blur"
-        placement="center"
-        >
-          <ModalContent>
-            {(onClose) => (
-              <>
-                <ModalHeader className="flex flex-col gap-1">
-                  <h2 className="text-xl font-bold">确认删除</h2>
-                </ModalHeader>
-                <ModalBody>
-                  <p>确定要删除隧道 <strong>"{tunnelToDelete?.name}"</strong> 吗？</p>
-                  <p className="text-small text-default-500">此操作不可恢复，请谨慎操作。</p>
-                </ModalBody>
-                <ModalFooter>
-                  <Button variant="light" onPress={onClose}>
-                    取消
-                  </Button>
-                  <Button 
-                    color="danger" 
-                    onPress={confirmDelete}
-                    isLoading={deleteLoading}
-                  >
-                    {deleteLoading ? '删除中...' : '确认删除'}
-                  </Button>
-                </ModalFooter>
-              </>
-            )}
-          </ModalContent>
-        </Modal>
-
-        {/* 诊断结果模态框 */}
-        <Modal 
-          isOpen={diagnosisModalOpen}
-          onOpenChange={setDiagnosisModalOpen}
-          size="2xl"
-        scrollBehavior="outside"
-        backdrop="blur"
-        placement="center"
-        >
-          <ModalContent>
-            {(onClose) => (
-              <>
-                <ModalHeader className="flex flex-col gap-1">
-                  <h2 className="text-xl font-bold">隧道诊断结果</h2>
-                  {currentDiagnosisTunnel && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-small text-default-500">{currentDiagnosisTunnel.name}</span>
-                      <Chip 
-                        color={currentDiagnosisTunnel.type === 1 ? 'primary' : 'secondary'} 
-                        variant="flat" 
-                        size="sm"
+                        isDisabled={isEdit}
                       >
-                        {currentDiagnosisTunnel.type === 1 ? '端口转发' : '隧道转发'}
-                      </Chip>
-                    </div>
+                        {nodes.map((node) => (
+                          <SelectItem
+                            key={node.id}
+                            textValue={`${node.name} (${node.status === 1 ? '在线' : '离线'})`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span>{node.name}</span>
+                              <div className="flex items-center gap-2">
+                                <Chip
+                                  color={node.status === 1 ? 'success' : 'danger'}
+                                  variant="flat"
+                                  size="sm"
+                                >
+                                  {node.status === 1 ? '在线' : '离线'}
+                                </Chip>
+                                {form.inNodeId === node.id && (
+                                  <Chip color="warning" variant="flat" size="sm">
+                                    已选为入口
+                                  </Chip>
+                                )}
+                              </div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </>
                   )}
-                </ModalHeader>
-                <ModalBody>
-                  {diagnosisLoading ? (
-                    <div className="flex items-center justify-center py-16">
-                      <div className="flex items-center gap-3">
-                        <Spinner size="sm" />
-                        <span className="text-default-600">正在诊断...</span>
-                      </div>
+
+                  <Alert
+                    color="primary"
+                    variant="flat"
+                    title="TCP,UDP监听地址"
+                    description="V6或者双栈填写[::],V4填写0.0.0.0。不懂的就去看文档网站内的说明"
+                    className="mt-4"
+                  />
+                  <Alert
+                    color="primary"
+                    variant="flat"
+                    title="出口网卡名或IP"
+                    description="用于多IP服务器指定使用那个IP和出口服务器通讯，不懂的默认为空就行"
+                    className="mt-4"
+                  />
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>
+                  取消
+                </Button>
+                <Button
+                  color="primary"
+                  onPress={handleSubmit}
+                  isLoading={submitLoading}
+                >
+                  {submitLoading ? (isEdit ? '更新中...' : '创建中...') : (isEdit ? '更新' : '创建')}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* 删除确认模态框 */}
+      <Modal
+        isOpen={deleteModalOpen}
+        onOpenChange={setDeleteModalOpen}
+        size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <h2 className="text-xl font-bold">确认删除</h2>
+              </ModalHeader>
+              <ModalBody>
+                <p>确定要删除隧道 <strong>"{tunnelToDelete?.name}"</strong> 吗？</p>
+                <p className="text-small text-default-500">此操作不可恢复，请谨慎操作。</p>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>
+                  取消
+                </Button>
+                <Button
+                  color="danger"
+                  onPress={confirmDelete}
+                  isLoading={deleteLoading}
+                >
+                  {deleteLoading ? '删除中...' : '确认删除'}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* 诊断结果模态框 */}
+      <Modal
+        isOpen={diagnosisModalOpen}
+        onOpenChange={setDiagnosisModalOpen}
+        size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <h2 className="text-xl font-bold">隧道诊断结果</h2>
+                {currentDiagnosisTunnel && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-small text-default-500">{currentDiagnosisTunnel.name}</span>
+                    <Chip
+                      color={currentDiagnosisTunnel.type === 1 ? 'primary' : 'secondary'}
+                      variant="flat"
+                      size="sm"
+                    >
+                      {currentDiagnosisTunnel.type === 1 ? '端口转发' : '隧道转发'}
+                    </Chip>
+                  </div>
+                )}
+              </ModalHeader>
+              <ModalBody>
+                {diagnosisLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="flex items-center gap-3">
+                      <Spinner size="sm" />
+                      <span className="text-default-600">正在诊断...</span>
                     </div>
-                  ) : diagnosisResult ? (
-                    <div className="space-y-4">
-                      {diagnosisResult.results.map((result, index) => {
-                        const quality = getQualityDisplay(result.averageTime, result.packetLoss);
-                        
-                        return (
-                          <Card key={index} className={`shadow-sm border ${result.success ? 'border-success' : 'border-danger'}`}>
-                            <CardHeader className="pb-2">
-                              <div className="flex items-center justify-between w-full">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                                    result.success ? 'bg-success text-white' : 'bg-danger text-white'
+                  </div>
+                ) : diagnosisResult ? (
+                  <div className="space-y-4">
+                    {diagnosisResult.results.map((result, index) => {
+                      const quality = getQualityDisplay(result.averageTime, result.packetLoss);
+
+                      return (
+                        <Card key={index} className={`shadow-sm border ${result.success ? 'border-success' : 'border-danger'}`}>
+                          <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between w-full">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${result.success ? 'bg-success text-white' : 'bg-danger text-white'
                                   }`}>
-                                    {result.success ? '✓' : '✗'}
+                                  {result.success ? '✓' : '✗'}
+                                </div>
+                                <div>
+                                  <h4 className="font-semibold">{result.description}</h4>
+                                  <p className="text-small text-default-500">{result.nodeName}</p>
+                                </div>
+                              </div>
+                              <Chip
+                                color={result.success ? 'success' : 'danger'}
+                                variant="flat"
+                              >
+                                {result.success ? '成功' : '失败'}
+                              </Chip>
+                            </div>
+                          </CardHeader>
+                          <CardBody className="pt-0">
+                            {result.success ? (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-3 gap-4">
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-primary">{result.averageTime?.toFixed(0)}</div>
+                                    <div className="text-small text-default-500">平均延迟(ms)</div>
                                   </div>
-                                  <div>
-                                    <h4 className="font-semibold">{result.description}</h4>
-                                    <p className="text-small text-default-500">{result.nodeName}</p>
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-warning">{result.packetLoss?.toFixed(1)}</div>
+                                    <div className="text-small text-default-500">丢包率(%)</div>
+                                  </div>
+                                  <div className="text-center">
+                                    {quality && (
+                                      <>
+                                        <Chip color={quality.color as any} variant="flat" size="lg">
+                                          {quality.text}
+                                        </Chip>
+                                        <div className="text-small text-default-500 mt-1">连接质量</div>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
-                                <Chip 
-                                  color={result.success ? 'success' : 'danger'} 
-                                  variant="flat"
-                                >
-                                  {result.success ? '成功' : '失败'}
-                                </Chip>
+                                <div className="text-small text-default-500">
+                                  目标地址: <code className="font-mono">{result.targetIp}{result.targetPort ? ':' + result.targetPort : ''}</code>
+                                </div>
                               </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                              {result.success ? (
+                            ) : (
+                              <div className="space-y-2">
+                                <div className="text-small text-default-500">
+                                  目标地址: <code className="font-mono">{result.targetIp}{result.targetPort ? ':' + result.targetPort : ''}</code>
+                                </div>
+                                <Alert
+                                  color="danger"
+                                  variant="flat"
+                                  title="错误详情"
+                                  description={result.message}
+                                />
+                              </div>
+                            )}
+                          </CardBody>
+                        </Card>
+                      );
+                    })}
+
+                    {/* 历史记录展示 */}
+                    {diagnosisHistory.length > 0 && (
+                      <div className="mt-8">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-bold">最近10次诊断历史</h3>
+                          {historyLoading && <Spinner size="sm" />}
+                        </div>
+                        <Accordion variant="splitted">
+                          {diagnosisHistory.map((item) => {
+                            let parsedResults: any[] = [];
+                            try {
+                              parsedResults = JSON.parse(item.resultsJson);
+                            } catch (e) { }
+
+                            return (
+                              <AccordionItem
+                                key={item.id}
+                                aria-label={`历史记录 ${item.id}`}
+                                title={
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm">
+                                      {new Date(item.createdTime).toLocaleString("zh-CN")}
+                                    </span>
+                                    <Chip size="sm" color={item.overallSuccess ? "success" : "danger"} variant="flat">
+                                      {item.overallSuccess ? "成功" : "失败"}
+                                    </Chip>
+                                  </div>
+                                }
+                              >
                                 <div className="space-y-3">
-                                  <div className="grid grid-cols-3 gap-4">
-                                    <div className="text-center">
-                                      <div className="text-2xl font-bold text-primary">{result.averageTime?.toFixed(0)}</div>
-                                      <div className="text-small text-default-500">平均延迟(ms)</div>
-                                    </div>
-                                    <div className="text-center">
-                                      <div className="text-2xl font-bold text-warning">{result.packetLoss?.toFixed(1)}</div>
-                                      <div className="text-small text-default-500">丢包率(%)</div>
-                                    </div>
-                                    <div className="text-center">
-                                      {quality && (
-                                        <>
-                                          <Chip color={quality.color as any} variant="flat" size="lg">
-                                            {quality.text}
-                                          </Chip>
-                                          <div className="text-small text-default-500 mt-1">连接质量</div>
-                                        </>
+                                  {parsedResults.map((r: any, idx: number) => (
+                                    <div key={idx} className="bg-default-50 p-3 rounded-lg text-sm border border-divider">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${r.success ? 'bg-success text-white' : 'bg-danger text-white'
+                                          }`}>
+                                          {r.success ? '✓' : '✗'}
+                                        </div>
+                                        <div className="font-semibold">{r.description} ({r.nodeName})</div>
+                                      </div>
+
+                                      <div className="text-default-500 mt-1 flex items-center justify-between">
+                                        <span>目标: <code className="font-mono bg-default-100 px-1 rounded">{r.targetIp}{r.targetPort ? ':' + r.targetPort : ''}</code></span>
+                                      </div>
+
+                                      {r.success ? (
+                                        <div className="text-default-400 mt-2 flex gap-4 bg-default-100/50 p-2 rounded">
+                                          <span>延迟: <strong className="text-primary">{r.averageTime?.toFixed(0)}</strong> ms</span>
+                                          <span>丢包: <strong className="text-warning">{r.packetLoss?.toFixed(1)}</strong> %</span>
+                                        </div>
+                                      ) : (
+                                        <div className="text-danger mt-2 bg-danger-50 p-2 rounded text-xs border border-danger-100">
+                                          {r.message}
+                                        </div>
                                       )}
                                     </div>
-                                  </div>
-                                  <div className="text-small text-default-500">
-                                    目标地址: <code className="font-mono">{result.targetIp}{result.targetPort ? ':' + result.targetPort : ''}</code>
-                                  </div>
+                                  ))}
                                 </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  <div className="text-small text-default-500">
-                                    目标地址: <code className="font-mono">{result.targetIp}{result.targetPort ? ':' + result.targetPort : ''}</code>
-                                  </div>
-                                  <Alert
-                                    color="danger"
-                                    variant="flat"
-                                    title="错误详情"
-                                    description={result.message}
-                                  />
-                                </div>
-                              )}
-                            </CardBody>
-                          </Card>
-                        );
-                      })}
-                      
-                      {/* 历史记录展示 */}
-                      {diagnosisHistory.length > 0 && (
-                        <div className="mt-8">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-bold">最近10次诊断历史</h3>
-                            {historyLoading && <Spinner size="sm" />}
-                          </div>
-                          <Accordion variant="splitted">
-                            {diagnosisHistory.map((item) => {
-                              let parsedResults: any[] = [];
-                              try {
-                                parsedResults = JSON.parse(item.resultsJson);
-                              } catch(e) {}
-                              
-                              return (
-                                <AccordionItem
-                                  key={item.id}
-                                  aria-label={`历史记录 ${item.id}`}
-                                  title={
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm">
-                                        {new Date(item.createdTime).toLocaleString("zh-CN")}
-                                      </span>
-                                      <Chip size="sm" color={item.overallSuccess ? "success" : "danger"} variant="flat">
-                                        {item.overallSuccess ? "成功" : "失败"}
-                                      </Chip>
-                                    </div>
-                                  }
-                                >
-                                  <div className="space-y-3">
-                                    {parsedResults.map((r: any, idx: number) => (
-                                      <div key={idx} className="bg-default-50 p-3 rounded-lg text-sm border border-divider">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-                                            r.success ? 'bg-success text-white' : 'bg-danger text-white'
-                                          }`}>
-                                            {r.success ? '✓' : '✗'}
-                                          </div>
-                                          <div className="font-semibold">{r.description} ({r.nodeName})</div>
-                                        </div>
-                                        
-                                        <div className="text-default-500 mt-1 flex items-center justify-between">
-                                          <span>目标: <code className="font-mono bg-default-100 px-1 rounded">{r.targetIp}{r.targetPort ? ':' + r.targetPort : ''}</code></span>
-                                        </div>
-                                        
-                                        {r.success ? (
-                                          <div className="text-default-400 mt-2 flex gap-4 bg-default-100/50 p-2 rounded">
-                                            <span>延迟: <strong className="text-primary">{r.averageTime?.toFixed(0)}</strong> ms</span>
-                                            <span>丢包: <strong className="text-warning">{r.packetLoss?.toFixed(1)}</strong> %</span>
-                                          </div>
-                                        ) : (
-                                          <div className="text-danger mt-2 bg-danger-50 p-2 rounded text-xs border border-danger-100">
-                                            {r.message}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))}
-                                  </div>
-                                </AccordionItem>
-                              );
-                            })}
-                          </Accordion>
-                        </div>
-                      )}
-
-                    </div>
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+                              </AccordionItem>
+                            );
+                          })}
+                        </Accordion>
                       </div>
-                      <h3 className="text-lg font-semibold text-foreground">暂无诊断数据</h3>
+                    )}
+
+                  </div>
+                ) : (
+                  <div className="text-center py-16">
+                    <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                     </div>
-                  )}
-                </ModalBody>
-                <ModalFooter>
-                  <Button variant="light" onPress={onClose}>
-                    关闭
+                    <h3 className="text-lg font-semibold text-foreground">暂无诊断数据</h3>
+                  </div>
+                )}
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>
+                  关闭
+                </Button>
+                {currentDiagnosisTunnel && (
+                  <Button
+                    color="primary"
+                    onPress={() => handleDiagnose(currentDiagnosisTunnel)}
+                    isLoading={diagnosisLoading}
+                  >
+                    重新诊断
                   </Button>
-                  {currentDiagnosisTunnel && (
-                    <Button 
-                      color="primary" 
-                      onPress={() => handleDiagnose(currentDiagnosisTunnel)}
-                      isLoading={diagnosisLoading}
-                    >
-                      重新诊断
-                    </Button>
-                  )}
-                </ModalFooter>
-              </>
-            )}
-          </ModalContent>
-        </Modal>
-      </div>
-    
+                )}
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+    </div>
+
   );
 } 

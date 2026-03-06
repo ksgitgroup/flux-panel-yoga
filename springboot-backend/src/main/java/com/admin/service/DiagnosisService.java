@@ -23,4 +23,10 @@ public interface DiagnosisService extends IService<DiagnosisRecord> {
 
     /** 手动触发全量诊断（管理员专用） */
     R triggerNow();
+
+    /** 批量获取一组转发/隧道的最新诊断记录 */
+    R getLatestBatch(String targetType, List<Integer> targetIds);
+
+    /** 获取最近N小时的诊断趋势数据（每小时成功/失败数） */
+    R getTrend(int hours);
 }

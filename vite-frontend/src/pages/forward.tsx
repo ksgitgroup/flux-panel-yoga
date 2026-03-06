@@ -10,6 +10,9 @@ import { Spinner } from "@heroui/spinner";
 import { Switch } from "@heroui/switch";
 import { Alert } from "@heroui/alert";
 import { Accordion, AccordionItem } from "@heroui/accordion";
+import { Divider } from "@heroui/divider";
+import { Tabs, Tab } from "@heroui/tabs";
+import { SpeedBadge } from "@/components/SpeedBadge";
 import toast from 'react-hot-toast';
 import {
   DndContext,
@@ -43,10 +46,24 @@ import {
   resumeForwardService,
   diagnoseForward,
   updateForwardOrder,
-  copyForward
+  getDiagnosisLatestBatch,
+  getProtocolList,
+  getTagList,
+  createTag
 } from "@/api";
 import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
+
+interface Protocol {
+  id: number;
+  name: string;
+}
+
+interface Tag {
+  id: number;
+  name: string;
+  color: string;
+}
 
 interface Forward {
   id: number;
@@ -66,6 +83,8 @@ interface Forward {
   userName?: string;
   userId?: number;
   inx?: number;
+  protocolId?: number;
+  tagIds?: string;
 }
 
 interface Tunnel {
@@ -84,6 +103,8 @@ interface ForwardForm {
   remoteAddr: string;
   interfaceName?: string;
   strategy: string;
+  protocolId: number | null;
+  tagIds: string[];
 }
 
 interface AddressItem {
@@ -112,7 +133,22 @@ interface DiagnosisHistoryItem {
   id: number;
   overallSuccess: boolean;
   resultsJson: string;
+  averageTime?: number;
+  packetLoss?: number;
   createdTime: number;
+}
+
+interface DiagnosisBatchItem {
+  id: number;
+  targetType: string;
+  targetId: number;
+  targetName: string;
+  overallSuccess: boolean;
+  resultsJson?: string;
+  averageTime?: number;
+  packetLoss?: number;
+  createdTime: number;
+  history?: DiagnosisHistoryItem[];
 }
 
 // 添加分组接口
@@ -132,6 +168,36 @@ export default function ForwardPage() {
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
+  const [protocols, setProtocols] = useState<Protocol[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+
+  // 快速创建标签
+  const createQuickTag = async (name: string) => {
+    try {
+      const res = await createTag({ name, color: 'primary' });
+      if (res.code === 0) {
+        toast.success('标签创建成功');
+        // 重新加载标签列表
+        const tagsRes = await getTagList();
+        if (tagsRes.code === 0) {
+          setTags(tagsRes.data);
+          // 自动选中新创建的标签
+          const newTag = tagsRes.data.find((t: Tag) => t.name === name);
+          if (newTag) {
+            setForm(prev => ({
+              ...prev,
+              tagIds: [...(prev.tagIds || []), newTag.id.toString()]
+            }));
+          }
+        }
+      } else {
+        toast.error('创建标签失败: ' + res.msg);
+      }
+    } catch (error) {
+      console.error('快速创建标签出错:', error);
+      toast.error('网络错误，创建失败');
+    }
+  };
 
   // 检测是否为移动端
   const [isMobile, setIsMobile] = useState(false);
@@ -163,6 +229,17 @@ export default function ForwardPage() {
   // 搜索关键字状态
   const [searchKeyword, setSearchKeyword] = useState("");
 
+  // 高级筛选状态
+  const [tunnelFilter, setTunnelFilter] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'paused'>('all');
+  const [healthFilter, setHealthFilter] = useState<'all' | 'healthy' | 'unhealthy' | 'unknown'>('all');
+  const [protocolFilter, setProtocolFilter] = useState<number | null>(null);
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+  // 诊断数据映射 (forwardId -> DiagnosisBatchItem)
+  const [diagnosisMap, setDiagnosisMap] = useState<Record<number, DiagnosisBatchItem>>({});
+
   // 模态框状态
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -176,7 +253,7 @@ export default function ForwardPage() {
   const [currentDiagnosisForward, setCurrentDiagnosisForward] = useState<Forward | null>(null);
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
   const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisHistoryItem[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [_historyLoading, setHistoryLoading] = useState(false);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
 
@@ -205,7 +282,9 @@ export default function ForwardPage() {
     inPort: null,
     remoteAddr: '',
     interfaceName: '',
-    strategy: 'fifo'
+    strategy: 'fifo',
+    protocolId: null,
+    tagIds: []
   });
 
   // 表单验证错误
@@ -276,21 +355,25 @@ export default function ForwardPage() {
     }
   };
 
-  // 加载所有数据
   const loadData = async (lod = true) => {
     setLoading(lod);
     try {
-      const [forwardsRes, tunnelsRes] = await Promise.all([
+      const [forwardsRes, tunnelsRes, protocolsRes, tagsRes] = await Promise.all([
         getForwardList(),
-        userTunnel()
+        userTunnel(),
+        getProtocolList(),
+        getTagList()
       ]);
 
       if (forwardsRes.code === 0) {
-        const forwardsData = forwardsRes.data?.map((forward: any) => ({
+        const forwardsData: Forward[] = forwardsRes.data?.map((forward: any) => ({
           ...forward,
           serviceRunning: forward.status === 1
         })) || [];
         setForwards(forwardsData);
+
+        // 加载诊断数据
+        loadDiagnosisData(forwardsData);
 
         // 初始化拖拽排序顺序
         if (viewMode === 'direct') {
@@ -351,11 +434,28 @@ export default function ForwardPage() {
       } else {
         console.warn('获取隧道列表失败:', tunnelsRes.msg);
       }
+
+      if (protocolsRes.code === 0) setProtocols(protocolsRes.data || []);
+      if (tagsRes.code === 0) setTags(tagsRes.data || []);
     } catch (error) {
       console.error('加载数据失败:', error);
       toast.error('加载数据失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 加载批量诊断数据
+  const loadDiagnosisData = async (forwardsData: Forward[]) => {
+    try {
+      const ids = forwardsData.map(f => f.id);
+      if (ids.length === 0) return;
+      const resp = await getDiagnosisLatestBatch({ targetType: 'forward', targetIds: ids });
+      if (resp.code === 0 && resp.data) {
+        setDiagnosisMap(resp.data);
+      }
+    } catch {
+      // silent
     }
   };
 
@@ -458,7 +558,9 @@ export default function ForwardPage() {
       inPort: null,
       remoteAddr: '',
       interfaceName: '',
-      strategy: 'fifo'
+      strategy: 'fifo',
+      protocolId: null,
+      tagIds: []
     });
     setSelectedTunnel(null);
     setErrors({});
@@ -476,7 +578,9 @@ export default function ForwardPage() {
       inPort: forward.inPort,
       remoteAddr: forward.remoteAddr.split(',').join('\n'),
       interfaceName: forward.interfaceName || '',
-      strategy: forward.strategy || 'fifo'
+      strategy: forward.strategy || 'fifo',
+      protocolId: forward.protocolId || null,
+      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : []
     });
     const tunnel = tunnels.find(t => t.id === forward.tunnelId);
     setSelectedTunnel(tunnel || null);
@@ -493,7 +597,9 @@ export default function ForwardPage() {
       inPort: null, // 不复制端口，让系统自动分配
       remoteAddr: forward.remoteAddr.split(',').join('\n'),
       interfaceName: forward.interfaceName || '',
-      strategy: forward.strategy || 'fifo'
+      strategy: forward.strategy || 'fifo',
+      protocolId: forward.protocolId || null,
+      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : []
     });
     const tunnel = tunnels.find(t => t.id === forward.tunnelId);
     setSelectedTunnel(tunnel || null);
@@ -572,7 +678,9 @@ export default function ForwardPage() {
           inPort: form.inPort,
           remoteAddr: processedRemoteAddr,
           interfaceName: form.interfaceName,
-          strategy: addressCount > 1 ? form.strategy : 'fifo'
+          strategy: addressCount > 1 ? form.strategy : 'fifo',
+          protocolId: form.protocolId,
+          tagIds: form.tagIds ? form.tagIds.join(',') : null
         };
         res = await updateForward(updateData);
       } else {
@@ -583,7 +691,9 @@ export default function ForwardPage() {
           inPort: form.inPort,
           remoteAddr: processedRemoteAddr,
           interfaceName: form.interfaceName,
-          strategy: addressCount > 1 ? form.strategy : 'fifo'
+          strategy: addressCount > 1 ? form.strategy : 'fifo',
+          protocolId: form.protocolId,
+          tagIds: form.tagIds ? form.tagIds.join(',') : null
         };
         res = await createForward(createData);
       }
@@ -1155,17 +1265,52 @@ export default function ForwardPage() {
       }
     }
 
-    // 关键词搜索过滤
-    if (searchKeyword.trim()) {
-      const lowerKeyword = searchKeyword.toLowerCase();
+    // 隧道筛选
+    if (tunnelFilter !== null) {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.tunnelId === tunnelFilter);
+    }
+
+    // 状态筛选
+    if (statusFilter === 'running') {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.status === 1);
+    } else if (statusFilter === 'paused') {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.status === 0);
+    }
+
+    // 健康状况筛选
+    if (healthFilter !== 'all') {
       filteredForwards = filteredForwards.filter((f: Forward) => {
-        const portStr = f.inPort ? f.inPort.toString() : "";
+        const diag = diagnosisMap[f.id];
+        if (healthFilter === 'healthy') return diag && diag.overallSuccess;
+        if (healthFilter === 'unhealthy') return diag && !diag.overallSuccess;
+        if (healthFilter === 'unknown') return !diag;
+        return true;
+      });
+    }
+
+    // 协议筛选
+    if (protocolFilter !== null) {
+      filteredForwards = filteredForwards.filter((f: Forward) => f.protocolId === protocolFilter);
+    }
+
+    // 标签筛选
+    if (tagFilters.length > 0) {
+      filteredForwards = filteredForwards.filter((f: Forward) => {
+        if (!f.tagIds) return false;
+        const fTags = f.tagIds.split(',').filter(Boolean);
+        return tagFilters.every(t => fTags.includes(t));
+      });
+    }
+
+    // 关键词搜索过滤
+    if (searchKeyword && searchKeyword.trim()) {
+      const keyword = searchKeyword.toLowerCase().trim();
+      filteredForwards = filteredForwards.filter((f: Forward) => {
         return (
-          (f.name && f.name.toLowerCase().includes(lowerKeyword)) ||
-          (f.remoteAddr && f.remoteAddr.toLowerCase().includes(lowerKeyword)) ||
-          (f.inIp && f.inIp.toLowerCase().includes(lowerKeyword)) ||
-          portStr.includes(lowerKeyword) ||
-          (f.tunnelName && f.tunnelName.toLowerCase().includes(lowerKeyword))
+          (f.name && f.name.toLowerCase().includes(keyword)) ||
+          (f.remoteAddr && f.remoteAddr.toLowerCase().includes(keyword)) ||
+          (f.inIp && f.inIp.toLowerCase().includes(keyword)) ||
+          (f.inPort && f.inPort.toString().includes(keyword))
         );
       });
     }
@@ -1262,10 +1407,45 @@ export default function ForwardPage() {
                   </svg>
                 </div>
               )}
-              <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
+              <div className="flex flex-col min-w-0 flex-1">
+                <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
+                {(() => {
+                  const diag = diagnosisMap[forward.id];
+                  if (!diag?.history || diag.history.length === 0) return null;
+                  return (
+                    <div className="flex gap-1 mt-1 overflow-x-auto no-scrollbar py-0.5" style={{ scrollbarWidth: 'none' }}>
+                      {diag.history.slice(0, 10).map((h, i) => (
+                        <div
+                          key={i}
+                          className={`flex-shrink-0 w-7 h-5 rounded flex items-center justify-center text-[9px] font-bold shadow-sm transition-transform hover:scale-110 cursor-help ${h.overallSuccess ? 'bg-success-400 text-white' : 'bg-danger-400 text-white'
+                            }`}
+                          title={`时间: ${new Date(h.createdTime).toLocaleString()}\n${h.overallSuccess ? `延迟: ${Math.round(h.averageTime || 0)}ms` : '故障'}`}
+                        >
+                          {h.overallSuccess ? (h.averageTime ? Math.round(h.averageTime) : '✓') : '✗'}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+              {/* 诊断健康+延迟徽标 */}
+              {(() => {
+                const diag = diagnosisMap[forward.id];
+                return (
+                  <div className="flex-shrink-0 ml-auto self-start">
+                    <SpeedBadge
+                      averageTime={diag?.averageTime}
+                      packetLoss={diag?.packetLoss}
+                      overallSuccess={diag?.overallSuccess}
+                      history={diag?.history}
+                      compact
+                    />
+                  </div>
+                );
+              })()}
             </div>
             {/* 第二行：隧道名 + 状态开关 */}
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mt-1">
               <p className="text-xs text-default-500 truncate">{forward.tunnelName}</p>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <Switch
@@ -1515,132 +1695,357 @@ export default function ForwardPage() {
         </div>
       </div>
 
+      {/* 统一的高级筛选工具栏 */}
+      <div className="flex flex-col gap-4 mb-6 transition-all duration-300">
+        {/* 主控制层 */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 bg-white/50 dark:bg-default-100/20 p-3 rounded-2xl border border-divider shadow-sm backdrop-blur-md">
+          {/* 搜索框与状态切换 */}
+          <div className="flex flex-1 flex-col sm:flex-row items-center gap-3">
+            <Input
+              value={searchKeyword}
+              onValueChange={setSearchKeyword}
+              placeholder="搜索名称、端口、目标IP..."
+              startContent={
+                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              }
+              size="sm"
+              variant="flat"
+              radius="lg"
+              className="w-full sm:max-w-[400px]"
+              isClearable
+              onClear={() => setSearchKeyword("")}
+            />
+
+            <Tabs
+              selectedKey={statusFilter}
+              onSelectionChange={(key) => setStatusFilter(key as any)}
+              size="sm"
+              variant="bordered"
+              radius="lg"
+              classNames={{
+                tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
+                cursor: "bg-white dark:bg-default-300 shadow-sm",
+                tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-medium",
+                tab: "h-8 px-3",
+              }}
+            >
+              <Tab key="all" title="全部" />
+              <Tab key="running" title="运行中" />
+              <Tab key="paused" title="已暂停" />
+            </Tabs>
+
+            <Divider orientation="vertical" className="h-6 hidden sm:block" />
+
+            <Tabs
+              selectedKey={healthFilter}
+              onSelectionChange={(key) => setHealthFilter(key as any)}
+              size="sm"
+              variant="light"
+              radius="lg"
+            >
+              <Tab key="all" title="全部健康度" />
+              <Tab key="healthy" title="正常" />
+              <Tab key="unhealthy" title="故障" />
+            </Tabs>
+          </div>
+
+          {/* 操作按钮组 */}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={showAdvancedFilters ? "solid" : "flat"}
+              color={showAdvancedFilters ? "primary" : "default"}
+              onPress={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              startContent={
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+                </svg>
+              }
+              className="font-medium"
+            >
+              高级筛选 {tagFilters.length + (tunnelFilter ? 1 : 0) + (protocolFilter ? 1 : 0) > 0 &&
+                <span className="ml-1 bg-white/20 px-1.5 rounded-full text-[10px]">
+                  {tagFilters.length + (tunnelFilter ? 1 : 0) + (protocolFilter ? 1 : 0)}
+                </span>
+              }
+            </Button>
+
+            <Divider orientation="vertical" className="h-6 mx-1" />
+
+            {(tunnelFilter !== null || statusFilter !== 'all' || healthFilter !== 'all' || tagFilters.length > 0 || protocolFilter !== null || searchKeyword !== "") && (
+              <Button
+                size="sm"
+                variant="light"
+                color="danger"
+                isIconOnly
+                onPress={() => {
+                  setTunnelFilter(null);
+                  setStatusFilter('all');
+                  setHealthFilter('all');
+                  setProtocolFilter(null);
+                  setTagFilters([]);
+                  setSearchKeyword("");
+                }}
+                className="rounded-full"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* 展开式高级筛选 */}
+        {showAdvancedFilters && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-default-50/80 p-4 rounded-2xl border border-divider animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">所属隧道</label>
+              <Select
+                aria-label="筛选隧道"
+                placeholder="全部隧道"
+                selectedKeys={tunnelFilter !== null ? new Set([tunnelFilter.toString()]) : new Set([])}
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys)[0];
+                  setTunnelFilter(selected === 'all' ? null : (selected ? Number(selected) : null));
+                }}
+                size="sm"
+                variant="bordered"
+              >
+                {[
+                  <SelectItem key="all" textValue="全部隧道">全部隧道</SelectItem>,
+                  ...tunnels.map(t => (
+                    <SelectItem key={t.id.toString()} textValue={t.name}>{t.name}</SelectItem>
+                  ))
+                ]}
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">应用协议</label>
+              <Select
+                aria-label="筛选协议"
+                placeholder="全部协议"
+                selectedKeys={protocolFilter !== null ? new Set([protocolFilter.toString()]) : new Set([])}
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys)[0];
+                  setProtocolFilter(selected === 'all' ? null : (selected ? Number(selected) : null));
+                }}
+                size="sm"
+                variant="bordered"
+              >
+                {[
+                  <SelectItem key="all" textValue="全部协议">全部协议</SelectItem>,
+                  ...protocols.map(p => (
+                    <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
+                  ))
+                ]}
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-2 flex-grow min-w-0">
+              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">资源标签 (多选)</label>
+              <div className="flex flex-wrap gap-2 py-1 max-h-[120px] overflow-y-auto no-scrollbar">
+                <Chip
+                  size="sm"
+                  variant={tagFilters.length === 0 ? "solid" : "flat"}
+                  color={tagFilters.length === 0 ? "primary" : "default"}
+                  className="cursor-pointer transition-all hover:scale-105"
+                  onClick={() => setTagFilters([])}
+                >
+                  全部 ({forwards.length})
+                </Chip>
+                {tags.map(t => {
+                  const count = forwards.filter(f => f.tagIds?.includes(t.id.toString())).length;
+                  const isSelected = tagFilters.includes(t.id.toString());
+                  return (
+                    <Chip
+                      key={t.id}
+                      size="sm"
+                      variant={isSelected ? "solid" : "flat"}
+                      color={isSelected ? "primary" : "default"}
+                      className={`cursor-pointer transition-all hover:scale-105 ${isSelected ? 'shadow-md' : 'opacity-80 hover:opacity-100'}`}
+                      onClick={() => {
+                        if (isSelected) {
+                          setTagFilters(prev => prev.filter(id => id !== t.id.toString()));
+                        } else {
+                          setTagFilters(prev => [...prev, t.id.toString()]);
+                        }
+                      }}
+                      startContent={
+                        <div className={`w-1.5 h-1.5 rounded-full ml-1 ${t.color === 'default' ? 'bg-default-400' :
+                          t.color === 'primary' ? 'bg-white' :
+                            t.color === 'secondary' ? 'bg-white' :
+                              t.color === 'success' ? 'bg-white' :
+                                t.color === 'warning' ? 'bg-white' :
+                                  t.color === 'danger' ? 'bg-white' : `bg-${t.color}-500`
+                          }`} />
+                      }
+                    >
+                      {t.name} ({count})
+                    </Chip>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 筛选徽章显示区 */}
+        {(tunnelFilter !== null || protocolFilter !== null || tagFilters.length > 0) && (
+          <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-left-2 transition-all">
+            {tunnelFilter !== null && (
+              <Chip size="sm" variant="flat" onClose={() => setTunnelFilter(null)} className="bg-primary/10 text-primary-600">
+                隧道: {tunnels.find(t => t.id === tunnelFilter)?.name || tunnelFilter}
+              </Chip>
+            )}
+            {protocolFilter !== null && (
+              <Chip size="sm" variant="flat" onClose={() => setProtocolFilter(null)} className="bg-secondary/10 text-secondary-600">
+                协议: {protocols.find(p => p.id === protocolFilter)?.name || protocolFilter}
+              </Chip>
+            )}
+            {tagFilters.map(id => {
+              const tag = tags.find(t => t.id.toString() === id);
+              return (
+                <Chip key={id} size="sm" variant="flat" onClose={() => setTagFilters(prev => prev.filter(tid => tid !== id))}
+                  className={`bg-default-100 text-default-600`}>
+                  标签: {tag?.name || id}
+                </Chip>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* 根据显示模式渲染不同内容 */}
-      {viewMode === 'grouped' ? (
-        /* 按用户和隧道分组的转发列表 */
-        userGroups.length > 0 ? (
-          <div className="space-y-6">
-            {userGroups.map((userGroup) => (
-              <Card key={userGroup.userId || 'unknown'} className="shadow-sm border border-divider w-full overflow-hidden">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between w-full min-w-0">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                        <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h2 className="text-base font-medium text-foreground truncate max-w-[150px] sm:max-w-[250px] md:max-w-[350px] lg:max-w-[450px]">{userGroup.userName}</h2>
-                        <p className="text-xs text-default-500 truncate max-w-[150px] sm:max-w-[250px] md:max-w-[350px] lg:max-w-[450px]">
-                          {userGroup.tunnelGroups.length} 个隧道，
-                          {userGroup.tunnelGroups.reduce((total, tg) => total + tg.forwards.length, 0)} 个转发
-                        </p>
-                      </div>
-                    </div>
-                    <Chip color="primary" variant="flat" size="sm" className="text-xs flex-shrink-0 ml-2">
-                      用户
-                    </Chip>
-                  </div>
-                </CardHeader>
-
-                <CardBody className="pt-0">
-                  <Accordion variant="splitted" className="px-0">
-                    {userGroup.tunnelGroups.map((tunnelGroup) => (
-                      <AccordionItem
-                        key={tunnelGroup.tunnelId}
-                        aria-label={tunnelGroup.tunnelName}
-                        title={
-                          <div className="flex items-center justify-between w-full min-w-0 pr-4">
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <div className="w-8 h-8 bg-success-100 dark:bg-success-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <h3 className="text-sm font-medium text-foreground truncate max-w-[120px] sm:max-w-[200px] md:max-w-[300px] lg:max-w-[400px]">{tunnelGroup.tunnelName}</h3>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                              <Chip variant="flat" size="sm" className="text-xs">
-                                {tunnelGroup.forwards.filter(f => f.serviceRunning).length}/{tunnelGroup.forwards.length}
-                              </Chip>
-                            </div>
-                          </div>
-                        }
-                        className="shadow-none border border-divider"
-                      >
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 p-4">
-                          {tunnelGroup.forwards.map((forward) => renderForwardCard(forward, undefined))}
+      {
+        viewMode === 'grouped' ? (
+          /* 按用户和隧道分组的转发列表 */
+          userGroups.length > 0 ? (
+            <div className="space-y-6">
+              {userGroups.map((userGroup) => (
+                <Card key={userGroup.userId || 'unknown'} className="shadow-sm border border-divider w-full overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between w-full min-w-0">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                          </svg>
                         </div>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
-                </CardBody>
-              </Card>
-            ))}
-          </div>
+                        <div className="min-w-0 flex-1">
+                          <h2 className="text-base font-medium text-foreground truncate max-w-[150px] sm:max-w-[250px] md:max-w-[350px] lg:max-w-[450px]">{userGroup.userName}</h2>
+                          <p className="text-xs text-default-500 truncate max-w-[150px] sm:max-w-[250px] md:max-w-[350px] lg:max-w-[450px]">
+                            {userGroup.tunnelGroups.length} 个隧道，
+                            {userGroup.tunnelGroups.reduce((total, tg) => total + tg.forwards.length, 0)} 个转发
+                          </p>
+                        </div>
+                      </div>
+                      <Chip color="primary" variant="flat" size="sm" className="text-xs flex-shrink-0 ml-2">
+                        用户
+                      </Chip>
+                    </div>
+                  </CardHeader>
+
+                  <CardBody className="pt-0">
+                    <Accordion variant="splitted" className="px-0">
+                      {userGroup.tunnelGroups.map((tunnelGroup) => (
+                        <AccordionItem
+                          key={tunnelGroup.tunnelId}
+                          aria-label={tunnelGroup.tunnelName}
+                          title={
+                            <div className="flex items-center justify-between w-full min-w-0 pr-4">
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <div className="w-8 h-8 bg-success-100 dark:bg-success-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                  </svg>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <h3 className="text-sm font-medium text-foreground truncate max-w-[120px] sm:max-w-[200px] md:max-w-[300px] lg:max-w-[400px]">{tunnelGroup.tunnelName}</h3>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                <Chip variant="flat" size="sm" className="text-xs">
+                                  {tunnelGroup.forwards.filter(f => f.serviceRunning).length}/{tunnelGroup.forwards.length}
+                                </Chip>
+                              </div>
+                            </div>
+                          }
+                          className="shadow-none border border-divider"
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 p-4">
+                            {tunnelGroup.forwards.map((forward) => renderForwardCard(forward, undefined))}
+                          </div>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  </CardBody>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            /* 空状态 */
+            <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+              <CardBody className="text-center py-16">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">暂无转发配置</h3>
+                    <p className="text-default-500 text-sm mt-1">还没有创建任何转发配置，点击上方按钮开始创建</p>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          )
         ) : (
-          /* 空状态 */
-          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
-            <CardBody className="text-center py-16">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">暂无转发配置</h3>
-                  <p className="text-default-500 text-sm mt-1">还没有创建任何转发配置，点击上方按钮开始创建</p>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        )
-      ) : (
-        /* 直接显示模式 */
-        forwards.length > 0 ? (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-            onDragStart={() => { }} // 添加空的 onDragStart 处理器
-          >
-            <SortableContext
-              items={getSortedForwards().map(f => f.id || 0).filter(id => id > 0)}
-              strategy={rectSortingStrategy}
+          /* 直接显示模式 */
+          forwards.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+              onDragStart={() => { }} // 添加空的 onDragStart 处理器
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                {getSortedForwards().map((forward) => (
-                  forward && forward.id ? (
-                    <SortableForwardCard key={forward.id} forward={forward} />
-                  ) : null
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        ) : (
-          /* 空状态 */
-          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
-            <CardBody className="text-center py-16">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                  </svg>
+              <SortableContext
+                items={getSortedForwards().map(f => f.id || 0).filter(id => id > 0)}
+                strategy={rectSortingStrategy}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                  {getSortedForwards().map((forward) => (
+                    forward && forward.id ? (
+                      <SortableForwardCard key={forward.id} forward={forward} />
+                    ) : null
+                  ))}
                 </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">暂无转发配置</h3>
-                  <p className="text-default-500 text-sm mt-1">还没有创建任何转发配置，点击上方按钮开始创建</p>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            /* 空状态 */
+            <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+              <CardBody className="text-center py-16">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">暂无转发配置</h3>
+                    <p className="text-default-500 text-sm mt-1">还没有创建任何转发配置，点击上方按钮开始创建</p>
+                  </div>
                 </div>
-              </div>
-            </CardBody>
-          </Card>
+              </CardBody>
+            </Card>
+          )
         )
-      )}
+      }
 
       {/* 新增/编辑模态框 */}
       <Modal
@@ -1737,6 +2142,64 @@ export default function ForwardPage() {
                     variant="bordered"
                     description="用于多IP服务器指定使用那个IP请求远程地址，不懂的默认为空就行"
                   />
+
+                  <Select
+                    label="协议 (Protocol)"
+                    placeholder="选择协议 (可选)"
+                    selectedKeys={form.protocolId ? [form.protocolId.toString()] : []}
+                    onSelectionChange={(keys) => {
+                      const selectedKey = Array.from(keys)[0] as string;
+                      setForm(prev => ({ ...prev, protocolId: selectedKey ? parseInt(selectedKey) : null }));
+                    }}
+                    variant="bordered"
+                  >
+                    {[
+                      <SelectItem key="" textValue="无协议">无协议</SelectItem>,
+                      ...protocols.map(p => (
+                        <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
+                      ))
+                    ]}
+                  </Select>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">标签 (Tags)</label>
+                      <Button
+                        size="tiny"
+                        variant="light"
+                        color="primary"
+                        startContent={<i className="i-lucide-plus w-3 h-3" />}
+                        className="h-6 text-[10px] px-2 min-w-0"
+                        onPress={() => {
+                          const name = prompt("请输入新标签名称:");
+                          if (name && name.trim()) {
+                            createQuickTag(name.trim());
+                          }
+                        }}
+                      >
+                        快速新建
+                      </Button>
+                    </div>
+                    <Select
+                      placeholder="选择标签 (多项选择)"
+                      selectionMode="multiple"
+                      selectedKeys={form.tagIds ? new Set(form.tagIds) : new Set([])}
+                      onSelectionChange={(keys) => {
+                        setForm(prev => ({ ...prev, tagIds: Array.from(keys) as string[] }));
+                      }}
+                      variant="bordered"
+                      classNames={{ content: "text-sm", trigger: "h-10" }}
+                    >
+                      {tags.map(t => (
+                        <SelectItem key={t.id.toString()} textValue={t.name}>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
+                            <span>{t.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </div>
 
                   {getAddressCount(form.remoteAddr) > 1 && (
                     <Select
@@ -2221,7 +2684,7 @@ export default function ForwardPage() {
                         </Card>
                       );
                     })}
-                    
+
                     {/* 历史记录展示 */}
                     {diagnosisHistory.length > 0 && (
                       <div className="mt-8">
@@ -2231,8 +2694,8 @@ export default function ForwardPage() {
                             let parsedResults = [];
                             try {
                               parsedResults = JSON.parse(item.resultsJson);
-                            } catch(e) {}
-                            
+                            } catch (e) { }
+
                             return (
                               <AccordionItem
                                 key={item.id}
@@ -2308,7 +2771,7 @@ export default function ForwardPage() {
           )}
         </ModalContent>
       </Modal>
-    </div>
+    </div >
 
   );
 } 

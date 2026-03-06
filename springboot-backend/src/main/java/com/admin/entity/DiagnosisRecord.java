@@ -30,6 +30,12 @@ public class DiagnosisRecord {
     /** JSON格式的详细诊断结果 */
     private String resultsJson;
 
+    /** 平均延迟 (ms) */
+    private Double averageTime;
+
+    /** 丢包率 (%) */
+    private Double packetLoss;
+
     /** 诊断时间戳 */
     private Long createdTime;
 }

@@ -26,7 +26,9 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -727,65 +729,41 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @return 最近24小时流量统计列表
      */
     private List<StatisticsFlow> getLast24HoursFlowStatistics(Long userId) {
-        // 按ID倒序查最近24条记录（ID越大越新，时间就是23:00, 22:00, 21:00...这样倒序）
+        long twentyFourHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
+        
+        // 1. 获取最近24小时内的所有记录
         List<StatisticsFlow> recentFlows = statisticsFlowService.list(
                 new QueryWrapper<StatisticsFlow>()
                         .eq("user_id", userId)
-                        .orderByDesc("id")
-                        .last("LIMIT 24")
+                        .ge("created_time", twentyFourHoursAgo)
+                        .orderByAsc("created_time")
         );
 
-        List<StatisticsFlow> result = new ArrayList<>(recentFlows);
+        // 2. 按小时对数据进行整理并补齐
+        List<StatisticsFlow> result = new ArrayList<>();
+        Map<String, StatisticsFlow> flowMap = recentFlows.stream()
+                .collect(Collectors.toMap(StatisticsFlow::getTime, f -> f, (f1, f2) -> f1.getCreatedTime() > f2.getCreatedTime() ? f1 : f2));
 
-        // 如果查出来的记录不足24条，需要补0和对应的时间
-        if (result.size() < 24) {
-            // 获取最早记录的时间，继续往前推
-            int startHour = getCurrentHour();
-            if (!result.isEmpty()) {
-                // 从最后一条记录的时间继续往前推
-                String lastTime = result.get(result.size() - 1).getTime();
-                startHour = parseHour(lastTime) - 1;
+        // 3. 从23小时前开始推算到当前小时
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        for (int i = 23; i >= 0; i--) {
+            java.time.LocalDateTime targetTime = now.minusHours(i);
+            String timeStr = String.format("%02d:00", targetTime.getHour());
+            
+            StatisticsFlow flow = flowMap.get(timeStr);
+            if (flow == null) {
+                flow = new StatisticsFlow();
+                flow.setUserId(userId);
+                flow.setFlow(0L);
+                flow.setTotalFlow(0L);
+                flow.setTime(timeStr);
+                // 模拟一个近似的时间戳，用于前端排序（如果需要）
+                flow.setCreatedTime(targetTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
             }
-
-            // 补0到24条
-            while (result.size() < 24) {
-                if (startHour < 0) startHour = 23; // 跨天处理
-
-                StatisticsFlow emptyFlow = new StatisticsFlow();
-                emptyFlow.setUserId(userId);
-                emptyFlow.setFlow(0L);
-                emptyFlow.setTotalFlow(0L);
-                emptyFlow.setTime(String.format("%02d:00", startHour));
-                result.add(emptyFlow);
-
-                startHour--;
-            }
+            result.add(flow);
         }
 
-        log.info("用户 {} 获取到 {} 条实际记录，补齐为 {} 条24小时记录", userId, recentFlows.size(), result.size());
         return result;
-
-    }
-
-    /**
-     * 获取当前小时（0-23）
-     */
-    private int getCurrentHour() {
-        return java.time.LocalDateTime.now().getHour();
-    }
-
-    /**
-     * 解析时间字符串获取小时数
-     */
-    private int parseHour(String timeStr) {
-        try {
-            if (timeStr != null && timeStr.contains(":")) {
-                return Integer.parseInt(timeStr.split(":")[0]);
-            }
-        } catch (Exception e) {
-            // 解析失败，返回当前小时
-        }
-        return getCurrentHour();
     }
 
 

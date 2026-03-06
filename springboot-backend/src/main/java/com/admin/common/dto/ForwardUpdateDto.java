@@ -37,4 +37,8 @@ public class ForwardUpdateDto {
 
     @TableField(updateStrategy = FieldStrategy.IGNORED)
     private String interfaceName;
+
+    private Integer protocolId;
+
+    private String tagIds;
 } 

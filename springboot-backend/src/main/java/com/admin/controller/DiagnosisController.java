@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -55,6 +56,39 @@ public class DiagnosisController extends BaseController {
     @PostMapping("/run-now")
     public R runNow() {
         return diagnosisService.triggerNow();
+    }
+
+    /**
+     * 批量获取最新诊断记录
+     * 参数: targetType (forward/tunnel), targetIds (ID数组)
+     */
+    @SuppressWarnings("unchecked")
+    @PostMapping("/latest-batch")
+    public R latestBatch(@RequestBody Map<String, Object> params) {
+        String targetType = (String) params.get("targetType");
+        List<Integer> targetIds;
+        Object idsObj = params.get("targetIds");
+        if (idsObj instanceof List) {
+            targetIds = ((List<?>) idsObj).stream()
+                    .map(id -> Integer.valueOf(id.toString()))
+                    .collect(java.util.stream.Collectors.toList());
+        } else {
+            return R.err("targetIds 参数格式错误");
+        }
+        return diagnosisService.getLatestBatch(targetType, targetIds);
+    }
+
+    /**
+     * 获取诊断趋势数据
+     * 参数: hours (小时数，可选，默认24)
+     */
+    @PostMapping("/trend")
+    public R trend(@RequestBody(required = false) Map<String, Object> params) {
+        int hours = 24;
+        if (params != null && params.containsKey("hours")) {
+            hours = Integer.parseInt(params.get("hours").toString());
+        }
+        return diagnosisService.getTrend(hours);
     }
 
     /**

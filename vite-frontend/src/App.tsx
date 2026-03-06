@@ -13,6 +13,8 @@ import LimitPage from "@/pages/limit";
 import ConfigPage from "@/pages/config";
 import { SettingsPage } from "@/pages/settings";
 import MonitorPage from "@/pages/monitor";
+import ProtocolPage from "@/pages/protocol";
+import TagPage from "@/pages/tag";
 
 import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
@@ -195,6 +197,22 @@ function App() {
         element={
           <ProtectedRoute useSimpleLayout={true}>
             <UserPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/protocol"
+        element={
+          <ProtectedRoute>
+            <ProtocolPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tag"
+        element={
+          <ProtectedRoute>
+            <TagPage />
           </ProtectedRoute>
         }
       />

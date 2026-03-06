@@ -28,18 +28,26 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Read build metadata
+        id: meta
+        run: |
+          app_version=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
+          short_sha="${GITHUB_SHA::7}"
+          build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          echo "app_version=$app_version" >> $GITHUB_OUTPUT
+          echo "short_sha=$short_sha" >> $GITHUB_OUTPUT
+          echo "build_time=$build_time" >> $GITHUB_OUTPUT
+
       # 3. 根据分支生成不同的镜像 Tags
       - name: Generate tags
         id: tags
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
-            date_tag=$(date +'%Y.%m.%d')
-            echo "front_tags=amerluya/flux-panel-yoga-frontend:latest,amerluya/flux-panel-yoga-frontend:${date_tag}" >> $GITHUB_OUTPUT
-            echo "back_tags=amerluya/flux-panel-yoga-backend:latest,amerluya/flux-panel-yoga-backend:${date_tag}" >> $GITHUB_OUTPUT
+            echo "front_tags=amerluya/flux-panel-yoga-frontend:latest,amerluya/flux-panel-yoga-frontend:${{ steps.meta.outputs.app_version }},amerluya/flux-panel-yoga-frontend:${{ steps.meta.outputs.app_version }}-${{ steps.meta.outputs.short_sha }}" >> $GITHUB_OUTPUT
+            echo "back_tags=amerluya/flux-panel-yoga-backend:latest,amerluya/flux-panel-yoga-backend:${{ steps.meta.outputs.app_version }},amerluya/flux-panel-yoga-backend:${{ steps.meta.outputs.app_version }}-${{ steps.meta.outputs.short_sha }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref_name }}" = "dev" ]; then
-            # dev 分支只用 dev-latest 滚动标签（避免 Docker Hub 被历史镜像塞满）
-            echo "front_tags=amerluya/flux-panel-yoga-frontend:dev-latest" >> $GITHUB_OUTPUT
-            echo "back_tags=amerluya/flux-panel-yoga-backend:dev-latest" >> $GITHUB_OUTPUT
+            echo "front_tags=amerluya/flux-panel-yoga-frontend:dev-latest,amerluya/flux-panel-yoga-frontend:dev-${{ steps.meta.outputs.app_version }}-${{ steps.meta.outputs.short_sha }}" >> $GITHUB_OUTPUT
+            echo "back_tags=amerluya/flux-panel-yoga-backend:dev-latest,amerluya/flux-panel-yoga-backend:dev-${{ steps.meta.outputs.app_version }}-${{ steps.meta.outputs.short_sha }}" >> $GITHUB_OUTPUT
           fi
 
       # 4. 启用 BuildKit（内存更高效的 Docker 构建引擎）
@@ -54,6 +62,11 @@ jobs:
           context: ./vite-frontend
           push: true
           tags: ${{ steps.tags.outputs.front_tags }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.app_version }}
+            GIT_SHA=${{ steps.meta.outputs.short_sha }}
+            GIT_BRANCH=${{ github.ref_name }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
           # GitHub Actions Cache：package.json 不变则 npm install 层直接复用
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -66,6 +79,9 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.back_tags }}
           build-args: |
+            APP_VERSION=${{ steps.meta.outputs.app_version }}
+            GIT_SHA=${{ steps.meta.outputs.short_sha }}
             GIT_BRANCH=${{ github.ref_name }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

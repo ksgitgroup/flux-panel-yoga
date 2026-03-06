@@ -678,7 +678,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         List<UserPackageDto.UserForwardDetailDto> forwards = userMapper.getUserForwardDetails(user.getId().intValue());
 
         // 4. 查询最近24小时流量信息，没有的补0
-        List<StatisticsFlow> statisticsFlows = getLast24HoursFlowStatistics(user.getId());
+        List<StatisticsFlow> statisticsFlows = getLast24HoursFlowStatistics(user.getId(), Objects.equals(roleId, ADMIN_ROLE_ID));
         
         // 5. 构造返回结果
         UserPackageDto packageDto = new UserPackageDto();
@@ -728,36 +728,56 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @param userId 用户ID
      * @return 最近24小时流量统计列表
      */
-    private List<StatisticsFlow> getLast24HoursFlowStatistics(Long userId) {
+    private List<StatisticsFlow> getLast24HoursFlowStatistics(Long userId, boolean aggregateAllUsers) {
         long twentyFourHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
-        
-        // 1. 获取最近24小时内的所有记录
-        List<StatisticsFlow> recentFlows = statisticsFlowService.list(
-                new QueryWrapper<StatisticsFlow>()
-                        .eq("user_id", userId)
-                        .ge("created_time", twentyFourHoursAgo)
-                        .orderByAsc("created_time")
-        );
 
-        // 2. 按小时对数据进行整理并补齐
+        QueryWrapper<StatisticsFlow> queryWrapper = new QueryWrapper<StatisticsFlow>()
+                .ge("created_time", twentyFourHoursAgo)
+                .orderByAsc("created_time");
+
+        if (!aggregateAllUsers) {
+            queryWrapper.eq("user_id", userId);
+        }
+
+        List<StatisticsFlow> recentFlows = statisticsFlowService.list(queryWrapper);
+
         List<StatisticsFlow> result = new ArrayList<>();
         Map<String, StatisticsFlow> flowMap = recentFlows.stream()
-                .collect(Collectors.toMap(StatisticsFlow::getTime, f -> f, (f1, f2) -> f1.getCreatedTime() > f2.getCreatedTime() ? f1 : f2));
+                .collect(Collectors.toMap(
+                        StatisticsFlow::getTime,
+                        f -> f,
+                        (f1, f2) -> f1.getCreatedTime() > f2.getCreatedTime() ? f1 : f2
+                ));
+        Map<String, Long> aggregatedFlowMap = aggregateAllUsers
+                ? recentFlows.stream().collect(Collectors.groupingBy(
+                        StatisticsFlow::getTime,
+                        Collectors.summingLong(item -> item.getFlow() == null ? 0L : item.getFlow())
+                ))
+                : Map.of();
 
-        // 3. 从23小时前开始推算到当前小时
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         for (int i = 23; i >= 0; i--) {
             java.time.LocalDateTime targetTime = now.minusHours(i);
             String timeStr = String.format("%02d:00", targetTime.getHour());
-            
+
             StatisticsFlow flow = flowMap.get(timeStr);
+            if (aggregateAllUsers) {
+                StatisticsFlow aggregatedPoint = new StatisticsFlow();
+                aggregatedPoint.setUserId(0L);
+                aggregatedPoint.setFlow(aggregatedFlowMap.getOrDefault(timeStr, 0L));
+                aggregatedPoint.setTotalFlow(0L);
+                aggregatedPoint.setTime(timeStr);
+                aggregatedPoint.setCreatedTime(targetTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+                result.add(aggregatedPoint);
+                continue;
+            }
+
             if (flow == null) {
                 flow = new StatisticsFlow();
                 flow.setUserId(userId);
                 flow.setFlow(0L);
                 flow.setTotalFlow(0L);
                 flow.setTime(timeStr);
-                // 模拟一个近似的时间戳，用于前端排序（如果需要）
                 flow.setCreatedTime(targetTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
             }
             result.add(flow);

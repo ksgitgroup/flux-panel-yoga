@@ -2,6 +2,11 @@
 #
 # 版本日志 / Version Log:
 # -------------------------------------------------------------
+# v1.4.3 [2026-03-06]
+#   - 收敛 UI / CI / 镜像版本号显示，统一到 release version + git short SHA
+#   - dev / main 镜像标签改为可追溯的版本化 tag，并保留 latest 别名
+#   - ship_dev 流程改为真实本地构建成功后再推送
+#   - 转发管理筛选区、仪表盘流量趋势与版本展示进一步优化
 # v1.4.2 [2026-03-06]
 #   - 修复 diagnosis_record 表缺失导致的致命错误
 #   - 实现转发管理批量配置协议、批量打标签、批量删除功能
@@ -17,8 +22,8 @@
 
 variables:
   IMAGE_BASE: "flux-panel-local"             # 本地镜像命名空间（无需 Registry）
-  DEV_TAG: "dev-latest"                       # dev 统一使用滚动标签，避免 SHA 不一致
-  PROD_TAG: "latest"                          # prod 镜像 tag
+  DEV_TAG: "dev-latest"                      # 保持开发环境现有部署入口不变
+  PROD_TAG: "latest"                         # 保持生产环境现有部署入口不变
   DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"  # 服务器 B 部署目录
 
 stages:
@@ -40,12 +45,18 @@ build:dev:
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
-    - echo "ℹ️ dev 镜像构建已移交给 GitHub Actions（解决服务器 B 内存不足）"
-    - echo "🔄 正在同步 dev 代码到 GitHub 以触发构建..."
-    - git config --global user.email "ci@gitlab.kingsungsz.com"
-    - git config --global user.name "GitLab CI"
-    - git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/dev" --force
-    - echo "✅ dev 代码已推送到 GitHub，GitHub Actions 开始自动构建并在 Docker Hub 打上 dev-$CI_COMMIT_SHORT_SHA 标签"
+    - |
+      APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
+      TRACE_TAG="dev-${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
+      echo "🔖 发布版本: v${APP_VERSION}"
+      echo "🧬 追踪标识: ${TRACE_TAG}"
+      echo "🏷️ 部署入口标签: ${DEV_TAG}"
+      echo "ℹ️ dev 镜像构建已移交给 GitHub Actions（解决服务器 B 内存不足）"
+      echo "🔄 正在同步 dev 代码到 GitHub 以触发构建..."
+      git config --global user.email "ci@gitlab.kingsungsz.com"
+      git config --global user.name "GitLab CI"
+      git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/dev" --force
+      echo "✅ dev 代码已推送到 GitHub，GitHub Actions 将构建 ${DEV_TAG} 与 ${TRACE_TAG}"
 
     # ========= 【历史保留】原始 Server B 本地编译脚本 =========
     # - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$DEV_TAG ..."
@@ -68,11 +79,17 @@ build:prod:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
-    - echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."
-    - git config --global user.email "ci@gitlab.kingsungsz.com"
-    - git config --global user.name "GitLab CI"
-    - git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/main" --force
-    - echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建 amerluya/flux-panel-yoga-*:latest"
+    - |
+      APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
+      TRACE_TAG="${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
+      echo "🔖 发布版本: v${APP_VERSION}"
+      echo "🧬 追踪标识: ${TRACE_TAG}"
+      echo "🏷️ 部署入口标签: ${PROD_TAG}"
+      echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."
+      git config --global user.email "ci@gitlab.kingsungsz.com"
+      git config --global user.name "GitLab CI"
+      git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/main" --force
+      echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建 ${PROD_TAG}、v${APP_VERSION} 与 ${TRACE_TAG}"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -89,16 +106,18 @@ deploy:dev:
   environment:
     name: development
   script:
-    - mkdir -p "$DEPLOY_DIR"
-    - '[ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true'
-    - cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
-    - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
-    - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
-    - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
-    - echo "⏳ 等待 GitHub Actions 编译后端镜像 (amerluya/flux-panel-yoga-backend:$DEV_TAG) ..."
     - |
+      APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
+      TRACE_TAG="dev-${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
+      mkdir -p "$DEPLOY_DIR"
+      [ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true
+      cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
+      cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
+      cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
+      chmod +x "$DEPLOY_DIR/remote_deploy.sh"
+      echo "⏳ 等待 GitHub Actions 编译后端镜像 (部署入口: amerluya/flux-panel-yoga-backend:${DEV_TAG}, 追踪标签: ${TRACE_TAG}) ..."
       for i in {1..30}; do
-        if docker pull "amerluya/flux-panel-yoga-backend:$DEV_TAG" >/dev/null 2>&1; then
+        if docker pull "amerluya/flux-panel-yoga-backend:${DEV_TAG}" >/dev/null 2>&1; then
           echo "✅ 后端镜像拉取成功！"
           break
         fi
@@ -109,7 +128,7 @@ deploy:dev:
           exit 1
         fi
       done
-    - bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "$DEV_TAG" "$DEPLOY_DIR"
+      bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "${DEV_TAG}" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
 # prod 部署：Runner 在服务器 C（Rn2-US-Runner-Gereral），本地部署
@@ -129,18 +148,19 @@ deploy:prod:
   environment:
     name: production
   script:
-    - DEPLOY_DIR="/opt/1panel/apps/local/flux-panel"
-    - mkdir -p "$DEPLOY_DIR"
-    - '[ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true'
-    - cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
-    - cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
-    - cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
-    - chmod +x "$DEPLOY_DIR/remote_deploy.sh"
-    # 等待 GitHub Actions 编译 latest 镜像
-    - echo "⏳ 等待 GitHub Actions 编译 (amerluya/flux-panel-yoga-backend:$PROD_TAG) ..."
     - |
+      APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
+      TRACE_TAG="${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
+      DEPLOY_DIR="/opt/1panel/apps/local/flux-panel"
+      mkdir -p "$DEPLOY_DIR"
+      [ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true
+      cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
+      cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
+      cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
+      chmod +x "$DEPLOY_DIR/remote_deploy.sh"
+      echo "⏳ 等待 GitHub Actions 编译 (部署入口: amerluya/flux-panel-yoga-backend:${PROD_TAG}, 追踪标签: ${TRACE_TAG}) ..."
       for i in {1..30}; do
-        if docker pull "amerluya/flux-panel-yoga-backend:$PROD_TAG" >/dev/null 2>&1; then
+        if docker pull "amerluya/flux-panel-yoga-backend:${PROD_TAG}" >/dev/null 2>&1; then
           echo "✅ 镜像拉取成功！"
           break
         fi
@@ -151,7 +171,7 @@ deploy:prod:
           exit 1
         fi
       done
-    - bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "$PROD_TAG" "$DEPLOY_DIR"
+      bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "${PROD_TAG}" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
 # 同步到 GitHub（main 分支）

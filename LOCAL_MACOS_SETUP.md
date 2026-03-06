@@ -62,14 +62,16 @@ export PATH="$JAVA_HOME/bin:$(brew --prefix node@20)/bin:$PATH"
 
 这一步会：
 
-- 执行后端 `mvn compile -DskipTests`
-- 检查前端 `npm` 环境，并在缺少依赖时执行 `npm install`
+- 执行后端 `mvn clean package -DskipTests`
+- 执行前端 `npm run build`
+- 校验 `.gitlab-ci.yml` 与 `.github/workflows/*.yml` 的 YAML 语法
+- 检查版本号是否同步
 
 ### 4.2 Docker 本地联调
 
 ```bash
 ./scripts/build_docker.sh
-docker-compose -f docker-compose-v4.local.yml up -d
+./scripts/reload_local_stack.sh
 ```
 
 联调入口：
@@ -90,6 +92,12 @@ docker logs -f vite-frontend
 ```bash
 docker-compose -f docker-compose-v4.local.yml down
 ```
+
+说明：
+
+- `./scripts/build_docker.sh` 只负责生成最新 `local` 镜像
+- 如果本地容器已经在运行，必须执行 `./scripts/reload_local_stack.sh`
+- 否则 `http://localhost:8080` / `http://localhost:6365` 仍可能是旧容器
 
 ## 5. 前端本地开发模式
 

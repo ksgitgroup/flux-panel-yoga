@@ -1,3 +1,8 @@
-// Flux Panel 版本号
-// 每次开发完成后更新此版本号
-export const APP_VERSION = '1.4.1';
+export const APP_VERSION = __APP_VERSION__;
+export const GIT_SHA = __GIT_SHA__;
+export const GIT_BRANCH = __GIT_BRANCH__;
+export const BUILD_TIME = __BUILD_TIME__;
+
+export const RELEASE_VERSION = `v${APP_VERSION}`;
+export const BUILD_REVISION = `${GIT_BRANCH}.${GIT_SHA}`;
+export const FULL_VERSION = `${RELEASE_VERSION}+${GIT_SHA}`;

@@ -1,9 +1,10 @@
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
+import { Chip } from "@heroui/chip";
 import { Modal, ModalContent, ModalHeader, ModalBody } from "@heroui/modal";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import toast from 'react-hot-toast';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
 
 
 import { getUserPackageInfo, getDiagnosisLatestBatch, getDiagnosisSummary } from "@/api";
@@ -296,15 +297,42 @@ export default function DashboardPage() {
     return value.toString();
   };
 
-  // 处理24小时流量统计数据
-  const processFlowChartData = () => {
-    // 后端现在返回严格按时间正序排列的 24 条记录
-    return statisticsFlows.map(item => ({
-      time: item.time,
-      flow: item.flow || 0,
-      formattedFlow: formatFlow(item.flow || 0)
-    }));
-  };
+  const flowChartData = useMemo(
+    () =>
+      statisticsFlows.map((item) => ({
+        time: item.time,
+        flow: Number(item.flow || 0),
+        formattedFlow: formatFlow(Number(item.flow || 0)),
+      })),
+    [statisticsFlows]
+  );
+
+  const totalFlow24h = useMemo(
+    () => flowChartData.reduce((sum, item) => sum + item.flow, 0),
+    [flowChartData]
+  );
+
+  const activeFlowHours = useMemo(
+    () => flowChartData.filter((item) => item.flow > 0).length,
+    [flowChartData]
+  );
+
+  const averageFlow24h = useMemo(
+    () => (flowChartData.length > 0 ? totalFlow24h / flowChartData.length : 0),
+    [flowChartData, totalFlow24h]
+  );
+
+  const peakFlowPoint = useMemo(() => {
+    if (flowChartData.length === 0) return null;
+    return flowChartData.reduce((peak, item) => (item.flow > peak.flow ? item : peak), flowChartData[0]);
+  }, [flowChartData]);
+
+  const hasTrafficData = useMemo(
+    () => flowChartData.some((item) => item.flow > 0),
+    [flowChartData]
+  );
+
+  const trafficScopeLabel = isAdmin ? '全站' : '当前账号';
 
 
   const getExpStatus = (expTime?: string) => {
@@ -769,10 +797,10 @@ export default function DashboardPage() {
                   <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
                   <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
                 </svg>
-                <h2 className="text-lg lg:text-xl font-semibold text-foreground">24小时全站流量态势</h2>
+                <h2 className="text-lg lg:text-xl font-semibold text-foreground">24小时{trafficScopeLabel}流量态势</h2>
               </div>
             </CardHeader>
-            <CardBody className="pt-0 px-2 lg:px-4">
+            <CardBody className="pt-0 px-3 pb-5 lg:px-5">
               {statisticsFlows.length === 0 ? (
                 <div className="text-center py-12">
                   <svg className="w-12 h-12 text-default-400 mx-auto mb-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -783,41 +811,122 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="h-64 lg:h-80 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={processFlowChartData()}>
-                        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                        <XAxis dataKey="time" tick={{ fontSize: 12 }} tickLine={false} axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }} />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          tickLine={false}
-                          axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
-                          tickFormatter={(value) => {
-                            if (value === 0) return '0';
-                            if (value < 1024) return `${value}B`;
-                            if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}K`;
-                            if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)}M`;
-                            return `${(value / (1024 * 1024 * 1024)).toFixed(1)}G`;
-                          }}
-                        />
-                        <Tooltip
-                          content={({ active, payload, label }) => {
-                            if (active && payload && payload.length) {
-                              return (
-                                <div className="bg-white dark:bg-default-100 border border-default-200 rounded-lg shadow-lg p-3">
-                                  <p className="font-medium text-foreground">{`时间: ${label}`}</p>
-                                  <p className="text-primary font-bold">
-                                    {`流量: ${formatFlow(payload[0]?.value as number || 0)}`}
-                                  </p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Line type="monotone" dataKey="flow" stroke="#8b5cf6" strokeWidth={3} dot={false} activeDot={{ r: 4, stroke: '#8b5cf6', strokeWidth: 2, fill: '#fff' }} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">24H累计</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(totalFlow24h)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">峰值小时</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">
+                        {peakFlowPoint ? peakFlowPoint.time : '--'}
+                      </p>
+                      <p className="text-xs text-default-500">
+                        {peakFlowPoint ? peakFlowPoint.formattedFlow : '暂无'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">有效时段</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{activeFlowHours} / 24</p>
+                    </div>
+                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">小时均值</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(averageFlow24h)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-default-200 bg-[linear-gradient(180deg,rgba(20,184,166,0.08),rgba(255,255,255,0.9))] p-4 dark:bg-[linear-gradient(180deg,rgba(20,184,166,0.12),rgba(24,24,27,0.92))]">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{trafficScopeLabel}最近 24 小时流量增量</p>
+                        <p className="text-xs text-default-500">按整点汇总，用于观察波峰、空闲时段和异常突增。</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Chip size="sm" variant="flat" color="primary">
+                          范围: {trafficScopeLabel}
+                        </Chip>
+                        <Chip size="sm" variant="flat" color={hasTrafficData ? 'success' : 'default'}>
+                          {hasTrafficData ? '已检测到流量波动' : '当前周期暂无明显流量'}
+                        </Chip>
+                      </div>
+                    </div>
+
+                    <div className="h-72 lg:h-80 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={flowChartData} margin={{ top: 12, right: 12, left: -20, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="trafficAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#14b8a6" stopOpacity={0.32} />
+                              <stop offset="75%" stopColor="#14b8a6" stopOpacity={0.08} />
+                              <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-20" />
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: '#d4d4d8', strokeWidth: 1 }}
+                            minTickGap={20}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: '#d4d4d8', strokeWidth: 1 }}
+                            width={64}
+                            tickFormatter={(value) => {
+                              if (value === 0) return '0';
+                              if (value < 1024) return `${value}B`;
+                              if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}K`;
+                              if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)}M`;
+                              return `${(value / (1024 * 1024 * 1024)).toFixed(1)}G`;
+                            }}
+                          />
+                          <Tooltip
+                            content={({ active, payload, label }) => {
+                              if (active && payload && payload.length) {
+                                const currentFlow = Number(payload[0]?.value || 0);
+                                return (
+                                  <div className="rounded-2xl border border-default-200 bg-white/95 p-3 shadow-lg dark:bg-default-100/95">
+                                    <p className="text-sm font-semibold text-foreground">{label}</p>
+                                    <p className="mt-1 text-xs text-default-500">{trafficScopeLabel}在这个小时的流量增量</p>
+                                    <p className="mt-2 text-base font-bold text-teal-600 dark:text-teal-300">
+                                      {formatFlow(currentFlow)}
+                                    </p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="flow"
+                            stroke="none"
+                            fill="url(#trafficAreaGradient)"
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="flow"
+                            stroke="#0f766e"
+                            strokeWidth={3}
+                            dot={flowChartData.length <= 12 ? { r: 2, fill: '#0f766e' } : false}
+                            activeDot={{ r: 5, stroke: '#0f766e', strokeWidth: 2, fill: '#ffffff' }}
+                          />
+                          {hasTrafficData && peakFlowPoint && (
+                            <ReferenceDot
+                              x={peakFlowPoint.time}
+                              y={peakFlowPoint.flow}
+                              r={5}
+                              fill="#115e59"
+                              stroke="#ffffff"
+                              strokeWidth={2}
+                              label={{ value: '峰值', position: 'top', fill: '#115e59', fontSize: 12 }}
+                            />
+                          )}
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </div>
               )}

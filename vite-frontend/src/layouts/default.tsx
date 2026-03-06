@@ -1,5 +1,5 @@
 import { Navbar } from "@/components/navbar";
-import { APP_VERSION } from "@/version";
+import { BUILD_REVISION, RELEASE_VERSION } from "@/version";
 
 export default function DefaultLayout({
   children,
@@ -13,9 +13,8 @@ export default function DefaultLayout({
         {children}
       </main>
       <footer className="py-3 text-center">
-        <span className="text-xs text-default-400">v{APP_VERSION}</span>
+        <span className="text-xs text-default-400">{RELEASE_VERSION} · {BUILD_REVISION}</span>
       </footer>
     </div>
   );
 }
-

@@ -1,11 +1,13 @@
 # AI Development Guidelines for Flux Panel
 
 ## Critical Rules
-- **Backend Build Verification**: ALWAYS verify that the backend compiles after any modification. Use `mvn compile` or `./scripts/verify_build.sh`.
+- **Build Verification**: ALWAYS run `./scripts/verify_build.sh` after any modification. It now performs backend package build, frontend production build, and version consistency checks.
 - **Sync Workflow**: After ANY local modification and successful verification, you MUST summarize the core improvements and use `./scripts/ship_dev.sh "<commit message>"` on `dev` to verify, commit, and push in one flow. Use `./scripts/sync_dev.sh` only when the commit already exists locally.
 - **Docker Verification**: For major architectural changes, run `./scripts/build_docker.sh` to verify full image build integrity.
+- **Local Runtime Refresh**: After `./scripts/build_docker.sh`, if localhost needs to reflect the new code, ALWAYS run `./scripts/reload_local_stack.sh` before claiming the local UI/backend has updated.
+- **CI Safety**: Before pushing CI changes, ensure `./scripts/verify_build.sh` passes its YAML syntax validation. In `.gitlab-ci.yml`, do not introduce dependencies on `node`, `python`, `jq`, or other non-guaranteed runner tools unless runner capability is explicitly verified.
 - **Import Management**: Ensure all DTOs and entities are properly imported and field names are matched correctly (e.g., `remoteAddr`).
-- **Package Sync**: Keep `pom.xml`, `package.json`, and `site.ts` version numbers synced (current: v1.4.2).
+- **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.3). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
 
 ## Methodology
 1. **Plan**: Update `implementation_plan.md` for non-trivial changes.

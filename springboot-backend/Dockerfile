@@ -46,6 +46,11 @@ RUN mvn clean package -DskipTests
 # 层5：切换为轻量 JRE 运行环境（21-jre，只有运行时，不含编译工具）
 FROM eclipse-temurin:21-jre
 
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=local
+ARG GIT_BRANCH=dev
+ARG BUILD_TIME=unknown
+
 WORKDIR /app
 
 # 层6-8：设置 JVM 内存和编码等环境变量（固定，永远缓存）
@@ -57,8 +62,12 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 # 从 GitHub Actions 传入的分支名（dev 或 main），用于构建正确的安装脚本 URL
-ARG GIT_BRANCH=dev
 ENV GIT_BRANCH=${GIT_BRANCH}
+
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.ref.name="${GIT_BRANCH}" \
+      org.opencontainers.image.created="${BUILD_TIME}"
 
 # 层9：安装字体（某些 PDF/图表功能需要，较慢但缓存后不会重跑）
 # 换用中科大镜像加速 apt-get（避免国内访问 Ubuntu 源超时）

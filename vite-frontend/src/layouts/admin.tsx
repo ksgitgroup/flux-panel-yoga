@@ -305,7 +305,7 @@ export default function AdminLayout({
             <Logo size={24} />
             <div className="flex-1 min-w-0">
               <h1 className="text-sm font-bold text-foreground overflow-hidden whitespace-nowrap">{siteConfig.name}</h1>
-              <p className="text-xs text-default-500">v{siteConfig.version}</p>
+              <p className="text-xs text-default-500">{siteConfig.release_version} · {siteConfig.commit_sha}</p>
             </div>
           </div>
         </div>
@@ -339,16 +339,17 @@ export default function AdminLayout({
           </ul>
         </nav>
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50/50 dark:bg-black/20">
-          <div className="flex items-center justify-between">
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-default-400">系统版本</span>
-              <span className="text-sm font-semibold text-foreground">v{siteConfig.version}</span>
+              <span className="text-[10px] uppercase font-bold text-default-400">发布版本</span>
+              <span className="text-sm font-semibold text-foreground">{siteConfig.release_version}</span>
             </div>
             <div className="flex flex-col items-end">
-              <span className="text-[10px] uppercase font-bold text-default-400">APP版本</span>
-              <span className="text-xs text-default-500">{siteConfig.app_version}</span>
+              <span className="text-[10px] uppercase font-bold text-default-400">提交标识</span>
+              <span className="text-xs text-default-500">{siteConfig.build_revision}</span>
             </div>
           </div>
+          <p className="mt-3 text-[11px] text-default-400">GitLab CI 与镜像标签会对齐到同一提交短 SHA。</p>
         </div>
       </aside>
 

@@ -115,7 +115,6 @@ public class ForwardController extends BaseController {
         }
         ForwardDto dto = new ForwardDto();
         BeanUtils.copyProperties(forward, dto);
-        dto.setId(null);
         dto.setName(forward.getName() + " - 副本");
         return forwardService.createForward(dto);
     }

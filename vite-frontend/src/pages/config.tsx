@@ -56,7 +56,7 @@ const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: st
   },
   security: {
     title: '登录安全',
-    description: '登录验证码属于入口防线。这里保留原有能力，但收敛到单独安全区。',
+    description: '登录验证码和二步验证都属于入口防线。这里统一管理登录入口的强度要求。',
     chip: '入口防护',
   },
   diagnosis: {
@@ -117,6 +117,19 @@ const CONFIG_ITEMS: ConfigItem[] = [
       { label: '文字点选验证码', value: 'WORD_IMAGE_CLICK', description: '按顺序点击指定文字' },
       { label: '旋转验证码', value: 'ROTATE', description: '旋转图片到正确角度' },
       { label: '拼图验证码', value: 'CONCAT', description: '拖动滑块完成图片拼接' },
+    ],
+  },
+  {
+    key: 'two_factor_enforcement_scope',
+    label: '二步验证强制范围',
+    section: 'security',
+    description: '决定是否要求管理员或全部账号必须完成二步验证绑定。已启用 2FA 的账号在登录时必须输入 6 位动态码；未启用的账号会被锁定到个人中心完成绑定。',
+    type: 'select',
+    defaultValue: 'disabled',
+    options: [
+      { label: '不强制', value: 'disabled', description: '用户可以自行决定是否启用二步验证' },
+      { label: '仅管理员强制', value: 'admin', description: '管理员账号必须绑定 2FA，普通用户可自行选择' },
+      { label: '全站强制', value: 'all', description: '所有账号必须绑定 2FA 后才能进入业务页面' },
     ],
   },
   {

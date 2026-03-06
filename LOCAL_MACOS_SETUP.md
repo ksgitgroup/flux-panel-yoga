@@ -98,6 +98,12 @@ docker-compose -f docker-compose-v4.local.yml down
 - `./scripts/build_docker.sh` 只负责生成最新 `local` 镜像
 - 如果本地容器已经在运行，必须执行 `./scripts/reload_local_stack.sh`
 - 否则 `http://localhost:8080` / `http://localhost:6365` 仍可能是旧容器
+- 以上两个脚本现在会自动调用 `./scripts/cleanup_local_artifacts.sh`，回收构建产物、npm 缓存和无用 Docker 镜像
+- 这台 Mac 可用空间紧张时，优先执行：
+
+```bash
+./scripts/cleanup_local_artifacts.sh post-reload
+```
 
 ## 5. 前端本地开发模式
 

@@ -47,6 +47,7 @@ fi
 
 echo "📤 正在推送到 origin/dev ..."
 git push origin HEAD:dev
+bash ./scripts/cleanup_local_artifacts.sh post-ship || true
 
 echo "================================================================="
 echo "🎉 dev 同步完成。"

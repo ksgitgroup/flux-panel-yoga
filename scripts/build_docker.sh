@@ -88,6 +88,7 @@ if [ "$TAG" = "local" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "================================================================="
     echo "构建成功！"
     docker images | grep "$REGISTRY"
+    bash ./scripts/cleanup_local_artifacts.sh post-build || true
     echo "================================================================="
     echo "提示: 如需让 localhost 立即加载新代码，请继续执行："
     echo "./scripts/reload_local_stack.sh"
@@ -121,6 +122,7 @@ docker build \
 echo "================================================================="
 echo "构建成功！"
 docker images | grep "$REGISTRY"
+bash ./scripts/cleanup_local_artifacts.sh post-build || true
 echo "================================================================="
 echo "提示: 您可以使用以下命令启动容器 (需先配置 .env):"
 echo "docker-compose -f docker-compose-v4.yml up -d"

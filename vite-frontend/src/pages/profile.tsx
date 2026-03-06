@@ -3,8 +3,10 @@ import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { Input } from "@heroui/input";
+import { Chip } from "@heroui/chip";
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import QRCode from 'qrcode';
 
 import { siteConfig } from '@/config/site';
 import {
@@ -12,7 +14,9 @@ import {
   enableTwoFactor,
   getTwoFactorStatus,
   setupTwoFactor,
-  updatePassword
+  updatePassword,
+  type TwoFactorSetupResponse,
+  type TwoFactorStatusResponse,
 } from '@/api';
 import { safeLogout } from '@/utils/logout';
 
@@ -21,18 +25,6 @@ interface PasswordForm {
   currentPassword: string;
   newPassword: string;
   confirmPassword: string;
-}
-
-interface TwoFactorStatusState {
-  enabled: boolean;
-  boundAt?: number;
-  username: string;
-  issuer: string;
-}
-
-interface TwoFactorSetupState extends TwoFactorStatusState {
-  secret: string;
-  otpauthUri: string;
 }
 
 interface TwoFactorCodeForm {
@@ -48,6 +40,12 @@ interface MenuItem {
   description: string;
 }
 
+const getEnforcementLabel = (scope?: string) => {
+  if (scope === 'all') return '全站强制';
+  if (scope === 'admin') return '管理员强制';
+  return '可选启用';
+};
+
 export default function ProfilePage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
@@ -57,8 +55,10 @@ export default function ProfilePage() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [twoFactorSetupOpen, setTwoFactorSetupOpen] = useState(false);
   const [twoFactorDisableOpen, setTwoFactorDisableOpen] = useState(false);
-  const [twoFactorStatus, setTwoFactorStatus] = useState<TwoFactorStatusState | null>(null);
-  const [twoFactorSetupData, setTwoFactorSetupData] = useState<TwoFactorSetupState | null>(null);
+  const [twoFactorStatus, setTwoFactorStatus] = useState<TwoFactorStatusResponse | null>(null);
+  const [twoFactorSetupData, setTwoFactorSetupData] = useState<TwoFactorSetupResponse | null>(null);
+  const [twoFactorQrDataUrl, setTwoFactorQrDataUrl] = useState('');
+  const [mustSetupTwoFactor, setMustSetupTwoFactor] = useState(localStorage.getItem('force_two_factor_setup') === 'true');
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: '',
     currentPassword: '',
@@ -126,11 +126,49 @@ export default function ProfilePage() {
     void loadTwoFactorStatus();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const buildQr = async () => {
+      if (!twoFactorSetupData?.otpauthUri) {
+        setTwoFactorQrDataUrl('');
+        return;
+      }
+
+      try {
+        const dataUrl = await QRCode.toDataURL(twoFactorSetupData.otpauthUri, {
+          width: 220,
+          margin: 1,
+          errorCorrectionLevel: 'M',
+        });
+        if (!cancelled) {
+          setTwoFactorQrDataUrl(dataUrl);
+        }
+      } catch (error) {
+        console.error('生成 2FA 二维码失败:', error);
+        if (!cancelled) {
+          setTwoFactorQrDataUrl('');
+          toast.error('二维码生成失败，请改用密钥手动绑定');
+        }
+      }
+    };
+
+    void buildQr();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [twoFactorSetupData]);
+
   const loadTwoFactorStatus = async () => {
     try {
       const response = await getTwoFactorStatus();
       if (response.code === 0) {
         setTwoFactorStatus(response.data);
+        if (response.data.enabled || !response.data.required) {
+          localStorage.removeItem('force_two_factor_setup');
+          setMustSetupTwoFactor(false);
+        }
       } else {
         toast.error(response.msg || '读取二步验证状态失败');
       }
@@ -233,6 +271,7 @@ export default function ProfilePage() {
       const response = await setupTwoFactor();
       if (response.code === 0) {
         setTwoFactorSetupData(response.data);
+        setTwoFactorQrDataUrl('');
         resetEnableForm();
         setTwoFactorSetupOpen(true);
       } else {
@@ -264,8 +303,11 @@ export default function ProfilePage() {
       });
       if (response.code === 0) {
         toast.success(response.msg || '二步验证已启用');
+        localStorage.removeItem('force_two_factor_setup');
+        setMustSetupTwoFactor(false);
         setTwoFactorSetupOpen(false);
         setTwoFactorSetupData(null);
+        setTwoFactorQrDataUrl('');
         resetEnableForm();
         await loadTwoFactorStatus();
       } else {
@@ -311,6 +353,8 @@ export default function ProfilePage() {
     }
   };
 
+  const disableActionBlocked = Boolean(twoFactorStatus?.enabled && twoFactorStatus?.required);
+
   return (
     <div className="px-3 lg:px-6 py-8 flex flex-col h-full">
       <div className="space-y-6 flex-1">
@@ -322,8 +366,8 @@ export default function ProfilePage() {
                   <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                 </svg>
               </div>
-              <div className="flex-1">
-                <h3 className="text-base font-medium text-foreground">{username}</h3>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-medium text-foreground truncate">{username}</h3>
                 <div className="flex items-center flex-wrap gap-2 mt-1">
                   <span className={`px-2 py-1 rounded-md text-xs font-medium ${
                     isAdmin
@@ -332,13 +376,12 @@ export default function ProfilePage() {
                   }`}>
                     {isAdmin ? '管理员' : '普通用户'}
                   </span>
-                  <span className={`px-2 py-1 rounded-md text-xs font-medium ${
-                    twoFactorStatus?.enabled
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                      : 'bg-default-100 text-default-600 dark:bg-default-200 dark:text-default-500'
-                  }`}>
+                  <Chip size="sm" variant="flat" color={twoFactorStatus?.enabled ? 'success' : 'default'}>
                     {twoFactorStatus?.enabled ? '2FA 已启用' : '2FA 未启用'}
-                  </span>
+                  </Chip>
+                  <Chip size="sm" variant="flat" color={twoFactorStatus?.required ? 'warning' : 'default'}>
+                    {getEnforcementLabel(twoFactorStatus?.enforcementScope)}
+                  </Chip>
                   <span className="text-xs text-default-500">
                     {new Date().toLocaleDateString('zh-CN')}
                   </span>
@@ -348,9 +391,27 @@ export default function ProfilePage() {
           </CardBody>
         </Card>
 
+        {mustSetupTwoFactor && twoFactorStatus?.required && !twoFactorStatus.enabled && (
+          <Card className="border border-warning-300 bg-warning-50/70 shadow-sm">
+            <CardBody className="p-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-warning-800">当前登录已被锁定到二步验证设置</div>
+                <div className="mt-1 text-sm text-warning-700">
+                  {twoFactorStatus.enforcementScope === 'all'
+                    ? '当前站点启用了全站强制二步验证。完成绑定前，无法进入仪表盘和业务页面。'
+                    : '当前站点对管理员启用了强制二步验证。完成绑定前，无法进入其他页面。'}
+                </div>
+              </div>
+              <Button color="warning" onPress={() => void handleStartTwoFactorSetup()} isLoading={twoFactorLoading}>
+                立即绑定 2FA
+              </Button>
+            </CardBody>
+          </Card>
+        )}
+
         <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
           <CardBody className="p-5 space-y-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-base font-semibold text-foreground">登录二步验证</h3>
                 <p className="text-sm text-default-500 mt-1">
@@ -360,6 +421,7 @@ export default function ProfilePage() {
               <Button
                 color={twoFactorStatus?.enabled ? 'danger' : 'primary'}
                 variant={twoFactorStatus?.enabled ? 'flat' : 'solid'}
+                isDisabled={disableActionBlocked}
                 onPress={() => {
                   if (twoFactorStatus?.enabled) {
                     resetDisableForm();
@@ -370,7 +432,11 @@ export default function ProfilePage() {
                 }}
                 isLoading={twoFactorLoading}
               >
-                {twoFactorStatus?.enabled ? '关闭验证' : '开始设置'}
+                {twoFactorStatus?.enabled
+                  ? disableActionBlocked
+                    ? '策略强制启用'
+                    : '关闭验证'
+                  : '开始设置'}
               </Button>
             </div>
 
@@ -383,7 +449,9 @@ export default function ProfilePage() {
                   <div className="mt-1 text-xs text-default-500">
                     {twoFactorStatus?.enabled
                       ? `绑定时间：${twoFactorStatus?.boundAt ? new Date(twoFactorStatus.boundAt).toLocaleString('zh-CN') : '已绑定'}`
-                      : '建议为管理员账号启用二步验证，降低凭据泄露风险。'}
+                      : twoFactorStatus?.required
+                        ? '当前安全策略要求该账号完成二步验证绑定。'
+                        : '建议为管理员账号启用二步验证，降低凭据泄露风险。'}
                   </div>
                 </div>
                 <div className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -395,6 +463,12 @@ export default function ProfilePage() {
                 </div>
               </div>
             </div>
+
+            {disableActionBlocked && (
+              <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700">
+                当前策略要求该账号始终启用二步验证。如需关闭，请先前往“网站配置”调整强制范围。
+              </div>
+            )}
           </CardBody>
         </Card>
 
@@ -539,42 +613,56 @@ export default function ProfilePage() {
               <ModalBody>
                 <div className="space-y-4">
                   <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700">
-                    <div>1. 在认证器应用中新建 TOTP 账户</div>
+                    <div>1. 扫描下方二维码，或在认证器应用中手动录入密钥</div>
                     <div>2. 账户名建议使用：{twoFactorSetupData?.username || username}</div>
-                    <div>3. 手动输入下方密钥，或复制绑定地址到支持的应用中</div>
+                    <div>3. 输入当前密码和认证器生成的 6 位验证码完成绑定</div>
                   </div>
 
-                  <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
-                    <div className="text-xs text-default-500">Issuer</div>
-                    <div className="mt-1 text-sm font-medium text-foreground">{twoFactorSetupData?.issuer}</div>
-                  </div>
-
-                  <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-xs text-default-500">密钥</div>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        onPress={() => twoFactorSetupData?.secret && copyToClipboard(twoFactorSetupData.secret, '密钥')}
-                      >
-                        复制密钥
-                      </Button>
+                  <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
+                    <div className="rounded-2xl border border-default-200 bg-white p-3 shadow-sm">
+                      {twoFactorQrDataUrl ? (
+                        <img src={twoFactorQrDataUrl} alt="2FA QR Code" className="mx-auto h-[220px] w-[220px] rounded-lg" />
+                      ) : (
+                        <div className="flex h-[220px] w-[220px] items-center justify-center rounded-lg bg-default-100 text-sm text-default-500">
+                          正在生成二维码...
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-2 break-all font-mono text-sm text-foreground">{twoFactorSetupData?.secret}</div>
-                  </div>
 
-                  <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-xs text-default-500">绑定地址</div>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        onPress={() => twoFactorSetupData?.otpauthUri && copyToClipboard(twoFactorSetupData.otpauthUri, '绑定地址')}
-                      >
-                        复制地址
-                      </Button>
+                    <div className="space-y-4 min-w-0">
+                      <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
+                        <div className="text-xs text-default-500">Issuer</div>
+                        <div className="mt-1 text-sm font-medium text-foreground">{twoFactorSetupData?.issuer}</div>
+                      </div>
+
+                      <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs text-default-500">密钥</div>
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            onPress={() => twoFactorSetupData?.secret && copyToClipboard(twoFactorSetupData.secret, '密钥')}
+                          >
+                            复制密钥
+                          </Button>
+                        </div>
+                        <div className="mt-2 break-all font-mono text-sm text-foreground">{twoFactorSetupData?.secret}</div>
+                      </div>
+
+                      <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs text-default-500">绑定地址</div>
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            onPress={() => twoFactorSetupData?.otpauthUri && copyToClipboard(twoFactorSetupData.otpauthUri, '绑定地址')}
+                          >
+                            复制地址
+                          </Button>
+                        </div>
+                        <div className="mt-2 break-all text-sm text-foreground">{twoFactorSetupData?.otpauthUri}</div>
+                      </div>
                     </div>
-                    <div className="mt-2 break-all text-sm text-foreground">{twoFactorSetupData?.otpauthUri}</div>
                   </div>
 
                   <Input

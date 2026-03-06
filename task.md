@@ -48,3 +48,12 @@
 - 已在前端登录页增加 6 位二步验证码输入，在个人中心增加二步验证启用/关闭流程。
 - 已修复首次默认凭据修改流程：前端现在会明确提示并阻止继续使用默认用户名 `admin_user` 和默认密码。
 - 已执行 `./scripts/verify_build.sh`、`./scripts/build_docker.sh` 和 `./scripts/reload_local_stack.sh`。
+
+## 2026-03-07 Security and Runtime Result
+
+- 已新增 `two_factor_enforcement_scope` 配置项，支持 `disabled / admin / all` 三种二步验证强制策略。
+- 已让登录流程支持“强制绑定 2FA”的受控放行：密码验证通过后，未绑定用户会被锁定到个人中心完成 2FA 设置。
+- 已在个人中心补充 2FA 二维码展示，同时保留密钥和 `otpauth://` 绑定地址复制。
+- 已修复“转发管理 -> 诊断”历史记录对旧格式 `results_json` 的渲染兼容问题，避免点击后页面闪退。
+- 已新增 `scripts/cleanup_local_artifacts.sh`，并接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`。
+- 已实际执行一次清理，将本机可用空间从约 `1.7G` 提升到约 `5.0G`，随后完成重建和重载。

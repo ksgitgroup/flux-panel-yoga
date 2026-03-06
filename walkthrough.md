@@ -49,3 +49,16 @@
 10. 重写强制改密页和个人中心：前者明确提示初始化必须同时替换默认用户名/密码，后者增加 2FA 启用/关闭入口。
 11. 执行 `./scripts/verify_build.sh`，确认后端打包、前端 `tsc + vite build`、CI YAML 解析全部通过。
 12. 执行 `./scripts/build_docker.sh` 和 `./scripts/reload_local_stack.sh`，确认数据库自动迁移日志出现且本地前端 bundle 已包含 2FA 与强制改密代码。
+
+## 2026-03-07 Security and Runtime Walkthrough
+
+1. 审查上轮 2FA 实现，确认当前能力只支持用户自愿启用，尚未具备“管理员强制 / 全站强制”的策略层。
+2. 为 `vite_config` 增加 `two_factor_enforcement_scope` 默认配置，后端登录逻辑按 `disabled / admin / all` 决定当前账号是否必须启用 2FA。
+3. 调整登录返回结构：对于受策略约束但尚未绑定 2FA 的账号，返回 `requireTwoFactorSetup`，前端将该用户锁定到 `/profile` 完成绑定。
+4. 在个人中心引入二维码展示，并通过 `qrcode` 包把 `otpauth://` 地址渲染成可扫码的本地 Data URL，降低绑定门槛。
+5. 复盘“转发管理 -> 诊断”闪退，确认根因是历史诊断记录里的 `results_json` 存的是完整报告对象，而前端直接把 `JSON.parse(resultsJson)` 当数组渲染。
+6. 在前端补一个兼容解析器，同时兼容旧结构 `{ results: [...] }` 和直接数组结构，避免 `parsedResults.map is not a function` 一类崩溃。
+7. 盘点本机磁盘占用，确认 `/System/Volumes/Data` 一度仅余约 `1.7G`，Docker 可回收镜像约 `1.3G`，项目本地 `.cache/npm` 约 `651M`。
+8. 新增 `scripts/cleanup_local_artifacts.sh`，清理 `target`、`dist`、项目级 npm 缓存，以及不再被容器使用的 Docker 镜像。
+9. 先执行一次 `post-reload` 清理，把可用空间提升到约 `5.0G`，再继续完成 `./scripts/build_docker.sh` 和 `./scripts/reload_local_stack.sh`。
+10. 通过 localhost bundle 检查，确认强制 2FA、二维码逻辑和诊断历史兼容文案都已经进入实际运行版本。

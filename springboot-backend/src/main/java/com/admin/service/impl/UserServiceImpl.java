@@ -85,6 +85,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private static final String ERROR_TWO_FACTOR_NOT_ENABLED = "当前账号尚未启用二步验证";
     private static final String ERROR_TWO_FACTOR_SETUP_REQUIRED = "请先生成二步验证密钥，再完成绑定";
     private static final String ERROR_TWO_FACTOR_ALREADY_ENABLED = "当前账号已启用二步验证，如需重新绑定请先关闭";
+    private static final String ERROR_TWO_FACTOR_POLICY_REQUIRES_ENABLED = "当前安全策略要求该账号必须启用二步验证，如需关闭请先调整网站配置";
 
     /** 默认账号密码 */
     private static final String DEFAULT_USERNAME = "admin_user";
@@ -95,6 +96,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private static final String LOGIN_NAME_FIELD = "name";
     private static final String LOGIN_ROLE_ID_FIELD = "role_id";
     private static final String LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD = "requirePasswordChange";
+    private static final String LOGIN_REQUIRE_TWO_FACTOR_SETUP_FIELD = "requireTwoFactorSetup";
+    private static final String LOGIN_TWO_FACTOR_REQUIRED_FIELD = "twoFactorRequired";
+
+    /** 2FA 策略配置 */
+    private static final String CONFIG_TWO_FACTOR_ENFORCEMENT_SCOPE = "two_factor_enforcement_scope";
+    private static final String TWO_FACTOR_SCOPE_DISABLED = "disabled";
+    private static final String TWO_FACTOR_SCOPE_ADMIN = "admin";
+    private static final String TWO_FACTOR_SCOPE_ALL = "all";
 
     // ========== 依赖注入 ==========
     
@@ -156,9 +165,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return R.err(validationResult.getErrorMessage());
         }
 
-        // 3. 如已启用 2FA，则校验一次性验证码
+        // 3. 校验 2FA 策略
         User user = validationResult.getUser();
-        if (isTwoFactorEnabled(user)) {
+        boolean twoFactorEnabled = isTwoFactorEnabled(user);
+        boolean twoFactorRequired = isTwoFactorRequired(user);
+        if (twoFactorEnabled) {
             String code = loginDto.getTwoFactorCode();
             if (StringUtils.isBlank(code)) {
                 return R.err(ERROR_TWO_FACTOR_CODE_REQUIRED);
@@ -173,13 +184,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         
         // 5. 检查是否仍在使用默认凭据
         boolean requirePasswordChange = requiresCredentialReset(user);
+        boolean requireTwoFactorSetup = twoFactorRequired && !twoFactorEnabled;
         
         return R.ok(MapUtil.builder()
                 .put(LOGIN_TOKEN_FIELD, token)
                 .put(LOGIN_NAME_FIELD, user.getUser())
                 .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
                 .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
-                .put("twoFactorEnabled", isTwoFactorEnabled(user))
+                .put(LOGIN_REQUIRE_TWO_FACTOR_SETUP_FIELD, requireTwoFactorSetup)
+                .put(LOGIN_TWO_FACTOR_REQUIRED_FIELD, twoFactorRequired)
+                .put("twoFactorEnabled", twoFactorEnabled)
                 .build());
     }
 
@@ -388,6 +402,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         User user = currentUser.getUser();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", isTwoFactorEnabled(user));
+        result.put("required", isTwoFactorRequired(user));
+        result.put("enforcementScope", getTwoFactorEnforcementScope());
         result.put("boundAt", user.getTwoFactorBoundAt());
         result.put("username", user.getUser());
         result.put("issuer", buildTwoFactorIssuer());
@@ -464,6 +480,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (!isTwoFactorEnabled(user)) {
             return R.err(ERROR_TWO_FACTOR_NOT_ENABLED);
         }
+        if (isTwoFactorRequired(user)) {
+            return R.err(ERROR_TWO_FACTOR_POLICY_REQUIRES_ENABLED);
+        }
         if (!Objects.equals(user.getPwd(), Md5Util.md5(twoFactorDisableDto.getCurrentPassword()))) {
             return R.err(ERROR_CURRENT_PASSWORD_WRONG);
         }
@@ -525,17 +544,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return LoginValidationResult.success(user);
     }
 
-    /**
-     * 检查是否使用默认账号密码
-     * 
-     * @param username 用户名
-     * @param password 密码
-     * @return 是否是默认凭据
-     */
-    private boolean isDefaultCredentials(String username, String password) {
-        return DEFAULT_USERNAME.equals(username) || DEFAULT_PASSWORD.equals(password);
-    }
-
     private boolean requiresCredentialReset(User user) {
         return user != null
                 && (DEFAULT_USERNAME.equals(user.getUser()) || Md5Util.md5(DEFAULT_PASSWORD).equals(user.getPwd()));
@@ -545,6 +553,25 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return user != null
                 && Objects.equals(user.getTwoFactorEnabled(), 1)
                 && StringUtils.isNotBlank(user.getTwoFactorSecret());
+    }
+
+    private boolean isTwoFactorRequired(User user) {
+        String scope = getTwoFactorEnforcementScope();
+        if (TWO_FACTOR_SCOPE_ALL.equals(scope)) {
+            return true;
+        }
+        if (TWO_FACTOR_SCOPE_ADMIN.equals(scope)) {
+            return user != null && Objects.equals(user.getRoleId(), ADMIN_ROLE_ID);
+        }
+        return false;
+    }
+
+    private String getTwoFactorEnforcementScope() {
+        String scope = getConfigValue(CONFIG_TWO_FACTOR_ENFORCEMENT_SCOPE, TWO_FACTOR_SCOPE_DISABLED).toLowerCase();
+        if (TWO_FACTOR_SCOPE_ADMIN.equals(scope) || TWO_FACTOR_SCOPE_ALL.equals(scope)) {
+            return scope;
+        }
+        return TWO_FACTOR_SCOPE_DISABLED;
     }
 
     private String buildTwoFactorIssuer() {

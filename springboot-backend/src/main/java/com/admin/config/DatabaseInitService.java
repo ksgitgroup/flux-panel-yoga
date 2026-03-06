@@ -115,6 +115,7 @@ public class DatabaseInitService {
             ensureConfig("auto_diagnosis_enabled", "true", "是否开启后台自动诊断任务");
             ensureConfig("auto_diagnosis_interval", "30", "自动诊断间隔时间(分钟)");
             ensureConfig("site_environment_name", "默认环境", "当前部署环境名称，例如 LOCAL / DEV / PROD");
+            ensureConfig("two_factor_enforcement_scope", "disabled", "二步验证强制范围：disabled/admin/all");
             ensureConfig("wechat_webhook_enabled", "false", "是否启用企业微信机器人告警");
             ensureConfig("wechat_webhook_url", "", "企业微信机器人 Webhook 地址");
             ensureConfig("wechat_webhook_cooldown_minutes", "30", "两次异常通知之间的最短间隔(分钟)");

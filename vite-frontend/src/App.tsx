@@ -68,6 +68,8 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
   const navigate = useNavigate();
   const location = useLocation();
   const mustChangePassword = localStorage.getItem('force_password_change') === 'true';
+  const mustSetupTwoFactor = localStorage.getItem('force_two_factor_setup') === 'true';
+  const forcedPath = mustChangePassword ? '/change-password' : mustSetupTwoFactor ? '/profile' : null;
 
   useEffect(() => {
     if (!authenticated) {
@@ -75,12 +77,12 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
       navigate('/', { replace: true });
       return;
     }
-    if (mustChangePassword && location.pathname !== '/change-password') {
-      navigate('/change-password', { replace: true });
+    if (forcedPath && location.pathname !== forcedPath) {
+      navigate(forcedPath, { replace: true });
     }
-  }, [authenticated, location.pathname, mustChangePassword, navigate]);
+  }, [authenticated, forcedPath, location.pathname, navigate]);
 
-  if (!authenticated || (mustChangePassword && location.pathname !== '/change-password')) {
+  if (!authenticated || (forcedPath && location.pathname !== forcedPath)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white dark:bg-black">
         <div className="text-lg text-gray-700 dark:text-gray-200"></div>
@@ -112,13 +114,15 @@ const LoginRoute = () => {
   const authenticated = isLoggedIn();
   const navigate = useNavigate();
   const mustChangePassword = localStorage.getItem('force_password_change') === 'true';
+  const mustSetupTwoFactor = localStorage.getItem('force_two_factor_setup') === 'true';
+  const redirectPath = mustChangePassword ? '/change-password' : mustSetupTwoFactor ? '/profile' : '/dashboard';
 
   useEffect(() => {
     if (authenticated) {
       // 使用 React Router 导航，避免无限跳转
-      navigate(mustChangePassword ? '/change-password' : '/dashboard', { replace: true });
+      navigate(redirectPath, { replace: true });
     }
-  }, [authenticated, mustChangePassword, navigate]);
+  }, [authenticated, navigate, redirectPath]);
 
   if (authenticated) {
     return (

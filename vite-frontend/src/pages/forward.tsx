@@ -191,6 +191,23 @@ const getTagDotClass = (color?: string) => {
   }
 };
 
+const parseDiagnosisResultsJson = (resultsJson?: string): Array<any> => {
+  if (!resultsJson) return [];
+  try {
+    const parsed = JSON.parse(resultsJson);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    if (Array.isArray(parsed?.results)) {
+      return parsed.results;
+    }
+    return [];
+  } catch (error) {
+    console.warn('解析诊断结果失败:', error);
+    return [];
+  }
+};
+
 export default function ForwardPage() {
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
@@ -2933,7 +2950,7 @@ export default function ForwardPage() {
                       </Card>
                     )}
 
-                    {diagnosisResult.results.map((result, index) => {
+                    {(Array.isArray(diagnosisResult.results) ? diagnosisResult.results : []).map((result, index) => {
                       const quality = getQualityDisplay(result.averageTime, result.packetLoss);
 
                       return (
@@ -3013,10 +3030,7 @@ export default function ForwardPage() {
                         <h3 className="text-lg font-bold mb-4">最近10次诊断历史</h3>
                         <Accordion variant="splitted">
                           {diagnosisHistory.map((item) => {
-                            let parsedResults = [];
-                            try {
-                              parsedResults = JSON.parse(item.resultsJson);
-                            } catch (e) { }
+                            const parsedResults = parseDiagnosisResultsJson(item.resultsJson);
 
                             return (
                               <AccordionItem
@@ -3039,27 +3053,33 @@ export default function ForwardPage() {
                                 }
                               >
                                 <div className="space-y-3">
-                                  {parsedResults.map((r: any, idx: number) => (
-                                    <div key={idx} className="bg-default-50 p-3 rounded-lg text-sm">
-                                      <div className="font-semibold">{r.description} ({r.nodeName})</div>
-                                      <div className="text-default-500 mt-1 flex items-center justify-between">
-                                        <span>目标: {r.targetIp}{r.targetPort ? ':' + r.targetPort : ''}</span>
-                                        <span className={r.success ? "text-success" : "text-danger"}>
-                                          {r.success ? "连接成功" : "连接失败"}
-                                        </span>
+                                  {parsedResults.length > 0 ? (
+                                    parsedResults.map((r: any, idx: number) => (
+                                      <div key={idx} className="bg-default-50 p-3 rounded-lg text-sm">
+                                        <div className="font-semibold">{r.description} ({r.nodeName})</div>
+                                        <div className="text-default-500 mt-1 flex items-center justify-between">
+                                          <span>目标: {r.targetIp}{r.targetPort ? ':' + r.targetPort : ''}</span>
+                                          <span className={r.success ? "text-success" : "text-danger"}>
+                                            {r.success ? "连接成功" : "连接失败"}
+                                          </span>
+                                        </div>
+                                        {r.success ? (
+                                          <div className="text-default-400 mt-1 flex gap-4">
+                                            <span>延迟: {r.averageTime?.toFixed(0)} ms</span>
+                                            <span>丢包: {r.packetLoss?.toFixed(1)}%</span>
+                                          </div>
+                                        ) : (
+                                          <div className="text-danger mt-1">
+                                            {r.message}
+                                          </div>
+                                        )}
                                       </div>
-                                      {r.success ? (
-                                        <div className="text-default-400 mt-1 flex gap-4">
-                                          <span>延迟: {r.averageTime?.toFixed(0)} ms</span>
-                                          <span>丢包: {r.packetLoss?.toFixed(1)}%</span>
-                                        </div>
-                                      ) : (
-                                        <div className="text-danger mt-1">
-                                          {r.message}
-                                        </div>
-                                      )}
+                                    ))
+                                  ) : (
+                                    <div className="rounded-lg border border-dashed border-divider bg-default-50 px-3 py-4 text-sm text-default-500">
+                                      该次历史记录没有可展开的链路明细，通常是旧版本数据或诊断返回结构不同。
                                     </div>
-                                  ))}
+                                  )}
                                 </div>
                               </AccordionItem>
                             );

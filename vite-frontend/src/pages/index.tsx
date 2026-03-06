@@ -184,6 +184,7 @@ export default function IndexPage() {
         localStorage.setItem("name", response.data.name);
         localStorage.setItem("admin", (response.data.role_id === 0).toString());
         localStorage.setItem('force_password_change', 'true');
+        localStorage.removeItem('force_two_factor_setup');
         toast.success('检测到默认密码，即将跳转到修改密码页面');
         navigate("/change-password");
         return;
@@ -195,6 +196,15 @@ export default function IndexPage() {
       localStorage.setItem("name", response.data.name);
       localStorage.setItem("admin", (response.data.role_id === 0).toString());
       localStorage.removeItem('force_password_change');
+
+      if (response.data.requireTwoFactorSetup) {
+        localStorage.setItem('force_two_factor_setup', 'true');
+        toast.success(response.data.twoFactorRequired ? '当前安全策略要求先完成二步验证绑定' : '请完成二步验证绑定');
+        navigate("/profile");
+        return;
+      }
+
+      localStorage.removeItem('force_two_factor_setup');
 
       // 登录成功
       toast.success('登录成功');

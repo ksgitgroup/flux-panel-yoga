@@ -1,6 +1,7 @@
 package com.admin.service.impl;
 
 import com.admin.common.lang.R;
+import com.admin.common.utils.DiagnosisAlertTemplateUtil;
 import com.admin.common.utils.WeChatWorkUtil;
 import com.admin.entity.DiagnosisRecord;
 import com.admin.entity.Forward;
@@ -74,7 +75,12 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
         // 读取企业微信配置
         String webhookUrl = getConfig("wechat_webhook_url");
-        boolean wechatEnabled = "true".equals(getConfig("wechat_webhook_enabled"));
+        boolean wechatEnabled = getBooleanConfig("wechat_webhook_enabled", false);
+        String appName = getConfigOrDefault("app_name", "flux-panel");
+        String environment = getConfigOrDefault("site_environment_name", "默认环境");
+        int cooldownMinutes = getIntConfig("wechat_webhook_cooldown_minutes", 30);
+        int maxFailures = Math.max(1, getIntConfig("wechat_webhook_max_failures", 8));
+        boolean recoveryEnabled = getBooleanConfig("wechat_notify_recovery_enabled", true);
 
         List<String> failureMessages = new ArrayList<>();
 
@@ -118,8 +124,18 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             }
         }
 
-        if (wechatEnabled && !failureMessages.isEmpty()) {
-            sendWeChatAlert(webhookUrl, failureMessages, tunnels.size(), forwards.size());
+        if (wechatEnabled) {
+            processWebhookNotifications(
+                    webhookUrl,
+                    appName,
+                    environment,
+                    cooldownMinutes,
+                    maxFailures,
+                    recoveryEnabled,
+                    failureMessages,
+                    tunnels.size(),
+                    forwards.size()
+            );
         }
 
         log.info("[自动诊断] 全量诊断完成，处理资源合计: {} 个隧道，{} 个转发，异常数: {}",
@@ -458,18 +474,174 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         }
     }
 
-    /** 构造并发送企业微信告警 */
-    private void sendWeChatAlert(String webhookUrl, List<String> failures, int tunnelTotal, int forwardTotal) {
-        String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        StringBuilder sb = new StringBuilder();
-        sb.append("# 🚨 flux-panel 自动诊断告警\n\n");
-        sb.append(String.format("> 诊断时间：%s\n", time));
-        sb.append(String.format("> 共诊断 %d 个隧道，%d 个转发，发现 **%d 个异常**\n\n", 
-                tunnelTotal, forwardTotal, failures.size()));
-        sb.append("---\n\n");
-        for (String msg : failures) {
-            sb.append(msg).append("\n\n");
+    private String getConfigOrDefault(String key, String defaultValue) {
+        String value = getConfig(key);
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
         }
-        WeChatWorkUtil.sendMarkdown(webhookUrl, sb.toString());
+        return value;
+    }
+
+    private boolean getBooleanConfig(String key, boolean defaultValue) {
+        String value = getConfig(key);
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
+        }
+        return "true".equalsIgnoreCase(value.trim());
+    }
+
+    private int getIntConfig(String key, int defaultValue) {
+        String value = getConfig(key);
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private void upsertConfig(String key, String value) {
+        try {
+            QueryWrapper<ViteConfig> qw = new QueryWrapper<ViteConfig>().eq("name", key);
+            ViteConfig cfg = viteConfigMapper.selectOne(qw);
+            if (cfg == null) {
+                cfg = new ViteConfig();
+                cfg.setName(key);
+            }
+            cfg.setValue(value);
+            cfg.setTime(System.currentTimeMillis());
+            if (cfg.getId() == null) {
+                viteConfigMapper.insert(cfg);
+            } else {
+                viteConfigMapper.updateById(cfg);
+            }
+        } catch (Exception e) {
+            log.warn("[自动诊断] 写入配置 {} 失败: {}", key, e.getMessage());
+        }
+    }
+
+    private void processWebhookNotifications(
+            String webhookUrl,
+            String appName,
+            String environment,
+            int cooldownMinutes,
+            int maxFailures,
+            boolean recoveryEnabled,
+            List<String> failures,
+            int tunnelTotal,
+            int forwardTotal
+    ) {
+        String lastStatus = getConfigOrDefault("wechat_webhook_last_status", "healthy");
+        long lastSentAt = 0L;
+        try {
+            lastSentAt = Long.parseLong(getConfigOrDefault("wechat_webhook_last_sent_at", "0"));
+        } catch (NumberFormatException ignored) {
+        }
+
+        boolean hasFailures = failures != null && !failures.isEmpty();
+        long now = System.currentTimeMillis();
+
+        if (hasFailures) {
+            boolean shouldSend = !"failing".equalsIgnoreCase(lastStatus)
+                    || now - lastSentAt >= (long) Math.max(cooldownMinutes, 1) * 60 * 1000;
+            if (!shouldSend) {
+                log.info("[自动诊断] 企业微信通知进入冷静期，当前跳过发送");
+                upsertConfig("wechat_webhook_last_status", "failing");
+                return;
+            }
+
+            String content = buildAlertMessage(
+                    appName,
+                    environment,
+                    Math.max(cooldownMinutes, 1),
+                    failures,
+                    Math.max(maxFailures, 1),
+                    tunnelTotal,
+                    forwardTotal
+            );
+            if (WeChatWorkUtil.sendMarkdown(webhookUrl, content)) {
+                upsertConfig("wechat_webhook_last_sent_at", String.valueOf(now));
+                upsertConfig("wechat_webhook_last_status", "failing");
+            }
+            return;
+        }
+
+        if (recoveryEnabled && "failing".equalsIgnoreCase(lastStatus)) {
+            String content = buildRecoveryMessage(appName, environment, tunnelTotal, forwardTotal);
+            if (WeChatWorkUtil.sendMarkdown(webhookUrl, content)) {
+                upsertConfig("wechat_webhook_last_sent_at", String.valueOf(now));
+                upsertConfig("wechat_webhook_last_status", "healthy");
+            }
+            return;
+        }
+
+        upsertConfig("wechat_webhook_last_status", "healthy");
+    }
+
+    private String buildAlertMessage(
+            String appName,
+            String environment,
+            int cooldownMinutes,
+            List<String> failures,
+            int maxFailures,
+            int tunnelTotal,
+            int forwardTotal
+    ) {
+        String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String resourceSummary = String.format("%d 个隧道 / %d 个转发", tunnelTotal, forwardTotal);
+        String failureDetails = formatFailureDetails(failures, maxFailures);
+        Map<String, String> placeholders = DiagnosisAlertTemplateUtil.basePlaceholders(
+                appName,
+                environment,
+                time,
+                resourceSummary,
+                failures.size(),
+                cooldownMinutes + " 分钟内仅发送一次同类异常",
+                failureDetails
+        );
+        String template = DiagnosisAlertTemplateUtil.fallbackTemplate(
+                getConfig("wechat_webhook_template"),
+                DiagnosisAlertTemplateUtil.DEFAULT_ALERT_TEMPLATE
+        );
+        return DiagnosisAlertTemplateUtil.render(template, placeholders);
+    }
+
+    private String buildRecoveryMessage(String appName, String environment, int tunnelTotal, int forwardTotal) {
+        String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String resourceSummary = String.format("%d 个隧道 / %d 个转发", tunnelTotal, forwardTotal);
+        Map<String, String> placeholders = DiagnosisAlertTemplateUtil.basePlaceholders(
+                appName,
+                environment,
+                time,
+                resourceSummary,
+                0,
+                "恢复通知即时发送",
+                "最近一次诊断未发现异常"
+        );
+        String template = DiagnosisAlertTemplateUtil.fallbackTemplate(
+                getConfig("wechat_recovery_template"),
+                DiagnosisAlertTemplateUtil.DEFAULT_RECOVERY_TEMPLATE
+        );
+        return DiagnosisAlertTemplateUtil.render(template, placeholders);
+    }
+
+    private String formatFailureDetails(List<String> failures, int maxFailures) {
+        if (failures == null || failures.isEmpty()) {
+            return "最近一次诊断未发现异常";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        int displayCount = Math.min(failures.size(), Math.max(maxFailures, 1));
+        for (int i = 0; i < displayCount; i++) {
+            sb.append(failures.get(i)).append("\n\n");
+        }
+
+        if (failures.size() > displayCount) {
+            sb.append(String.format("> 其余 %d 条异常已折叠，请登录面板查看完整诊断看板", failures.size() - displayCount));
+        }
+
+        return sb.toString().trim();
     }
 }

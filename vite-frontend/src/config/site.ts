@@ -5,10 +5,14 @@ export type SiteConfig = typeof siteConfig;
 
 // 缓存相关常量
 const CACHE_PREFIX = 'vite_config_';
+const DEFAULT_ENVIRONMENT_NAME =
+  GIT_BRANCH === 'main' ? 'PROD' : GIT_BRANCH === 'dev' ? 'DEV' : GIT_BRANCH.toUpperCase();
+
 const getInitialConfig = () => {
   if (typeof window === 'undefined') {
     return {
       name: "flux",
+      environment_name: DEFAULT_ENVIRONMENT_NAME,
       version: APP_VERSION,
       app_version: APP_VERSION,
       release_version: RELEASE_VERSION,
@@ -21,9 +25,11 @@ const getInitialConfig = () => {
   }
 
   const cachedAppName = localStorage.getItem(CACHE_PREFIX + 'app_name');
+  const cachedEnvironmentName = localStorage.getItem(CACHE_PREFIX + 'site_environment_name');
   if (cachedAppName) {
     return {
       name: cachedAppName,
+      environment_name: cachedEnvironmentName || DEFAULT_ENVIRONMENT_NAME,
       version: APP_VERSION,
       app_version: APP_VERSION,
       release_version: RELEASE_VERSION,
@@ -36,6 +42,7 @@ const getInitialConfig = () => {
   }
   return {
     name: "flux",
+    environment_name: cachedEnvironmentName || DEFAULT_ENVIRONMENT_NAME,
     version: APP_VERSION,
     app_version: APP_VERSION,
     release_version: RELEASE_VERSION,
@@ -101,7 +108,7 @@ export const getCachedConfig = async (key: string): Promise<string | null> => {
 // 获取所有配置（优先从缓存）
 export const getCachedConfigs = async (): Promise<Record<string, string>> => {
   // 尝试从缓存获取所有配置
-  const configKeys = ['app_name'];
+  const configKeys = ['app_name', 'site_environment_name'];
   const cachedConfigs: Record<string, string> = {};
   let hasCachedData = false;
 
@@ -138,11 +145,18 @@ export const getCachedConfigs = async (): Promise<Record<string, string>> => {
 
 // 动态更新网站配置
 export const updateSiteConfig = async () => {
-  const appName = await getCachedConfig('app_name');
+  const [appName, environmentName] = await Promise.all([
+    getCachedConfig('app_name'),
+    getCachedConfig('site_environment_name'),
+  ]);
+
   if (appName && appName !== siteConfig.name) {
     siteConfig.name = appName;
     // 更新页面标题
     document.title = appName;
+  }
+  if (environmentName && environmentName !== siteConfig.environment_name) {
+    siteConfig.environment_name = environmentName;
   }
 };
 

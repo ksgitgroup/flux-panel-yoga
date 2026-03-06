@@ -23,9 +23,10 @@ public class ViteConfigController extends BaseController {
 
     /**
      * 获取所有网站配置
-     * 前端无需权限即可访问，用于获取网站基本信息
+     * 仅管理员可访问，用于配置管理页面读取完整配置
      */
     @LogAnnotation
+    @RequireRole
     @PostMapping("/list")
     public R getConfigs() {
         return viteConfigService.getConfigs();

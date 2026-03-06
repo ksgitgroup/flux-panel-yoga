@@ -9,9 +9,12 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * <p>
@@ -34,6 +37,14 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
     private static final String ERROR_CONFIG_NOT_FOUND = "配置不存在";
     private static final String ERROR_CONFIG_NAME_REQUIRED = "配置名称不能为空";
     private static final String ERROR_CONFIG_VALUE_REQUIRED = "配置值不能为空";
+
+    /** 允许匿名读取的安全配置 */
+    private static final Set<String> PUBLIC_CONFIG_KEYS = new HashSet<>(Arrays.asList(
+            "app_name",
+            "captcha_enabled",
+            "captcha_type",
+            "site_environment_name"
+    ));
 
     // ========== 公共接口实现 ==========
 
@@ -64,6 +75,10 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
     public R getConfigByName(String name) {
         if (!StringUtils.hasText(name)) {
             return R.err(ERROR_CONFIG_NAME_REQUIRED);
+        }
+
+        if (!PUBLIC_CONFIG_KEYS.contains(name)) {
+            return R.err(ERROR_CONFIG_NOT_FOUND);
         }
 
         QueryWrapper<ViteConfig> queryWrapper = new QueryWrapper<>();

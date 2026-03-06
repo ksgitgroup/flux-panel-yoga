@@ -1,14 +1,24 @@
-import { Card, CardBody, CardHeader } from "@heroui/card";
-import { Button } from "@heroui/button";
-import { Chip } from "@heroui/chip";
-import { Modal, ModalContent, ModalHeader, ModalBody } from "@heroui/modal";
-import { useState, useEffect, useMemo } from "react";
-import toast from 'react-hot-toast';
-import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
-
-
-import { getUserPackageInfo, getDiagnosisLatestBatch, getDiagnosisSummary } from "@/api";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import toast from 'react-hot-toast';
+import { Button } from "@heroui/button";
+import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Chip } from "@heroui/chip";
+import { Modal, ModalBody, ModalContent, ModalHeader } from "@heroui/modal";
+import { Progress } from "@heroui/progress";
+import {
+  Area,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { getDiagnosisSummary, getDiagnosisTrend, getUserPackageInfo } from "@/api";
+import { siteConfig } from "@/config/site";
 
 interface UserInfo {
   flow: number;
@@ -58,6 +68,7 @@ interface StatisticsFlow {
   flow: number;
   totalFlow: number;
   time: string;
+  createdTime: number;
 }
 
 interface DiagnosisBatchItem {
@@ -82,1084 +93,945 @@ interface DiagnosisSummary {
   recentFailures: DiagnosisBatchItem[];
 }
 
+interface TrendPoint {
+  time: number;
+  hour: string;
+  success: number;
+  fail: number;
+  total: number;
+  avgLatency?: number;
+}
+
+const formatFlow = (value: number, unit: string = 'bytes'): string => {
+  if (value === 99999) return '无限制';
+  if (unit === 'gb') return `${value || 0} GB`;
+  if (!value) return '0 B';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(2)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const formatFlowAxis = (value: number) => {
+  if (value === 0) return '0';
+  if (value < 1024) return `${value}B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}K`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)}M`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)}G`;
+};
+
+const formatNumber = (value: number): string => {
+  if (value === 99999) return '无限制';
+  return `${value || 0}`;
+};
+
+const formatDateTime = (ts?: number) => {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+};
+
+const formatRelativeTime = (ts?: number) => {
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return `${Math.floor(diff / 86_400_000)} 天前`;
+};
+
+const normalizeSummary = (data: any): DiagnosisSummary => ({
+  totalCount: Number(data?.totalCount ?? 0),
+  successCount: Number(data?.successCount ?? 0),
+  failCount: Number(data?.failCount ?? 0),
+  healthRate: Number(data?.healthRate ?? 100),
+  avgLatency: data?.avgLatency ?? undefined,
+  lastRunTime: data?.lastRunTime ?? undefined,
+  recentFailures: Array.isArray(data?.recentFailures) ? data.recentFailures : [],
+});
+
+const normalizeTrend = (data: any): TrendPoint[] =>
+  Array.isArray(data)
+    ? data.map((item) => ({
+        time: Number(item?.time ?? 0),
+        hour: item?.hour || '--:--',
+        success: Number(item?.success ?? 0),
+        fail: Number(item?.fail ?? 0),
+        total: Number(item?.total ?? 0),
+        avgLatency: item?.avgLatency ?? undefined,
+      }))
+    : [];
+
+const getExpStatus = (expTime?: string) => {
+  if (!expTime) {
+    return { tone: 'success' as const, label: '永久有效' };
+  }
+
+  const now = new Date();
+  const expDate = new Date(expTime);
+  if (Number.isNaN(expDate.getTime())) {
+    return { tone: 'default' as const, label: '日期异常' };
+  }
+  if (expDate.getTime() <= now.getTime()) {
+    return { tone: 'danger' as const, label: '已过期' };
+  }
+
+  const diffDays = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 7) return { tone: 'danger' as const, label: `${diffDays} 天后到期` };
+  if (diffDays <= 30) return { tone: 'warning' as const, label: `${diffDays} 天后到期` };
+  return { tone: 'success' as const, label: `${diffDays} 天后到期` };
+};
+
+const getHealthTone = (healthRate: number) => {
+  if (healthRate >= 97) return { color: '#059669', bg: 'from-emerald-500 to-teal-500', label: '稳定' };
+  if (healthRate >= 85) return { color: '#2563eb', bg: 'from-blue-500 to-cyan-500', label: '可控' };
+  if (healthRate >= 70) return { color: '#d97706', bg: 'from-amber-500 to-orange-500', label: '关注' };
+  return { color: '#dc2626', bg: 'from-rose-500 to-red-500', label: '告警' };
+};
+
+const getEnvironmentLabel = () => siteConfig.environment_name || siteConfig.branch || 'DEV';
+const toneLabelMap: Record<'default' | 'primary' | 'success' | 'warning' | 'danger', string> = {
+  default: '概览',
+  primary: '重点',
+  success: '稳定',
+  warning: '注意',
+  danger: '告警',
+};
+
+const OverviewMetric = ({
+  label,
+  value,
+  subtitle,
+  tone = 'default',
+  progress,
+}: {
+  label: string;
+  value: string;
+  subtitle: string;
+  tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+  progress?: number;
+}) => (
+  <Card className="border border-default-200 bg-white/80 shadow-sm dark:bg-black/20">
+    <CardBody className="gap-3 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs uppercase tracking-[0.18em] text-default-400">{label}</p>
+        <Chip size="sm" variant="flat" color={tone}>{toneLabelMap[tone]}</Chip>
+      </div>
+      <div>
+        <p className="text-2xl font-semibold text-foreground">{value}</p>
+        <p className="mt-1 text-xs leading-5 text-default-500">{subtitle}</p>
+      </div>
+      {typeof progress === 'number' && (
+        <Progress
+          aria-label={label}
+          size="sm"
+          value={Math.max(0, Math.min(progress, 100))}
+          color={progress >= 90 ? 'danger' : progress >= 70 ? 'warning' : 'primary'}
+          classNames={{ track: 'bg-default-100' }}
+        />
+      )}
+    </CardBody>
+  </Card>
+);
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [userInfo, setUserInfo] = useState<UserInfo>({} as UserInfo);
   const [userTunnels, setUserTunnels] = useState<UserTunnel[]>([]);
   const [forwardList, setForwardList] = useState<Forward[]>([]);
   const [statisticsFlows, setStatisticsFlows] = useState<StatisticsFlow[]>([]);
+  const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | null>(null);
+  const [diagnosisTrend, setDiagnosisTrend] = useState<TrendPoint[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
 
-  // 告警状态
-  const [, setUnhealthyForwards] = useState<Forward[]>([]);
-  const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | null>(null);
-  const [, setDiagnosisChecked] = useState(false);
-
-  // 检查有效期通知
-  const checkExpirationNotifications = (userInfo: UserInfo, tunnels: UserTunnel[]) => {
-    // 避免重复通知，检查是否已经显示过
-    const notificationKey = `expiration-${userInfo.expTime}-${tunnels.map(t => t.expTime).join(',')}`;
-    const lastNotified = localStorage.getItem('lastNotified');
-
-    if (lastNotified === notificationKey) {
-      return; // 已经通知过，不重复显示
-    }
+  const checkExpirationNotifications = (nextUserInfo: UserInfo, tunnels: UserTunnel[]) => {
+    const notificationKey = `expiration-${nextUserInfo.expTime}-${tunnels.map((item) => item.expTime).join(',')}`;
+    if (localStorage.getItem('lastNotified') === notificationKey) return;
 
     let hasNotification = false;
+    const now = new Date();
+    const notifyExpiration = (name: string, expTime?: string, prefix?: string) => {
+      if (!expTime) return;
+      const expDate = new Date(expTime);
+      if (Number.isNaN(expDate.getTime())) return;
+      const diffDays = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-    // 检查主账户有效期
-    if (userInfo.expTime) {
-      const expDate = new Date(userInfo.expTime);
-      const now = new Date();
-
-      if (!isNaN(expDate.getTime()) && expDate > now) {
-        const diffTime = expDate.getTime() - now.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays <= 7 && diffDays > 0) {
-          hasNotification = true;
-          if (diffDays === 1) {
-            toast('账户将于明天过期，请及时续费', {
-              icon: '⚠️',
-              duration: 6000,
-              style: { background: '#f59e0b', color: '#fff' }
-            });
-          } else {
-            toast(`账户将于${diffDays}天后过期，请及时续费`, {
-              icon: '⚠️',
-              duration: 6000,
-              style: { background: '#f59e0b', color: '#fff' }
-            });
-          }
-        } else if (diffDays <= 0) {
-          hasNotification = true;
-          toast('账户已过期，请立即续费', {
-            icon: '⚠️',
-            duration: 8000,
-            style: { background: '#ef4444', color: '#fff' }
-          });
-        }
+      if (diffDays <= 0) {
+        hasNotification = true;
+        toast(`${prefix || ''}${name}已过期`, {
+          icon: '⚠️',
+          duration: 7000,
+          style: { background: '#dc2626', color: '#fff' },
+        });
+        return;
       }
-    }
 
-    // 检查隧道有效期
-    tunnels.forEach(tunnel => {
-      if (tunnel.expTime) {
-        const expDate = new Date(tunnel.expTime);
-        const now = new Date();
-
-        if (!isNaN(expDate.getTime()) && expDate > now) {
-          const diffTime = expDate.getTime() - now.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          if (diffDays <= 7 && diffDays > 0) {
-            hasNotification = true;
-            if (diffDays === 1) {
-              toast(`隧道"${tunnel.tunnelName}"将于明天过期`, {
-                icon: '⚠️',
-                duration: 5000,
-                style: { background: '#f59e0b', color: '#fff' }
-              });
-            } else {
-              toast(`隧道"${tunnel.tunnelName}"将于${diffDays}天后过期`, {
-                icon: '⚠️',
-                duration: 5000,
-                style: { background: '#f59e0b', color: '#fff' }
-              });
-            }
-          } else if (diffDays <= 0) {
-            hasNotification = true;
-            toast(`隧道"${tunnel.tunnelName}"已过期`, {
-              icon: '⚠️',
-              duration: 6000,
-              style: { background: '#ef4444', color: '#fff' }
-            });
-          }
-        }
+      if (diffDays <= 7) {
+        hasNotification = true;
+        toast(`${prefix || ''}${name}${diffDays === 1 ? '将于明天过期' : `将于 ${diffDays} 天后过期`}`, {
+          icon: '⚠️',
+          duration: 6000,
+          style: { background: '#f59e0b', color: '#fff' },
+        });
       }
-    });
+    };
 
-    // 如果显示了通知，记录防止重复
+    notifyExpiration('账户', nextUserInfo.expTime, '');
+    tunnels.forEach((tunnel) => notifyExpiration(`隧道 “${tunnel.tunnelName}”`, tunnel.expTime));
+
     if (hasNotification) {
       localStorage.setItem('lastNotified', notificationKey);
     }
   };
 
   useEffect(() => {
-    // 重置状态并加载数据，防止页面切换时显示旧数据
     setLoading(true);
     setUserInfo({} as UserInfo);
     setUserTunnels([]);
     setForwardList([]);
     setStatisticsFlows([]);
-    setUnhealthyForwards([]);
-    setDiagnosisChecked(false);
+    setDiagnosisSummary(null);
+    setDiagnosisTrend([]);
 
-    // 检查用户是否是管理员
     const adminStatus = localStorage.getItem('admin');
     setIsAdmin(adminStatus === 'true');
-
-    loadPackageData();
     localStorage.setItem('e', '/dashboard');
+    void loadDashboard();
   }, []);
 
-  const loadPackageData = async () => {
+  const loadDashboard = async () => {
     setLoading(true);
     try {
-      const res = await getUserPackageInfo();
-      if (res.code === 0) {
-        const data = res.data;
-        setUserInfo(data.userInfo || {});
-        setUserTunnels(data.tunnelPermissions || []);
-        setForwardList(data.forwards || []);
-        setStatisticsFlows(data.statisticsFlows || []);
+      const [packageResp, summaryResp, trendResp] = await Promise.all([
+        getUserPackageInfo(),
+        getDiagnosisSummary().catch(() => null),
+        getDiagnosisTrend({ hours: 24 }).catch(() => null),
+      ]);
 
-        // 检查诊断情况
-        if (data.forwards && data.forwards.length > 0) {
-          checkDiagnosisHealth(data.forwards);
-        } else {
-          setDiagnosisChecked(true);
-        }
+      if (packageResp.code !== 0) {
+        toast.error(packageResp.msg || '获取仪表盘数据失败');
+        return;
+      }
 
-        // 检查有效期并显示通知
-        checkExpirationNotifications(data.userInfo, data.tunnelPermissions || []);
+      const data = packageResp.data || {};
+      const nextUserInfo = data.userInfo || ({} as UserInfo);
+      const nextTunnels = data.tunnelPermissions || [];
+      const nextForwards = data.forwards || [];
+      const nextStatisticsFlows = data.statisticsFlows || [];
 
-        // 获取诊断总结数据
-        loadDiagnosisSummary();
-      } else {
-        toast.error(res.msg || '获取套餐信息失败');
+      setUserInfo(nextUserInfo);
+      setUserTunnels(nextTunnels);
+      setForwardList(nextForwards);
+      setStatisticsFlows(nextStatisticsFlows);
+      checkExpirationNotifications(nextUserInfo, nextTunnels);
+
+      if (summaryResp?.code === 0) {
+        setDiagnosisSummary(normalizeSummary(summaryResp.data));
+      }
+      if (trendResp?.code === 0) {
+        setDiagnosisTrend(normalizeTrend(trendResp.data));
       }
     } catch (error) {
-      console.error('获取套餐信息失败:', error);
-      toast.error('获取套餐信息失败');
+      console.error('加载仪表盘失败:', error);
+      toast.error('获取仪表盘数据失败');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadDiagnosisSummary = async () => {
-    try {
-      const resp = await getDiagnosisSummary();
-      if (resp.code === 0) {
-        setDiagnosisSummary(resp.data);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  const checkDiagnosisHealth = async (forwards: Forward[]) => {
-    try {
-      const ids = forwards.map(f => f.id);
-      const resp = await getDiagnosisLatestBatch({ targetType: 'forward', targetIds: ids });
-      if (resp.code === 0 && resp.data) {
-        const diagMap: Record<number, DiagnosisBatchItem> = resp.data;
-        // 过滤出诊断为异常（且有记录的）
-        const unhealthy = forwards.filter(f => {
-          const diag = diagMap[f.id];
-          return diag && !diag.overallSuccess;
-        });
-        setUnhealthyForwards(unhealthy);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setDiagnosisChecked(true);
-    }
-  };
-
-  const formatFlow = (value: number, unit: string = 'bytes'): string => {
-    // 99999 表示无限制
-    if (value === 99999) {
-      return '无限制';
-    }
-
-    if (unit === 'gb') {
-      return value + ' GB';
-    } else {
-      if (value === 0) return '0 B';
-      if (value < 1024) return value + ' B';
-      if (value < 1024 * 1024) return (value / 1024).toFixed(2) + ' KB';
-      if (value < 1024 * 1024 * 1024) return (value / (1024 * 1024)).toFixed(2) + ' MB';
-      return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-    }
-  };
-
-  const formatNumber = (value: number): string => {
-    // 99999 表示无限制
-    if (value === 99999) {
-      return '无限制';
-    }
-    return value.toString();
-  };
-
-  const flowChartData = useMemo(
-    () =>
-      statisticsFlows.map((item) => ({
-        time: item.time,
-        flow: Number(item.flow || 0),
-        formattedFlow: formatFlow(Number(item.flow || 0)),
-      })),
-    [statisticsFlows]
-  );
-
-  const totalFlow24h = useMemo(
-    () => flowChartData.reduce((sum, item) => sum + item.flow, 0),
-    [flowChartData]
-  );
-
-  const activeFlowHours = useMemo(
-    () => flowChartData.filter((item) => item.flow > 0).length,
-    [flowChartData]
-  );
-
-  const averageFlow24h = useMemo(
-    () => (flowChartData.length > 0 ? totalFlow24h / flowChartData.length : 0),
-    [flowChartData, totalFlow24h]
-  );
-
-  const peakFlowPoint = useMemo(() => {
-    if (flowChartData.length === 0) return null;
-    return flowChartData.reduce((peak, item) => (item.flow > peak.flow ? item : peak), flowChartData[0]);
-  }, [flowChartData]);
-
-  const hasTrafficData = useMemo(
-    () => flowChartData.some((item) => item.flow > 0),
-    [flowChartData]
-  );
-
-  const trafficScopeLabel = isAdmin ? '全站' : '当前账号';
-
-
-  const getExpStatus = (expTime?: string) => {
-    if (!expTime) return {
-      color: 'text-green-600 dark:text-green-400',
-      bg: 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20',
-      text: '永久'
-    };
-
-    const now = new Date();
-    const expDate = new Date(expTime);
-
-    if (isNaN(expDate.getTime())) {
-      return {
-        color: 'text-gray-600 dark:text-gray-400',
-        bg: 'bg-gray-50 dark:bg-black/10 border-gray-200 dark:border-gray-500/20',
-        text: '无效'
-      };
-    }
-
-    if (expDate < now) {
-      return {
-        color: 'text-red-600 dark:text-red-400',
-        bg: 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20',
-        text: '已过期'
-      };
-    }
-
-    const diffTime = expDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays <= 7) {
-      return {
-        color: 'text-red-600 dark:text-red-400',
-        bg: 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20',
-        text: `${diffDays}天后过期`
-      };
-    } else if (diffDays <= 30) {
-      return {
-        color: 'text-orange-600 dark:text-orange-400',
-        bg: 'bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/20',
-        text: `${diffDays}天后过期`
-      };
-    } else {
-      return {
-        color: 'text-green-600 dark:text-green-400',
-        bg: 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20',
-        text: `${diffDays}天后过期`
-      };
-    }
-  };
-
-  const calculateUserTotalUsedFlow = (): number => {
-    // 后端已按计费类型处理流量，前端直接使用入站+出站总和
-    return (userInfo.inFlow || 0) + (userInfo.outFlow || 0);
-  };
-
-  const calculateUsagePercentage = (type: 'flow' | 'forwards'): number => {
+  const calculateUserTotalUsedFlow = () => (userInfo.inFlow || 0) + (userInfo.outFlow || 0);
+  const calculateForwardBillingFlow = (forward: Forward) => (forward.inFlow || 0) + (forward.outFlow || 0);
+  const calculateTunnelUsedFlow = (tunnel: UserTunnel) => (tunnel.inFlow || 0) + (tunnel.outFlow || 0);
+  const getTunnelUsedForwards = (tunnelId: number) => forwardList.filter((forward) => forward.tunnelId === tunnelId).length;
+  const calculateUsagePercentage = (type: 'flow' | 'forwards') => {
     if (type === 'flow') {
-      const totalUsed = calculateUserTotalUsedFlow();
-      const totalLimit = (userInfo.flow || 0) * 1024 * 1024 * 1024;
-      // 无限制时返回0%
       if (userInfo.flow === 99999) return 0;
-      return totalLimit > 0 ? Math.min((totalUsed / totalLimit) * 100, 100) : 0;
-    } else if (type === 'forwards') {
-      const totalUsed = forwardList.length;
-      const totalLimit = userInfo.num || 0;
-      // 无限制时返回0%
-      if (userInfo.num === 99999) return 0;
-      return totalLimit > 0 ? Math.min((totalUsed / totalLimit) * 100, 100) : 0;
+      const totalLimit = (userInfo.flow || 0) * 1024 * 1024 * 1024;
+      return totalLimit > 0 ? Math.min((calculateUserTotalUsedFlow() / totalLimit) * 100, 100) : 0;
     }
-    return 0;
+    if (userInfo.num === 99999) return 0;
+    return userInfo.num ? Math.min((forwardList.length / userInfo.num) * 100, 100) : 0;
   };
 
-  const getUsageColor = (percentage: number) => {
-    if (percentage >= 90) return 'bg-red-500 dark:bg-red-600';
-    if (percentage >= 70) return 'bg-orange-500 dark:bg-orange-600';
-    return 'bg-blue-500 dark:bg-blue-600';
-  };
-
-  const renderProgressBar = (percentage: number, size: 'sm' | 'md' = 'md', isUnlimited: boolean = false) => {
-    const height = size === 'sm' ? 'h-1.5' : 'h-2';
-
-    if (isUnlimited) {
-      return (
-        <div className="w-full">
-          <div className={`w-full bg-gradient-to-r from-blue-200 to-purple-200 dark:from-blue-500/30 dark:to-purple-500/30 rounded-full ${height}`}>
-            <div className={`${height} bg-gradient-to-r from-blue-500 to-purple-500 rounded-full w-full opacity-60`}></div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="w-full">
-        <div className={`w-full bg-gray-200 dark:bg-gray-800 rounded-full ${height}`}>
-          <div
-            className={`${height} rounded-full transition-all duration-300 ${getUsageColor(percentage)}`}
-            style={{ width: `${Math.min(percentage, 100)}%` }}
-          ></div>
-        </div>
-      </div>
-    );
-  };
-
-  const calculateTunnelUsedFlow = (tunnel: UserTunnel): number => {
-    if (!tunnel) return 0;
-    const inFlow = tunnel.inFlow || 0;
-    const outFlow = tunnel.outFlow || 0;
-    // 后端已按计费类型处理流量，前端直接使用入站+出站总和
-    return inFlow + outFlow;
-  };
-
-  const calculateTunnelFlowPercentage = (tunnel: UserTunnel): number => {
-    const totalUsed = calculateTunnelUsedFlow(tunnel);
-    const totalLimit = (tunnel.flow || 0) * 1024 * 1024 * 1024;
-    // 无限制时返回0%
-    if (tunnel.flow === 99999) return 0;
-    return totalLimit > 0 ? Math.min((totalUsed / totalLimit) * 100, 100) : 0;
-  };
-
-  const getTunnelUsedForwards = (tunnelId: number): number => {
-    return forwardList.filter(forward => forward.tunnelId === tunnelId).length;
-  };
-
-  const calculateTunnelForwardPercentage = (tunnel: UserTunnel): number => {
-    const totalUsed = getTunnelUsedForwards(tunnel.tunnelId);
-    const totalLimit = tunnel.num || 0;
-    // 无限制时返回0%
-    if (tunnel.num === 99999) return 0;
-    return totalLimit > 0 ? Math.min((totalUsed / totalLimit) * 100, 100) : 0;
-  };
-
-  const formatResetTime = (resetDay?: number): string => {
-    if (resetDay === undefined || resetDay === null) return '';
+  const formatResetTime = (resetDay?: number) => {
+    if (resetDay === undefined || resetDay === null) return '未设置';
     if (resetDay === 0) return '不重置';
-
     const now = new Date();
     const currentDay = now.getDate();
-
-    let daysUntilReset;
+    let daysUntilReset = 0;
     if (resetDay > currentDay) {
       daysUntilReset = resetDay - currentDay;
     } else if (resetDay < currentDay) {
       const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, resetDay);
-      const diffTime = nextMonth.getTime() - now.getTime();
-      daysUntilReset = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    } else {
-      daysUntilReset = 0;
+      daysUntilReset = Math.ceil((nextMonth.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     }
-
-    if (daysUntilReset === 0) {
-      return '今日重置';
-    } else if (daysUntilReset === 1) {
-      return '明日重置';
-    } else {
-      return `${daysUntilReset}天后重置`;
-    }
+    if (daysUntilReset === 0) return '今日重置';
+    if (daysUntilReset === 1) return '明日重置';
+    return `${daysUntilReset} 天后重置`;
   };
 
-
-  const formatRemoteAddress = (remoteAddr: string): string => {
+  const formatRemoteAddress = (remoteAddr: string) => {
     if (!remoteAddr) return '';
-
-    const addresses = remoteAddr.split(',').map(addr => addr.trim()).filter(addr => addr);
-
-    if (addresses.length === 0) return '';
-
-    if (addresses.length === 1) {
-      return addresses[0];
-    }
-
+    const addresses = remoteAddr.split(',').map((item) => item.trim()).filter(Boolean);
+    if (addresses.length <= 1) return addresses[0] || '';
     return `${addresses[0]} (+${addresses.length - 1})`;
   };
 
-
-  const hasMultipleRemoteAddresses = (remoteAddr: string): boolean => {
+  const hasMultipleRemoteAddresses = (remoteAddr: string) => {
     if (!remoteAddr) return false;
-    const addresses = remoteAddr.split(',').map(addr => addr.trim()).filter(addr => addr);
-    return addresses.length > 1;
-  };
-
-
-  const showRemoteAddressModal = (remoteAddr: string, title: string) => {
-    if (!remoteAddr) return;
-
-    const addresses = remoteAddr.split(',').map(addr => addr.trim()).filter(addr => addr);
-
-    if (addresses.length <= 1) {
-      copyToClipboard(remoteAddr);
-      return;
-    }
-
-    const formattedList = addresses.map((address, index) => {
-      return {
-        id: index,
-        ip: address,
-        address: address,
-        copying: false
-      };
-    });
-
-    setAddressList(formattedList);
-    setAddressModalTitle(`${title} (${addresses.length}个)`);
-    setAddressModalOpen(true);
+    return remoteAddr.split(',').map((item) => item.trim()).filter(Boolean).length > 1;
   };
 
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(`已复制`);
-    } catch (error) {
-      toast.error('复制失败：请使用https访问面板（例如nginx反代），http无法复制。');
+      toast.success('已复制');
+    } catch {
+      toast.error('复制失败：请使用 https 访问面板');
     }
   };
 
-  const copyAddress = async (addressItem: AddressItem) => {
-    try {
-      setAddressList(prev => prev.map(item =>
-        item.id === addressItem.id ? { ...item, copying: true } : item
-      ));
-      await copyToClipboard(addressItem.address);
-    } catch (error) {
-      toast.error('复制失败：请使用https访问面板（例如nginx反代），http无法复制。');
-    } finally {
-      setAddressList(prev => prev.map(item =>
-        item.id === addressItem.id ? { ...item, copying: false } : item
-      ));
+  const showRemoteAddressModal = (remoteAddr: string, title: string) => {
+    if (!remoteAddr) return;
+    const addresses = remoteAddr.split(',').map((item) => item.trim()).filter(Boolean);
+    if (addresses.length <= 1) {
+      void copyToClipboard(remoteAddr);
+      return;
     }
+    setAddressList(addresses.map((address, index) => ({ id: index, ip: address, address, copying: false })));
+    setAddressModalTitle(`${title} (${addresses.length} 个)`);
+    setAddressModalOpen(true);
+  };
+
+  const copyAddress = async (addressItem: AddressItem) => {
+    setAddressList((prev) => prev.map((item) => item.id === addressItem.id ? { ...item, copying: true } : item));
+    await copyToClipboard(addressItem.address);
+    setAddressList((prev) => prev.map((item) => item.id === addressItem.id ? { ...item, copying: false } : item));
   };
 
   const copyAllAddresses = async () => {
     if (addressList.length === 0) return;
-    const allAddresses = addressList.map(item => item.address).join('\n');
-    await copyToClipboard(allAddresses);
+    await copyToClipboard(addressList.map((item) => item.address).join('\n'));
   };
 
-  const calculateForwardBillingFlow = (forward: Forward): number => {
-    if (!forward) return 0;
+  const trafficChartData = useMemo(() => {
+    const base = statisticsFlows.map((item) => ({
+      time: item.time,
+      flow: Number(item.flow || 0),
+      createdTime: Number(item.createdTime || 0),
+    }));
 
-    const inFlow = forward.inFlow || 0;
-    const outFlow = forward.outFlow || 0;
+    return base.map((item, index, list) => {
+      const related = list.slice(Math.max(0, index - 1), Math.min(list.length, index + 2));
+      const movingAverage = related.length
+        ? related.reduce((sum, current) => sum + current.flow, 0) / related.length
+        : item.flow;
 
-    // 后端已按计费类型处理流量，前端直接使用入站+出站总和
-    return inFlow + outFlow;
-  };
+      return {
+        ...item,
+        movingAverage,
+        formattedFlow: formatFlow(item.flow),
+      };
+    });
+  }, [statisticsFlows]);
+
+  const totalFlow24h = useMemo(() => trafficChartData.reduce((sum, item) => sum + item.flow, 0), [trafficChartData]);
+  const activeFlowHours = useMemo(() => trafficChartData.filter((item) => item.flow > 0).length, [trafficChartData]);
+  const averageFlow24h = useMemo(
+    () => (trafficChartData.length ? totalFlow24h / trafficChartData.length : 0),
+    [trafficChartData, totalFlow24h],
+  );
+  const peakFlowPoint = useMemo(() => {
+    if (!trafficChartData.length) return null;
+    return trafficChartData.reduce((peak, current) => current.flow > peak.flow ? current : peak, trafficChartData[0]);
+  }, [trafficChartData]);
+  const hasTrafficData = useMemo(() => trafficChartData.some((item) => item.flow > 0), [trafficChartData]);
+  const latestFlowPoint = trafficChartData[trafficChartData.length - 1];
+  const previousFlowPoint = trafficChartData[trafficChartData.length - 2];
+  const trafficMomentum = useMemo(() => {
+    const latest = latestFlowPoint?.flow || 0;
+    const previous = previousFlowPoint?.flow || 0;
+    if (!previous && !latest) return { label: '暂无波动', tone: 'default' as const };
+    if (!previous) return { label: '本小时开始出现流量', tone: 'success' as const };
+    const change = ((latest - previous) / previous) * 100;
+    if (change >= 15) return { label: `较上一时段上升 ${change.toFixed(0)}%`, tone: 'success' as const };
+    if (change <= -15) return { label: `较上一时段下降 ${Math.abs(change).toFixed(0)}%`, tone: 'warning' as const };
+    return { label: '整体保持平稳', tone: 'primary' as const };
+  }, [latestFlowPoint, previousFlowPoint]);
+
+  const healthRate = diagnosisSummary?.healthRate ?? 100;
+  const healthTone = getHealthTone(healthRate);
+  const trafficScopeLabel = isAdmin ? '全站' : '当前账号';
+
+  const forwardLeaders = useMemo(
+    () => [...forwardList].sort((a, b) => calculateForwardBillingFlow(b) - calculateForwardBillingFlow(a)).slice(0, 5),
+    [forwardList],
+  );
+
+  const expiringTunnels = useMemo(() => {
+    return [...userTunnels]
+      .filter((item) => item.expTime)
+      .sort((a, b) => new Date(a.expTime || '').getTime() - new Date(b.expTime || '').getTime())
+      .slice(0, 4);
+  }, [userTunnels]);
+
+  const metricCards = useMemo(() => {
+    if (isAdmin) {
+      return [
+        {
+          label: '24H 全站流量',
+          value: formatFlow(totalFlow24h),
+          subtitle: `${activeFlowHours} / 24 个整点出现流量`,
+          tone: 'primary' as const,
+        },
+        {
+          label: '纳入诊断资源',
+          value: `${diagnosisSummary?.totalCount ?? 0}`,
+          subtitle: `${diagnosisSummary?.successCount ?? 0} 个正常，${diagnosisSummary?.failCount ?? 0} 个异常`,
+          tone: (diagnosisSummary?.failCount || 0) > 0 ? 'warning' as const : 'success' as const,
+        },
+        {
+          label: '当前健康率',
+          value: `${healthRate.toFixed(1)}%`,
+          subtitle: diagnosisSummary?.avgLatency ? `平均延迟 ${diagnosisSummary.avgLatency.toFixed(1)} ms` : '平均延迟暂不可用',
+          tone: healthRate >= 85 ? 'success' as const : healthRate >= 70 ? 'warning' as const : 'danger' as const,
+        },
+        {
+          label: '最近一次诊断',
+          value: diagnosisSummary?.lastRunTime ? formatRelativeTime(diagnosisSummary.lastRunTime) : '未执行',
+          subtitle: diagnosisSummary?.lastRunTime ? formatDateTime(diagnosisSummary.lastRunTime) : '请检查自动诊断配置',
+          tone: 'default' as const,
+        },
+      ];
+    }
+
+    return [
+      {
+        label: '流量配额',
+        value: formatFlow(userInfo.flow, 'gb'),
+        subtitle: `本月重置：${formatResetTime(userInfo.flowResetTime)}`,
+        tone: 'primary' as const,
+      },
+      {
+        label: '已用流量',
+        value: formatFlow(calculateUserTotalUsedFlow()),
+        subtitle: userInfo.flow === 99999 ? '当前套餐流量不限' : `${calculateUsagePercentage('flow').toFixed(1)}% 已使用`,
+        tone: calculateUsagePercentage('flow') >= 85 ? 'warning' as const : 'success' as const,
+        progress: userInfo.flow === 99999 ? 100 : calculateUsagePercentage('flow'),
+      },
+      {
+        label: '转发配额',
+        value: formatNumber(userInfo.num || 0),
+        subtitle: `${userTunnels.length} 条可用隧道，${forwardList.length} 条转发正在管理`,
+        tone: 'primary' as const,
+      },
+      {
+        label: '健康快照',
+        value: `${healthRate.toFixed(1)}%`,
+        subtitle: diagnosisSummary?.failCount ? `${diagnosisSummary.failCount} 条异常待处理` : '当前未检测到异常',
+        tone: healthRate >= 85 ? 'success' as const : 'warning' as const,
+      },
+    ];
+  }, [
+    isAdmin,
+    totalFlow24h,
+    activeFlowHours,
+    diagnosisSummary,
+    healthRate,
+    userInfo,
+    userTunnels.length,
+    forwardList.length,
+  ]);
 
   if (loading) {
     return (
-
-      <div className="px-3 lg:px-6 flex-grow pt-2 lg:pt-4">
-        <div className="flex items-center justify-center h-64">
-          <div className="flex items-center gap-3">
-            <div className="animate-spin h-5 w-5 border-2 border-gray-200 dark:border-gray-700 border-t-gray-600 dark:border-t-gray-300 rounded-full"></div>
-            <span className="text-default-600">正在加载数据...</span>
+      <div className="px-3 lg:px-6 py-4">
+        <div className="flex h-64 items-center justify-center">
+          <div className="flex items-center gap-3 text-default-500">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-default-200 border-t-default-500" />
+            <span>正在加载仪表盘...</span>
           </div>
         </div>
       </div>
-
     );
   }
 
   return (
-
-    <div className="px-3 lg:px-6 py-2 lg:py-4">
-
-      {/* 响应式统计卡片 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6 lg:mb-8">
-        <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
-          <CardBody className="p-3 lg:p-4">
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs lg:text-sm text-default-600 truncate">总流量</p>
-                <div className="p-1.5 lg:p-2 bg-blue-100 dark:bg-blue-500/20 rounded-lg flex-shrink-0">
-                  <svg className="w-4 h-4 lg:w-5 lg:h-5 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-                  </svg>
-                </div>
+    <div className="space-y-6 px-3 py-3 lg:px-6 lg:py-5">
+      <Card className="overflow-hidden border border-default-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.14),transparent_32%),radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,252,0.98))] shadow-sm dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(37,99,235,0.18),transparent_28%),linear-gradient(180deg,rgba(9,9,11,0.96),rgba(15,23,42,0.95))]">
+        <CardBody className="gap-6 p-5 lg:p-6">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-3xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip size="sm" variant="flat" color="primary">{getEnvironmentLabel()}</Chip>
+                <Chip size="sm" variant="flat" color={healthRate >= 85 ? 'success' : healthRate >= 70 ? 'warning' : 'danger'}>
+                  诊断 {healthTone.label}
+                </Chip>
+                <Chip size="sm" variant="flat" color="default">{siteConfig.release_version} · {siteConfig.commit_sha}</Chip>
               </div>
-              <p className="text-base lg:text-xl font-bold text-foreground truncate">{formatFlow(userInfo.flow, 'gb')}</p>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
-          <CardBody className="p-3 lg:p-4">
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs lg:text-sm text-default-600 truncate">已用流量</p>
-                <div className="p-1.5 lg:p-2 bg-green-100 dark:bg-green-500/20 rounded-lg flex-shrink-0">
-                  <svg className="w-4 h-4 lg:w-5 lg:h-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
-              <p className="text-base lg:text-xl font-bold text-foreground truncate">{formatFlow(calculateUserTotalUsedFlow())}</p>
-              <div className="mt-1">
-                {renderProgressBar(calculateUsagePercentage('flow'), 'sm', userInfo.flow === 99999)}
-                <div className="flex items-center justify-between mt-1">
-                  <p className="text-xs text-default-500 truncate">
-                    {userInfo.flow === 99999 ? '无限制' : `${calculateUsagePercentage('flow').toFixed(1)}%`}
-                  </p>
-                  {(userInfo.flowResetTime !== undefined && userInfo.flowResetTime !== null) && (
-                    <div className="text-xs text-default-500 flex items-center gap-1">
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                      </svg>
-                      <span className="truncate">{formatResetTime(userInfo.flowResetTime)}</span>
-                    </div>
-                  )}
-                </div>
+              <h1 className="mt-4 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">仪表盘</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-default-600">
+                这里汇总 {trafficScopeLabel} 的 24 小时流量态势、自动诊断健康脉冲、异常焦点和资源使用情况。重点不再是堆信息，而是让你快速判断“现在稳不稳、哪里要处理、下一步去哪里”。
+              </p>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Button as={Link} to="/monitor" color="primary">进入诊断看板</Button>
+                <Button as={Link} to="/forward" variant="flat" color="primary">查看转发管理</Button>
+                <Button as={Link} to={isAdmin ? '/config' : '/tunnel'} variant="light">
+                  {isAdmin ? '调整告警配置' : '查看隧道资源'}
+                </Button>
               </div>
             </div>
-          </CardBody>
-        </Card>
 
-        <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
-          <CardBody className="p-3 lg:p-4">
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs lg:text-sm text-default-600 truncate">转发配额</p>
-                <div className="p-1.5 lg:p-2 bg-purple-100 dark:bg-purple-500/20 rounded-lg flex-shrink-0">
-                  <svg className="w-4 h-4 lg:w-5 lg:h-5 text-purple-600 dark:text-purple-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:w-[420px]">
+              <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
+                <p className="text-xs uppercase tracking-[0.2em] text-default-400">最新诊断</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">{diagnosisSummary?.lastRunTime ? formatRelativeTime(diagnosisSummary.lastRunTime) : '暂未执行'}</p>
+                <p className="mt-1 text-xs text-default-500">{diagnosisSummary?.lastRunTime ? formatDateTime(diagnosisSummary.lastRunTime) : '自动诊断开启后会在这里显示'}</p>
               </div>
-              <p className="text-base lg:text-xl font-bold text-foreground truncate">{formatNumber(userInfo.num || 0)}</p>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
-          <CardBody className="p-3 lg:p-4">
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs lg:text-sm text-default-600 truncate">已用转发</p>
-                <div className="p-1.5 lg:p-2 bg-orange-100 dark:bg-orange-500/20 rounded-lg flex-shrink-0">
-                  <svg className="w-4 h-4 lg:w-5 lg:h-5 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
-                  </svg>
-                </div>
+              <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
+                <p className="text-xs uppercase tracking-[0.2em] text-default-400">24H 峰值</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">{peakFlowPoint ? peakFlowPoint.time : '--'}</p>
+                <p className="mt-1 text-xs text-default-500">{peakFlowPoint ? peakFlowPoint.formattedFlow : '当前周期暂无流量高峰'}</p>
               </div>
-              <p className="text-base lg:text-xl font-bold text-foreground truncate">{forwardList.length}</p>
-              <div className="mt-1">
-                {renderProgressBar(calculateUsagePercentage('forwards'), 'sm', userInfo.num === 99999)}
-                <p className="text-xs text-default-500 mt-1 truncate">
-                  {userInfo.num === 99999 ? '无限制' : `${calculateUsagePercentage('forwards').toFixed(1)}%`}
-                </p>
+              <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/5 sm:col-span-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-default-400">本时段态势判断</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-lg font-semibold text-foreground">{trafficMomentum.label}</span>
+                  <Chip size="sm" variant="flat" color={trafficMomentum.tone}>{trafficScopeLabel}</Chip>
+                </div>
+                <p className="mt-1 text-xs text-default-500">如果这里持续出现异常波动，先看流量峰值，再跳到诊断看板看失败资源。</p>
               </div>
             </div>
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* 服务健康雷达 & 最近异常 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 lg:mb-8">
-        <Card className="lg:col-span-1 border border-gray-200 dark:border-default-200 shadow-md">
-          <CardHeader className="pb-0 pt-4 px-4 flex-col items-start">
-            <h4 className="font-bold text-lg">服务健康雷达</h4>
-            <p className="text-tiny text-default-500 uppercase">实时连通性概览</p>
-          </CardHeader>
-          <CardBody className="overflow-visible py-4 flex flex-col items-center justify-center min-h-[200px]">
-            <div className="relative flex flex-col items-center">
-              <div className={`text-6xl font-bold mb-2 ${(diagnosisSummary?.healthRate || 100) >= 90 ? 'text-success' :
-                  (diagnosisSummary?.healthRate || 100) >= 70 ? 'text-warning' : 'text-danger'
-                }`}>
-                {diagnosisSummary?.healthRate ?? 100}%
-              </div>
-              <div className="text-default-500 font-medium">全局健康率</div>
-
-              <div className="mt-6 w-full flex justify-around gap-4">
-                <div className="text-center">
-                  <p className="text-xs text-default-400">平均延迟</p>
-                  <p className="font-semibold">{diagnosisSummary?.avgLatency ? `${diagnosisSummary.avgLatency.toFixed(0)}ms` : '--'}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-default-400">总异常</p>
-                  <p className="font-semibold text-danger">{diagnosisSummary?.failCount || 0}</p>
-                </div>
-              </div>
-
-              {diagnosisSummary?.lastRunTime && (
-                <div className="text-[10px] text-default-400 mt-6 border-t border-divider pt-2 w-full text-center">
-                  最后诊断: {new Date(diagnosisSummary.lastRunTime).toLocaleString()}
-                </div>
-              )}
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card className="lg:col-span-2 border border-gray-200 dark:border-default-200 shadow-md">
-          <CardHeader className="flex justify-between items-center px-4 pt-4">
-            <div className="flex flex-col">
-              <p className="text-md font-bold">最近异常记录</p>
-              <p className="text-small text-default-500">检测发现故障的资源列表</p>
-            </div>
-            <Button as={Link} to="/monitor" size="sm" variant="flat" color="primary">
-              查看全部
-            </Button>
-          </CardHeader>
-          <CardBody className="px-4 py-2">
-            {(!diagnosisSummary?.recentFailures || diagnosisSummary.recentFailures.length === 0) ? (
-              <div className="flex flex-col items-center justify-center h-full py-12 text-default-400">
-                <div className="p-4 rounded-full bg-success-50 dark:bg-success-900/10 mb-4 transition-transform hover:scale-110">
-                  <svg className="w-10 h-10 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <p className="font-medium text-default-600">一切正常</p>
-                <p className="text-xs">当前系统未检测到任何连通性问题</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs text-default-400 uppercase border-b border-divider">
-                    <tr>
-                      <th className="px-3 py-3 font-semibold">检测对象</th>
-                      <th className="px-3 py-3 font-semibold">状态码</th>
-                      <th className="px-3 py-3 font-semibold">延迟/丢包</th>
-                      <th className="px-3 py-3 text-right font-semibold">发生时间</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-default-100">
-                    {diagnosisSummary.recentFailures.map((record) => (
-                      <tr key={record.id} className="hover:bg-default-50 dark:hover:bg-default-100/30 transition-colors group">
-                        <td className="px-3 py-3">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-danger group-hover:underline cursor-pointer">{record.targetName}</span>
-                            <span className="text-[10px] text-default-400">{record.targetType === 'tunnel' ? '隧道' : '转发'}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 font-mono text-xs">
-                          <span className="px-2 py-0.5 rounded bg-danger-100 dark:bg-danger-900/30 text-danger-600">FAILED</span>
-                        </td>
-                        <td className="px-3 py-3 text-default-500 font-mono text-xs">
-                          {record.averageTime ? `${record.averageTime}ms` : '-'} / {record.packetLoss}%
-                        </td>
-                        <td className="px-3 py-3 text-right text-default-400 text-xs">
-                          {new Date(record.createdTime).toLocaleTimeString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardBody>
-        </Card>
-      </div>
-
-
-      {/* 核心业务排版区：图表 + 快捷入口 */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 mb-6 lg:mb-8">
-
-        {/* 左侧（占比2）：24小时流量统计 */}
-        <div className="xl:col-span-2">
-          <Card className="border border-gray-200 dark:border-default-200 shadow-md h-full">
-            <CardHeader className="pb-3 px-5 pt-5">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
-                  <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
-                </svg>
-                <h2 className="text-lg lg:text-xl font-semibold text-foreground">24小时{trafficScopeLabel}流量态势</h2>
-              </div>
-            </CardHeader>
-            <CardBody className="pt-0 px-3 pb-5 lg:px-5">
-              {statisticsFlows.length === 0 ? (
-                <div className="text-center py-12">
-                  <svg className="w-12 h-12 text-default-400 mx-auto mb-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                  <p className="text-default-500 font-medium">数据采集中...</p>
-                  <p className="text-xs text-default-400 mt-1">系统每小时自动采集流量数据，请稍候</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">24H累计</p>
-                      <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(totalFlow24h)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">峰值小时</p>
-                      <p className="mt-2 text-lg font-semibold text-foreground">
-                        {peakFlowPoint ? peakFlowPoint.time : '--'}
-                      </p>
-                      <p className="text-xs text-default-500">
-                        {peakFlowPoint ? peakFlowPoint.formattedFlow : '暂无'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">有效时段</p>
-                      <p className="mt-2 text-lg font-semibold text-foreground">{activeFlowHours} / 24</p>
-                    </div>
-                    <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-default-400">小时均值</p>
-                      <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(averageFlow24h)}</p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[24px] border border-default-200 bg-[linear-gradient(180deg,rgba(20,184,166,0.08),rgba(255,255,255,0.9))] p-4 dark:bg-[linear-gradient(180deg,rgba(20,184,166,0.12),rgba(24,24,27,0.92))]">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{trafficScopeLabel}最近 24 小时流量增量</p>
-                        <p className="text-xs text-default-500">按整点汇总，用于观察波峰、空闲时段和异常突增。</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Chip size="sm" variant="flat" color="primary">
-                          范围: {trafficScopeLabel}
-                        </Chip>
-                        <Chip size="sm" variant="flat" color={hasTrafficData ? 'success' : 'default'}>
-                          {hasTrafficData ? '已检测到流量波动' : '当前周期暂无明显流量'}
-                        </Chip>
-                      </div>
-                    </div>
-
-                    <div className="h-72 lg:h-80 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={flowChartData} margin={{ top: 12, right: 12, left: -20, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="trafficAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#14b8a6" stopOpacity={0.32} />
-                              <stop offset="75%" stopColor="#14b8a6" stopOpacity={0.08} />
-                              <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.02} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-20" />
-                          <XAxis
-                            dataKey="time"
-                            tick={{ fontSize: 12 }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#d4d4d8', strokeWidth: 1 }}
-                            minTickGap={20}
-                          />
-                          <YAxis
-                            tick={{ fontSize: 12 }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#d4d4d8', strokeWidth: 1 }}
-                            width={64}
-                            tickFormatter={(value) => {
-                              if (value === 0) return '0';
-                              if (value < 1024) return `${value}B`;
-                              if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}K`;
-                              if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)}M`;
-                              return `${(value / (1024 * 1024 * 1024)).toFixed(1)}G`;
-                            }}
-                          />
-                          <Tooltip
-                            content={({ active, payload, label }) => {
-                              if (active && payload && payload.length) {
-                                const currentFlow = Number(payload[0]?.value || 0);
-                                return (
-                                  <div className="rounded-2xl border border-default-200 bg-white/95 p-3 shadow-lg dark:bg-default-100/95">
-                                    <p className="text-sm font-semibold text-foreground">{label}</p>
-                                    <p className="mt-1 text-xs text-default-500">{trafficScopeLabel}在这个小时的流量增量</p>
-                                    <p className="mt-2 text-base font-bold text-teal-600 dark:text-teal-300">
-                                      {formatFlow(currentFlow)}
-                                    </p>
-                                  </div>
-                                );
-                              }
-                              return null;
-                            }}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="flow"
-                            stroke="none"
-                            fill="url(#trafficAreaGradient)"
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="flow"
-                            stroke="#0f766e"
-                            strokeWidth={3}
-                            dot={flowChartData.length <= 12 ? { r: 2, fill: '#0f766e' } : false}
-                            activeDot={{ r: 5, stroke: '#0f766e', strokeWidth: 2, fill: '#ffffff' }}
-                          />
-                          {hasTrafficData && peakFlowPoint && (
-                            <ReferenceDot
-                              x={peakFlowPoint.time}
-                              y={peakFlowPoint.flow}
-                              r={5}
-                              fill="#115e59"
-                              stroke="#ffffff"
-                              strokeWidth={2}
-                              label={{ value: '峰值', position: 'top', fill: '#115e59', fontSize: 12 }}
-                            />
-                          )}
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardBody>
-          </Card>
-        </div>
-
-        {/* 右侧（占比1）：快捷操作 */}
-        <div className="flex flex-col gap-6 lg:gap-8">
-          <Card className="border border-gray-200 dark:border-default-200 shadow-md flex-1">
-            <CardHeader className="pb-3 px-5 pt-5 border-b border-gray-100 dark:border-default-100">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                <h2 className="text-lg font-semibold text-foreground">快捷功能</h2>
-              </div>
-            </CardHeader>
-            <CardBody className="p-5 flex flex-col gap-3">
-              <Button as={Link} to="/forward" color="primary" variant="flat" className="justify-start px-4 h-14" startContent={
-                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center mr-2">
-                  <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
-                </div>
-              }>
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="font-medium text-sm">创建新转发</span>
-                  <span className="text-[10px] opacity-70">将本地应用暴露至公网</span>
-                </div>
-              </Button>
-              <Button as={Link} to="/monitor" color="secondary" variant="flat" className="justify-start px-4 h-14" startContent={
-                <div className="w-8 h-8 rounded-full bg-secondary/20 flex items-center justify-center mr-2">
-                  <svg className="w-4 h-4 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                </div>
-              }>
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="font-medium text-sm">网络体检诊断</span>
-                  <span className="text-[10px] opacity-70">检查全部转发节点连通性</span>
-                </div>
-              </Button>
-              <Button as={Link} to="/tunnel" color="warning" variant="flat" className="justify-start px-4 h-14" startContent={
-                <div className="w-8 h-8 rounded-full bg-warning/20 flex items-center justify-center mr-2">
-                  <svg className="w-4 h-4 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                </div>
-              }>
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="font-medium text-sm">查看可用隧道</span>
-                  <span className="text-[10px] opacity-70">管理您的公网入口资源</span>
-                </div>
-              </Button>
-            </CardBody>
-          </Card>
-        </div>
-      </div>
-
-      {/* 活跃排行区：Top 5 高流量转发 */}
-      <Card className="mb-6 lg:mb-8 border border-gray-200 dark:border-default-200 shadow-md">
-        <CardHeader className="pb-3 px-5 pt-5 border-b border-gray-100 dark:border-default-100">
-          <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-              </svg>
-              <h2 className="text-lg font-semibold text-foreground">活跃转发 Top 5</h2>
-            </div>
-            {forwardList.length > 5 && (
-              <Button as={Link} to="/forward" size="sm" variant="light" color="primary" className="text-xs">
-                查看全部 {forwardList.length} 个
-              </Button>
-            )}
           </div>
-        </CardHeader>
-        <CardBody className="p-0">
-          {forwardList.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-default-500">无转发记录</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left whitespace-nowrap">
-                <thead className="bg-default-50 text-default-600 border-b border-default-200">
-                  <tr>
-                    <th className="px-5 py-3 font-medium">应用名称</th>
-                    <th className="px-5 py-3 font-medium">状态</th>
-                    <th className="px-5 py-3 font-medium text-right">总耗流量计费</th>
-                    <th className="px-5 py-3 font-medium">公网入口 (点击复制)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-default-100">
-                  {forwardList
-                    .sort((a, b) => calculateForwardBillingFlow(b) - calculateForwardBillingFlow(a))
-                    .slice(0, 5)
-                    .map((item, index) => (
-                      <tr key={item.id} className="hover:bg-default-50 transition-colors">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold ${index === 0 ? 'bg-orange-100 text-orange-600' : index === 1 ? 'bg-gray-200 text-gray-700' : index === 2 ? 'bg-yellow-100 text-yellow-700' : 'bg-default-100 text-default-500'}`}>
-                              {index + 1}
-                            </div>
-                            <span className="font-medium text-foreground">{item.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className={`flex items-center gap-1.5 text-xs font-medium ${item.status === 1 ? 'text-success-600' : 'text-default-400'}`}>
-                            <span className={`w-2 h-2 rounded-full ${item.status === 1 ? 'bg-success-500' : 'bg-default-400'}`}></span>
-                            {item.status === 1 ? '运行中' : '已停用'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <span className="font-mono text-primary font-semibold">{formatFlow(calculateForwardBillingFlow(item))}</span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <code className="text-xs bg-default-100 px-2.5 py-1.5 rounded-md cursor-pointer hover:bg-default-200 border border-default-200 text-foreground transition-colors"
-                            onClick={() => hasMultipleRemoteAddresses(item.remoteAddr) ? showRemoteAddressModal(item.remoteAddr, '公网出口') : copyToClipboard(formatRemoteAddress(item.remoteAddr))}
-                            title={formatRemoteAddress(item.remoteAddr)}
-                          >
-                            {formatRemoteAddress(item.remoteAddr).split(',')[0]} {hasMultipleRemoteAddresses(item.remoteAddr) ? ' 等...' : ''}
-                          </code>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {metricCards.map((item) => (
+              <OverviewMetric key={item.label} {...item} />
+            ))}
+          </div>
         </CardBody>
       </Card>
 
-      {/* 隧道权限 - 管理员不显示 */}
-      {!isAdmin && (
-        <Card className="mb-6 lg:mb-8 border border-gray-200 dark:border-default-200 shadow-md">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
-              </svg>
-              <h2 className="text-lg lg:text-xl font-semibold text-foreground">隧道权限</h2>
-              <span className="px-2 py-1 bg-default-100 dark:bg-default-50 text-default-600 rounded-full text-xs">
-                {userTunnels.length}
-              </span>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.95fr)]">
+        <Card className="border border-default-200 shadow-sm">
+          <CardHeader className="flex items-center justify-between gap-4 pb-0">
+            <div>
+              <p className="text-sm font-semibold text-foreground">24 小时 {trafficScopeLabel} 流量驾驶舱</p>
+              <p className="text-xs text-default-500">柱状图表现整点流量增量，线条用于观察短周期均值变化。</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Chip size="sm" variant="flat" color="primary">24H 累计 {formatFlow(totalFlow24h)}</Chip>
+              <Chip size="sm" variant="flat" color={hasTrafficData ? 'success' : 'default'}>
+                {hasTrafficData ? `活跃 ${activeFlowHours} / 24 个时段` : '本周期暂无流量'}
+              </Chip>
             </div>
           </CardHeader>
-          <CardBody className="pt-0">
-            {userTunnels.length === 0 ? (
-              <div className="text-center py-12">
-                <svg className="w-12 h-12 text-default-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                </svg>
-                <p className="text-default-500">暂无隧道权限</p>
+          <CardBody className="space-y-4 pt-5">
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                <p className="text-xs text-default-400">小时均值</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(averageFlow24h)}</p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {userTunnels.map((tunnel) => {
-                  const tunnelExpStatus = getExpStatus(tunnel.expTime);
-                  return (
-                    <div key={tunnel.id} className="border border-gray-200 dark:border-default-100 rounded-lg p-3 lg:p-4 hover:shadow-md transition-shadow">
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-3">
-                        <div>
-                          <h3 className="font-semibold text-foreground">{tunnel.tunnelName} ID: {tunnel.id}</h3>
-                          <div className="flex flex-wrap items-center gap-2 mt-1">
-                            <span className={`px-2 py-1 rounded-md text-xs font-medium ${tunnel.tunnelFlow === 1 ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300' : 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'}`}>
-                              {tunnel.tunnelFlow === 1 ? '单向计费' : '双向计费'}
-                            </span>
-                            <span className={`px-2 py-1 rounded-md text-xs font-medium border ${tunnelExpStatus.bg} ${tunnelExpStatus.color}`}>
-                              {tunnelExpStatus.text}
-                            </span>
-                            {(tunnel.flowResetTime !== undefined && tunnel.flowResetTime !== null) && (
-                              <span className="text-xs text-default-500">
-                                {formatResetTime(tunnel.flowResetTime)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                <p className="text-xs text-default-400">当前小时</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(latestFlowPoint?.flow || 0)}</p>
+              </div>
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                <p className="text-xs text-default-400">峰值时段</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{peakFlowPoint?.time || '--'}</p>
+              </div>
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3 sm:col-span-3 xl:col-span-1">
+                <p className="text-xs text-default-400">策略建议</p>
+                <p className="mt-2 text-sm font-semibold text-foreground">{hasTrafficData ? '对照峰值时段排查异常资源' : '等待小时采样或检查流量统计任务'}</p>
+              </div>
+            </div>
 
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-                        <div>
-                          <p className="text-sm text-default-600 mb-1">流量配额</p>
-                          <p className="font-semibold text-foreground">{formatFlow(tunnel.flow, 'gb')}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-default-600 mb-1">已用流量</p>
-                          <p className="font-semibold text-foreground">{formatFlow(calculateTunnelUsedFlow(tunnel))}</p>
-                          <div className="mt-1">
-                            {renderProgressBar(calculateTunnelFlowPercentage(tunnel), 'sm', tunnel.flow === 99999)}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-sm text-default-600 mb-1">转发配额</p>
-                          <p className="font-semibold text-foreground">{formatNumber(tunnel.num)}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-default-600 mb-1">已用转发</p>
-                          <p className="font-semibold text-foreground">{getTunnelUsedForwards(tunnel.tunnelId)}</p>
-                          <div className="mt-1">
-                            {renderProgressBar(calculateTunnelForwardPercentage(tunnel), 'sm', tunnel.num === 99999)}
-                          </div>
-                        </div>
-                      </div>
+            <div className="rounded-[28px] border border-default-200 bg-[linear-gradient(180deg,rgba(15,118,110,0.08),rgba(255,255,255,0.95))] p-4 dark:bg-[linear-gradient(180deg,rgba(15,118,110,0.14),rgba(9,9,11,0.92))]">
+              {trafficChartData.length === 0 || !hasTrafficData ? (
+                <div className="flex h-80 flex-col items-center justify-center text-center">
+                  <div className="rounded-full bg-default-100 p-4 dark:bg-default-100/20">
+                    <svg className="h-10 w-10 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3v18h18M7 14l3-3 4 4 5-7" />
+                    </svg>
+                  </div>
+                  <p className="mt-4 text-lg font-medium text-foreground">最近 24 小时暂未采样到有效流量</p>
+                  <p className="mt-2 max-w-md text-sm text-default-500">如果这里长期为空，需要确认流量统计定时任务是否正常写入数据，而不是继续盯前端样式。</p>
+                </div>
+              ) : (
+                <div className="h-80 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={trafficChartData} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.32} />
+                          <stop offset="95%" stopColor="#14b8a6" stopOpacity={0.04} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-20" />
+                      <XAxis dataKey="time" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} minTickGap={18} />
+                      <YAxis tickFormatter={formatFlowAxis} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} width={64} />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const flow = Number(payload.find((item) => item.dataKey === 'flow')?.value || 0);
+                          const avg = Number(payload.find((item) => item.dataKey === 'movingAverage')?.value || 0);
+                          return (
+                            <div className="rounded-2xl border border-default-200 bg-white/95 p-3 shadow-lg dark:bg-default-100/95">
+                              <p className="text-sm font-semibold text-foreground">{label}</p>
+                              <p className="mt-2 text-xs text-default-500">整点流量增量</p>
+                              <p className="text-base font-bold text-teal-600 dark:text-teal-300">{formatFlow(flow)}</p>
+                              <p className="mt-2 text-xs text-default-500">短周期均值</p>
+                              <p className="text-sm font-semibold text-foreground">{formatFlow(avg)}</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="flow" barSize={18} radius={[8, 8, 0, 0]} fill="#99f6e4" />
+                      <Area type="monotone" dataKey="flow" stroke="none" fill="url(#trafficFill)" />
+                      <Line type="monotone" dataKey="flow" stroke="#0f766e" strokeWidth={3} dot={false} activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }} />
+                      <Line type="monotone" dataKey="movingAverage" stroke="#2563eb" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card className="border border-default-200 shadow-sm">
+          <CardHeader className="pb-0">
+            <div>
+              <p className="text-sm font-semibold text-foreground">自动诊断脉冲</p>
+              <p className="text-xs text-default-500">用最近 24 小时的诊断曲线确认异常是否集中、是否重复出现。</p>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-5 pt-5">
+            <div className="flex flex-col items-center gap-4 rounded-[28px] border border-default-200 bg-default-50/80 p-5 text-center">
+              <div
+                className="grid h-36 w-36 place-items-center rounded-full"
+                style={{
+                  background: `conic-gradient(${healthTone.color} ${Math.max(0, Math.min(healthRate, 100)) * 3.6}deg, rgba(148,163,184,0.18) 0deg)`,
+                }}
+              >
+                <div className="grid h-28 w-28 place-items-center rounded-full bg-white dark:bg-black">
+                  <div>
+                    <p className="text-3xl font-semibold text-foreground">{healthRate.toFixed(1)}%</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-default-400">健康率</p>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-foreground">{healthTone.label} 状态</p>
+                <p className="mt-1 text-xs text-default-500">
+                  最近一次诊断：{diagnosisSummary?.lastRunTime ? formatDateTime(diagnosisSummary.lastRunTime) : '暂未执行'}
+                </p>
+              </div>
+              <div className="grid w-full grid-cols-3 gap-3 text-left">
+                <div className="rounded-2xl border border-default-200 bg-white/80 px-3 py-3 dark:bg-black/20">
+                  <p className="text-xs text-default-400">正常</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{diagnosisSummary?.successCount ?? 0}</p>
+                </div>
+                <div className="rounded-2xl border border-default-200 bg-white/80 px-3 py-3 dark:bg-black/20">
+                  <p className="text-xs text-default-400">异常</p>
+                  <p className="mt-1 text-lg font-semibold text-danger">{diagnosisSummary?.failCount ?? 0}</p>
+                </div>
+                <div className="rounded-2xl border border-default-200 bg-white/80 px-3 py-3 dark:bg-black/20">
+                  <p className="text-xs text-default-400">延迟</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{diagnosisSummary?.avgLatency ? `${diagnosisSummary.avgLatency.toFixed(0)} ms` : '--'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-default-200 bg-[linear-gradient(180deg,rgba(37,99,235,0.08),rgba(255,255,255,0.96))] p-4 dark:bg-[linear-gradient(180deg,rgba(37,99,235,0.14),rgba(9,9,11,0.94))]">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">24H 诊断趋势</p>
+                  <p className="text-xs text-default-500">柱状图是失败数，折线是总诊断量。</p>
+                </div>
+                <Button as={Link} to="/monitor" size="sm" variant="flat" color="primary">查看明细</Button>
+              </div>
+              {diagnosisTrend.length === 0 ? (
+                <div className="py-8 text-center text-sm text-default-500">暂无诊断趋势数据</div>
+              ) : (
+                <div className="h-48 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={diagnosisTrend} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-20" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={20} />
+                      <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const fail = Number(payload.find((item) => item.dataKey === 'fail')?.value || 0);
+                          const total = Number(payload.find((item) => item.dataKey === 'total')?.value || 0);
+                          return (
+                            <div className="rounded-2xl border border-default-200 bg-white/95 p-3 shadow-lg dark:bg-default-100/95">
+                              <p className="text-sm font-semibold text-foreground">{label}</p>
+                              <p className="mt-2 text-xs text-default-500">失败资源</p>
+                              <p className="text-base font-bold text-danger">{fail}</p>
+                              <p className="mt-2 text-xs text-default-500">总诊断数</p>
+                              <p className="text-sm font-semibold text-foreground">{total}</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="fail" fill="#fca5a5" radius={[6, 6, 0, 0]} barSize={14} />
+                      <Line dataKey="total" stroke="#2563eb" strokeWidth={2} dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,1fr)]">
+        <Card className="border border-default-200 shadow-sm">
+          <CardHeader className="flex items-center justify-between gap-4 pb-0">
+            <div>
+              <p className="text-sm font-semibold text-foreground">异常焦点</p>
+              <p className="text-xs text-default-500">只展示最近需要你做判断的异常资源，避免把整页变成流水账。</p>
+            </div>
+            <Button as={Link} to="/monitor" size="sm" variant="flat" color="primary">查看全部</Button>
+          </CardHeader>
+          <CardBody className="space-y-3 pt-5">
+            {diagnosisSummary?.recentFailures?.length ? diagnosisSummary.recentFailures.map((record) => (
+              <div key={record.id} className="rounded-3xl border border-danger-200 bg-danger-50/60 p-4 shadow-sm transition-colors hover:bg-danger-50 dark:border-danger-800/40 dark:bg-danger-900/10 dark:hover:bg-danger-900/20">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Chip size="sm" variant="flat" color="danger">{record.targetType === 'tunnel' ? '隧道异常' : '转发异常'}</Chip>
+                      <span className="text-sm font-semibold text-foreground">{record.targetName}</span>
                     </div>
-                  );
-                })}
+                    <p className="mt-2 text-xs text-default-500">
+                      发生于 {formatDateTime(record.createdTime)} · 最近更新时间 {formatRelativeTime(record.createdTime)}
+                    </p>
+                  </div>
+                  <div className="grid min-w-[190px] grid-cols-2 gap-3 lg:max-w-[220px]">
+                    <div className="rounded-2xl border border-danger-200 bg-white/80 px-3 py-3 text-left dark:bg-black/20">
+                      <p className="text-xs text-default-400">延迟</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{record.averageTime ? `${record.averageTime} ms` : '--'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-danger-200 bg-white/80 px-3 py-3 text-left dark:bg-black/20">
+                      <p className="text-xs text-default-400">丢包</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{record.packetLoss !== undefined && record.packetLoss !== null ? `${record.packetLoss}%` : '--'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-[28px] border border-dashed border-success-300 bg-success-50/50 text-center dark:border-success-800/50 dark:bg-success-900/10">
+                <div className="rounded-full bg-success-100 p-4 text-success dark:bg-success-900/20">
+                  <svg className="h-10 w-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="mt-4 text-lg font-medium text-foreground">当前没有待处理异常</p>
+                <p className="mt-2 text-sm text-default-500">如果你要确认历史故障是否真的消失，直接去诊断看板看趋势和链路细节。</p>
               </div>
             )}
           </CardBody>
         </Card>
-      )}
 
+        <Card className="border border-default-200 shadow-sm">
+          <CardHeader className="flex items-center justify-between gap-4 pb-0">
+            <div>
+              <p className="text-sm font-semibold text-foreground">活跃转发焦点</p>
+              <p className="text-xs text-default-500">按当前账单流量排序，方便优先关注最重要的几个业务入口。</p>
+            </div>
+            {forwardList.length > 5 && (
+              <Button as={Link} to="/forward" size="sm" variant="flat" color="primary">查看全部 {forwardList.length} 个</Button>
+            )}
+          </CardHeader>
+          <CardBody className="space-y-3 pt-5">
+            {forwardLeaders.length === 0 ? (
+              <div className="py-14 text-center text-sm text-default-500">当前没有转发数据</div>
+            ) : forwardLeaders.map((item, index) => {
+              const flow = calculateForwardBillingFlow(item);
+              const ratio = peakFlowPoint?.flow ? Math.min((flow / peakFlowPoint.flow) * 100, 100) : 0;
+              return (
+                <div key={item.id} className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className={`grid h-8 w-8 place-items-center rounded-2xl text-xs font-semibold ${index === 0 ? 'bg-amber-100 text-amber-700' : index === 1 ? 'bg-slate-200 text-slate-700' : index === 2 ? 'bg-orange-100 text-orange-700' : 'bg-default-100 text-default-600'}`}>
+                        {index + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-foreground">{item.name}</p>
+                        <p className="mt-1 text-xs text-default-500">{item.tunnelName} · {item.status === 1 ? '运行中' : '已停用'}</p>
+                      </div>
+                    </div>
+                    <Chip size="sm" variant="flat" color={item.status === 1 ? 'success' : 'default'}>
+                      {item.status === 1 ? '在线' : '停用'}
+                    </Chip>
+                  </div>
+                  <div className="mt-4">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs text-default-500">
+                      <span>账单流量</span>
+                      <span className="font-semibold text-foreground">{formatFlow(flow)}</span>
+                    </div>
+                    <Progress aria-label={item.name} size="sm" value={ratio} color={ratio >= 80 ? 'warning' : 'primary'} classNames={{ track: 'bg-default-100' }} />
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                      className="rounded-full border border-default-200 bg-default-50 px-3 py-1 text-xs text-default-600 transition-colors hover:bg-default-100"
+                      onClick={() => hasMultipleRemoteAddresses(item.remoteAddr) ? showRemoteAddressModal(item.remoteAddr, '公网出口') : copyToClipboard(formatRemoteAddress(item.remoteAddr))}
+                      title={formatRemoteAddress(item.remoteAddr)}
+                    >
+                      {formatRemoteAddress(item.remoteAddr) || '无出口地址'}
+                    </button>
+                    <Button as={Link} to="/forward" size="sm" variant="light">去转发管理</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </CardBody>
+        </Card>
+      </div>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,1fr)]">
+        {!isAdmin ? (
+          <Card className="border border-default-200 shadow-sm">
+            <CardHeader className="pb-0">
+              <div>
+                <p className="text-sm font-semibold text-foreground">资源配额与到期快照</p>
+                <p className="text-xs text-default-500">把最需要关注的套餐占用和即将到期资源放在一起，减少来回切页。</p>
+              </div>
+            </CardHeader>
+            <CardBody className="space-y-4 pt-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-3xl border border-default-200 bg-default-50/70 p-4">
+                  <p className="text-xs text-default-400">流量使用率</p>
+                  <p className="mt-2 text-2xl font-semibold text-foreground">{userInfo.flow === 99999 ? '∞' : `${calculateUsagePercentage('flow').toFixed(1)}%`}</p>
+                  <p className="mt-1 text-xs text-default-500">{formatFlow(calculateUserTotalUsedFlow())} / {formatFlow(userInfo.flow, 'gb')}</p>
+                </div>
+                <div className="rounded-3xl border border-default-200 bg-default-50/70 p-4">
+                  <p className="text-xs text-default-400">转发使用率</p>
+                  <p className="mt-2 text-2xl font-semibold text-foreground">{userInfo.num === 99999 ? '∞' : `${calculateUsagePercentage('forwards').toFixed(1)}%`}</p>
+                  <p className="mt-1 text-xs text-default-500">{forwardList.length} / {formatNumber(userInfo.num || 0)}</p>
+                </div>
+              </div>
 
-      {/* 地址列表弹窗 */}
-      <Modal isOpen={addressModalOpen} onClose={() => setAddressModalOpen(false)} size="2xl"
-        scrollBehavior="outside"
-        backdrop="blur"
-        placement="center">
+              <div className="space-y-3">
+                {expiringTunnels.length > 0 ? expiringTunnels.map((tunnel) => {
+                  const exp = getExpStatus(tunnel.expTime);
+                  return (
+                    <div key={tunnel.id} className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{tunnel.tunnelName}</p>
+                          <p className="mt-1 text-xs text-default-500">{formatFlow(calculateTunnelUsedFlow(tunnel))} 已用 · {getTunnelUsedForwards(tunnel.tunnelId)} 条转发</p>
+                        </div>
+                        <Chip size="sm" variant="flat" color={exp.tone}>{exp.label}</Chip>
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <div className="rounded-3xl border border-dashed border-default-300 bg-default-50/60 p-5 text-sm text-default-500">
+                    当前没有即将到期的隧道资源。
+                  </div>
+                )}
+              </div>
+            </CardBody>
+          </Card>
+        ) : (
+          <Card className="border border-default-200 shadow-sm">
+            <CardHeader className="pb-0">
+              <div>
+                <p className="text-sm font-semibold text-foreground">运维建议</p>
+                <p className="text-xs text-default-500">结合流量、健康率和异常数给出下一步操作建议。</p>
+              </div>
+            </CardHeader>
+            <CardBody className="space-y-3 pt-5">
+              <div className="rounded-3xl border border-default-200 bg-default-50/70 p-4">
+                <p className="text-sm font-semibold text-foreground">当前判断</p>
+                <p className="mt-2 text-sm leading-7 text-default-600">
+                  {(diagnosisSummary?.failCount || 0) > 0
+                    ? '先进入诊断看板，按异常资源优先级处理；如果同一时段流量又有明显上升，优先检查峰值时段对应的高流量转发。'
+                    : hasTrafficData
+                      ? '当前没有明显异常，建议关注峰值时段资源是否有过载迹象，同时核对自动诊断间隔是否符合值班要求。'
+                      : '流量与诊断都偏安静，建议确认流量统计任务和自动诊断任务是否持续写入。'}
+                </p>
+              </div>
+              <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+                <p className="text-xs text-default-400">异常资源占比</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {diagnosisSummary?.totalCount ? `${(((diagnosisSummary.failCount || 0) / diagnosisSummary.totalCount) * 100).toFixed(1)}%` : '0%'}
+                </p>
+                <p className="mt-1 text-xs text-default-500">如果这个比例持续抬升，就不该只看单点告警，要检查整体链路。</p>
+              </div>
+              <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+                <p className="text-xs text-default-400">部署环境</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{getEnvironmentLabel()}</p>
+                <p className="mt-1 text-xs text-default-500">{siteConfig.release_version} · {siteConfig.build_revision}</p>
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        <Card className="border border-default-200 shadow-sm">
+          <CardHeader className="pb-0">
+            <div>
+              <p className="text-sm font-semibold text-foreground">系统脉络</p>
+              <p className="text-xs text-default-500">把版本、环境、调度与告警入口放在同一块，值班时不用再到处找线索。</p>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-4 pt-5">
+            <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-default-400">Release</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{siteConfig.release_version}</p>
+                </div>
+                <Chip size="sm" variant="flat" color="primary">{getEnvironmentLabel()}</Chip>
+              </div>
+              <p className="mt-3 text-xs text-default-500">构建标识：{siteConfig.build_revision}</p>
+              <p className="text-xs text-default-500">构建时间：{siteConfig.build_time}</p>
+            </div>
+
+            <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-default-400">诊断入口</p>
+                  <p className="mt-2 text-sm font-semibold text-foreground">异常排查首选诊断看板</p>
+                </div>
+                <Button as={Link} to="/monitor" size="sm" variant="flat" color="primary">打开</Button>
+              </div>
+              <p className="mt-3 text-xs leading-6 text-default-500">当企业微信收到告警时，第一步不是去翻群消息，而是回到诊断看板确认失败链路和最近 24 小时趋势。</p>
+            </div>
+
+            <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-default-400">配置入口</p>
+                  <p className="mt-2 text-sm font-semibold text-foreground">环境名、Webhook 模板、冷静期都在网站配置</p>
+                </div>
+                <Button as={Link} to={isAdmin ? '/config' : '/profile'} size="sm" variant="flat" color="primary">
+                  {isAdmin ? '前往配置' : '打开个人中心'}
+                </Button>
+              </div>
+              <p className="mt-3 text-xs leading-6 text-default-500">现在企业微信标题会带环境名，模板和节流间隔都可配置，避免“这条告警到底来自哪个环境”这种低级混乱。</p>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      <Modal isOpen={addressModalOpen} onClose={() => setAddressModalOpen(false)} size="2xl" scrollBehavior="outside" backdrop="blur" placement="center">
         <ModalContent>
           <ModalHeader className="text-base">{addressModalTitle}</ModalHeader>
           <ModalBody className="pb-6">
             <div className="mb-4 text-right">
-              <Button size="sm" onClick={copyAllAddresses}>
-                复制全部
-              </Button>
+              <Button size="sm" onClick={copyAllAddresses}>复制全部</Button>
             </div>
-
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="max-h-60 space-y-2 overflow-y-auto">
               {addressList.map((item) => (
-                <div key={item.id} className="flex justify-between items-center p-3 border border-default-200 dark:border-default-100 rounded-lg">
-                  <code className="text-sm flex-1 mr-3 text-foreground">{item.address}</code>
-                  <Button
-                    size="sm"
-                    variant="light"
-                    isLoading={item.copying}
-                    onClick={() => copyAddress(item)}
-                  >
+                <div key={item.id} className="flex items-center justify-between rounded-lg border border-default-200 p-3">
+                  <code className="mr-3 flex-1 text-sm text-foreground">{item.address}</code>
+                  <Button size="sm" variant="light" isLoading={item.copying} onClick={() => copyAddress(item)}>
                     复制
                   </Button>
                 </div>
@@ -1169,6 +1041,5 @@ export default function DashboardPage() {
         </ModalContent>
       </Modal>
     </div>
-
   );
-} 
+}

@@ -1,5 +1,6 @@
 package com.admin.config;
 
+import com.admin.common.utils.DiagnosisAlertTemplateUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -96,12 +97,28 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
         }
 
-        // 4. Initialize Diagnosis Configurations in vite_config
+        // 4. Initialize vite_config diagnosis and alert settings
         try {
-            jdbcTemplate.execute("INSERT IGNORE INTO `vite_config` (`name`, `value`, `description`) VALUES " +
-                    "('auto_diagnosis_enabled', 'true', '是否开启后台自动诊断任务'), " +
-                    "('auto_diagnosis_interval', '30', '自动诊断间隔时间(分钟)')");
-            log.info("[DatabaseInit] 自动诊断配置项初始化成功");
+            updateColumn("vite_config", "description", "varchar(255) DEFAULT NULL COMMENT '配置描述'");
+            modifyColumn("vite_config", "value", "TEXT NULL COMMENT '配置值'");
+
+            ensureConfig("auto_diagnosis_enabled", "true", "是否开启后台自动诊断任务");
+            ensureConfig("auto_diagnosis_interval", "30", "自动诊断间隔时间(分钟)");
+            ensureConfig("site_environment_name", "默认环境", "当前部署环境名称，例如 LOCAL / DEV / PROD");
+            ensureConfig("wechat_webhook_enabled", "false", "是否启用企业微信机器人告警");
+            ensureConfig("wechat_webhook_url", "", "企业微信机器人 Webhook 地址");
+            ensureConfig("wechat_webhook_cooldown_minutes", "30", "两次异常通知之间的最短间隔(分钟)");
+            ensureConfig("wechat_webhook_max_failures", "8", "单次通知中最多展示的异常条目数");
+            ensureConfig("wechat_notify_recovery_enabled", "true", "异常恢复后是否发送恢复通知");
+            ensureConfig("wechat_webhook_template",
+                    DiagnosisAlertTemplateUtil.DEFAULT_ALERT_TEMPLATE,
+                    "企业微信异常通知模板，支持占位符变量");
+            ensureConfig("wechat_recovery_template",
+                    DiagnosisAlertTemplateUtil.DEFAULT_RECOVERY_TEMPLATE,
+                    "企业微信恢复通知模板，支持占位符变量");
+            ensureConfig("wechat_webhook_last_sent_at", "0", "系统内部使用：最近一次告警发送时间");
+            ensureConfig("wechat_webhook_last_status", "healthy", "系统内部使用：最近一次告警状态");
+            log.info("[DatabaseInit] 自动诊断与告警配置项初始化成功");
         } catch (Exception e) {
             log.warn("[DatabaseInit] 尝试初始化诊断配置项时发生异常: {}", e.getMessage());
         }
@@ -124,6 +141,38 @@ public class DatabaseInitService {
             }
         } catch (Exception e) {
             log.warn("[DatabaseInit] 尝试更新表 {} 字段 {} 时发生非关键性异常: {}", tableName, columnName, e.getMessage());
+        }
+    }
+
+    private void modifyColumn(String tableName, String columnName, String definition) {
+        try {
+            String alterSql = String.format("ALTER TABLE `%s` MODIFY COLUMN `%s` %s", tableName, columnName, definition);
+            jdbcTemplate.execute(alterSql);
+            log.info("[DatabaseInit] 成功调整表 {} 字段 {} 的类型/定义", tableName, columnName);
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 尝试调整表 {} 字段 {} 定义时发生非关键性异常: {}", tableName, columnName, e.getMessage());
+        }
+    }
+
+    private void ensureConfig(String name, String value, String description) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `vite_config` WHERE `name` = ?",
+                    Integer.class,
+                    name
+            );
+            if (count != null && count > 0) {
+                return;
+            }
+            jdbcTemplate.update(
+                    "INSERT INTO `vite_config` (`name`, `value`, `description`, `time`) VALUES (?, ?, ?, ?)",
+                    name,
+                    value,
+                    description,
+                    System.currentTimeMillis()
+            );
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 初始化配置 {} 时发生非关键性异常: {}", name, e.getMessage());
         }
     }
 }

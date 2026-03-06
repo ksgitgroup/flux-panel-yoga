@@ -304,7 +304,12 @@ export default function AdminLayout({
           <div className="flex items-center gap-2 w-full">
             <Logo size={24} />
             <div className="flex-1 min-w-0">
-              <h1 className="text-sm font-bold text-foreground overflow-hidden whitespace-nowrap">{siteConfig.name}</h1>
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="text-sm font-bold text-foreground overflow-hidden whitespace-nowrap">{siteConfig.name}</h1>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                  {siteConfig.environment_name}
+                </span>
+              </div>
               <p className="text-xs text-default-500">{siteConfig.release_version} · {siteConfig.commit_sha}</p>
             </div>
           </div>
@@ -349,7 +354,9 @@ export default function AdminLayout({
               <span className="text-xs text-default-500">{siteConfig.build_revision}</span>
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-default-400">GitLab CI 与镜像标签会对齐到同一提交短 SHA。</p>
+          <p className="mt-3 text-[11px] text-default-400">
+            {siteConfig.environment_name} 环境 · GitLab CI 与镜像标签会对齐到同一提交短 SHA。
+          </p>
         </div>
       </aside>
 

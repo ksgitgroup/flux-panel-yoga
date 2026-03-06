@@ -49,26 +49,33 @@ fi
 
 # 7. 初始化环境变量
 if [ ! -f ".env" ]; then
-    echo "创建 .env 配置文件..."
+    echo "创建 .env 配置文件 (Local A 环境测试配置)..."
     if [ -f ".env.example" ]; then
         cp .env.example .env
-        echo "已从 .env.example 复制创建 .env，请根据需要修改其中的配置。"
+        echo "已从 .env.example 复制创建 .env。"
     else
         cat > .env << EOF
+IMAGE_REGISTRY=flux-panel
+IMAGE_TAG=local
 DB_NAME=zA3EMMEJql6jomuC
 DB_USER=root
 DB_PASSWORD=root
-JWT_SECRET=default_secret_key
-IMAGE_REGISTRY=local
-IMAGE_TAG=latest
+JWT_SECRET=local_dev_secret_key_6365
 BACKEND_PORT=6365
-FRONTEND_PORT=80
+FRONTEND_PORT=8080
 EOF
         echo "已创建默认 .env 配置文件。"
     fi
-else
-    echo ".env 配置文件已存在，跳过创建。"
 fi
+
+echo "正在强制同步本地环境配置 (Local A)..."
+# 统一替换逻辑，确保所有占位符或旧值被替换为本地开发模式
+sed -i 's|IMAGE_REGISTRY=.*|IMAGE_REGISTRY=flux-panel|' .env
+sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=local|' .env
+sed -i 's|DB_NAME=.*|DB_NAME=gost|' .env
+sed -i 's|DB_USER=.*|DB_USER=gost|' .env
+sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=gost_password_123|' .env
+sed -i 's|JWT_SECRET=.*|JWT_SECRET=local_dev_secret_key_6365|' .env
 
 echo "================================================================="
 echo "环境搭建完成！"

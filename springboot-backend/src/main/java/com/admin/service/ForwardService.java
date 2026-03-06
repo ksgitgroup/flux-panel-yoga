@@ -2,6 +2,7 @@ package com.admin.service;
 
 import com.admin.common.dto.ForwardDto;
 import com.admin.common.dto.ForwardUpdateDto;
+import com.admin.common.dto.ForwardBatchUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.entity.Forward;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -88,6 +89,13 @@ public interface ForwardService extends IService<Forward> {
      */
     R updateForwardOrder(Map<String, Object> params);
 
+
+    /**
+     * 批量更新转发 (协议和标签)
+     * @param batchUpdateDto 批量更新数据
+     * @return 结果
+     */
+    R batchUpdateForward(ForwardBatchUpdateDto batchUpdateDto);
 
     void updateForwardA(Forward forward);
 }

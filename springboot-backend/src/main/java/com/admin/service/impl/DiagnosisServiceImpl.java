@@ -412,18 +412,27 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         }
     }
 
-    /** 持久化诊断结果 */
-    private void saveRecord(String type, Integer targetId, String name, boolean success, Object data, double averageTime, double packetLoss) {
+    /** 保存诊断记录并更新资源状态 (用于手动和自动诊断同步) */
+    @Override
+    public void saveRecord(String type, Integer targetId, String name, Object data) {
+        boolean success = isAllSuccess(data);
+        double[] metrics = extractMetrics(data);
+        
         DiagnosisRecord record = new DiagnosisRecord();
         record.setTargetType(type);
         record.setTargetId(targetId);
         record.setTargetName(name);
         record.setOverallSuccess(success);
         record.setResultsJson(JSON.toJSONString(data));
-        record.setAverageTime(averageTime >= 0 ? Math.round(averageTime * 100.0) / 100.0 : null);
-        record.setPacketLoss(packetLoss >= 0 ? Math.round(packetLoss * 100.0) / 100.0 : null);
+        record.setAverageTime(metrics[0] >= 0 ? Math.round(metrics[0] * 100.0) / 100.0 : null);
+        record.setPacketLoss(metrics[1] >= 0 ? Math.round(metrics[1] * 100.0) / 100.0 : null);
         record.setCreatedTime(System.currentTimeMillis());
         this.save(record);
+    }
+    
+    /** 持久化诊断结果 (内部调用版本) */
+    private void saveRecord(String type, Integer targetId, String name, boolean success, Object data, double averageTime, double packetLoss) {
+        saveRecord(type, targetId, name, data);
     }
 
     /** 读取 vite_config 配置 */

@@ -243,6 +243,45 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     @Override
+    public R batchUpdateForward(ForwardBatchUpdateDto batchDto) {
+        UserInfo currentUser = getCurrentUserInfo();
+        if (batchDto.getIds() == null || batchDto.getIds().isEmpty()) {
+            return R.err("ID列表不能为空");
+        }
+
+        List<Forward> forwards = this.listByIds(batchDto.getIds());
+        if (forwards.isEmpty()) {
+            return R.err("未找到对应记录");
+        }
+
+        int count = 0;
+        for (Forward f : forwards) {
+            // 权限检查：非管理员只能操作自己的
+            if (currentUser.getRoleId() != ADMIN_ROLE_ID && !f.getUserId().equals(currentUser.getUserId())) {
+                continue;
+            }
+
+            boolean changed = false;
+            if (batchDto.getProtocolId() != null) {
+                f.setProtocolId(batchDto.getProtocolId());
+                changed = true;
+            }
+            if (batchDto.getTagIds() != null) {
+                f.setTagIds(batchDto.getTagIds());
+                changed = true;
+            }
+
+            if (changed) {
+                f.setUpdatedTime(System.currentTimeMillis());
+                this.updateById(f);
+                count++;
+            }
+        }
+
+        return R.ok("成功批量更新 " + count + " 条记录");
+    }
+
+    @Override
     public R deleteForward(Long id) {
         // 1. 获取当前用户信息
         UserInfo currentUser = getCurrentUserInfo();
@@ -509,13 +548,19 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
         }
 
-        // 7. 构建诊断报告
         Map<String, Object> diagnosisReport = new HashMap<>();
         diagnosisReport.put("forwardId", id);
         diagnosisReport.put("forwardName", forward.getName());
         diagnosisReport.put("tunnelType", tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD ? "端口转发" : "隧道转发");
         diagnosisReport.put("results", results);
         diagnosisReport.put("timestamp", System.currentTimeMillis());
+
+        // 8. 异步保存到历史记录并更新延时状态
+        try {
+            diagnosisService.saveRecord("forward", id.intValue(), forward.getName(), diagnosisReport);
+        } catch (Exception e) {
+            log.warn("[诊断] 手动诊断保存历史记录失败: {}", e.getMessage());
+        }
 
         return R.ok(diagnosisReport);
     }

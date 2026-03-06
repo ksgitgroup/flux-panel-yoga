@@ -237,6 +237,19 @@ export default function ForwardPage() {
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
+  // 批量选择状态
+  const [selectedForwardIds, setSelectedForwardIds] = useState<number[]>([]);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchUpdateType, setBatchUpdateType] = useState<'protocol' | 'tag' | null>(null);
+  const [batchProtocolId, setBatchProtocolId] = useState<number | null>(null);
+  const [batchTagIds, setBatchTagIds] = useState<string[]>([]);
+
+  const toggleSelect = (id: number) => {
+    setSelectedForwardIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
   // 诊断数据映射 (forwardId -> DiagnosisBatchItem)
   const [diagnosisMap, setDiagnosisMap] = useState<Record<number, DiagnosisBatchItem>>({});
 
@@ -713,6 +726,59 @@ export default function ForwardPage() {
     }
   };
 
+  // 批量更新处理
+  const handleBatchUpdate = async (type: 'protocol' | 'tag', value?: any) => {
+    if (selectedForwardIds.length === 0) return;
+
+    if (type === 'protocol') {
+      try {
+        const res = await batchUpdateForward({ ids: selectedForwardIds, protocolId: value });
+        if (res.code === 0) {
+          toast.success('批量更新协议成功');
+          setSelectedForwardIds([]);
+          loadData(false);
+        } else {
+          toast.error(res.msg || '更新失败');
+        }
+      } catch (err) {
+        toast.error('网络错误');
+      }
+    } else if (type === 'tag') {
+      try {
+        const res = await batchUpdateForward({ ids: selectedForwardIds, tagIds: batchTagIds.join(',') });
+        if (res.code === 0) {
+          toast.success('批量打标签成功');
+          setBatchModalOpen(false);
+          setSelectedForwardIds([]);
+          loadData(false);
+        } else {
+          toast.error(res.msg || '更新失败');
+        }
+      } catch (err) {
+        toast.error('网络错误');
+      }
+    }
+  };
+
+  // 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedForwardIds.length === 0) return;
+    if (!window.confirm(`确定要删除选中的 ${selectedForwardIds.length} 个转发吗？`)) return;
+
+    try {
+      let successCount = 0;
+      for (const id of selectedForwardIds) {
+        const res = await deleteForward(id);
+        if (res.code === 0) successCount++;
+      }
+      toast.success(`成功删除 ${successCount} 个转发`);
+      setSelectedForwardIds([]);
+      loadData();
+    } catch (err) {
+      toast.error('批量删除操作出现异常');
+    }
+  };
+
   // 处理服务开关
   const handleServiceToggle = async (forward: Forward) => {
     if (forward.status !== 1 && forward.status !== 0) {
@@ -795,6 +861,8 @@ export default function ForwardPage() {
       if (response.code === 0) {
         setDiagnosisResult(response.data);
         loadDiagnosisHistory(forward.id);
+        // 更新本地列表中的诊断状态
+        loadDiagnosisData(forwards);
       } else {
         toast.error(response.msg || '诊断失败');
         setDiagnosisResult({
@@ -1392,6 +1460,21 @@ export default function ForwardPage() {
           <div className="w-full space-y-1">
             {/* 第一行：转发名称（独占一行，不截断） */}
             <div className="flex items-center gap-2">
+              <div
+                className="flex-shrink-0 cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); toggleSelect(forward.id); }}
+              >
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selectedForwardIds.includes(forward.id)
+                  ? 'bg-primary border-primary text-white'
+                  : 'border-default-300 bg-white/50 hover:border-primary/50'
+                  }`}>
+                  {selectedForwardIds.includes(forward.id) && (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+              </div>
               {viewMode === 'direct' && (
                 <div
                   className={`cursor-grab active:cursor-grabbing p-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation flex-shrink-0 ${isMobile
@@ -1409,24 +1492,6 @@ export default function ForwardPage() {
               )}
               <div className="flex flex-col min-w-0 flex-1">
                 <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
-                {(() => {
-                  const diag = diagnosisMap[forward.id];
-                  if (!diag?.history || diag.history.length === 0) return null;
-                  return (
-                    <div className="flex gap-1 mt-1 overflow-x-auto no-scrollbar py-0.5" style={{ scrollbarWidth: 'none' }}>
-                      {diag.history.slice(0, 10).map((h, i) => (
-                        <div
-                          key={i}
-                          className={`flex-shrink-0 w-7 h-5 rounded flex items-center justify-center text-[9px] font-bold shadow-sm transition-transform hover:scale-110 cursor-help ${h.overallSuccess ? 'bg-success-400 text-white' : 'bg-danger-400 text-white'
-                            }`}
-                          title={`时间: ${new Date(h.createdTime).toLocaleString()}\n${h.overallSuccess ? `延迟: ${Math.round(h.averageTime || 0)}ms` : '故障'}`}
-                        >
-                          {h.overallSuccess ? (h.averageTime ? Math.round(h.averageTime) : '✓') : '✗'}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
               </div>
               {/* 诊断健康+延迟徽标 */}
               {(() => {
@@ -1597,6 +1662,47 @@ export default function ForwardPage() {
               删除
             </Button>
           </div>
+          <div className="mt-4 pt-3 border-t border-divider">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] uppercase font-bold text-default-400 tracking-wider">最近 10 次历史 (诊断看版)</span>
+              {(() => {
+                const diag = diagnosisMap[forward.id];
+                if (!diag) return null;
+                return (
+                  <Chip size="sm" variant="flat" color={diag.overallSuccess ? 'success' : 'danger'} className="h-4 text-[9px] px-1 min-w-0">
+                    {diag.overallSuccess ? '正常' : '故障'}
+                  </Chip>
+                );
+              })()}
+            </div>
+            {(() => {
+              const diag = diagnosisMap[forward.id];
+              if (!diag?.history || diag.history.length === 0) {
+                return (
+                  <div className="flex items-center justify-center p-2 rounded-lg bg-default-50 dark:bg-default-100/30 border border-dashed border-divider">
+                    <span className="text-[10px] text-default-400 italic">暂无诊断数据</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5" style={{ scrollbarWidth: 'none' }}>
+                  {diag.history.slice(0, 10).map((h, i) => (
+                    <div
+                      key={i}
+                      className={`flex-shrink-0 w-8 h-7 rounded-md flex flex-col items-center justify-center shadow-sm transition-all hover:scale-110 active:scale-95 cursor-help ${h.overallSuccess ? 'bg-success-500/90 text-white' : 'bg-danger-500/90 text-white'
+                        }`}
+                      title={`时间: ${new Date(h.createdTime).toLocaleString()}\n${h.overallSuccess ? `延迟: ${Math.round(h.averageTime || 0)}ms` : '故障'}`}
+                    >
+                      <span className="text-[10px] font-bold leading-none">
+                        {h.overallSuccess ? (h.averageTime ? Math.round(h.averageTime) : '✓') : '✗'}
+                      </span>
+                      {h.overallSuccess && <span className="text-[6px] opacity-70 mt-0.5">ms</span>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
         </CardBody>
       </Card>
     );
@@ -1726,8 +1832,8 @@ export default function ForwardPage() {
               radius="lg"
               classNames={{
                 tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
-                cursor: "bg-white dark:bg-default-300 shadow-sm",
-                tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-medium",
+                cursor: "bg-white dark:bg-primary shadow-sm",
+                tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-bold",
                 tab: "h-8 px-3",
               }}
             >
@@ -1742,13 +1848,59 @@ export default function ForwardPage() {
               selectedKey={healthFilter}
               onSelectionChange={(key) => setHealthFilter(key as any)}
               size="sm"
-              variant="light"
+              variant="flat"
               radius="lg"
+              color={healthFilter === 'unhealthy' ? 'danger' : healthFilter === 'healthy' ? 'success' : 'default'}
+              classNames={{
+                tabContent: "font-medium"
+              }}
             >
               <Tab key="all" title="全部健康度" />
               <Tab key="healthy" title="正常" />
               <Tab key="unhealthy" title="故障" />
             </Tabs>
+
+            <Divider orientation="vertical" className="h-6 hidden sm:block" />
+
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+              <div className="flex-shrink-0 flex items-center gap-2 text-default-400 mr-1">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                <span className="text-[10px] uppercase font-bold tracking-wider">标签筛选</span>
+              </div>
+              <Chip
+                size="sm"
+                variant={tagFilters.length === 0 ? "solid" : "flat"}
+                color={tagFilters.length === 0 ? "primary" : "default"}
+                className="cursor-pointer transition-all hover:scale-105 flex-shrink-0"
+                onClick={() => setTagFilters([])}
+              >
+                全部 ({forwards.length})
+              </Chip>
+              {tags.map(t => {
+                const count = forwards.filter(f => f.tagIds?.includes(t.id.toString())).length;
+                const isSelected = tagFilters.includes(t.id.toString());
+                return (
+                  <Chip
+                    key={t.id}
+                    size="sm"
+                    variant={isSelected ? "solid" : "flat"}
+                    color={isSelected ? "primary" : "default"}
+                    className={`cursor-pointer transition-all hover:scale-105 flex-shrink-0 ${isSelected ? 'shadow-md' : 'opacity-80 hover:opacity-100'}`}
+                    onClick={() => {
+                      if (isSelected) {
+                        setTagFilters(prev => prev.filter(id => id !== t.id.toString()));
+                      } else {
+                        setTagFilters(prev => [...prev, t.id.toString()]);
+                      }
+                    }}
+                  >
+                    {t.name} ({count})
+                  </Chip>
+                );
+              })}
+            </div>
           </div>
 
           {/* 操作按钮组 */}
@@ -1779,7 +1931,6 @@ export default function ForwardPage() {
                 size="sm"
                 variant="light"
                 color="danger"
-                isIconOnly
                 onPress={() => {
                   setTunnelFilter(null);
                   setStatusFilter('all');
@@ -1788,15 +1939,67 @@ export default function ForwardPage() {
                   setTagFilters([]);
                   setSearchKeyword("");
                 }}
-                className="rounded-full"
+                className="min-w-0"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                重置
               </Button>
             )}
           </div>
         </div>
+
+        {/* Floating Batch Bar */}
+        {selectedForwardIds.length > 0 && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-foreground/90 text-background px-6 py-3 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-6 animate-in zoom-in slide-in-from-bottom-5 duration-300">
+            <div className="flex items-center gap-2 border-r border-background/20 pr-4">
+              <span className="text-sm font-bold">已选择 {selectedForwardIds.length} 项</span>
+              <Button size="sm" variant="light" color="danger" className="h-7 text-xs px-2 min-w-0" onPress={() => setSelectedForwardIds([])}>取消</Button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Select
+                aria-label="批量协议"
+                placeholder="批量配置协议"
+                size="sm"
+                variant="flat"
+                className="w-40"
+                classNames={{ trigger: "bg-white/10 text-white min-h-8 h-8 rounded-full border-white/20" }}
+                onSelectionChange={(keys) => {
+                  const id = Array.from(keys)[0];
+                  if (id) {
+                    handleBatchUpdate('protocol', Number(id));
+                  }
+                }}
+              >
+                {protocols.map(p => (
+                  <SelectItem key={p.id} textValue={p.name}>{p.name}</SelectItem>
+                ))}
+              </Select>
+
+              <Button
+                size="sm"
+                variant="solid"
+                color="primary"
+                className="rounded-full shadow-lg"
+                onPress={() => {
+                  setBatchUpdateType('tag');
+                  setBatchModalOpen(true);
+                }}
+              >
+                批量打标签
+              </Button>
+
+              <Button
+                size="sm"
+                variant="solid"
+                color="danger"
+                className="rounded-full shadow-lg"
+                onPress={handleBatchDelete}
+              >
+                批量删除
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* 展开式高级筛选 */}
         {showAdvancedFilters && (
@@ -1845,51 +2048,6 @@ export default function ForwardPage() {
               </Select>
             </div>
 
-            <div className="flex flex-col gap-2 flex-grow min-w-0">
-              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">资源标签 (多选)</label>
-              <div className="flex flex-wrap gap-2 py-1 max-h-[120px] overflow-y-auto no-scrollbar">
-                <Chip
-                  size="sm"
-                  variant={tagFilters.length === 0 ? "solid" : "flat"}
-                  color={tagFilters.length === 0 ? "primary" : "default"}
-                  className="cursor-pointer transition-all hover:scale-105"
-                  onClick={() => setTagFilters([])}
-                >
-                  全部 ({forwards.length})
-                </Chip>
-                {tags.map(t => {
-                  const count = forwards.filter(f => f.tagIds?.includes(t.id.toString())).length;
-                  const isSelected = tagFilters.includes(t.id.toString());
-                  return (
-                    <Chip
-                      key={t.id}
-                      size="sm"
-                      variant={isSelected ? "solid" : "flat"}
-                      color={isSelected ? "primary" : "default"}
-                      className={`cursor-pointer transition-all hover:scale-105 ${isSelected ? 'shadow-md' : 'opacity-80 hover:opacity-100'}`}
-                      onClick={() => {
-                        if (isSelected) {
-                          setTagFilters(prev => prev.filter(id => id !== t.id.toString()));
-                        } else {
-                          setTagFilters(prev => [...prev, t.id.toString()]);
-                        }
-                      }}
-                      startContent={
-                        <div className={`w-1.5 h-1.5 rounded-full ml-1 ${t.color === 'default' ? 'bg-default-400' :
-                          t.color === 'primary' ? 'bg-white' :
-                            t.color === 'secondary' ? 'bg-white' :
-                              t.color === 'success' ? 'bg-white' :
-                                t.color === 'warning' ? 'bg-white' :
-                                  t.color === 'danger' ? 'bg-white' : `bg-${t.color}-500`
-                          }`} />
-                      }
-                    >
-                      {t.name} ({count})
-                    </Chip>
-                  );
-                })}
-              </div>
-            </div>
           </div>
         )}
 
@@ -2771,7 +2929,48 @@ export default function ForwardPage() {
           )}
         </ModalContent>
       </Modal>
-    </div >
+
+      {/* 批量打标签模态框 */}
+      <Modal
+        isOpen={batchModalOpen}
+        onOpenChange={setBatchModalOpen}
+        size="lg"
+        backdrop="blur"
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>批量打标签</ModalHeader>
+              <ModalBody>
+                <div className="space-y-4">
+                  <p className="text-sm text-default-500">将为选中的 {selectedForwardIds.length} 个转发批量应用以下标签：</p>
+                  <Select
+                    placeholder="选择标签 (多项选择)"
+                    selectionMode="multiple"
+                    selectedKeys={new Set(batchTagIds)}
+                    onSelectionChange={(keys) => setBatchTagIds(Array.from(keys) as string[])}
+                    variant="bordered"
+                  >
+                    {tags.map(t => (
+                      <SelectItem key={t.id.toString()} textValue={t.name}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
+                          <span>{t.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>取消</Button>
+                <Button color="primary" onPress={() => handleBatchUpdate('tag')}>确认应用</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+    </div>
 
   );
 } 

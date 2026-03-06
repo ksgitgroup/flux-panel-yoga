@@ -75,7 +75,28 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
         }
 
-        // 4. Initialize Diagnosis Configurations in vite_config
+        // 4. Create Diagnosis Record Table
+        try {
+            String createDiagnosisTable = "CREATE TABLE IF NOT EXISTS `diagnosis_record` (" +
+                    "`id` int(10) NOT NULL AUTO_INCREMENT," +
+                    "`target_type` varchar(20) DEFAULT NULL COMMENT 'forward 或 tunnel'," +
+                    "`target_id` int(10) DEFAULT NULL COMMENT '关联ID'," +
+                    "`target_name` varchar(100) DEFAULT NULL COMMENT '名称快照'," +
+                    "`overall_success` tinyint(1) DEFAULT NULL COMMENT '整体是否成功'," +
+                    "`results_json` text DEFAULT NULL COMMENT '详细结果'," +
+                    "`average_time` double DEFAULT NULL COMMENT '延迟'," +
+                    "`packet_loss` double DEFAULT NULL COMMENT '丢包率'," +
+                    "`created_time` bigint(20) DEFAULT NULL COMMENT '时间戳'," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_target` (`target_type`, `target_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='诊断历史记录表'";
+            jdbcTemplate.execute(createDiagnosisTable);
+            log.info("[DatabaseInit] DiagnosisRecord 表校验成功");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] DiagnosisRecord 表创建失败: {}", e.getMessage());
+        }
+
+        // 5. Initialize Diagnosis Configurations in vite_config
         try {
             jdbcTemplate.execute("INSERT IGNORE INTO `vite_config` (`name`, `value`, `description`) VALUES " +
                     "('auto_diagnosis_enabled', 'true', '是否开启后台自动诊断任务'), " +

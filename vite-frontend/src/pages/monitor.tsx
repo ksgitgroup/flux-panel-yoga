@@ -686,7 +686,7 @@ export default function MonitorPage() {
             )}
 
             {/* 趋势图区域 */}
-            {!noData && trend.length > 0 && (
+            {!noData && trend?.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <TrendChart data={trend} />
                     <LatencyTrendChart data={trend} />

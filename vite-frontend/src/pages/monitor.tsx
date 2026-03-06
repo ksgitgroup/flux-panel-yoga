@@ -485,6 +485,7 @@ export default function MonitorPage() {
     const [summary, setSummary] = useState<SummaryData | null>(null);
     const [trend, setTrend] = useState<TrendPoint[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [triggering, setTriggering] = useState(false);
     const [filter, setFilter] = useState<'all' | 'success' | 'fail'>('all');
     const [typeFilter, setTypeFilter] = useState<'all' | 'tunnel' | 'forward'>('all');
@@ -497,10 +498,16 @@ export default function MonitorPage() {
                 getDiagnosisSummary(),
                 getDiagnosisTrend({ hours: 24 })
             ]);
-            if (summaryResp.code === 0) setSummary(summaryResp.data);
+            if (summaryResp.code === 0) {
+                setSummary(summaryResp.data);
+                setError(null);
+            } else {
+                setError(summaryResp.msg || '获取数据失败');
+            }
             if (trendResp.code === 0) setTrend(trendResp.data || []);
-        } catch {
-            /* silent */
+        } catch (err) {
+            console.error('Diagnosis load error:', err);
+            setError('网络请求失败，请检查后端服务');
         } finally {
             setLoading(false);
         }
@@ -534,12 +541,13 @@ export default function MonitorPage() {
     };
 
     const filteredRecords = (summary?.records || []).filter(r => {
+        if (!r) return false;
         if (filter === 'success' && !r.overallSuccess) return false;
         if (filter === 'fail' && r.overallSuccess) return false;
         if (typeFilter !== 'all' && r.targetType !== typeFilter) return false;
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
-            return r.targetName.toLowerCase().includes(q);
+            return (r.targetName || "").toLowerCase().includes(q);
         }
         return true;
     });
@@ -553,7 +561,19 @@ export default function MonitorPage() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
-                <Spinner size="lg" label="加载诊断数据中..." />
+                <Spinner size="lg" label="正在拉取健康快照..." />
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+                <div className="p-4 bg-danger-50 dark:bg-danger-900/10 text-danger rounded-xl border border-danger-200 min-w-[300px] text-center">
+                    <p className="font-bold">页面初始化失败</p>
+                    <p className="text-sm opacity-80">{error}</p>
+                </div>
+                <Button color="primary" variant="flat" onPress={loadSummary}>重试</Button>
             </div>
         );
     }

@@ -74,6 +74,16 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
         }
+
+        // 4. Initialize Diagnosis Configurations in vite_config
+        try {
+            jdbcTemplate.execute("INSERT IGNORE INTO `vite_config` (`name`, `value`, `description`) VALUES " +
+                    "('auto_diagnosis_enabled', 'true', '是否开启后台自动诊断任务'), " +
+                    "('auto_diagnosis_interval', '30', '自动诊断间隔时间(分钟)')");
+            log.info("[DatabaseInit] 自动诊断配置项初始化成功");
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 尝试初始化诊断配置项时发生异常: {}", e.getMessage());
+        }
         
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }

@@ -118,12 +118,11 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             }
         }
 
-        // 3. 发送企业微信通知
         if (wechatEnabled && !failureMessages.isEmpty()) {
             sendWeChatAlert(webhookUrl, failureMessages, tunnels.size(), forwards.size());
         }
 
-        log.info("[自动诊断] 全量诊断完成，共 {} 个隧道，{} 个转发，发现 {} 个异常",
+        log.info("[自动诊断] 全量诊断完成，处理资源合计: {} 个隧道，{} 个转发，异常数: {}",
                 tunnels.size(), forwards.size(), failureMessages.size());
     }
 
@@ -323,37 +322,49 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
     // 私有工具方法
     // ────────────────────────────────────────────────
 
-    /** 判断诊断报告中所有 results 是否全部成功 */
     @SuppressWarnings("unchecked")
     private boolean isAllSuccess(Object data) {
         if (data == null) return false;
         try {
-            JSONObject obj = JSON.parseObject(JSON.toJSONString(data));
+            String jsonStr = JSON.toJSONString(data);
+            JSONObject obj = JSON.parseObject(jsonStr);
+            if (obj == null) return false;
+            
             Object resultsObj = obj.get("results");
             if (resultsObj == null) return false;
+            
             List<JSONObject> results = (List<JSONObject>) JSON.parseArray(JSON.toJSONString(resultsObj), JSONObject.class);
-            return results.stream().allMatch(r -> Boolean.TRUE.equals(r.getBoolean("success")));
+            if (results == null || results.isEmpty()) return false;
+            
+            return results.stream()
+                    .filter(Objects::nonNull)
+                    .allMatch(r -> Boolean.TRUE.equals(r.getBoolean("success")));
         } catch (Exception e) {
+            log.warn("[自动诊断] 校验全量成功异常: {}", e.getMessage());
             return false;
         }
     }
 
-    /** 从诊断结果中提取平均延迟和丢包率 [averageTime, packetLoss] */
     @SuppressWarnings("unchecked")
     private double[] extractMetrics(Object data) {
         double avgTime = -1;
         double avgLoss = -1;
         if (data == null) return new double[]{avgTime, avgLoss};
         try {
-            JSONObject obj = JSON.parseObject(JSON.toJSONString(data));
+            String jsonStr = JSON.toJSONString(data);
+            JSONObject obj = JSON.parseObject(jsonStr);
+            if (obj == null) return new double[]{avgTime, avgLoss};
+            
             Object resultsObj = obj.get("results");
             if (resultsObj == null) return new double[]{avgTime, avgLoss};
+            
             List<JSONObject> results = (List<JSONObject>) JSON.parseArray(JSON.toJSONString(resultsObj), JSONObject.class);
+            if (results == null) return new double[]{avgTime, avgLoss};
 
             List<Double> times = new ArrayList<>();
             List<Double> losses = new ArrayList<>();
             for (JSONObject r : results) {
-                if (Boolean.TRUE.equals(r.getBoolean("success"))) {
+                if (r != null && Boolean.TRUE.equals(r.getBoolean("success"))) {
                     Double at = r.getDouble("averageTime");
                     Double pl = r.getDouble("packetLoss");
                     if (at != null && at >= 0) times.add(at);
@@ -375,17 +386,29 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
     /** 提取失败原因摘要 */
     @SuppressWarnings("unchecked")
     private String extractFailureReason(Object data) {
-        if (data == null) return "无响应";
+        if (data == null) return "无可诊断数据";
         try {
-            JSONObject obj = JSON.parseObject(JSON.toJSONString(data));
+            String jsonStr = JSON.toJSONString(data);
+            JSONObject obj = JSON.parseObject(jsonStr);
+            if (obj == null || obj.get("results") == null) return "结果解析为空";
+            
             List<JSONObject> results = (List<JSONObject>) JSON.parseArray(
                     JSON.toJSONString(obj.get("results")), JSONObject.class);
-            return results.stream()
+            if (results == null) return "链路结果为空";
+            
+            String reasons = results.stream()
+                    .filter(Objects::nonNull)
                     .filter(r -> !Boolean.TRUE.equals(r.getBoolean("success")))
-                    .map(r -> r.getString("description") + ": " + r.getString("message"))
+                    .map(r -> {
+                        String desc = r.getString("description") != null ? r.getString("description") : "未知步骤";
+                        String msg = r.getString("message") != null ? r.getString("message") : "错误描述为空";
+                        return desc + ": " + msg;
+                    })
                     .collect(Collectors.joining("; "));
+            return reasons.isEmpty() ? "全部步骤成功，但整体判定异常" : reasons;
         } catch (Exception e) {
-            return "解析异常";
+            log.warn("[自动诊断] 解析失败原因异常: {}", e.getMessage());
+            return "解析异常: " + e.getMessage();
         }
     }
 

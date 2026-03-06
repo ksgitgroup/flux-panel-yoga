@@ -18,6 +18,8 @@ export interface User {
   createdTime?: number; // 创建时间戳
   inFlow?: number; // 下载流量(字节)
   outFlow?: number; // 上传流量(字节)
+  twoFactorEnabled?: number | boolean;
+  twoFactorBoundAt?: number;
 }
 
 export interface UserForm {

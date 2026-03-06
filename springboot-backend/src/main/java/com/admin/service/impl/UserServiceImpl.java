@@ -9,6 +9,7 @@ import com.admin.common.lang.R;
 import com.admin.common.utils.GostUtil;
 import com.admin.common.utils.JwtUtil;
 import com.admin.common.utils.Md5Util;
+import com.admin.common.utils.TotpUtil;
 import com.admin.entity.*;
 import com.admin.mapper.ForwardMapper;
 import com.admin.mapper.UserMapper;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -77,6 +79,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private static final String ERROR_GET_PACKAGE_INFO_FAILED = "获取套餐信息失败";
     private static final String ERROR_CURRENT_PASSWORD_WRONG = "当前密码错误";
     private static final String ERROR_PASSWORD_NOT_MATCH = "新密码和确认密码不匹配";
+    private static final String ERROR_DEFAULT_CREDENTIALS_MUST_CHANGE = "首次初始化必须同时修改默认用户名和默认密码";
+    private static final String ERROR_TWO_FACTOR_CODE_REQUIRED = "该账号已启用二步验证，请输入6位验证码";
+    private static final String ERROR_TWO_FACTOR_CODE_INVALID = "二步验证码错误或已过期";
+    private static final String ERROR_TWO_FACTOR_NOT_ENABLED = "当前账号尚未启用二步验证";
+    private static final String ERROR_TWO_FACTOR_SETUP_REQUIRED = "请先生成二步验证密钥，再完成绑定";
+    private static final String ERROR_TWO_FACTOR_ALREADY_ENABLED = "当前账号已启用二步验证，如需重新绑定请先关闭";
 
     /** 默认账号密码 */
     private static final String DEFAULT_USERNAME = "admin_user";
@@ -148,18 +156,30 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return R.err(validationResult.getErrorMessage());
         }
 
-        // 3. 生成令牌并返回用户信息
+        // 3. 如已启用 2FA，则校验一次性验证码
         User user = validationResult.getUser();
+        if (isTwoFactorEnabled(user)) {
+            String code = loginDto.getTwoFactorCode();
+            if (StringUtils.isBlank(code)) {
+                return R.err(ERROR_TWO_FACTOR_CODE_REQUIRED);
+            }
+            if (!TotpUtil.verifyCode(user.getTwoFactorSecret(), code.trim())) {
+                return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
+            }
+        }
+
+        // 4. 生成令牌并返回用户信息
         String token = JwtUtil.generateToken(user);
         
-        // 4. 检查是否使用默认账号密码
-        boolean requirePasswordChange = isDefaultCredentials(loginDto.getUsername(), loginDto.getPassword());
+        // 5. 检查是否仍在使用默认凭据
+        boolean requirePasswordChange = requiresCredentialReset(user);
         
         return R.ok(MapUtil.builder()
                 .put(LOGIN_TOKEN_FIELD, token)
                 .put(LOGIN_NAME_FIELD, user.getUser())
                 .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
                 .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
+                .put("twoFactorEnabled", isTwoFactorEnabled(user))
                 .build());
     }
 
@@ -198,7 +218,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public R getAllUsers() {
-        return R.ok(this.list(new QueryWrapper<User>().ne("role_id", ADMIN_ROLE_ID)));
+        List<User> users = this.list(new QueryWrapper<User>().ne("role_id", ADMIN_ROLE_ID));
+        users.forEach(item -> {
+            item.setPwd(null);
+            item.setTwoFactorSecret(null);
+        });
+        return R.ok(users);
     }
 
     /**
@@ -321,7 +346,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 return R.err(ERROR_CURRENT_PASSWORD_WRONG);
             }
 
-            // 4. 验证新用户名唯一性（如果与当前用户名不同）
+            // 4. 首次初始化时，必须同时替换掉默认用户名和默认密码
+            if (requiresCredentialReset(user)) {
+                if (DEFAULT_USERNAME.equals(changePasswordDto.getNewUsername())
+                        || DEFAULT_PASSWORD.equals(changePasswordDto.getNewPassword())) {
+                    return R.err(ERROR_DEFAULT_CREDENTIALS_MUST_CHANGE);
+                }
+            }
+
+            // 5. 验证新用户名唯一性（如果与当前用户名不同）
             if (!user.getUser().equals(changePasswordDto.getNewUsername())) {
                 R usernameValidationResult = validateUsernameUniqueness(changePasswordDto.getNewUsername(), user.getId());
                 if (usernameValidationResult.getCode() != 0) {
@@ -329,7 +362,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 }
             }
 
-            // 5. 更新用户名和密码
+            // 6. 更新用户名和密码
             User updateUser = new User();
             updateUser.setId(user.getId());
             updateUser.setUser(changePasswordDto.getNewUsername());
@@ -343,6 +376,109 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             e.printStackTrace();
             return R.err("修改账号密码时发生错误：" + e.getMessage());
         }
+    }
+
+    @Override
+    public R getTwoFactorStatus() {
+        CurrentUserInfo currentUser = getCurrentUserInfo();
+        if (currentUser.isHasError()) {
+            return R.err(currentUser.getErrorMessage());
+        }
+
+        User user = currentUser.getUser();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("enabled", isTwoFactorEnabled(user));
+        result.put("boundAt", user.getTwoFactorBoundAt());
+        result.put("username", user.getUser());
+        result.put("issuer", buildTwoFactorIssuer());
+        return R.ok(result);
+    }
+
+    @Override
+    public R prepareTwoFactorSetup() {
+        CurrentUserInfo currentUser = getCurrentUserInfo();
+        if (currentUser.isHasError()) {
+            return R.err(currentUser.getErrorMessage());
+        }
+
+        User user = currentUser.getUser();
+        if (isTwoFactorEnabled(user)) {
+            return R.err(ERROR_TWO_FACTOR_ALREADY_ENABLED);
+        }
+        String secret = TotpUtil.generateSecret();
+        User updateUser = new User();
+        updateUser.setId(user.getId());
+        updateUser.setTwoFactorSecret(secret);
+        updateUser.setTwoFactorEnabled(0);
+        updateUser.setTwoFactorBoundAt(null);
+        updateUser.setUpdatedTime(System.currentTimeMillis());
+        this.updateById(updateUser);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("enabled", false);
+        result.put("secret", secret);
+        result.put("issuer", buildTwoFactorIssuer());
+        result.put("username", user.getUser());
+        result.put("otpauthUri", TotpUtil.buildOtpAuthUri(buildTwoFactorIssuer(), user.getUser(), secret));
+        return R.ok(result);
+    }
+
+    @Override
+    public R enableTwoFactor(TwoFactorEnableDto twoFactorEnableDto) {
+        CurrentUserInfo currentUser = getCurrentUserInfo();
+        if (currentUser.isHasError()) {
+            return R.err(currentUser.getErrorMessage());
+        }
+
+        User user = currentUser.getUser();
+        if (isTwoFactorEnabled(user)) {
+            return R.err(ERROR_TWO_FACTOR_ALREADY_ENABLED);
+        }
+        if (!Objects.equals(user.getPwd(), Md5Util.md5(twoFactorEnableDto.getCurrentPassword()))) {
+            return R.err(ERROR_CURRENT_PASSWORD_WRONG);
+        }
+        if (StringUtils.isBlank(user.getTwoFactorSecret())) {
+            return R.err(ERROR_TWO_FACTOR_SETUP_REQUIRED);
+        }
+        if (!TotpUtil.verifyCode(user.getTwoFactorSecret(), twoFactorEnableDto.getOneTimeCode())) {
+            return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
+        }
+
+        User updateUser = new User();
+        updateUser.setId(user.getId());
+        updateUser.setTwoFactorEnabled(1);
+        updateUser.setTwoFactorBoundAt(System.currentTimeMillis());
+        updateUser.setUpdatedTime(System.currentTimeMillis());
+        boolean result = this.updateById(updateUser);
+        return result ? R.ok("二步验证已启用") : R.err(ERROR_UPDATE_FAILED);
+    }
+
+    @Override
+    public R disableTwoFactor(TwoFactorDisableDto twoFactorDisableDto) {
+        CurrentUserInfo currentUser = getCurrentUserInfo();
+        if (currentUser.isHasError()) {
+            return R.err(currentUser.getErrorMessage());
+        }
+
+        User user = currentUser.getUser();
+        if (!isTwoFactorEnabled(user)) {
+            return R.err(ERROR_TWO_FACTOR_NOT_ENABLED);
+        }
+        if (!Objects.equals(user.getPwd(), Md5Util.md5(twoFactorDisableDto.getCurrentPassword()))) {
+            return R.err(ERROR_CURRENT_PASSWORD_WRONG);
+        }
+        if (!TotpUtil.verifyCode(user.getTwoFactorSecret(), twoFactorDisableDto.getOneTimeCode())) {
+            return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
+        }
+
+        User updateUser = new User();
+        updateUser.setId(user.getId());
+        updateUser.setTwoFactorEnabled(0);
+        updateUser.setTwoFactorSecret(null);
+        updateUser.setTwoFactorBoundAt(null);
+        updateUser.setUpdatedTime(System.currentTimeMillis());
+        boolean result = this.updateById(updateUser);
+        return result ? R.ok("二步验证已关闭") : R.err(ERROR_UPDATE_FAILED);
     }
 
     @Override
@@ -400,6 +536,31 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return DEFAULT_USERNAME.equals(username) || DEFAULT_PASSWORD.equals(password);
     }
 
+    private boolean requiresCredentialReset(User user) {
+        return user != null
+                && (DEFAULT_USERNAME.equals(user.getUser()) || Md5Util.md5(DEFAULT_PASSWORD).equals(user.getPwd()));
+    }
+
+    private boolean isTwoFactorEnabled(User user) {
+        return user != null
+                && Objects.equals(user.getTwoFactorEnabled(), 1)
+                && StringUtils.isNotBlank(user.getTwoFactorSecret());
+    }
+
+    private String buildTwoFactorIssuer() {
+        String appName = getConfigValue("app_name", "flux-panel");
+        String environment = getConfigValue("site_environment_name", "DEFAULT");
+        return appName + " " + environment;
+    }
+
+    private String getConfigValue(String key, String defaultValue) {
+        ViteConfig viteConfig = viteConfigService.getOne(new QueryWrapper<ViteConfig>().eq("name", key));
+        if (viteConfig == null || StringUtils.isBlank(viteConfig.getValue())) {
+            return defaultValue;
+        }
+        return viteConfig.getValue().trim();
+    }
+
     /**
      * 验证用户名唯一性
      * 
@@ -438,6 +599,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 设置默认属性
         user.setStatus(userDto.getStatus() != null ? userDto.getStatus() : USER_STATUS_ACTIVE);
         user.setRoleId(USER_ROLE_ID);
+        user.setTwoFactorEnabled(0);
+        user.setTwoFactorSecret(null);
+        user.setTwoFactorBoundAt(null);
         
         // 设置时间戳
         long currentTime = System.currentTimeMillis();

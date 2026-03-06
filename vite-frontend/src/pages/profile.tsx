@@ -1,13 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from "@heroui/modal";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { Input } from "@heroui/input";
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+
 import { siteConfig } from '@/config/site';
-import { updatePassword } from '@/api';
+import {
+  disableTwoFactor,
+  enableTwoFactor,
+  getTwoFactorStatus,
+  setupTwoFactor,
+  updatePassword
+} from '@/api';
 import { safeLogout } from '@/utils/logout';
+
 interface PasswordForm {
   newUsername: string;
   currentPassword: string;
@@ -15,6 +23,22 @@ interface PasswordForm {
   confirmPassword: string;
 }
 
+interface TwoFactorStatusState {
+  enabled: boolean;
+  boundAt?: number;
+  username: string;
+  issuer: string;
+}
+
+interface TwoFactorSetupState extends TwoFactorStatusState {
+  secret: string;
+  otpauthUri: string;
+}
+
+interface TwoFactorCodeForm {
+  currentPassword: string;
+  oneTimeCode: string;
+}
 
 interface MenuItem {
   path: string;
@@ -26,35 +50,30 @@ interface MenuItem {
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [twoFactorSetupOpen, setTwoFactorSetupOpen] = useState(false);
+  const [twoFactorDisableOpen, setTwoFactorDisableOpen] = useState(false);
+  const [twoFactorStatus, setTwoFactorStatus] = useState<TwoFactorStatusState | null>(null);
+  const [twoFactorSetupData, setTwoFactorSetupData] = useState<TwoFactorSetupState | null>(null);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: ''
   });
+  const [enableForm, setEnableForm] = useState<TwoFactorCodeForm>({
+    currentPassword: '',
+    oneTimeCode: ''
+  });
+  const [disableForm, setDisableForm] = useState<TwoFactorCodeForm>({
+    currentPassword: '',
+    oneTimeCode: ''
+  });
 
-  useEffect(() => {
-    // 获取用户信息
-    const name = localStorage.getItem('name') || 'Admin';
-    
-    // 兼容处理：如果没有admin字段，根据role_id判断（0为管理员）
-    let adminFlag = localStorage.getItem('admin') === 'true';
-    if (localStorage.getItem('admin') === null) {
-      const roleId = parseInt(localStorage.getItem('role_id') || '1', 10);
-      adminFlag = roleId === 0;
-      // 补充设置admin字段，避免下次再次判断
-      localStorage.setItem('admin', adminFlag.toString());
-    }
-    
-    setUsername(name);
-    setIsAdmin(adminFlag);
-  }, []);
-
-  // 管理员菜单项
   const adminMenuItems: MenuItem[] = [
     {
       path: '/limit',
@@ -91,13 +110,41 @@ export default function ProfilePage() {
     }
   ];
 
-  // 退出登录
+  useEffect(() => {
+    const name = localStorage.getItem('name') || 'Admin';
+
+    let adminFlag = localStorage.getItem('admin') === 'true';
+    if (localStorage.getItem('admin') === null) {
+      const roleId = parseInt(localStorage.getItem('role_id') || '1', 10);
+      adminFlag = roleId === 0;
+      localStorage.setItem('admin', adminFlag.toString());
+    }
+
+    setUsername(name);
+    setIsAdmin(adminFlag);
+    setPasswordForm(prev => ({ ...prev, newUsername: name }));
+    void loadTwoFactorStatus();
+  }, []);
+
+  const loadTwoFactorStatus = async () => {
+    try {
+      const response = await getTwoFactorStatus();
+      if (response.code === 0) {
+        setTwoFactorStatus(response.data);
+      } else {
+        toast.error(response.msg || '读取二步验证状态失败');
+      }
+    } catch (error) {
+      console.error('读取二步验证状态失败:', error);
+      toast.error('读取二步验证状态失败');
+    }
+  };
+
   const handleLogout = () => {
     safeLogout();
     navigate('/', { replace: true });
   };
 
-  // 密码表单验证
   const validatePasswordForm = (): boolean => {
     if (!passwordForm.newUsername.trim()) {
       toast.error('请输入新用户名');
@@ -126,7 +173,6 @@ export default function ProfilePage() {
     return true;
   };
 
-  // 提交密码修改
   const handlePasswordSubmit = async () => {
     if (!validatePasswordForm()) return;
 
@@ -135,7 +181,7 @@ export default function ProfilePage() {
       const response = await updatePassword(passwordForm);
       if (response.code === 0) {
         toast.success('密码修改成功，请重新登录');
-        onOpenChange();
+        setPasswordModalOpen(false);
         handleLogout();
       } else {
         toast.error(response.msg || '密码修改失败');
@@ -148,23 +194,128 @@ export default function ProfilePage() {
     }
   };
 
-  // 重置密码表单
   const resetPasswordForm = () => {
     setPasswordForm({
-      newUsername: '',
+      newUsername: username,
       currentPassword: '',
       newPassword: '',
       confirmPassword: ''
     });
   };
 
+  const resetEnableForm = () => {
+    setEnableForm({
+      currentPassword: '',
+      oneTimeCode: ''
+    });
+  };
+
+  const resetDisableForm = () => {
+    setDisableForm({
+      currentPassword: '',
+      oneTimeCode: ''
+    });
+  };
+
+  const copyToClipboard = async (content: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      toast.success(`${label}已复制`);
+    } catch (error) {
+      console.error(`复制${label}失败:`, error);
+      toast.error(`复制${label}失败`);
+    }
+  };
+
+  const handleStartTwoFactorSetup = async () => {
+    setTwoFactorLoading(true);
+    try {
+      const response = await setupTwoFactor();
+      if (response.code === 0) {
+        setTwoFactorSetupData(response.data);
+        resetEnableForm();
+        setTwoFactorSetupOpen(true);
+      } else {
+        toast.error(response.msg || '初始化二步验证失败');
+      }
+    } catch (error) {
+      console.error('初始化二步验证失败:', error);
+      toast.error('初始化二步验证失败');
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleEnableTwoFactor = async () => {
+    if (!enableForm.currentPassword.trim()) {
+      toast.error('请输入当前密码');
+      return;
+    }
+    if (!/^\d{6}$/.test(enableForm.oneTimeCode.trim())) {
+      toast.error('请输入 6 位二步验证码');
+      return;
+    }
+
+    setTwoFactorLoading(true);
+    try {
+      const response = await enableTwoFactor({
+        currentPassword: enableForm.currentPassword,
+        oneTimeCode: enableForm.oneTimeCode.trim()
+      });
+      if (response.code === 0) {
+        toast.success(response.msg || '二步验证已启用');
+        setTwoFactorSetupOpen(false);
+        setTwoFactorSetupData(null);
+        resetEnableForm();
+        await loadTwoFactorStatus();
+      } else {
+        toast.error(response.msg || '启用二步验证失败');
+      }
+    } catch (error) {
+      console.error('启用二步验证失败:', error);
+      toast.error('启用二步验证失败');
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleDisableTwoFactor = async () => {
+    if (!disableForm.currentPassword.trim()) {
+      toast.error('请输入当前密码');
+      return;
+    }
+    if (!/^\d{6}$/.test(disableForm.oneTimeCode.trim())) {
+      toast.error('请输入 6 位二步验证码');
+      return;
+    }
+
+    setTwoFactorLoading(true);
+    try {
+      const response = await disableTwoFactor({
+        currentPassword: disableForm.currentPassword,
+        oneTimeCode: disableForm.oneTimeCode.trim()
+      });
+      if (response.code === 0) {
+        toast.success(response.msg || '二步验证已关闭');
+        setTwoFactorDisableOpen(false);
+        resetDisableForm();
+        await loadTwoFactorStatus();
+      } else {
+        toast.error(response.msg || '关闭二步验证失败');
+      }
+    } catch (error) {
+      console.error('关闭二步验证失败:', error);
+      toast.error('关闭二步验证失败');
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
   return (
     <div className="px-3 lg:px-6 py-8 flex flex-col h-full">
-
       <div className="space-y-6 flex-1">
-        {/* 用户信息卡片 */}
         <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
-          <CardBody className="p-4">
+          <CardBody className="p-5">
             <div className="flex items-center space-x-4">
               <div className="w-12 h-12 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center">
                 <svg className="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 20 20">
@@ -173,13 +324,20 @@ export default function ProfilePage() {
               </div>
               <div className="flex-1">
                 <h3 className="text-base font-medium text-foreground">{username}</h3>
-                <div className="flex items-center space-x-2 mt-1">
+                <div className="flex items-center flex-wrap gap-2 mt-1">
                   <span className={`px-2 py-1 rounded-md text-xs font-medium ${
-                    isAdmin 
-                      ? 'bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300' 
+                    isAdmin
+                      ? 'bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300'
                       : 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
                   }`}>
                     {isAdmin ? '管理员' : '普通用户'}
+                  </span>
+                  <span className={`px-2 py-1 rounded-md text-xs font-medium ${
+                    twoFactorStatus?.enabled
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                      : 'bg-default-100 text-default-600 dark:bg-default-200 dark:text-default-500'
+                  }`}>
+                    {twoFactorStatus?.enabled ? '2FA 已启用' : '2FA 未启用'}
                   </span>
                   <span className="text-xs text-default-500">
                     {new Date().toLocaleDateString('zh-CN')}
@@ -190,15 +348,64 @@ export default function ProfilePage() {
           </CardBody>
         </Card>
 
-        {/* 功能网格 */}
+        <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+          <CardBody className="p-5 space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">登录二步验证</h3>
+                <p className="text-sm text-default-500 mt-1">
+                  使用 Google Authenticator、Microsoft Authenticator、1Password 等支持 TOTP 的应用生成 6 位动态验证码。
+                </p>
+              </div>
+              <Button
+                color={twoFactorStatus?.enabled ? 'danger' : 'primary'}
+                variant={twoFactorStatus?.enabled ? 'flat' : 'solid'}
+                onPress={() => {
+                  if (twoFactorStatus?.enabled) {
+                    resetDisableForm();
+                    setTwoFactorDisableOpen(true);
+                  } else {
+                    void handleStartTwoFactorSetup();
+                  }
+                }}
+                isLoading={twoFactorLoading}
+              >
+                {twoFactorStatus?.enabled ? '关闭验证' : '开始设置'}
+              </Button>
+            </div>
+
+            <div className="rounded-2xl bg-default-50 dark:bg-default-100 px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    {twoFactorStatus?.enabled ? '当前账号已开启额外验证' : '当前账号仅使用账号密码登录'}
+                  </div>
+                  <div className="mt-1 text-xs text-default-500">
+                    {twoFactorStatus?.enabled
+                      ? `绑定时间：${twoFactorStatus?.boundAt ? new Date(twoFactorStatus.boundAt).toLocaleString('zh-CN') : '已绑定'}`
+                      : '建议为管理员账号启用二步验证，降低凭据泄露风险。'}
+                  </div>
+                </div>
+                <div className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  twoFactorStatus?.enabled
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                    : 'bg-default-200 text-default-700 dark:bg-default-300 dark:text-default-600'
+                }`}>
+                  {twoFactorStatus?.enabled ? '已保护' : '未保护'}
+                </div>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+
         <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
           <CardBody className="p-4">
             <div className="grid grid-cols-3 gap-3">
-              {/* 管理员功能 */}
               {isAdmin && adminMenuItems.map((item) => (
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
+                  title={item.description}
                   className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
                 >
                   <div className={`w-10 h-10 ${item.color} rounded-full flex items-center justify-center mb-2`}>
@@ -207,10 +414,12 @@ export default function ProfilePage() {
                   <span className="text-xs text-foreground text-center">{item.label}</span>
                 </button>
               ))}
-              
-              {/* 修改密码 */}
+
               <button
-                onClick={onOpen}
+                onClick={() => {
+                  resetPasswordForm();
+                  setPasswordModalOpen(true);
+                }}
                 className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
               >
                 <div className="w-10 h-10 bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mb-2">
@@ -220,8 +429,7 @@ export default function ProfilePage() {
                 </div>
                 <span className="text-xs text-foreground text-center">修改密码</span>
               </button>
-              
-              {/* 退出登录 */}
+
               <button
                 onClick={handleLogout}
                 className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
@@ -236,30 +444,24 @@ export default function ProfilePage() {
             </div>
           </CardBody>
         </Card>
-        
+
         <div className="fixed inset-x-0 bottom-20 text-center py-4">
-               <p className="text-xs text-gray-400 dark:text-gray-500">
-                 {siteConfig.release_version} · {siteConfig.build_revision}
-               </p>
-             </div>
-        
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            {siteConfig.release_version} · {siteConfig.build_revision}
+          </p>
+        </div>
       </div>
 
-
-      
-
-
-      {/* 修改密码弹窗 */}
-      <Modal 
-        isOpen={isOpen} 
-        onOpenChange={() => {
-          onOpenChange();
-          resetPasswordForm();
+      <Modal
+        isOpen={passwordModalOpen}
+        onOpenChange={(open) => {
+          setPasswordModalOpen(open);
+          if (!open) resetPasswordForm();
         }}
         size="2xl"
-      scrollBehavior="outside"
-      backdrop="blur"
-      placement="center"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
       >
         <ModalContent>
           {(onClose: () => void) => (
@@ -304,12 +506,153 @@ export default function ProfilePage() {
                 <Button color="default" variant="light" onPress={onClose}>
                   取消
                 </Button>
-                <Button 
-                  color="primary" 
+                <Button
+                  color="primary"
                   onPress={handlePasswordSubmit}
                   isLoading={passwordLoading}
                 >
                   确定
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        isOpen={twoFactorSetupOpen}
+        onOpenChange={(open) => {
+          setTwoFactorSetupOpen(open);
+          if (!open) {
+            resetEnableForm();
+          }
+        }}
+        size="3xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
+      >
+        <ModalContent>
+          {(onClose: () => void) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">启用二步验证</ModalHeader>
+              <ModalBody>
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700">
+                    <div>1. 在认证器应用中新建 TOTP 账户</div>
+                    <div>2. 账户名建议使用：{twoFactorSetupData?.username || username}</div>
+                    <div>3. 手动输入下方密钥，或复制绑定地址到支持的应用中</div>
+                  </div>
+
+                  <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
+                    <div className="text-xs text-default-500">Issuer</div>
+                    <div className="mt-1 text-sm font-medium text-foreground">{twoFactorSetupData?.issuer}</div>
+                  </div>
+
+                  <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs text-default-500">密钥</div>
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => twoFactorSetupData?.secret && copyToClipboard(twoFactorSetupData.secret, '密钥')}
+                      >
+                        复制密钥
+                      </Button>
+                    </div>
+                    <div className="mt-2 break-all font-mono text-sm text-foreground">{twoFactorSetupData?.secret}</div>
+                  </div>
+
+                  <div className="rounded-xl bg-default-50 dark:bg-default-100 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs text-default-500">绑定地址</div>
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => twoFactorSetupData?.otpauthUri && copyToClipboard(twoFactorSetupData.otpauthUri, '绑定地址')}
+                      >
+                        复制地址
+                      </Button>
+                    </div>
+                    <div className="mt-2 break-all text-sm text-foreground">{twoFactorSetupData?.otpauthUri}</div>
+                  </div>
+
+                  <Input
+                    label="当前密码"
+                    type="password"
+                    placeholder="请输入当前登录密码"
+                    value={enableForm.currentPassword}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnableForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                    variant="bordered"
+                  />
+
+                  <Input
+                    label="6 位验证码"
+                    placeholder="请输入认证器当前显示的 6 位验证码"
+                    value={enableForm.oneTimeCode}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnableForm(prev => ({ ...prev, oneTimeCode: e.target.value.replace(/[^\d]/g, '').slice(0, 6) }))}
+                    variant="bordered"
+                  />
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button color="default" variant="light" onPress={onClose}>
+                  取消
+                </Button>
+                <Button color="primary" onPress={handleEnableTwoFactor} isLoading={twoFactorLoading}>
+                  确认启用
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        isOpen={twoFactorDisableOpen}
+        onOpenChange={(open) => {
+          setTwoFactorDisableOpen(open);
+          if (!open) {
+            resetDisableForm();
+          }
+        }}
+        size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
+      >
+        <ModalContent>
+          {(onClose: () => void) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">关闭二步验证</ModalHeader>
+              <ModalBody>
+                <div className="rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+                  关闭后，登录将只依赖账号密码。请确认当前环境已经有其他安全保护措施。
+                </div>
+
+                <Input
+                  label="当前密码"
+                  type="password"
+                  placeholder="请输入当前登录密码"
+                  value={disableForm.currentPassword}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDisableForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                  variant="bordered"
+                />
+
+                <Input
+                  label="6 位验证码"
+                  placeholder="请输入认证器当前显示的 6 位验证码"
+                  value={disableForm.oneTimeCode}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDisableForm(prev => ({ ...prev, oneTimeCode: e.target.value.replace(/[^\d]/g, '').slice(0, 6) }))}
+                  variant="bordered"
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button color="default" variant="light" onPress={onClose}>
+                  取消
+                </Button>
+                <Button color="danger" onPress={handleDisableTwoFactor} isLoading={twoFactorLoading}>
+                  确认关闭
                 </Button>
               </ModalFooter>
             </>

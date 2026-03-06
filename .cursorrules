@@ -6,6 +6,7 @@
 - **Docker Verification**: For major architectural changes, run `./scripts/build_docker.sh` to verify full image build integrity.
 - **Local Runtime Refresh**: After `./scripts/build_docker.sh`, if localhost needs to reflect the new code, ALWAYS run `./scripts/reload_local_stack.sh` before claiming the local UI/backend has updated.
 - **CI Safety**: Before pushing CI changes, ensure `./scripts/verify_build.sh` passes its YAML syntax validation. In `.gitlab-ci.yml`, do not introduce dependencies on `node`, `python`, `jq`, or other non-guaranteed runner tools unless runner capability is explicitly verified.
+- **Release MR Discipline**: Any `dev -> main` release MR must use the repository template and must not use a bare title like `dev`. Fill out release summary, change list, local verification, and rollback plan. CI now enforces this through `scripts/validate_release_mr.sh`.
 - **Import Management**: Ensure all DTOs and entities are properly imported and field names are matched correctly (e.g., `remoteAddr`).
 - **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.3). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
 

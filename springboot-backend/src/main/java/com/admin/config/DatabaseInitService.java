@@ -97,6 +97,16 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
         }
 
+        // 3.1 Modify User Table for 2FA
+        try {
+            updateColumn("user", "two_factor_enabled", "tinyint(1) DEFAULT 0 COMMENT '是否启用TOTP二步验证'");
+            updateColumn("user", "two_factor_secret", "varchar(128) DEFAULT NULL COMMENT 'TOTP密钥，仅启用2FA时保存'");
+            updateColumn("user", "two_factor_bound_at", "bigint(20) DEFAULT NULL COMMENT '2FA绑定完成时间'");
+            log.info("[DatabaseInit] User 表 2FA 字段增量升级检测完成");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] User 表 2FA 字段升级失败: {}", e.getMessage());
+        }
+
         // 4. Initialize vite_config diagnosis and alert settings
         try {
             updateColumn("vite_config", "description", "varchar(255) DEFAULT NULL COMMENT '配置描述'");

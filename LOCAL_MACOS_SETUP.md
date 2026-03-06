@@ -143,6 +143,17 @@ git push origin main
 
 之后在 GitLab 中手动确认生产部署任务。
 
+如果是通过 Merge Request 从 `dev` 合入 `main`，先在本地生成建议标题与描述：
+
+```bash
+./scripts/prepare_release_mr.sh
+```
+
+仓库已提供默认 MR 模板 `.gitlab/merge_request_templates/Default.md`，并在 GitLab CI 中校验：
+
+- 标题不能只写 `dev`
+- 必须填写“发布摘要 / 本次变更 / 本地验证 / 风险与回滚”
+
 ## 7. 当前项目对这台 Mac 的关键注意点
 
 - 后端必须使用 Java 21

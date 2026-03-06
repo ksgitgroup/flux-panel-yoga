@@ -18,6 +18,7 @@ interface LoginForm {
   username: string;
   password: string;
   captchaId: string;
+  twoFactorCode: string;
 }
 
 
@@ -45,6 +46,7 @@ export default function IndexPage() {
     username: "",
     password: "",
     captchaId: "",
+    twoFactorCode: "",
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
@@ -75,6 +77,9 @@ export default function IndexPage() {
       newErrors.password = '密码长度至少6位';
     }
 
+    if (form.twoFactorCode && !/^\d{6}$/.test(form.twoFactorCode.trim())) {
+      newErrors.twoFactorCode = '二步验证码必须是6位数字';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -110,13 +115,11 @@ export default function IndexPage() {
         validCaptchaUrl: `${baseURL}captcha/verify`, 
         bindEl: "#captcha-container",
         validSuccess: (res: any, _: any, tac: any) => {
-          
-
-          form.captchaId = res.data.validToken
-
+          const validToken = res?.data?.validToken || '';
+          setForm(prev => ({ ...prev, captchaId: validToken }));
           setShowCaptcha(false);
           tac.destroyWindow();
-          performLogin();
+          performLogin(validToken);
         },
         validFail: (_: any, _captcha: any, tac: any) => {
           tac.reloadCaptcha();
@@ -158,14 +161,13 @@ export default function IndexPage() {
   };
 
   // 执行登录请求
-  const performLogin = async () => {
-
-
+  const performLogin = async (captchaIdOverride?: string) => {
     try {
       const loginData: LoginData = {
         username: form.username.trim(),
         password: form.password,
-        captchaId: form.captchaId,
+        captchaId: captchaIdOverride ?? form.captchaId,
+        twoFactorCode: form.twoFactorCode.trim() || undefined,
       };
 
       const response = await login(loginData);
@@ -181,6 +183,7 @@ export default function IndexPage() {
         localStorage.setItem("role_id", response.data.role_id.toString());
         localStorage.setItem("name", response.data.name);
         localStorage.setItem("admin", (response.data.role_id === 0).toString());
+        localStorage.setItem('force_password_change', 'true');
         toast.success('检测到默认密码，即将跳转到修改密码页面');
         navigate("/change-password");
         return;
@@ -191,6 +194,7 @@ export default function IndexPage() {
       localStorage.setItem("role_id", response.data.role_id.toString());
       localStorage.setItem("name", response.data.name);
       localStorage.setItem("admin", (response.data.role_id === 0).toString());
+      localStorage.removeItem('force_password_change');
 
       // 登录成功
       toast.success('登录成功');
@@ -278,6 +282,19 @@ export default function IndexPage() {
                   variant="bordered"
                   isDisabled={loading}
                   isInvalid={!!errors.password}
+                  errorMessage={errors.password}
+                />
+
+                <Input
+                  label="二步验证码"
+                  placeholder="如已启用，请输入 6 位验证码"
+                  value={form.twoFactorCode}
+                  onChange={(e) => handleInputChange('twoFactorCode', e.target.value.replace(/[^\d]/g, '').slice(0, 6))}
+                  onKeyDown={handleKeyPress}
+                  variant="bordered"
+                  isDisabled={loading}
+                  isInvalid={!!errors.twoFactorCode}
+                  errorMessage={errors.twoFactorCode || '未启用二步验证时可留空'}
                 />
 
                 

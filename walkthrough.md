@@ -34,3 +34,18 @@
 4. 保留 GitHub 额外版本标签用于追踪，但恢复 GitLab Dev/Prod 实际部署入口仍使用 `dev-latest` / `latest`。
 5. 新增 `scripts/reload_local_stack.sh`，将本地容器重建命令固定下来，避免 compose project name 再次写错。
 6. 将 `.gitlab-ci.yml` 与 `.github/workflows/*.yml` 的 YAML 解析检查并入 `./scripts/verify_build.sh`。
+
+## 2026-03-06 Security and Release Walkthrough
+
+1. 审查 GitLab MR 现状，确认仓库内缺少发布模板，导致 `dev -> main` 很容易出现标题仅为 `dev`、描述为空的 MR。
+2. 新增 `.gitlab/merge_request_templates/Default.md`，固定发布摘要、变更列表、本地验证、风险与回滚四段结构。
+3. 新增 `scripts/prepare_release_mr.sh`，从 `origin/main..HEAD` 自动整理建议标题和提交列表，降低手写发布说明的成本。
+4. 在 `.gitlab-ci.yml` 新增 `verify:release-mr` 阶段，仅在 `merge_request_event` 且来源为 `dev`、目标为 `main` 时触发。
+5. 新增 `scripts/validate_release_mr.sh`，拒绝标题为 `dev`、标题过短、描述缺章、验证勾选项缺失的发布 MR。
+6. 审查当前登录和强制改密链路，确认后端已经要求默认用户名和默认密码同时替换，但前端没有前置提示和校验。
+7. 在后端用户表增加 TOTP 2FA 三个字段，并通过 `DatabaseInitService` 做增量迁移，避免要求手工改库或破坏既有部署。
+8. 在 `UserServiceImpl` 中补齐登录二步验证码校验、2FA 状态查询、密钥初始化、启用和关闭逻辑，并确保用户列表不会泄露 `twoFactorSecret`。
+9. 在前端登录页增加可选 6 位二步验证码输入，并用 `force_password_change` 标识把首次默认凭据用户锁定到 `/change-password`。
+10. 重写强制改密页和个人中心：前者明确提示初始化必须同时替换默认用户名/密码，后者增加 2FA 启用/关闭入口。
+11. 执行 `./scripts/verify_build.sh`，确认后端打包、前端 `tsc + vite build`、CI YAML 解析全部通过。
+12. 执行 `./scripts/build_docker.sh` 和 `./scripts/reload_local_stack.sh`，确认数据库自动迁移日志出现且本地前端 bundle 已包含 2FA 与强制改密代码。

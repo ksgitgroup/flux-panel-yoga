@@ -1,4 +1,4 @@
-import { Route, Routes, useNavigate } from "react-router-dom";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 import IndexPage from "@/pages/index";
@@ -66,15 +66,21 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
   const authenticated = isLoggedIn();
   const isH5 = useH5Mode();
   const navigate = useNavigate();
+  const location = useLocation();
+  const mustChangePassword = localStorage.getItem('force_password_change') === 'true';
 
   useEffect(() => {
     if (!authenticated) {
       // 使用 React Router 导航，避免无限跳转
       navigate('/', { replace: true });
+      return;
     }
-  }, [authenticated, navigate]);
+    if (mustChangePassword && location.pathname !== '/change-password') {
+      navigate('/change-password', { replace: true });
+    }
+  }, [authenticated, location.pathname, mustChangePassword, navigate]);
 
-  if (!authenticated) {
+  if (!authenticated || (mustChangePassword && location.pathname !== '/change-password')) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white dark:bg-black">
         <div className="text-lg text-gray-700 dark:text-gray-200"></div>
@@ -105,13 +111,14 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
 const LoginRoute = () => {
   const authenticated = isLoggedIn();
   const navigate = useNavigate();
+  const mustChangePassword = localStorage.getItem('force_password_change') === 'true';
 
   useEffect(() => {
     if (authenticated) {
       // 使用 React Router 导航，避免无限跳转
-      navigate('/dashboard', { replace: true });
+      navigate(mustChangePassword ? '/change-password' : '/dashboard', { replace: true });
     }
-  }, [authenticated, navigate]);
+  }, [authenticated, mustChangePassword, navigate]);
 
   if (authenticated) {
     return (

@@ -38,3 +38,13 @@
 - 已恢复 Dev/Prod 实际部署仍使用 `dev-latest` / `latest`，避免破坏既有部署入口。
 - 已新增 `scripts/reload_local_stack.sh`，专门处理“本地镜像已构建但容器仍是旧版本”的问题。
 - 已将 CI YAML 语法检查纳入 `./scripts/verify_build.sh`。
+
+## 2026-03-06 Security and Release Result
+
+- 已新增 `scripts/prepare_release_mr.sh` 和 `.gitlab/merge_request_templates/Default.md`，用于生成/复用 `dev -> main` 的发布 MR 标题与描述。
+- 已在 `.gitlab-ci.yml` 中增加仅针对 `dev -> main` MR 的 `verify:release-mr` 校验，阻止标题为 `dev` 或缺少发布说明的 MR。
+- 已为 `user` 表增加 `two_factor_enabled`、`two_factor_secret`、`two_factor_bound_at` 三个增量字段，并通过 `DatabaseInitService` 自动迁移。
+- 已新增后端 2FA 登录校验、状态查询、初始化、启用和关闭接口。
+- 已在前端登录页增加 6 位二步验证码输入，在个人中心增加二步验证启用/关闭流程。
+- 已修复首次默认凭据修改流程：前端现在会明确提示并阻止继续使用默认用户名 `admin_user` 和默认密码。
+- 已执行 `./scripts/verify_build.sh`、`./scripts/build_docker.sh` 和 `./scripts/reload_local_stack.sh`。

@@ -511,11 +511,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         }
 
 
+        double totalLatency = 0;
+        double totalLoss = 0;
+        boolean allSuccess = true;
         List<DiagnosisResult> results = new ArrayList<>();
-        String[] remoteAddresses = forward.getRemoteAddr().split(",");
-        // 6. 根据隧道类型执行不同的诊断策略
+        String[] remoteAddresses = forward.getRemoteAddr() != null ? forward.getRemoteAddr().split(",") : new String[0];
+
         if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
             // 端口转发：入口节点直接TCP ping目标地址
+            List<Double> latencies = new ArrayList<>();
+            List<Double> losses = new ArrayList<>();
             for (String remoteAddress : remoteAddresses) {
                 // 提取IP和端口
                 String targetIp = extractIpFromAddress(remoteAddress);
@@ -526,7 +531,15 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
                 DiagnosisResult result = performTcpPingDiagnosis(inNode, targetIp, targetPort, "转发->目标");
                 results.add(result);
+                if (result.isSuccess()) {
+                    latencies.add(result.getAverageTime());
+                    losses.add(result.getPacketLoss());
+                } else {
+                    allSuccess = false;
+                }
             }
+            totalLatency = latencies.stream().mapToDouble(Double::doubleValue).average().orElse(-1);
+            totalLoss = losses.stream().mapToDouble(Double::doubleValue).average().orElse(100);
         } else {
             // 隧道转发：入口TCP ping出口，出口TCP ping目标
             Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
@@ -537,8 +550,17 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             // 入口TCP ping出口（使用转发的出口端口）
             DiagnosisResult inToOutResult = performTcpPingDiagnosis(inNode, outNode.getServerIp(), forward.getOutPort(), "入口->出口");
             results.add(inToOutResult);
+            
+            double inToOutLatency = 0;
+            if (inToOutResult.isSuccess()) {
+                inToOutLatency = inToOutResult.getAverageTime();
+            } else {
+                allSuccess = false;
+            }
 
             // 出口TCP ping目标
+            List<Double> outToTargetLatencies = new ArrayList<>();
+            List<Double> outToTargetLosses = new ArrayList<>();
             for (String remoteAddress : remoteAddresses) {
                 // 提取IP和端口
                 String targetIp = extractIpFromAddress(remoteAddress);
@@ -548,8 +570,17 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 }
                 DiagnosisResult outToTargetResult = performTcpPingDiagnosis(outNode, targetIp, targetPort, "出口->目标");
                 results.add(outToTargetResult);
+                if (outToTargetResult.isSuccess()) {
+                    outToTargetLatencies.add(outToTargetResult.getAverageTime());
+                    outToTargetLosses.add(outToTargetResult.getPacketLoss());
+                } else {
+                    allSuccess = false;
+                }
             }
-
+            
+            double avgOutToTargetLatency = outToTargetLatencies.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+            totalLatency = inToOutLatency + avgOutToTargetLatency;
+            totalLoss = outToTargetLosses.stream().mapToDouble(Double::doubleValue).average().orElse(100);
         }
 
         Map<String, Object> diagnosisReport = new HashMap<>();
@@ -557,6 +588,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         diagnosisReport.put("forwardName", forward.getName());
         diagnosisReport.put("tunnelType", tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD ? "端口转发" : "隧道转发");
         diagnosisReport.put("results", results);
+        diagnosisReport.put("totalLatency", totalLatency);
+        diagnosisReport.put("totalLoss", totalLoss);
+        diagnosisReport.put("overallSuccess", allSuccess);
         diagnosisReport.put("timestamp", System.currentTimeMillis());
 
         // 8. 异步保存到历史记录并更新延时状态

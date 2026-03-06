@@ -653,6 +653,9 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             }
         }
 
+        double totalLatency = 0;
+        double totalLoss = 0;
+        boolean allSuccess = true;
         List<DiagnosisResult> results = new ArrayList<>();
 
         // 3. 根据隧道类型执行不同的诊断策略
@@ -660,15 +663,46 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             // 端口转发：只给入口节点发送诊断指令，TCP ping谷歌443端口
             DiagnosisResult inResult = performTcpPingDiagnosisWithConnectionCheck(inNode, "www.google.com", 443, "入口->外网");
             results.add(inResult);
+            if (inResult.isSuccess()) {
+                totalLatency = inResult.getAverageTime();
+                totalLoss = inResult.getPacketLoss();
+            } else {
+                allSuccess = false;
+                totalLatency = -1;
+                totalLoss = 100;
+            }
         } else {
             // 隧道转发：入口TCP ping出口，出口TCP ping谷歌443端口
             int outNodePort = getOutNodeTcpPort(tunnel.getId());
             DiagnosisResult inToOutResult = performTcpPingDiagnosisWithConnectionCheck(inNode, outNode.getServerIp(), outNodePort, "入口->出口");
             results.add(inToOutResult);
+            
+            double inToOutLatency = 0;
+            double inToOutLoss = 0;
+            if (inToOutResult.isSuccess()) {
+                inToOutLatency = inToOutResult.getAverageTime();
+                inToOutLoss = inToOutResult.getPacketLoss();
+            } else {
+                allSuccess = false;
+                inToOutLoss = 100;
+            }
 
             // 先检查出口节点的真实连接状态，然后再进行诊断
             DiagnosisResult outToExternalResult = performTcpPingDiagnosisWithConnectionCheck(outNode, "www.google.com", 443, "出口->外网");
             results.add(outToExternalResult);
+
+            double outToExtLatency = 0;
+            double outToExtLoss = 0;
+            if (outToExternalResult.isSuccess()) {
+                outToExtLatency = outToExternalResult.getAverageTime();
+                outToExtLoss = outToExternalResult.getPacketLoss();
+            } else {
+                allSuccess = false;
+                outToExtLoss = 100;
+            }
+            
+            totalLatency = allSuccess ? (inToOutLatency + outToExtLatency) : -1;
+            totalLoss = (inToOutLoss + outToExtLoss) / 2.0;
         }
 
         // 4. 构建诊断报告
@@ -677,6 +711,9 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         diagnosisReport.put("tunnelName", tunnel.getName());
         diagnosisReport.put("tunnelType", tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD ? "端口转发" : "隧道转发");
         diagnosisReport.put("results", results);
+        diagnosisReport.put("totalLatency", totalLatency);
+        diagnosisReport.put("totalLoss", totalLoss);
+        diagnosisReport.put("overallSuccess", allSuccess);
         diagnosisReport.put("timestamp", System.currentTimeMillis());
 
         return R.ok(diagnosisReport);

@@ -64,6 +64,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     @Resource
     NodeService nodeService;
 
+    @Resource
+    DiagnosisService diagnosisService;
+
 
     @Override
     public R createForward(ForwardDto forwardDto) {

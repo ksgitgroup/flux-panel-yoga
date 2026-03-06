@@ -115,6 +115,12 @@ VITE_API_BASE=http://localhost:6365
 
 ```bash
 git switch dev
+./scripts/ship_dev.sh "feat: describe your change"
+```
+
+如果你已经提前完成本地提交，只需要推送现有提交，也可以继续使用：
+
+```bash
 ./scripts/sync_dev.sh
 ```
 

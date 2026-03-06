@@ -1015,6 +1015,41 @@ export default function TunnelPage() {
                   </div>
                 ) : diagnosisResult ? (
                   <div className="space-y-4">
+                    {/* 总体结论汇总 (v1.4.3) */}
+                    {(diagnosisResult as any).totalLatency !== undefined && (
+                      <Card className="bg-default-50 border-none shadow-none mb-6">
+                        <CardBody className="py-4">
+                          <div className="flex items-center justify-around">
+                            <div className="text-center">
+                              <div className="text-3xl font-bold text-primary">
+                                {(diagnosisResult as any).totalLatency > 0 ? (diagnosisResult as any).totalLatency.toFixed(0) : '-'}
+                                <span className="text-tiny font-normal text-default-400 ml-1">ms</span>
+                              </div>
+                              <div className="text-tiny text-default-500 uppercase font-semibold">链路总延迟</div>
+                            </div>
+                            <Divider orientation="vertical" className="h-10" />
+                            <div className="text-center">
+                              <div className="text-3xl font-bold text-warning">
+                                {(diagnosisResult as any).totalLoss !== undefined ? (diagnosisResult as any).totalLoss.toFixed(1) : '-'}
+                                <span className="text-tiny font-normal text-default-400 ml-1">%</span>
+                              </div>
+                              <div className="text-tiny text-default-500 uppercase font-semibold">平均丢包率</div>
+                            </div>
+                            <Divider orientation="vertical" className="h-10" />
+                            <div className="text-center">
+                              <Chip
+                                color={(diagnosisResult as any).overallSuccess ? "success" : "danger"}
+                                variant="shadow"
+                                size="lg"
+                              >
+                                {(diagnosisResult as any).overallSuccess ? "隧道通路良好" : "链路存在故障"}
+                              </Chip>
+                              <div className="text-tiny text-default-500 uppercase font-semibold mt-1">性能结论</div>
+                            </div>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    )}
                     {diagnosisResult.results.map((result, index) => {
                       const quality = getQualityDisplay(result.averageTime, result.packetLoss);
 
@@ -1111,6 +1146,11 @@ export default function TunnelPage() {
                                     <Chip size="sm" color={item.overallSuccess ? "success" : "danger"} variant="flat">
                                       {item.overallSuccess ? "成功" : "失败"}
                                     </Chip>
+                                    {item.averageTime !== undefined && item.averageTime > 0 && (
+                                      <span className="text-[10px] text-default-400 font-mono ml-auto">
+                                        延迟: {item.averageTime.toFixed(0)}ms | 丢包: {item.packetLoss?.toFixed(1)}%
+                                      </span>
+                                    )}
                                   </div>
                                 }
                               >

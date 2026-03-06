@@ -355,27 +355,38 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             JSONObject obj = JSON.parseObject(jsonStr);
             if (obj == null) return new double[]{avgTime, avgLoss};
             
-            Object resultsObj = obj.get("results");
-            if (resultsObj == null) return new double[]{avgTime, avgLoss};
-            
-            List<JSONObject> results = (List<JSONObject>) JSON.parseArray(JSON.toJSONString(resultsObj), JSONObject.class);
-            if (results == null) return new double[]{avgTime, avgLoss};
+            // 优先使用预计算指标 (v1.4.3)
+            if (obj.containsKey("totalLatency")) {
+                Double tl = obj.getDouble("totalLatency");
+                if (tl != null) avgTime = tl;
+            }
+            if (obj.containsKey("totalLoss")) {
+                Double tl = obj.getDouble("totalLoss");
+                if (tl != null) avgLoss = tl;
+            }
 
-            List<Double> times = new ArrayList<>();
-            List<Double> losses = new ArrayList<>();
-            for (JSONObject r : results) {
-                if (r != null && Boolean.TRUE.equals(r.getBoolean("success"))) {
-                    Double at = r.getDouble("averageTime");
-                    Double pl = r.getDouble("packetLoss");
-                    if (at != null && at >= 0) times.add(at);
-                    if (pl != null && pl >= 0) losses.add(pl);
+            // 如果没拿到预计算指标，再尝试从 results 列表里算
+            Object resultsObj = obj.get("results");
+            if (resultsObj != null) {
+                List<JSONObject> results = (List<JSONObject>) JSON.parseArray(JSON.toJSONString(resultsObj), JSONObject.class);
+                if (results != null) {
+                    List<Double> times = new ArrayList<>();
+                    List<Double> losses = new ArrayList<>();
+                    for (JSONObject r : results) {
+                        if (r != null && Boolean.TRUE.equals(r.getBoolean("success"))) {
+                            Double at = r.getDouble("averageTime");
+                            Double pl = r.getDouble("packetLoss");
+                            if (at != null && at >= 0) times.add(at);
+                            if (pl != null && pl >= 0) losses.add(pl);
+                        }
+                    }
+                    if (avgTime == -1 && !times.isEmpty()) {
+                        avgTime = times.stream().mapToDouble(Double::doubleValue).average().orElse(-1);
+                    }
+                    if (avgLoss == -1 && !losses.isEmpty()) {
+                        avgLoss = losses.stream().mapToDouble(Double::doubleValue).average().orElse(-1);
+                    }
                 }
-            }
-            if (!times.isEmpty()) {
-                avgTime = times.stream().mapToDouble(Double::doubleValue).average().orElse(-1);
-            }
-            if (!losses.isEmpty()) {
-                avgLoss = losses.stream().mapToDouble(Double::doubleValue).average().orElse(-1);
             }
         } catch (Exception e) {
             log.warn("[自动诊断] 提取指标异常: {}", e.getMessage());

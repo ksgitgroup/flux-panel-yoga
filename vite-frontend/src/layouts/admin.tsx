@@ -338,6 +338,18 @@ export default function AdminLayout({
             })}
           </ul>
         </nav>
+        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50/50 dark:bg-black/20">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase font-bold text-default-400">系统版本</span>
+              <span className="text-sm font-semibold text-foreground">v{siteConfig.version}</span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] uppercase font-bold text-default-400">APP版本</span>
+              <span className="text-xs text-default-500">{siteConfig.app_version}</span>
+            </div>
+          </div>
+        </div>
       </aside>
 
       {/* 主内容区域 */}

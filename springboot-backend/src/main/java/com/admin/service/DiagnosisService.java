@@ -29,4 +29,7 @@ public interface DiagnosisService extends IService<DiagnosisRecord> {
 
     /** 获取最近N小时的诊断趋势数据（每小时成功/失败数） */
     R getTrend(int hours);
+
+    /** 保存诊断记录并更新资源状态 (用于手动和自动诊断同步) */
+    void saveRecord(String targetType, Integer targetId, String targetName, Object data);
 }

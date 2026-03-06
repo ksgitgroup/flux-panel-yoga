@@ -66,6 +66,7 @@ export const diagnoseForward = (forwardId: number) => Network.post("/forward/dia
 // 转发排序操作
 export const updateForwardOrder = (data: { forwards: Array<{ id: number; inx: number }> }) => Network.post("/forward/update-order", data);
 export const copyForward = (data: { id: number }) => Network.post("/forward/copy", data);
+export const batchUpdateForward = (data: { ids: number[]; protocolId?: number; tagIds?: string }) => Network.post("/forward/batch-update", data);
 
 // 限速规则CRUD操作 - 全部使用POST请求
 export const createSpeedLimit = (data: any) => Network.post("/speed-limit/create", data);

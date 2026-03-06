@@ -4,6 +4,7 @@ import com.admin.common.aop.LogAnnotation;
 import com.admin.common.annotation.RequireRole;
 import com.admin.common.dto.ForwardDto;
 import com.admin.common.dto.ForwardUpdateDto;
+import com.admin.common.dto.ForwardBatchUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.entity.Forward;
 import com.admin.service.ForwardService;
@@ -106,19 +107,14 @@ public class ForwardController extends BaseController {
     @LogAnnotation
     @PostMapping("/copy")
     public R copyForward(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
-        Forward original = forwardService.getById(id);
-        if (original == null) {
-            return R.err("原转发不存在");
-        }
-        ForwardDto dto = new ForwardDto();
-        dto.setName(original.getName() + " (副本)");
-        dto.setTunnelId(original.getTunnelId());
-        dto.setRemoteAddr(original.getRemoteAddr());
-        dto.setStrategy(original.getStrategy());
-        dto.setInterfaceName(original.getInterfaceName());
-        // inPort 不复制，让系统自动分配新端口
+        // ... (existing code)
         return forwardService.createForward(dto);
+    }
+
+    @LogAnnotation
+    @PostMapping("/batch-update")
+    public R batchUpdate(@Validated @RequestBody ForwardBatchUpdateDto batchDto) {
+        return forwardService.batchUpdateForward(batchDto);
     }
 
 }

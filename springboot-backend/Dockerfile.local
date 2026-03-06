@@ -1,11 +1,21 @@
 FROM eclipse-temurin:21-jre
 
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=local
+ARG GIT_BRANCH=local
+ARG BUILD_TIME=unknown
+
 WORKDIR /app
 
 ENV JAVA_OPTS="-Xmx512m -Xms256m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
 ENV LANG=C.UTF-8
 ENV LANGUAGE=C.UTF-8
 ENV LC_ALL=C.UTF-8
+
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.ref.name="${GIT_BRANCH}" \
+      org.opencontainers.image.created="${BUILD_TIME}"
 
 COPY target/*.jar app.jar
 

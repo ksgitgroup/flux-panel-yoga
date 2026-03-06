@@ -16,6 +16,16 @@
 # node:20.19.0 是固定版本，不会自动升级，所以这层永远是缓存命中
 FROM node:20.19.0 AS builder
 
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=local
+ARG GIT_BRANCH=local
+ARG BUILD_TIME=unknown
+
+ENV VITE_APP_VERSION=${APP_VERSION}
+ENV VITE_GIT_SHA=${GIT_SHA}
+ENV VITE_GIT_BRANCH=${GIT_BRANCH}
+ENV VITE_BUILD_TIME=${BUILD_TIME}
+
 # 层2：设置工作目录（固定，永远缓存）
 WORKDIR /app
 
@@ -48,6 +58,16 @@ RUN npx vite build
 
 # 层7：更换为极小的 nginx 基础镜像（stable-alpine ≈ 25MB）
 FROM nginx:stable-alpine AS production-stage
+
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=local
+ARG GIT_BRANCH=local
+ARG BUILD_TIME=unknown
+
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.ref.name="${GIT_BRANCH}" \
+      org.opencontainers.image.created="${BUILD_TIME}"
 
 # 层8：复制 nginx 配置（配置不变，缓存命中）
 COPY nginx.conf /etc/nginx/nginx.conf

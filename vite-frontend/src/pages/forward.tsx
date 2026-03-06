@@ -12,6 +12,7 @@ import { Alert } from "@heroui/alert";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Divider } from "@heroui/divider";
 import { Tabs, Tab } from "@heroui/tabs";
+import { Popover, PopoverTrigger, PopoverContent } from "@heroui/popover";
 import { SpeedBadge } from "@/components/SpeedBadge";
 import toast from 'react-hot-toast';
 import {
@@ -261,7 +262,6 @@ export default function ForwardPage() {
   const [healthFilter, setHealthFilter] = useState<'all' | 'healthy' | 'unhealthy' | 'unknown'>('all');
   const [protocolFilter, setProtocolFilter] = useState<number | null>(null);
   const [tagFilters, setTagFilters] = useState<string[]>([]);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // 批量选择状态
   const [selectedForwardIds, setSelectedForwardIds] = useState<number[]>([]);
@@ -1894,31 +1894,24 @@ export default function ForwardPage() {
   return (
 
     <div className="px-3 lg:px-6 py-8">
-      <div className="mb-6 overflow-hidden rounded-[28px] border border-divider bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.14),_transparent_28%)] p-5 shadow-sm">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary-700 dark:text-primary-300">
-              Forward Workspace
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground lg:text-3xl">
-                转发管理工作台
-              </h1>
-              <p className="max-w-2xl text-sm leading-6 text-default-600">
-                把筛选、诊断、排序和批量处理集中到同一个视图里。当前权限范围内共有 {accessibleForwards.length} 条转发，筛选后显示 {visibleForwards.length} 条。
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
+      <div className="mb-6 flex flex-col gap-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground lg:text-[30px]">转发管理</h1>
               <Chip size="sm" variant="flat" color="primary">
-                {viewMode === 'grouped' ? '分组浏览' : '平铺排序'}
+                {viewMode === 'grouped' ? '分组视图' : '平铺视图'}
               </Chip>
               <Chip size="sm" variant="flat" color={activeFilterCount > 0 ? 'warning' : 'default'}>
-                {activeFilterCount > 0 ? `已启用 ${activeFilterCount} 个筛选器` : '未启用额外筛选'}
+                筛选 {visibleForwards.length} / {accessibleForwards.length}
               </Chip>
               <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? 'secondary' : 'default'}>
-                已选择 {selectedForwardIds.length} 项
+                已选 {selectedForwardIds.length}
               </Chip>
             </div>
+            <p className="mt-2 text-sm text-default-500">
+              搜索、筛选、诊断和批量处理收敛在同一条工具栏里，默认仅展示当前权限范围内的转发。
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1929,7 +1922,7 @@ export default function ForwardPage() {
               onPress={handleViewModeChange}
               isIconOnly
               className="text-sm"
-              title={viewMode === 'grouped' ? '切换到直接显示' : '切换到分类显示'}
+              title={viewMode === 'grouped' ? '切换到平铺视图' : '切换到分组视图'}
             >
               {viewMode === 'grouped' ? (
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1941,313 +1934,275 @@ export default function ForwardPage() {
                 </svg>
               )}
             </Button>
-
             <Button size="sm" variant="flat" color="warning" onPress={handleImport}>
               导入
             </Button>
-
             <Button size="sm" variant="flat" color="success" onPress={handleExport} isLoading={exportLoading}>
               导出
             </Button>
-
             <Button size="sm" variant="solid" color="primary" onPress={handleAdd}>
               新增转发
             </Button>
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
-            <p className="text-xs text-default-500">当前结果</p>
-            <p className="mt-2 text-2xl font-bold text-foreground">{visibleForwards.length}</p>
-            <p className="mt-1 text-xs text-default-400">批量操作会以当前筛选结果为准</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
-            <p className="text-xs text-default-500">运行中</p>
-            <p className="mt-2 text-2xl font-bold text-success">{runningCount}</p>
-            <p className="mt-1 text-xs text-default-400">已暂停 {accessibleForwards.length - runningCount}</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
-            <p className="text-xs text-default-500">诊断异常</p>
-            <p className="mt-2 text-2xl font-bold text-danger">{unhealthyCount}</p>
-            <p className="mt-1 text-xs text-default-400">用于快速筛选与批处理</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
-            <p className="text-xs text-default-500">批量选择</p>
-            <p className="mt-2 text-2xl font-bold text-secondary">{selectedForwardIds.length}</p>
-            <p className="mt-1 text-xs text-default-400">已选中待处理项</p>
-          </div>
-        </div>
-      </div>
+        <div className="rounded-[28px] border border-divider bg-white/80 p-4 shadow-sm backdrop-blur-md dark:bg-default-100/20">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Input
+              value={searchKeyword}
+              onValueChange={setSearchKeyword}
+              placeholder="搜索名称、端口、入口或目标地址"
+              startContent={
+                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              }
+              size="sm"
+              variant="flat"
+              radius="lg"
+              className="w-full sm:max-w-[280px]"
+              isClearable
+              onClear={() => setSearchKeyword("")}
+            />
 
-      {/* 统一的高级筛选工具栏 */}
-      <div className="flex flex-col gap-4 mb-6 transition-all duration-300">
-        <div className="flex flex-col gap-4 rounded-3xl border border-divider bg-white/60 p-4 shadow-sm backdrop-blur-md dark:bg-default-100/20">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-1 flex-col gap-3 xl:flex-row xl:items-center">
-              <Input
-                value={searchKeyword}
-                onValueChange={setSearchKeyword}
-                placeholder="搜索名称、端口、入口或目标地址..."
-                startContent={
-                  <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                }
-                size="sm"
-                variant="flat"
-                radius="lg"
-                className="w-full xl:max-w-[360px]"
-                isClearable
-                onClear={() => setSearchKeyword("")}
-              />
+            <Tabs
+              selectedKey={statusFilter}
+              onSelectionChange={(key) => setStatusFilter(key as any)}
+              size="sm"
+              variant="bordered"
+              radius="full"
+              classNames={{
+                tabList: "bg-default-100/60 dark:bg-default-100/20 p-1",
+                cursor: "bg-white dark:bg-primary shadow-sm",
+                tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-semibold",
+                tab: "h-8 px-3",
+              }}
+            >
+              <Tab key="all" title={`全部 (${accessibleForwards.length})`} />
+              <Tab key="running" title={`运行中 (${runningCount})`} />
+              <Tab key="paused" title={`已暂停 (${accessibleForwards.length - runningCount})`} />
+            </Tabs>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <Tabs
-                  selectedKey={statusFilter}
-                  onSelectionChange={(key) => setStatusFilter(key as any)}
-                  size="sm"
-                  variant="bordered"
-                  radius="lg"
-                  classNames={{
-                    tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
-                    cursor: "bg-white dark:bg-primary shadow-sm",
-                    tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-bold",
-                    tab: "h-8 px-3",
-                  }}
-                >
-                  <Tab key="all" title="全部" />
-                  <Tab key="running" title="运行中" />
-                  <Tab key="paused" title="已暂停" />
-                </Tabs>
+            <Tabs
+              selectedKey={healthFilter}
+              onSelectionChange={(key) => setHealthFilter(key as any)}
+              size="sm"
+              variant="light"
+              radius="full"
+              color={healthFilter === 'unhealthy' ? 'danger' : healthFilter === 'healthy' ? 'success' : 'default'}
+              classNames={{
+                tabList: "bg-transparent",
+                tab: "h-8 px-3",
+                tabContent: "font-medium"
+              }}
+            >
+              <Tab key="all" title="全部健康" />
+              <Tab key="healthy" title="正常" />
+              <Tab key="unhealthy" title={`故障 (${unhealthyCount})`} />
+            </Tabs>
 
-                <Tabs
-                  selectedKey={healthFilter}
-                  onSelectionChange={(key) => setHealthFilter(key as any)}
-                  size="sm"
-                  variant="light"
-                  radius="lg"
-                  color={healthFilter === 'unhealthy' ? 'danger' : healthFilter === 'healthy' ? 'success' : 'default'}
-                  classNames={{
-                    tabContent: "font-medium"
-                  }}
-                >
-                  <Tab key="all" title="全部健康度" />
-                  <Tab key="healthy" title="正常" />
-                  <Tab key="unhealthy" title="故障" />
-                </Tabs>
-              </div>
-            </div>
+            <Select
+              aria-label="筛选隧道"
+              placeholder="全部隧道"
+              selectedKeys={tunnelFilter !== null ? new Set([tunnelFilter.toString()]) : new Set([])}
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0];
+                setTunnelFilter(selected === 'all' ? null : (selected ? Number(selected) : null));
+              }}
+              size="sm"
+              variant="bordered"
+              className="w-full sm:max-w-[180px]"
+            >
+              {[
+                <SelectItem key="all" textValue="全部隧道">全部隧道</SelectItem>,
+                ...tunnels.map(t => (
+                  <SelectItem key={t.id.toString()} textValue={t.name}>{t.name}</SelectItem>
+                ))
+              ]}
+            </Select>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant={showAdvancedFilters ? "solid" : "flat"}
-                color={showAdvancedFilters ? "primary" : "default"}
-                onPress={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                startContent={
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-                  </svg>
-                }
-                className="font-medium"
-              >
-                高级筛选
-                {activeFilterCount > 0 && (
-                  <span className="ml-1 rounded-full bg-white/20 px-1.5 text-[10px]">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </Button>
+            <Select
+              aria-label="筛选协议"
+              placeholder="全部协议"
+              selectedKeys={protocolFilter !== null ? new Set([protocolFilter.toString()]) : new Set([])}
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0];
+                setProtocolFilter(selected === 'all' ? null : (selected ? Number(selected) : null));
+              }}
+              size="sm"
+              variant="bordered"
+              className="w-full sm:max-w-[180px]"
+            >
+              {[
+                <SelectItem key="all" textValue="全部协议">全部协议</SelectItem>,
+                ...protocols.map(p => (
+                  <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
+                ))
+              ]}
+            </Select>
 
-              {hasActiveFilters && (
+            <Popover placement="bottom-start" showArrow offset={12}>
+              <PopoverTrigger>
                 <Button
                   size="sm"
-                  variant="light"
-                  color="danger"
-                  onPress={() => {
-                    setTunnelFilter(null);
-                    setStatusFilter('all');
-                    setHealthFilter('all');
-                    setProtocolFilter(null);
-                    setTagFilters([]);
-                    setSearchKeyword("");
-                  }}
+                  variant={tagFilters.length > 0 ? "solid" : "flat"}
+                  color={tagFilters.length > 0 ? "primary" : "default"}
                 >
-                  重置筛选
+                  标签筛选{tagFilters.length > 0 ? ` (${tagFilters.length})` : ''}
                 </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[min(92vw,420px)] p-0">
+                <div className="w-full p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">标签筛选</p>
+                      <p className="mt-1 text-xs text-default-500">支持多标签组合，筛选只作用于当前权限数据。</p>
+                    </div>
+                    {tagFilters.length > 0 && (
+                      <Button size="sm" variant="light" color="danger" onPress={() => setTagFilters([])}>
+                        清空
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-2 rounded-2xl bg-default-50 px-3 py-2 text-xs text-default-500">
+                    <span>已选 {tagFilters.length} 个标签</span>
+                    <span>共 {tags.length} 个可用标签</span>
+                  </div>
+
+                  <div className="mt-4 flex max-h-64 flex-wrap gap-2 overflow-y-auto pr-1">
+                    <Chip
+                      size="sm"
+                      variant={tagFilters.length === 0 ? "solid" : "flat"}
+                      color={tagFilters.length === 0 ? "primary" : "default"}
+                      className="cursor-pointer"
+                      onClick={() => setTagFilters([])}
+                    >
+                      全部 ({accessibleForwards.length})
+                    </Chip>
+                    {tags.map((tag) => {
+                      const tagId = tag.id.toString();
+                      const isSelected = tagFilters.includes(tagId);
+                      return (
+                        <Chip
+                          key={tag.id}
+                          size="sm"
+                          variant={isSelected ? "solid" : "flat"}
+                          color={isSelected ? "primary" : getTagChipColor(tag.color)}
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setTagFilters((prev) => (isSelected ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
+                          }}
+                        >
+                          {tag.name} ({tagUsageCount[tagId] || 0})
+                        </Chip>
+                      );
+                    })}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {hasActiveFilters && (
+              <Button
+                size="sm"
+                variant="light"
+                color="danger"
+                onPress={() => {
+                  setTunnelFilter(null);
+                  setStatusFilter('all');
+                  setHealthFilter('all');
+                  setProtocolFilter(null);
+                  setTagFilters([]);
+                  setSearchKeyword("");
+                }}
+              >
+                重置
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip size="sm" variant="flat" color="primary">
+                当前结果 {visibleForwards.length}
+              </Chip>
+              <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? "secondary" : "default"}>
+                已选择 {selectedForwardIds.length}
+              </Chip>
+              <Chip size="sm" variant="flat" color={unhealthyCount > 0 ? "danger" : "default"}>
+                故障项 {unhealthyCount}
+              </Chip>
+              {hiddenSelectedCount > 0 && (
+                <Chip size="sm" variant="flat" color="warning">
+                  隐藏已选 {hiddenSelectedCount}
+                </Chip>
               )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant={allVisibleSelected ? "solid" : "flat"} color="primary" onPress={handleToggleSelectAllVisible}>
+                {allVisibleSelected ? '取消全选' : '全选当前结果'}
+              </Button>
+              <Button size="sm" variant="flat" color="warning" onPress={handleSelectVisibleUnhealthy}>
+                仅选故障项
+              </Button>
+              <Button size="sm" variant="flat" color="secondary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('protocol')}>
+                批量设置协议
+              </Button>
+              <Button size="sm" variant="flat" color="primary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('tag')}>
+                批量打标签
+              </Button>
+              <Button size="sm" variant="flat" color="danger" isDisabled={selectedForwardIds.length === 0} onPress={handleBatchDelete}>
+                批量删除
+              </Button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-divider/70 bg-default-50/60 p-3 dark:bg-default-100/20">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-default-500">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em]">标签筛选</span>
-                </div>
-                <p className="mt-1 text-xs text-default-400">
-                  标签筛选会在当前权限范围内生效，支持多标签组合。
-                </p>
-              </div>
-
-              {tagFilters.length > 0 && (
-                <Button size="sm" variant="light" color="danger" onPress={() => setTagFilters([])}>
-                  清空标签筛选
-                </Button>
+          {(searchKeyword || statusFilter !== 'all' || healthFilter !== 'all' || tunnelFilter !== null || protocolFilter !== null || tagFilters.length > 0) && (
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-divider/70 pt-3">
+              {searchKeyword && (
+                <Chip size="sm" variant="flat" onClose={() => setSearchKeyword("")} className="bg-default-100 text-default-600">
+                  搜索: {searchKeyword}
+                </Chip>
               )}
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Chip
-                size="sm"
-                variant={tagFilters.length === 0 ? "solid" : "flat"}
-                color={tagFilters.length === 0 ? "primary" : "default"}
-                className="cursor-pointer transition-all hover:scale-105"
-                onClick={() => setTagFilters([])}
-              >
-                全部 ({accessibleForwards.length})
-              </Chip>
-              {tags.map((tag) => {
-                const tagId = tag.id.toString();
-                const isSelected = tagFilters.includes(tagId);
+              {statusFilter !== 'all' && (
+                <Chip size="sm" variant="flat" onClose={() => setStatusFilter('all')} className="bg-primary/10 text-primary-600">
+                  状态: {statusFilter === 'running' ? '运行中' : '已暂停'}
+                </Chip>
+              )}
+              {healthFilter !== 'all' && (
+                <Chip size="sm" variant="flat" onClose={() => setHealthFilter('all')} className="bg-danger/10 text-danger-600">
+                  健康: {healthFilter === 'healthy' ? '正常' : '故障'}
+                </Chip>
+              )}
+              {tunnelFilter !== null && (
+                <Chip size="sm" variant="flat" onClose={() => setTunnelFilter(null)} className="bg-primary/10 text-primary-600">
+                  隧道: {tunnels.find(t => t.id === tunnelFilter)?.name || tunnelFilter}
+                </Chip>
+              )}
+              {protocolFilter !== null && (
+                <Chip size="sm" variant="flat" onClose={() => setProtocolFilter(null)} className="bg-secondary/10 text-secondary-600">
+                  协议: {protocols.find(p => p.id === protocolFilter)?.name || protocolFilter}
+                </Chip>
+              )}
+              {tagFilters.map(id => {
+                const tag = tags.find(t => t.id.toString() === id);
                 return (
                   <Chip
-                    key={tag.id}
+                    key={id}
                     size="sm"
-                    variant={isSelected ? "solid" : "flat"}
-                    color={isSelected ? "primary" : getTagChipColor(tag.color)}
-                    className={`cursor-pointer transition-all hover:scale-105 ${isSelected ? 'shadow-md' : 'opacity-90 hover:opacity-100'}`}
-                    onClick={() => {
-                      setTagFilters((prev) => isSelected ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
-                    }}
+                    variant="flat"
+                    onClose={() => setTagFilters(prev => prev.filter(tid => tid !== id))}
+                    className="bg-default-100 text-default-600"
                   >
-                    {tag.name} ({tagUsageCount[tagId] || 0})
+                    标签: {tag?.name || id}
                   </Chip>
                 );
               })}
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-divider/70 bg-default-50/60 p-4 dark:bg-default-100/20">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Chip size="sm" variant="flat" color="primary">
-                    当前结果 {visibleForwards.length}
-                  </Chip>
-                  <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? "secondary" : "default"}>
-                    已选择 {selectedForwardIds.length}
-                  </Chip>
-                  {hiddenSelectedCount > 0 && (
-                    <Chip size="sm" variant="flat" color="warning">
-                      其中 {hiddenSelectedCount} 项不在当前筛选
-                    </Chip>
-                  )}
-                </div>
-                <p className="text-xs text-default-500">
-                  “全选当前结果”只作用于当前筛选集。批量设置协议与标签会覆盖对应字段，方便在批量整治时保持一致。
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant={allVisibleSelected ? "solid" : "flat"} color="primary" onPress={handleToggleSelectAllVisible}>
-                  {allVisibleSelected ? '取消全选当前结果' : '全选当前结果'}
-                </Button>
-                <Button size="sm" variant="flat" color="warning" onPress={handleSelectVisibleUnhealthy}>
-                  仅选故障项
-                </Button>
-                <Button size="sm" variant="flat" color="secondary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('protocol')}>
-                  批量设置协议
-                </Button>
-                <Button size="sm" variant="flat" color="primary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('tag')}>
-                  批量打标签
-                </Button>
-                <Button size="sm" variant="flat" color="danger" isDisabled={selectedForwardIds.length === 0} onPress={handleBatchDelete}>
-                  批量删除
-                </Button>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
-
-        {/* 展开式高级筛选 */}
-        {showAdvancedFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-default-50/80 p-4 rounded-2xl border border-divider animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">所属隧道</label>
-              <Select
-                aria-label="筛选隧道"
-                placeholder="全部隧道"
-                selectedKeys={tunnelFilter !== null ? new Set([tunnelFilter.toString()]) : new Set([])}
-                onSelectionChange={(keys) => {
-                  const selected = Array.from(keys)[0];
-                  setTunnelFilter(selected === 'all' ? null : (selected ? Number(selected) : null));
-                }}
-                size="sm"
-                variant="bordered"
-              >
-                {[
-                  <SelectItem key="all" textValue="全部隧道">全部隧道</SelectItem>,
-                  ...tunnels.map(t => (
-                    <SelectItem key={t.id.toString()} textValue={t.name}>{t.name}</SelectItem>
-                  ))
-                ]}
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase font-bold text-default-400 ml-1">应用协议</label>
-              <Select
-                aria-label="筛选协议"
-                placeholder="全部协议"
-                selectedKeys={protocolFilter !== null ? new Set([protocolFilter.toString()]) : new Set([])}
-                onSelectionChange={(keys) => {
-                  const selected = Array.from(keys)[0];
-                  setProtocolFilter(selected === 'all' ? null : (selected ? Number(selected) : null));
-                }}
-                size="sm"
-                variant="bordered"
-              >
-                {[
-                  <SelectItem key="all" textValue="全部协议">全部协议</SelectItem>,
-                  ...protocols.map(p => (
-                    <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
-                  ))
-                ]}
-              </Select>
-            </div>
-
-          </div>
-        )}
-
-        {/* 筛选徽章显示区 */}
-        {(tunnelFilter !== null || protocolFilter !== null || tagFilters.length > 0) && (
-          <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-left-2 transition-all">
-            {tunnelFilter !== null && (
-              <Chip size="sm" variant="flat" onClose={() => setTunnelFilter(null)} className="bg-primary/10 text-primary-600">
-                隧道: {tunnels.find(t => t.id === tunnelFilter)?.name || tunnelFilter}
-              </Chip>
-            )}
-            {protocolFilter !== null && (
-              <Chip size="sm" variant="flat" onClose={() => setProtocolFilter(null)} className="bg-secondary/10 text-secondary-600">
-                协议: {protocols.find(p => p.id === protocolFilter)?.name || protocolFilter}
-              </Chip>
-            )}
-            {tagFilters.map(id => {
-              const tag = tags.find(t => t.id.toString() === id);
-              return (
-                <Chip key={id} size="sm" variant="flat" onClose={() => setTagFilters(prev => prev.filter(tid => tid !== id))}
-                  className={`bg-default-100 text-default-600`}>
-                  标签: {tag?.name || id}
-                </Chip>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* 根据显示模式渲染不同内容 */}

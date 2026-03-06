@@ -1,18 +1,22 @@
 import { getConfigByName, getConfigs } from '@/api';
+import { APP_VERSION, BUILD_REVISION, BUILD_TIME, FULL_VERSION, GIT_BRANCH, GIT_SHA, RELEASE_VERSION } from '@/version';
 
 export type SiteConfig = typeof siteConfig;
 
 // 缓存相关常量
 const CACHE_PREFIX = 'vite_config_';
-const VERSION = "1.4.2";
-const APP_VERSION = "1.0.4";
-
 const getInitialConfig = () => {
   if (typeof window === 'undefined') {
     return {
       name: "flux",
-      version: VERSION,
+      version: APP_VERSION,
       app_version: APP_VERSION,
+      release_version: RELEASE_VERSION,
+      build_revision: BUILD_REVISION,
+      full_version: FULL_VERSION,
+      commit_sha: GIT_SHA,
+      branch: GIT_BRANCH,
+      build_time: BUILD_TIME,
     };
   }
 
@@ -20,14 +24,26 @@ const getInitialConfig = () => {
   if (cachedAppName) {
     return {
       name: cachedAppName,
-      version: VERSION,
+      version: APP_VERSION,
       app_version: APP_VERSION,
+      release_version: RELEASE_VERSION,
+      build_revision: BUILD_REVISION,
+      full_version: FULL_VERSION,
+      commit_sha: GIT_SHA,
+      branch: GIT_BRANCH,
+      build_time: BUILD_TIME,
     };
   }
   return {
     name: "flux",
-    version: VERSION,
+    version: APP_VERSION,
     app_version: APP_VERSION,
+    release_version: RELEASE_VERSION,
+    build_revision: BUILD_REVISION,
+    full_version: FULL_VERSION,
+    commit_sha: GIT_SHA,
+    branch: GIT_BRANCH,
+    build_time: BUILD_TIME,
   };
 };
 

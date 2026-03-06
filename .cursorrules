@@ -2,7 +2,7 @@
 
 ## Critical Rules
 - **Backend Build Verification**: ALWAYS verify that the backend compiles after any modification. Use `mvn compile` or `./scripts/verify_build.sh`.
-- **Sync Workflow**: After ANY local modification and successful verification, you MUST offer to sync the changes to the `dev` branch using `./scripts/sync_dev.sh` to ensure the remote CI/CD stays healthy.
+- **Sync Workflow**: After ANY local modification and successful verification, you MUST summarize the core improvements and use `./scripts/ship_dev.sh "<commit message>"` on `dev` to verify, commit, and push in one flow. Use `./scripts/sync_dev.sh` only when the commit already exists locally.
 - **Docker Verification**: For major architectural changes, run `./scripts/build_docker.sh` to verify full image build integrity.
 - **Import Management**: Ensure all DTOs and entities are properly imported and field names are matched correctly (e.g., `remoteAddr`).
 - **Package Sync**: Keep `pom.xml`, `package.json`, and `site.ts` version numbers synced (current: v1.4.2).
@@ -11,5 +11,5 @@
 1. **Plan**: Update `implementation_plan.md` for non-trivial changes.
 2. **Execute**: Implement changes with precision.
 3. **Verify**: Run `./scripts/verify_build.sh` immediately after any code edit.
-4. **Sync**: If verification passes, notify the user and use `./scripts/sync_dev.sh` to push.
+4. **Sync**: If verification passes, summarize the key improvements and use `./scripts/ship_dev.sh "<commit message>"` to push to `dev`.
 5. **Document**: Record results in `task.md` and `walkthrough.md`.

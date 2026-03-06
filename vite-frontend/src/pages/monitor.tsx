@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
+import { Input } from "@heroui/input";
 import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
@@ -124,6 +125,15 @@ const getLatencyLabel = (ms?: number) => {
     if (ms === undefined || ms === null || ms < 0) return '—';
     return `${ms.toFixed(1)}ms`;
 };
+
+const normalizeSummary = (data: any): SummaryData => ({
+    totalCount: Number(data?.totalCount ?? 0),
+    successCount: Number(data?.successCount ?? 0),
+    failCount: Number(data?.failCount ?? 0),
+    avgLatency: data?.avgLatency ?? undefined,
+    lastRunTime: data?.lastRunTime ?? undefined,
+    records: Array.isArray(data?.records) ? data.records : [],
+});
 
 // ─── 统计卡组件 ──────────────────────────────────────────
 const StatCard = ({ label, value, subtitle, icon, color, bgColor }: {
@@ -499,12 +509,12 @@ export default function MonitorPage() {
                 getDiagnosisTrend({ hours: 24 })
             ]);
             if (summaryResp.code === 0) {
-                setSummary(summaryResp.data);
+                setSummary(normalizeSummary(summaryResp.data));
                 setError(null);
             } else {
                 setError(summaryResp.msg || '获取数据失败');
             }
-            if (trendResp.code === 0) setTrend(trendResp.data || []);
+            if (trendResp.code === 0) setTrend(Array.isArray(trendResp.data) ? trendResp.data : []);
         } catch (err) {
             console.error('Diagnosis load error:', err);
             setError('网络请求失败，请检查后端服务');

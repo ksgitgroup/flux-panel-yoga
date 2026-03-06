@@ -52,6 +52,8 @@ interface DiagnosisHistoryItem {
   id: number;
   overallSuccess: boolean;
   resultsJson: string;
+  averageTime?: number;
+  packetLoss?: number;
   createdTime: number;
 }
 

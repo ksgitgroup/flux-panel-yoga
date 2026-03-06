@@ -1,10 +1,18 @@
 #!/bin/bash
 
 # =================================================================
-# Flux Panel 本地开发环境搭建脚本 (Ubuntu 24.04 优化版)
+# Flux Panel 本地开发环境搭建脚本
+# - macOS: 调用 Homebrew + Colima 初始化
+# - Ubuntu: 使用 apt + Docker 初始化
 # =================================================================
 
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    exec "$SCRIPT_DIR/setup_dev_macos.sh" "$@"
+fi
 
 echo "开始配置 Flux Panel 本地开发环境..."
 

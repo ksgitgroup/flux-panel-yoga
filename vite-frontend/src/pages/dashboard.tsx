@@ -94,9 +94,9 @@ export default function DashboardPage() {
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
 
   // 告警状态
-  const [unhealthyForwards, setUnhealthyForwards] = useState<Forward[]>([]);
+  const [, setUnhealthyForwards] = useState<Forward[]>([]);
   const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | null>(null);
-  const [diagnosisChecked, setDiagnosisChecked] = useState(false);
+  const [, setDiagnosisChecked] = useState(false);
 
   // 检查有效期通知
   const checkExpirationNotifications = (userInfo: UserInfo, tunnels: UserTunnel[]) => {

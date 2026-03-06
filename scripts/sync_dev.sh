@@ -4,17 +4,23 @@
 # Flux Panel 自动校验与全量同步脚本 (A -> B)
 # =================================================================
 
-set -e
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
 echo "🚀 开始自动化同步流程 (Local A -> Remote B)..."
 
 # 1. 执行本地构建校验
-if [ -x "./scripts/verify_build.sh" ]; then
+if [ -f "./scripts/verify_build.sh" ]; then
     echo "🔍 正在进行本地编译校验..."
-    ./scripts/verify_build.sh
+    bash ./scripts/verify_build.sh
 else
     echo "⚠️ 未找到 verify_build.sh，尝试手动执行校验..."
-    cd springboot-backend && mvn clean compile -DskipTests && cd ..
+    (
+        cd springboot-backend
+        mvn clean compile -DskipTests
+    )
 fi
 
 echo "✅ 本地校验通过！准备推送代码..."
@@ -32,6 +38,7 @@ if [ "$CURRENT_BRANCH" != "dev" ]; then
 fi
 
 # 3. 执行推送
+
 echo "📤 正在推送到远程 gitlab.kingsungsz.com (branch: dev)..."
 git push origin HEAD:dev
 

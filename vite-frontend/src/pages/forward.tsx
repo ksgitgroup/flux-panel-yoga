@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -46,6 +46,7 @@ import {
   resumeForwardService,
   diagnoseForward,
   updateForwardOrder,
+  batchUpdateForward,
   getDiagnosisLatestBatch,
   getProtocolList,
   getTagList,
@@ -164,6 +165,31 @@ interface TunnelGroup {
   forwards: Forward[];
 }
 
+const splitTagIds = (tagIds?: string | null): string[] =>
+  tagIds ? tagIds.split(',').map((id) => id.trim()).filter(Boolean) : [];
+
+const getTagChipColor = (color?: string): "default" | "primary" | "secondary" | "success" | "warning" | "danger" => {
+  const validColors = new Set(["default", "primary", "secondary", "success", "warning", "danger"]);
+  return validColors.has(color || "") ? (color as "default" | "primary" | "secondary" | "success" | "warning" | "danger") : "default";
+};
+
+const getTagDotClass = (color?: string) => {
+  switch (color) {
+    case "primary":
+      return "bg-primary";
+    case "secondary":
+      return "bg-secondary";
+    case "success":
+      return "bg-success";
+    case "warning":
+      return "bg-warning";
+    case "danger":
+      return "bg-danger";
+    default:
+      return "bg-default-400";
+  }
+};
+
 export default function ForwardPage() {
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
@@ -243,6 +269,7 @@ export default function ForwardPage() {
   const [batchUpdateType, setBatchUpdateType] = useState<'protocol' | 'tag' | null>(null);
   const [batchProtocolId, setBatchProtocolId] = useState<number | null>(null);
   const [batchTagIds, setBatchTagIds] = useState<string[]>([]);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
 
   const toggleSelect = (id: number) => {
     setSelectedForwardIds(prev =>
@@ -307,6 +334,10 @@ export default function ForwardPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    setSelectedForwardIds((prev) => prev.filter((id) => forwards.some((forward) => forward.id === id)));
+  }, [forwards]);
 
   // 切换显示模式并保存到localStorage
   const handleViewModeChange = () => {
@@ -473,13 +504,10 @@ export default function ForwardPage() {
   };
 
   // 按用户和隧道分组转发数据
-  const groupForwardsByUserAndTunnel = (): UserGroup[] => {
+  const groupForwardsByUserAndTunnel = (sourceForwards: Forward[] = getSortedForwards()): UserGroup[] => {
     const userMap = new Map<string, UserGroup>();
 
-    // 获取排序后的转发列表
-    const sortedForwards = getSortedForwards();
-
-    sortedForwards.forEach(forward => {
+    sourceForwards.forEach(forward => {
       const userKey = forward.userId ? forward.userId.toString() : 'unknown';
       const userName = forward.userName || '未知用户';
 
@@ -726,37 +754,62 @@ export default function ForwardPage() {
     }
   };
 
-  // 批量更新处理
-  const handleBatchUpdate = async (type: 'protocol' | 'tag', value?: any) => {
-    if (selectedForwardIds.length === 0) return;
+  const openBatchModal = (type: 'protocol' | 'tag') => {
+    if (selectedForwardIds.length === 0) {
+      toast.error('请先选择需要批量处理的转发');
+      return;
+    }
 
+    const selectedItems = forwards.filter((forward) => selectedForwardIds.includes(forward.id));
     if (type === 'protocol') {
-      try {
-        const res = await batchUpdateForward({ ids: selectedForwardIds, protocolId: value });
-        if (res.code === 0) {
-          toast.success('批量更新协议成功');
-          setSelectedForwardIds([]);
-          loadData(false);
-        } else {
-          toast.error(res.msg || '更新失败');
-        }
-      } catch (err) {
-        toast.error('网络错误');
+      const protocolIds = Array.from(new Set(selectedItems
+        .map((forward) => forward.protocolId)
+        .filter((id): id is number => id !== undefined && id !== null)));
+      setBatchProtocolId(protocolIds.length === 1 ? protocolIds[0] : null);
+    } else {
+      setBatchTagIds([]);
+    }
+
+    setBatchUpdateType(type);
+    setBatchModalOpen(true);
+  };
+
+  const closeBatchModal = () => {
+    setBatchModalOpen(false);
+    setBatchUpdateType(null);
+    setBatchProtocolId(null);
+    setBatchTagIds([]);
+  };
+
+  // 批量更新处理
+  const handleBatchUpdate = async () => {
+    if (selectedForwardIds.length === 0 || !batchUpdateType) return;
+
+    if (batchUpdateType === 'protocol' && batchProtocolId === null) {
+      toast.error('请选择要应用的协议');
+      return;
+    }
+
+    setBatchSubmitting(true);
+    try {
+      const payload = batchUpdateType === 'protocol'
+        ? { ids: selectedForwardIds, protocolId: batchProtocolId ?? undefined }
+        : { ids: selectedForwardIds, tagIds: batchTagIds.join(',') };
+
+      const res = await batchUpdateForward(payload);
+      if (res.code === 0) {
+        toast.success(batchUpdateType === 'protocol' ? '批量设置协议成功' : '批量打标签成功');
+        setSelectedForwardIds([]);
+        closeBatchModal();
+        await loadData(false);
+      } else {
+        toast.error(res.msg || '批量更新失败');
       }
-    } else if (type === 'tag') {
-      try {
-        const res = await batchUpdateForward({ ids: selectedForwardIds, tagIds: batchTagIds.join(',') });
-        if (res.code === 0) {
-          toast.success('批量打标签成功');
-          setBatchModalOpen(false);
-          setSelectedForwardIds([]);
-          loadData(false);
-        } else {
-          toast.error(res.msg || '更新失败');
-        }
-      } catch (err) {
-        toast.error('网络错误');
-      }
+    } catch (error) {
+      console.error('批量更新失败:', error);
+      toast.error('批量更新失败，请稍后重试');
+    } finally {
+      setBatchSubmitting(false);
     }
   };
 
@@ -836,8 +889,13 @@ export default function ForwardPage() {
     setHistoryLoading(true);
     try {
       const res = await getDiagnosisHistory({ targetType: 'forward', targetId: forwardId, limit: 10 });
-      if (res.code === 0 && res.data && res.data.records) {
-        setDiagnosisHistory(res.data.records);
+      if (res.code === 0) {
+        const historyItems = Array.isArray(res.data)
+          ? res.data
+          : Array.isArray(res.data?.records)
+            ? res.data.records
+            : [];
+        setDiagnosisHistory(historyItems);
       }
     } catch (err) {
       console.error("加载历史记录失败", err);
@@ -1365,7 +1423,7 @@ export default function ForwardPage() {
     if (tagFilters.length > 0) {
       filteredForwards = filteredForwards.filter((f: Forward) => {
         if (!f.tagIds) return false;
-        const fTags = f.tagIds.split(',').filter(Boolean);
+        const fTags = splitTagIds(f.tagIds);
         return tagFilters.every(t => fTags.includes(t));
       });
     }
@@ -1420,6 +1478,94 @@ export default function ForwardPage() {
     return sortedForwards;
   };
 
+  const accessibleForwards = useMemo(() => {
+    if (viewMode !== 'direct') {
+      return forwards;
+    }
+
+    const currentUserId = JwtUtil.getUserIdFromToken();
+    if (currentUserId === null) {
+      return forwards;
+    }
+
+    return forwards.filter((forward) => forward.userId === currentUserId);
+  }, [forwards, viewMode]);
+
+  const visibleForwards = useMemo(() => getSortedForwards(), [
+    forwards,
+    viewMode,
+    tunnelFilter,
+    statusFilter,
+    healthFilter,
+    protocolFilter,
+    tagFilters,
+    searchKeyword,
+    forwardOrder,
+    diagnosisMap,
+  ]);
+
+  const userGroups = useMemo(() => groupForwardsByUserAndTunnel(visibleForwards), [visibleForwards]);
+  const visibleForwardIds = useMemo(() => visibleForwards.map((forward) => forward.id), [visibleForwards]);
+  const selectedVisibleCount = useMemo(
+    () => selectedForwardIds.filter((id) => visibleForwardIds.includes(id)).length,
+    [selectedForwardIds, visibleForwardIds]
+  );
+  const hiddenSelectedCount = selectedForwardIds.length - selectedVisibleCount;
+  const allVisibleSelected = visibleForwardIds.length > 0 && selectedVisibleCount === visibleForwardIds.length;
+  const activeFilterCount = [
+    tunnelFilter !== null,
+    statusFilter !== 'all',
+    healthFilter !== 'all',
+    protocolFilter !== null,
+    tagFilters.length > 0,
+    searchKeyword.trim() !== "",
+  ].filter(Boolean).length;
+  const hasActiveFilters = activeFilterCount > 0;
+  const runningCount = accessibleForwards.filter((forward) => forward.status === 1).length;
+  const unhealthyCount = accessibleForwards.filter((forward) => {
+    const diagnosis = diagnosisMap[forward.id];
+    return diagnosis ? !diagnosis.overallSuccess : false;
+  }).length;
+  const selectedForwards = useMemo(
+    () => forwards.filter((forward) => selectedForwardIds.includes(forward.id)),
+    [forwards, selectedForwardIds]
+  );
+  const visibleUnhealthyIds = useMemo(
+    () => visibleForwards
+      .filter((forward) => {
+        const diagnosis = diagnosisMap[forward.id];
+        return diagnosis ? !diagnosis.overallSuccess : false;
+      })
+      .map((forward) => forward.id),
+    [visibleForwards, diagnosisMap]
+  );
+  const tagUsageCount = useMemo(() => {
+    return tags.reduce<Record<string, number>>((acc, tag) => {
+      acc[tag.id.toString()] = accessibleForwards.filter((forward) =>
+        splitTagIds(forward.tagIds).includes(tag.id.toString())
+      ).length;
+      return acc;
+    }, {});
+  }, [tags, accessibleForwards]);
+
+  const handleToggleSelectAllVisible = () => {
+    if (visibleForwardIds.length === 0) {
+      toast('当前筛选结果为空');
+      return;
+    }
+
+    setSelectedForwardIds(allVisibleSelected ? [] : visibleForwardIds);
+  };
+
+  const handleSelectVisibleUnhealthy = () => {
+    if (visibleUnhealthyIds.length === 0) {
+      toast('当前筛选结果中没有故障项');
+      return;
+    }
+
+    setSelectedForwardIds(visibleUnhealthyIds);
+  };
+
   // 可拖拽的转发卡片组件
   const SortableForwardCard = ({ forward }: { forward: Forward }) => {
     // 确保 forward 对象有效
@@ -1453,6 +1599,10 @@ export default function ForwardPage() {
   const renderForwardCard = (forward: Forward, listeners?: any) => {
     const statusDisplay = getStatusDisplay(forward.status);
     const strategyDisplay = getStrategyDisplay(forward.strategy);
+    const protocolName = protocols.find((protocol) => protocol.id === forward.protocolId)?.name;
+    const forwardTags = splitTagIds(forward.tagIds)
+      .map((tagId) => tags.find((tag) => tag.id.toString() === tagId))
+      .filter((tag): tag is Tag => Boolean(tag));
 
     return (
       <Card key={forward.id} className="group shadow-sm border border-divider hover:shadow-md transition-shadow duration-200">
@@ -1585,6 +1735,27 @@ export default function ForwardPage() {
                 <Chip color={strategyDisplay.color as any} variant="flat" size="sm" className="text-xs">
                   {strategyDisplay.text}
                 </Chip>
+                {protocolName && (
+                  <Chip variant="flat" size="sm" className="text-xs" color="secondary">
+                    协议 · {protocolName}
+                  </Chip>
+                )}
+                {forwardTags.slice(0, 2).map((tag) => (
+                  <Chip
+                    key={tag.id}
+                    variant="flat"
+                    size="sm"
+                    className="text-xs"
+                    color={getTagChipColor(tag.color)}
+                  >
+                    #{tag.name}
+                  </Chip>
+                ))}
+                {forwardTags.length > 2 && (
+                  <Chip variant="flat" size="sm" className="text-xs">
+                    +{forwardTags.length - 2} 标签
+                  </Chip>
+                )}
                 <Chip variant="flat" size="sm" className="text-xs" color="primary">
                   ↑{formatFlow(forward.inFlow || 0)}
                 </Chip>
@@ -1664,7 +1835,7 @@ export default function ForwardPage() {
           </div>
           <div className="mt-4 pt-3 border-t border-divider">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] uppercase font-bold text-default-400 tracking-wider">最近 10 次历史 (诊断看版)</span>
+              <span className="text-[10px] uppercase font-bold text-default-400 tracking-wider">最近 10 次历史 (诊断看板)</span>
               {(() => {
                 const diag = diagnosisMap[forward.id];
                 if (!diag) return null;
@@ -1720,286 +1891,288 @@ export default function ForwardPage() {
 
     );
   }
-
-  const userGroups = groupForwardsByUserAndTunnel();
-
   return (
 
     <div className="px-3 lg:px-6 py-8">
-      {/* 页面头部 */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        <div className="w-full sm:w-auto flex-1 max-w-sm">
-          <Input
-            isClearable
-            placeholder="搜索转发名称、地址或端口..."
-            value={searchKeyword}
-            onValueChange={setSearchKeyword}
-            startContent={
-              <svg className="w-4 h-4 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            }
-            size="sm"
-            variant="bordered"
-          />
+      <div className="mb-6 overflow-hidden rounded-[28px] border border-divider bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.14),_transparent_28%)] p-5 shadow-sm">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary-700 dark:text-primary-300">
+              Forward Workspace
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground lg:text-3xl">
+                转发管理工作台
+              </h1>
+              <p className="max-w-2xl text-sm leading-6 text-default-600">
+                把筛选、诊断、排序和批量处理集中到同一个视图里。当前权限范围内共有 {accessibleForwards.length} 条转发，筛选后显示 {visibleForwards.length} 条。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Chip size="sm" variant="flat" color="primary">
+                {viewMode === 'grouped' ? '分组浏览' : '平铺排序'}
+              </Chip>
+              <Chip size="sm" variant="flat" color={activeFilterCount > 0 ? 'warning' : 'default'}>
+                {activeFilterCount > 0 ? `已启用 ${activeFilterCount} 个筛选器` : '未启用额外筛选'}
+              </Chip>
+              <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? 'secondary' : 'default'}>
+                已选择 {selectedForwardIds.length} 项
+              </Chip>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="flat"
+              color="default"
+              onPress={handleViewModeChange}
+              isIconOnly
+              className="text-sm"
+              title={viewMode === 'grouped' ? '切换到直接显示' : '切换到分类显示'}
+            >
+              {viewMode === 'grouped' ? (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 16a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+                </svg>
+              )}
+            </Button>
+
+            <Button size="sm" variant="flat" color="warning" onPress={handleImport}>
+              导入
+            </Button>
+
+            <Button size="sm" variant="flat" color="success" onPress={handleExport} isLoading={exportLoading}>
+              导出
+            </Button>
+
+            <Button size="sm" variant="solid" color="primary" onPress={handleAdd}>
+              新增转发
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          {/* 显示模式切换按钮 */}
-          <Button
-            size="sm"
-            variant="flat"
-            color="default"
-            onPress={handleViewModeChange}
-            isIconOnly
-            className="text-sm"
-            title={viewMode === 'grouped' ? '切换到直接显示' : '切换到分类显示'}
-          >
-            {viewMode === 'grouped' ? (
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 16a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-              </svg>
-            )}
-          </Button>
 
-          {/* 导入按钮 */}
-          <Button
-            size="sm"
-            variant="flat"
-            color="warning"
-            onPress={handleImport}
-          >
-            导入
-          </Button>
-
-          {/* 导出按钮 */}
-          <Button
-            size="sm"
-            variant="flat"
-            color="success"
-            onPress={handleExport}
-            isLoading={exportLoading}
-
-          >
-            导出
-          </Button>
-
-          <Button
-            size="sm"
-            variant="flat"
-            color="primary"
-            onPress={handleAdd}
-
-          >
-            新增
-          </Button>
-
-
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
+            <p className="text-xs text-default-500">当前结果</p>
+            <p className="mt-2 text-2xl font-bold text-foreground">{visibleForwards.length}</p>
+            <p className="mt-1 text-xs text-default-400">批量操作会以当前筛选结果为准</p>
+          </div>
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
+            <p className="text-xs text-default-500">运行中</p>
+            <p className="mt-2 text-2xl font-bold text-success">{runningCount}</p>
+            <p className="mt-1 text-xs text-default-400">已暂停 {accessibleForwards.length - runningCount}</p>
+          </div>
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
+            <p className="text-xs text-default-500">诊断异常</p>
+            <p className="mt-2 text-2xl font-bold text-danger">{unhealthyCount}</p>
+            <p className="mt-1 text-xs text-default-400">用于快速筛选与批处理</p>
+          </div>
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-default-200/50 dark:bg-default-100/20">
+            <p className="text-xs text-default-500">批量选择</p>
+            <p className="mt-2 text-2xl font-bold text-secondary">{selectedForwardIds.length}</p>
+            <p className="mt-1 text-xs text-default-400">已选中待处理项</p>
+          </div>
         </div>
       </div>
 
       {/* 统一的高级筛选工具栏 */}
       <div className="flex flex-col gap-4 mb-6 transition-all duration-300">
-        {/* 主控制层 */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 bg-white/50 dark:bg-default-100/20 p-3 rounded-2xl border border-divider shadow-sm backdrop-blur-md">
-          {/* 搜索框与状态切换 */}
-          <div className="flex flex-1 flex-col sm:flex-row items-center gap-3">
-            <Input
-              value={searchKeyword}
-              onValueChange={setSearchKeyword}
-              placeholder="搜索名称、端口、目标IP..."
-              startContent={
-                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              }
-              size="sm"
-              variant="flat"
-              radius="lg"
-              className="w-full sm:max-w-[400px]"
-              isClearable
-              onClear={() => setSearchKeyword("")}
-            />
+        <div className="flex flex-col gap-4 rounded-3xl border border-divider bg-white/60 p-4 shadow-sm backdrop-blur-md dark:bg-default-100/20">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-1 flex-col gap-3 xl:flex-row xl:items-center">
+              <Input
+                value={searchKeyword}
+                onValueChange={setSearchKeyword}
+                placeholder="搜索名称、端口、入口或目标地址..."
+                startContent={
+                  <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                }
+                size="sm"
+                variant="flat"
+                radius="lg"
+                className="w-full xl:max-w-[360px]"
+                isClearable
+                onClear={() => setSearchKeyword("")}
+              />
 
-            <Tabs
-              selectedKey={statusFilter}
-              onSelectionChange={(key) => setStatusFilter(key as any)}
-              size="sm"
-              variant="bordered"
-              radius="lg"
-              classNames={{
-                tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
-                cursor: "bg-white dark:bg-primary shadow-sm",
-                tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-bold",
-                tab: "h-8 px-3",
-              }}
-            >
-              <Tab key="all" title="全部" />
-              <Tab key="running" title="运行中" />
-              <Tab key="paused" title="已暂停" />
-            </Tabs>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <Tabs
+                  selectedKey={statusFilter}
+                  onSelectionChange={(key) => setStatusFilter(key as any)}
+                  size="sm"
+                  variant="bordered"
+                  radius="lg"
+                  classNames={{
+                    tabList: "bg-default-100/50 dark:bg-default-100/20 p-1",
+                    cursor: "bg-white dark:bg-primary shadow-sm",
+                    tabContent: "group-data-[selected=true]:text-primary-600 dark:group-data-[selected=true]:text-white font-bold",
+                    tab: "h-8 px-3",
+                  }}
+                >
+                  <Tab key="all" title="全部" />
+                  <Tab key="running" title="运行中" />
+                  <Tab key="paused" title="已暂停" />
+                </Tabs>
 
-            <Divider orientation="vertical" className="h-6 hidden sm:block" />
-
-            <Tabs
-              selectedKey={healthFilter}
-              onSelectionChange={(key) => setHealthFilter(key as any)}
-              size="sm"
-              variant="flat"
-              radius="lg"
-              color={healthFilter === 'unhealthy' ? 'danger' : healthFilter === 'healthy' ? 'success' : 'default'}
-              classNames={{
-                tabContent: "font-medium"
-              }}
-            >
-              <Tab key="all" title="全部健康度" />
-              <Tab key="healthy" title="正常" />
-              <Tab key="unhealthy" title="故障" />
-            </Tabs>
-
-            <Divider orientation="vertical" className="h-6 hidden sm:block" />
-
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-              <div className="flex-shrink-0 flex items-center gap-2 text-default-400 mr-1">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                <span className="text-[10px] uppercase font-bold tracking-wider">标签筛选</span>
+                <Tabs
+                  selectedKey={healthFilter}
+                  onSelectionChange={(key) => setHealthFilter(key as any)}
+                  size="sm"
+                  variant="light"
+                  radius="lg"
+                  color={healthFilter === 'unhealthy' ? 'danger' : healthFilter === 'healthy' ? 'success' : 'default'}
+                  classNames={{
+                    tabContent: "font-medium"
+                  }}
+                >
+                  <Tab key="all" title="全部健康度" />
+                  <Tab key="healthy" title="正常" />
+                  <Tab key="unhealthy" title="故障" />
+                </Tabs>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant={showAdvancedFilters ? "solid" : "flat"}
+                color={showAdvancedFilters ? "primary" : "default"}
+                onPress={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+                  </svg>
+                }
+                className="font-medium"
+              >
+                高级筛选
+                {activeFilterCount > 0 && (
+                  <span className="ml-1 rounded-full bg-white/20 px-1.5 text-[10px]">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </Button>
+
+              {hasActiveFilters && (
+                <Button
+                  size="sm"
+                  variant="light"
+                  color="danger"
+                  onPress={() => {
+                    setTunnelFilter(null);
+                    setStatusFilter('all');
+                    setHealthFilter('all');
+                    setProtocolFilter(null);
+                    setTagFilters([]);
+                    setSearchKeyword("");
+                  }}
+                >
+                  重置筛选
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-divider/70 bg-default-50/60 p-3 dark:bg-default-100/20">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-default-500">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em]">标签筛选</span>
+                </div>
+                <p className="mt-1 text-xs text-default-400">
+                  标签筛选会在当前权限范围内生效，支持多标签组合。
+                </p>
+              </div>
+
+              {tagFilters.length > 0 && (
+                <Button size="sm" variant="light" color="danger" onPress={() => setTagFilters([])}>
+                  清空标签筛选
+                </Button>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
               <Chip
                 size="sm"
                 variant={tagFilters.length === 0 ? "solid" : "flat"}
                 color={tagFilters.length === 0 ? "primary" : "default"}
-                className="cursor-pointer transition-all hover:scale-105 flex-shrink-0"
+                className="cursor-pointer transition-all hover:scale-105"
                 onClick={() => setTagFilters([])}
               >
-                全部 ({forwards.length})
+                全部 ({accessibleForwards.length})
               </Chip>
-              {tags.map(t => {
-                const count = forwards.filter(f => f.tagIds?.includes(t.id.toString())).length;
-                const isSelected = tagFilters.includes(t.id.toString());
+              {tags.map((tag) => {
+                const tagId = tag.id.toString();
+                const isSelected = tagFilters.includes(tagId);
                 return (
                   <Chip
-                    key={t.id}
+                    key={tag.id}
                     size="sm"
                     variant={isSelected ? "solid" : "flat"}
-                    color={isSelected ? "primary" : "default"}
-                    className={`cursor-pointer transition-all hover:scale-105 flex-shrink-0 ${isSelected ? 'shadow-md' : 'opacity-80 hover:opacity-100'}`}
+                    color={isSelected ? "primary" : getTagChipColor(tag.color)}
+                    className={`cursor-pointer transition-all hover:scale-105 ${isSelected ? 'shadow-md' : 'opacity-90 hover:opacity-100'}`}
                     onClick={() => {
-                      if (isSelected) {
-                        setTagFilters(prev => prev.filter(id => id !== t.id.toString()));
-                      } else {
-                        setTagFilters(prev => [...prev, t.id.toString()]);
-                      }
+                      setTagFilters((prev) => isSelected ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
                     }}
                   >
-                    {t.name} ({count})
+                    {tag.name} ({tagUsageCount[tagId] || 0})
                   </Chip>
                 );
               })}
             </div>
           </div>
 
-          {/* 操作按钮组 */}
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant={showAdvancedFilters ? "solid" : "flat"}
-              color={showAdvancedFilters ? "primary" : "default"}
-              onPress={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              startContent={
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-                </svg>
-              }
-              className="font-medium"
-            >
-              高级筛选 {tagFilters.length + (tunnelFilter ? 1 : 0) + (protocolFilter ? 1 : 0) > 0 &&
-                <span className="ml-1 bg-white/20 px-1.5 rounded-full text-[10px]">
-                  {tagFilters.length + (tunnelFilter ? 1 : 0) + (protocolFilter ? 1 : 0)}
-                </span>
-              }
-            </Button>
+          <div className="rounded-2xl border border-divider/70 bg-default-50/60 p-4 dark:bg-default-100/20">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip size="sm" variant="flat" color="primary">
+                    当前结果 {visibleForwards.length}
+                  </Chip>
+                  <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? "secondary" : "default"}>
+                    已选择 {selectedForwardIds.length}
+                  </Chip>
+                  {hiddenSelectedCount > 0 && (
+                    <Chip size="sm" variant="flat" color="warning">
+                      其中 {hiddenSelectedCount} 项不在当前筛选
+                    </Chip>
+                  )}
+                </div>
+                <p className="text-xs text-default-500">
+                  “全选当前结果”只作用于当前筛选集。批量设置协议与标签会覆盖对应字段，方便在批量整治时保持一致。
+                </p>
+              </div>
 
-            <Divider orientation="vertical" className="h-6 mx-1" />
-
-            {(tunnelFilter !== null || statusFilter !== 'all' || healthFilter !== 'all' || tagFilters.length > 0 || protocolFilter !== null || searchKeyword !== "") && (
-              <Button
-                size="sm"
-                variant="light"
-                color="danger"
-                onPress={() => {
-                  setTunnelFilter(null);
-                  setStatusFilter('all');
-                  setHealthFilter('all');
-                  setProtocolFilter(null);
-                  setTagFilters([]);
-                  setSearchKeyword("");
-                }}
-                className="min-w-0"
-              >
-                重置
-              </Button>
-            )}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant={allVisibleSelected ? "solid" : "flat"} color="primary" onPress={handleToggleSelectAllVisible}>
+                  {allVisibleSelected ? '取消全选当前结果' : '全选当前结果'}
+                </Button>
+                <Button size="sm" variant="flat" color="warning" onPress={handleSelectVisibleUnhealthy}>
+                  仅选故障项
+                </Button>
+                <Button size="sm" variant="flat" color="secondary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('protocol')}>
+                  批量设置协议
+                </Button>
+                <Button size="sm" variant="flat" color="primary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('tag')}>
+                  批量打标签
+                </Button>
+                <Button size="sm" variant="flat" color="danger" isDisabled={selectedForwardIds.length === 0} onPress={handleBatchDelete}>
+                  批量删除
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Floating Batch Bar */}
-        {selectedForwardIds.length > 0 && (
-          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-foreground/90 text-background px-6 py-3 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-6 animate-in zoom-in slide-in-from-bottom-5 duration-300">
-            <div className="flex items-center gap-2 border-r border-background/20 pr-4">
-              <span className="text-sm font-bold">已选择 {selectedForwardIds.length} 项</span>
-              <Button size="sm" variant="light" color="danger" className="h-7 text-xs px-2 min-w-0" onPress={() => setSelectedForwardIds([])}>取消</Button>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Select
-                aria-label="批量协议"
-                placeholder="批量配置协议"
-                size="sm"
-                variant="flat"
-                className="w-40"
-                classNames={{ trigger: "bg-white/10 text-white min-h-8 h-8 rounded-full border-white/20" }}
-                onSelectionChange={(keys) => {
-                  const id = Array.from(keys)[0];
-                  if (id) {
-                    handleBatchUpdate('protocol', Number(id));
-                  }
-                }}
-              >
-                {protocols.map(p => (
-                  <SelectItem key={p.id} textValue={p.name}>{p.name}</SelectItem>
-                ))}
-              </Select>
-
-              <Button
-                size="sm"
-                variant="solid"
-                color="primary"
-                className="rounded-full shadow-lg"
-                onPress={() => {
-                  setBatchUpdateType('tag');
-                  setBatchModalOpen(true);
-                }}
-              >
-                批量打标签
-              </Button>
-
-              <Button
-                size="sm"
-                variant="solid"
-                color="danger"
-                className="rounded-full shadow-lg"
-                onPress={handleBatchDelete}
-              >
-                批量删除
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* 展开式高级筛选 */}
         {showAdvancedFilters && (
@@ -2323,7 +2496,7 @@ export default function ForwardPage() {
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">标签 (Tags)</label>
                       <Button
-                        size="tiny"
+                        size="sm"
                         variant="light"
                         color="primary"
                         startContent={<i className="i-lucide-plus w-3 h-3" />}
@@ -2346,12 +2519,12 @@ export default function ForwardPage() {
                         setForm(prev => ({ ...prev, tagIds: Array.from(keys) as string[] }));
                       }}
                       variant="bordered"
-                      classNames={{ content: "text-sm", trigger: "h-10" }}
+                      classNames={{ trigger: "h-10" }}
                     >
                       {tags.map(t => (
                         <SelectItem key={t.id.toString()} textValue={t.name}>
                           <div className="flex items-center gap-2">
-                            <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
+                            <div className={`w-3 h-3 rounded-full ${getTagDotClass(t.color)}`}></div>
                             <span>{t.name}</span>
                           </div>
                         </SelectItem>
@@ -2971,41 +3144,103 @@ export default function ForwardPage() {
         </ModalContent>
       </Modal>
 
-      {/* 批量打标签模态框 */}
+      {/* 批量操作模态框 */}
       <Modal
         isOpen={batchModalOpen}
-        onOpenChange={setBatchModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeBatchModal();
+          } else {
+            setBatchModalOpen(true);
+          }
+        }}
         size="lg"
         backdrop="blur"
       >
         <ModalContent>
           {(onClose) => (
             <>
-              <ModalHeader>批量打标签</ModalHeader>
+              <ModalHeader>{batchUpdateType === 'protocol' ? '批量设置协议' : '批量打标签'}</ModalHeader>
               <ModalBody>
                 <div className="space-y-4">
-                  <p className="text-sm text-default-500">将为选中的 {selectedForwardIds.length} 个转发批量应用以下标签：</p>
-                  <Select
-                    placeholder="选择标签 (多项选择)"
-                    selectionMode="multiple"
-                    selectedKeys={new Set(batchTagIds)}
-                    onSelectionChange={(keys) => setBatchTagIds(Array.from(keys) as string[])}
-                    variant="bordered"
-                  >
-                    {tags.map(t => (
-                      <SelectItem key={t.id.toString()} textValue={t.name}>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full bg-${t.color === 'default' ? 'default-400' : t.color}`}></div>
-                          <span>{t.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </Select>
+                  <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-default-500">本次操作</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Chip size="sm" variant="flat" color="primary">
+                        已选择 {selectedForwardIds.length} 条
+                      </Chip>
+                      <Chip size="sm" variant="flat" color="secondary">
+                        当前筛选命中 {selectedVisibleCount} 条
+                      </Chip>
+                    </div>
+                    <p className="mt-3 text-sm text-default-500">
+                      {batchUpdateType === 'protocol'
+                        ? '保存后会把所选转发的协议统一设置为同一项。'
+                        : '保存后会覆盖所选转发的标签集合。若要清空标签，直接保存空选择即可。'}
+                    </p>
+                  </div>
+
+                  {batchUpdateType === 'protocol' ? (
+                    <Select
+                      aria-label="批量协议"
+                      placeholder="选择要应用的协议"
+                      selectedKeys={batchProtocolId !== null ? new Set([batchProtocolId.toString()]) : new Set([])}
+                      onSelectionChange={(keys) => {
+                        const selected = Array.from(keys)[0];
+                        setBatchProtocolId(selected ? Number(selected) : null);
+                      }}
+                      variant="bordered"
+                    >
+                      {protocols.map((protocol) => (
+                        <SelectItem key={protocol.id.toString()} textValue={protocol.name}>
+                          {protocol.name}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Select
+                      placeholder="选择标签 (多项选择)"
+                      selectionMode="multiple"
+                      selectedKeys={new Set(batchTagIds)}
+                      onSelectionChange={(keys) => setBatchTagIds(Array.from(keys) as string[])}
+                      variant="bordered"
+                    >
+                      {tags.map((tag) => (
+                        <SelectItem key={tag.id.toString()} textValue={tag.name}>
+                          <div className="flex items-center gap-2">
+                            <Chip size="sm" variant="flat" color={getTagChipColor(tag.color)}>
+                              {tag.name}
+                            </Chip>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  )}
+
+                  {selectedForwards.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-default-500">示例对象</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedForwards.slice(0, 6).map((forward) => (
+                          <Chip key={forward.id} size="sm" variant="flat">
+                            {forward.name}
+                          </Chip>
+                        ))}
+                        {selectedForwards.length > 6 && (
+                          <Chip size="sm" variant="flat" color="default">
+                            还有 {selectedForwards.length - 6} 条
+                          </Chip>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </ModalBody>
               <ModalFooter>
-                <Button variant="light" onPress={onClose}>取消</Button>
-                <Button color="primary" onPress={() => handleBatchUpdate('tag')}>确认应用</Button>
+                <Button variant="light" onPress={() => { closeBatchModal(); onClose(); }}>取消</Button>
+                <Button color="primary" isLoading={batchSubmitting} onPress={handleBatchUpdate}>
+                  {batchUpdateType === 'protocol' ? '应用协议' : '保存标签'}
+                </Button>
               </ModalFooter>
             </>
           )}

@@ -2,6 +2,7 @@
 
 ## Critical Rules
 - **Backend Build Verification**: ALWAYS verify that the backend compiles after any modification. Use `mvn clean compile` in the `springboot-backend` directory.
+- **Docker Verification**: If the local environment has Docker installed and configured, run `./scripts/build_docker.sh` to verify build integrity before proposing a commit.
 - **Import Management**: When refactoring or adding new methods to Services or Controllers, ensure all DTOs (e.g., `ForwardBatchUpdateDto`) are properly imported.
 - **Package Sync**: Ensure `pom.xml`, `package.json`, and `site.ts` version numbers are kept in sync (currently v1.4.2).
 

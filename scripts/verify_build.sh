@@ -4,13 +4,46 @@
 # Flux Panel 构建与健康检查脚本
 # =================================================================
 
-set -e
+set -euo pipefail
+
+configure_macos_toolchain() {
+    if [ "$(uname -s)" != "Darwin" ] || ! command -v brew >/dev/null 2>&1; then
+        return
+    fi
+
+    local java_prefix=""
+    local node_prefix=""
+
+    java_prefix="$(brew --prefix openjdk@21 2>/dev/null || true)"
+    node_prefix="$(brew --prefix node@20 2>/dev/null || true)"
+
+    if [ -n "$java_prefix" ] && [ -d "$java_prefix/libexec/openjdk.jdk/Contents/Home" ]; then
+        export JAVA_HOME="$java_prefix/libexec/openjdk.jdk/Contents/Home"
+        export PATH="$JAVA_HOME/bin:$PATH"
+    fi
+
+    if [ -n "$node_prefix" ] && [ -d "$node_prefix/bin" ]; then
+        export PATH="$node_prefix/bin:$PATH"
+    fi
+}
+
+configure_macos_toolchain
 
 echo "🚀 开始后端自动化构建校验..."
 
 # 1. 检查环境变量
 if [ ! -f ".env" ]; then
     echo "❌ 错误: 未检测到 .env 文件，请先运行 scripts/setup_dev.sh"
+    exit 1
+fi
+
+if ! command -v mvn >/dev/null 2>&1; then
+    echo "❌ 错误: 未检测到 Maven，请先运行 scripts/setup_dev.sh"
+    exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+    echo "❌ 错误: 未检测到 npm，请先运行 scripts/setup_dev.sh"
     exit 1
 fi
 
@@ -32,7 +65,7 @@ if [ -d "node_modules" ]; then
     echo "✅ Node 依赖项已存在。"
 else
     echo "⏳ 正在安装前端依赖..."
-    npm install --quiet
+    npm install --legacy-peer-deps --quiet
 fi
 echo "✨ 前端环境校验完成。"
 cd ..

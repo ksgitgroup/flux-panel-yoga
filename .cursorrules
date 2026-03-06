@@ -1,0 +1,12 @@
+# AI Development Guidelines for Flux Panel
+
+## Critical Rules
+- **Backend Build Verification**: ALWAYS verify that the backend compiles after any modification. Use `mvn clean compile` in the `springboot-backend` directory.
+- **Import Management**: When refactoring or adding new methods to Services or Controllers, ensure all DTOs (e.g., `ForwardBatchUpdateDto`) are properly imported.
+- **Package Sync**: Ensure `pom.xml`, `package.json`, and `site.ts` version numbers are kept in sync (currently v1.4.2).
+
+## Methodology
+1. **Plan**: Update `implementation_plan.md` before execution.
+2. **Execute**: Implement changes carefully.
+3. **Verify**: Run `mvn clean compile` for backend and check for lint errors in frontend.
+4. **Document**: Update `task.md` and `walkthrough.md`.

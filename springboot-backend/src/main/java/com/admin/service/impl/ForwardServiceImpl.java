@@ -2,6 +2,7 @@ package com.admin.service.impl;
 
 import com.admin.common.dto.ForwardDto;
 import com.admin.common.dto.ForwardUpdateDto;
+import com.admin.common.dto.ForwardBatchUpdateDto;
 import com.admin.common.dto.ForwardWithTunnelDto;
 import com.admin.common.dto.GostDto;
 import com.admin.common.lang.R;

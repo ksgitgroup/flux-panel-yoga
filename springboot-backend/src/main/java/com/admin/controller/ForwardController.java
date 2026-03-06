@@ -8,6 +8,7 @@ import com.admin.common.dto.ForwardBatchUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.entity.Forward;
 import com.admin.service.ForwardService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -107,7 +108,15 @@ public class ForwardController extends BaseController {
     @LogAnnotation
     @PostMapping("/copy")
     public R copyForward(@RequestBody Map<String, Object> params) {
-        // ... (existing code)
+        Long id = Long.valueOf(params.get("id").toString());
+        Forward forward = forwardService.getById(id);
+        if (forward == null) {
+            return R.err("转发不存在");
+        }
+        ForwardDto dto = new ForwardDto();
+        BeanUtils.copyProperties(forward, dto);
+        dto.setId(null);
+        dto.setName(forward.getName() + " - 副本");
         return forwardService.createForward(dto);
     }
 

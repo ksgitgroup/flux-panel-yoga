@@ -45,6 +45,12 @@ else
     git commit --no-gpg-sign -m "$COMMIT_MESSAGE"
 fi
 
+if [ -f "./scripts/build_docker.sh" ] && [ -f "./scripts/reload_local_stack.sh" ]; then
+    echo "🐳 正在按最新提交重建并重载本地容器..."
+    bash ./scripts/build_docker.sh
+    bash ./scripts/reload_local_stack.sh
+fi
+
 echo "📤 正在推送到 origin/dev ..."
 git push origin HEAD:dev
 bash ./scripts/cleanup_local_artifacts.sh post-ship || true

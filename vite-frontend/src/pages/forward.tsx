@@ -2914,7 +2914,7 @@ export default function ForwardPage() {
                   </div>
                 ) : diagnosisResult ? (
                   <div className="space-y-4">
-                    {/* 总体结论汇总 (v1.4.3) */}
+                    {/* 总体结论汇总 (v1.4.4) */}
                     {(diagnosisResult as any).totalLatency !== undefined && (
                       <Card className="bg-default-50 border-none shadow-none mb-6">
                         <CardBody className="py-4">

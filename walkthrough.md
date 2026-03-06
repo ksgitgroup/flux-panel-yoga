@@ -62,3 +62,13 @@
 8. 新增 `scripts/cleanup_local_artifacts.sh`，清理 `target`、`dist`、项目级 npm 缓存，以及不再被容器使用的 Docker 镜像。
 9. 先执行一次 `post-reload` 清理，把可用空间提升到约 `5.0G`，再继续完成 `./scripts/build_docker.sh` 和 `./scripts/reload_local_stack.sh`。
 10. 通过 localhost bundle 检查，确认强制 2FA、二维码逻辑和诊断历史兼容文案都已经进入实际运行版本。
+
+## 2026-03-07 Auth Refresh and Versioning Walkthrough
+
+1. 复盘管理员强制 2FA 行为，确认当前前端只在登录返回时写入 `force_two_factor_setup`，刷新页面后不会重新向后端确认。
+2. 在 `App.tsx` 中补充认证状态同步钩子，让受保护路由和登录页在刷新时调用 `/user/2fa/status`，重新计算是否必须进入 `/profile`。
+3. 审查版本显示链路，确认 `v1.4.3` 仍然来自 `package.json` / `pom.xml` / `application.yml`，因此将三处统一提升到 `1.4.4`。
+4. 审查本地运行栈，确认 Docker Compose 实际工作目录为 `/Users/mac/Developer/flux-panel-yoga`，而 `~/Documents/KS_Work/flux-panel-yoga` 只是软链接入口。
+5. 调整 `scripts/ship_dev.sh`，在创建 commit 后追加 `build_docker.sh` 与 `reload_local_stack.sh`，确保本地 UI 的提交标识同步到刚提交的新 SHA。
+6. 执行 `./scripts/verify_build.sh`，确认后端 `admin-1.4.4.jar`、前端 `flux-panel@1.4.4 build` 和 CI YAML 校验全部通过。
+7. 执行 `./scripts/build_docker.sh` 与 `./scripts/reload_local_stack.sh`，确认本地容器已切到最新 `local` 镜像且运行目录仍指向 `/Users/mac/Developer/flux-panel-yoga`。

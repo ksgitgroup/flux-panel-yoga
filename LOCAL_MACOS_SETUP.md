@@ -138,6 +138,14 @@ git switch dev
 ./scripts/sync_dev.sh
 ```
 
+说明：
+
+- `./scripts/ship_dev.sh` 会先执行 `./scripts/verify_build.sh`
+- 验证通过后才会创建本地 commit
+- 然后按这个新 commit 重建本地 Docker 镜像并重载容器
+- 最后再推送到 `origin/dev`
+- 因此本地页面中的“提交标识”会和刚推送的 commit 保持一致
+
 当需要发布到生产环境 C 时：
 
 ```bash

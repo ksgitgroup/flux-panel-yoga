@@ -2,7 +2,7 @@
 
 ## Critical Rules
 - **Build Verification**: ALWAYS run `./scripts/verify_build.sh` after any modification. It now performs backend package build, frontend production build, and version consistency checks.
-- **Sync Workflow**: After ANY local modification and successful verification, you MUST summarize the core improvements and use `./scripts/ship_dev.sh "<commit message>"` on `dev` to verify, commit, and push in one flow. Use `./scripts/sync_dev.sh` only when the commit already exists locally.
+- **Sync Workflow**: After ANY local modification and successful verification, you MUST summarize the core improvements and use `./scripts/ship_dev.sh "<commit message>"` on `dev` to verify, commit, rebuild the local stack on the new commit, and push in one flow. Use `./scripts/sync_dev.sh` only when the commit already exists locally.
 - **Docker Verification**: For major architectural changes, run `./scripts/build_docker.sh` to verify full image build integrity.
 - **Local Runtime Refresh**: After `./scripts/build_docker.sh`, if localhost needs to reflect the new code, ALWAYS run `./scripts/reload_local_stack.sh` before claiming the local UI/backend has updated.
 - **Disk Hygiene**: Any build/reload/ship flow on this Mac must finish with `./scripts/cleanup_local_artifacts.sh` (directly or via wrapper scripts). Keep only the active local stack images and remove stale build outputs/caches to protect limited SSD space.
@@ -10,7 +10,7 @@
 - **Release MR Discipline**: Any `dev -> main` release MR must use the repository template and must not use a bare title like `dev`. Fill out release summary, change list, local verification, and rollback plan. CI now enforces this through `scripts/validate_release_mr.sh`.
 - **Diagnosis Compatibility**: When reading historical diagnosis data, frontends must tolerate both legacy payloads (`results_json` as full report object) and newer array-style payloads. Never assume `JSON.parse(resultsJson)` is directly iterable.
 - **Import Management**: Ensure all DTOs and entities are properly imported and field names are matched correctly (e.g., `remoteAddr`).
-- **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.3). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
+- **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.4). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
 
 ## Methodology
 1. **Plan**: Update `implementation_plan.md` for non-trivial changes.

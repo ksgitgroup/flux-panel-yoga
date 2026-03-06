@@ -38,3 +38,10 @@
 2. 为 2FA 绑定补充二维码展示，保留密钥和 `otpauth://` 作为兜底导入方式。
 3. 修复“转发管理”诊断历史对旧结构 `results_json` 的渲染兼容问题，消除点击诊断后前端崩溃。
 4. 为本地构建、容器重载和推送流程增加自动清理步骤，持续回收 SSD 空间。
+
+## 2026-03-07 Auth Refresh and Versioning Addendum
+
+1. 让前端路由守卫在刷新时重新向后端确认 2FA 强制状态，而不是仅依赖登录时写入的本地标记。
+2. 将发布版本同步提升到 `1.4.4`，并保持 `package.json`、`pom.xml`、`application.yml` 一致。
+3. 调整 `ship_dev.sh`，在创建 commit 后按最新 commit 重建本地镜像并重载容器，再推送到 `origin/dev`。
+4. 明确本机真实工作副本和 Docker Compose 工作目录均为 `/Users/mac/Developer/flux-panel-yoga`，避免归档目录和当前运行时混淆。

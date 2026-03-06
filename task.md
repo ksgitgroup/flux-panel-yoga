@@ -25,7 +25,7 @@
 ## 2026-03-06 Follow-up Result
 
 - 已将“转发管理”顶部交互压缩为紧凑工具栏，保留搜索、状态/健康筛选、隧道/协议筛选、标签筛选、全选当前结果与批量操作。
-- 已统一版本号来源：`vite-frontend/package.json`、`springboot-backend/pom.xml`、`application.yml` 当前同步为 `1.4.3`。
+- 已统一版本号来源：`vite-frontend/package.json`、`springboot-backend/pom.xml`、`application.yml` 当前同步为 `1.4.4`。
 - 已让前端展示、Docker 构建参数、GitLab CI、GitHub Actions 镜像标签全部对齐到 `release version + git short SHA`。
 - 已把 `./scripts/verify_build.sh` 升级为真实构建门禁：后端 `mvn clean package` + 前端 `npm run build` + 版本一致性检查。
 - 已将仪表盘流量图改为范围明确的趋势卡片；管理员使用全站聚合流量，普通用户显示账号范围流量。
@@ -57,3 +57,10 @@
 - 已修复“转发管理 -> 诊断”历史记录对旧格式 `results_json` 的渲染兼容问题，避免点击后页面闪退。
 - 已新增 `scripts/cleanup_local_artifacts.sh`，并接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`。
 - 已实际执行一次清理，将本机可用空间从约 `1.7G` 提升到约 `5.0G`，随后完成重建和重载。
+
+## 2026-03-07 Auth Refresh and Versioning Result
+
+- 已让前端在页面刷新后重新读取后端 2FA 状态，管理员开启强制 2FA 后无需退出重登即可被引导到个人中心绑定。
+- 已确认当前真实工作副本和 Docker Compose 工作目录都是 `/Users/mac/Developer/flux-panel-yoga`，`~/Documents/KS_Work/flux-panel-yoga` 仅为软链接入口。
+- 已将前后端及运行时版本统一提升到 `1.4.4`。
+- 已将 `ship_dev.sh` 调整为“验证通过 -> 创建 commit -> 按新 commit 重建本地容器 -> 推送 dev”的固定流程。

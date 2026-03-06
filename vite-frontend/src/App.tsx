@@ -20,6 +20,7 @@ import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
 import H5SimpleLayout from "@/layouts/h5-simple";
 
+import { getTwoFactorStatus } from "@/api";
 import { isLoggedIn } from "@/utils/auth";
 import { siteConfig } from "@/config/site";
 
@@ -61,14 +62,74 @@ const useH5Mode = () => {
   return isH5;
 };
 
+const useForcedAuthState = (authenticated: boolean) => {
+  const [mustChangePassword, setMustChangePassword] = useState(localStorage.getItem('force_password_change') === 'true');
+  const [mustSetupTwoFactor, setMustSetupTwoFactor] = useState(localStorage.getItem('force_two_factor_setup') === 'true');
+  const [checking, setChecking] = useState(authenticated);
+
+  useEffect(() => {
+    const passwordChangeRequired = localStorage.getItem('force_password_change') === 'true';
+    const initialTwoFactorRequired = localStorage.getItem('force_two_factor_setup') === 'true';
+
+    setMustChangePassword(passwordChangeRequired);
+    setMustSetupTwoFactor(initialTwoFactorRequired);
+
+    if (!authenticated) {
+      setChecking(false);
+      return;
+    }
+
+    if (passwordChangeRequired) {
+      localStorage.removeItem('force_two_factor_setup');
+      setMustSetupTwoFactor(false);
+      setChecking(false);
+      return;
+    }
+
+    let cancelled = false;
+    setChecking(true);
+
+    const syncTwoFactorRequirement = async () => {
+      let forceSetup = initialTwoFactorRequired;
+
+      try {
+        const response = await getTwoFactorStatus();
+        if (response.code === 0) {
+          forceSetup = Boolean(response.data.required && !response.data.enabled);
+          if (forceSetup) {
+            localStorage.setItem('force_two_factor_setup', 'true');
+          } else {
+            localStorage.removeItem('force_two_factor_setup');
+          }
+        }
+      } catch (error) {
+        console.error('刷新二步验证状态失败:', error);
+      } finally {
+        if (!cancelled) {
+          setMustChangePassword(passwordChangeRequired);
+          setMustSetupTwoFactor(forceSetup);
+          setChecking(false);
+        }
+      }
+    };
+
+    void syncTwoFactorRequirement();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated]);
+
+  return { checking, mustChangePassword, mustSetupTwoFactor };
+};
+
 // 简化的路由保护组件 - 使用 React Router 导航避免循环
 const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false }: { children: React.ReactNode, useSimpleLayout?: boolean, skipLayout?: boolean }) => {
   const authenticated = isLoggedIn();
   const isH5 = useH5Mode();
   const navigate = useNavigate();
   const location = useLocation();
-  const mustChangePassword = localStorage.getItem('force_password_change') === 'true';
-  const mustSetupTwoFactor = localStorage.getItem('force_two_factor_setup') === 'true';
+  const { checking, mustChangePassword, mustSetupTwoFactor } = useForcedAuthState(authenticated);
   const forcedPath = mustChangePassword ? '/change-password' : mustSetupTwoFactor ? '/profile' : null;
 
   useEffect(() => {
@@ -77,12 +138,15 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
       navigate('/', { replace: true });
       return;
     }
+    if (checking) {
+      return;
+    }
     if (forcedPath && location.pathname !== forcedPath) {
       navigate(forcedPath, { replace: true });
     }
-  }, [authenticated, forcedPath, location.pathname, navigate]);
+  }, [authenticated, checking, forcedPath, location.pathname, navigate]);
 
-  if (!authenticated || (forcedPath && location.pathname !== forcedPath)) {
+  if (!authenticated || checking || (forcedPath && location.pathname !== forcedPath)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white dark:bg-black">
         <div className="text-lg text-gray-700 dark:text-gray-200"></div>
@@ -113,16 +177,15 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
 const LoginRoute = () => {
   const authenticated = isLoggedIn();
   const navigate = useNavigate();
-  const mustChangePassword = localStorage.getItem('force_password_change') === 'true';
-  const mustSetupTwoFactor = localStorage.getItem('force_two_factor_setup') === 'true';
+  const { checking, mustChangePassword, mustSetupTwoFactor } = useForcedAuthState(authenticated);
   const redirectPath = mustChangePassword ? '/change-password' : mustSetupTwoFactor ? '/profile' : '/dashboard';
 
   useEffect(() => {
-    if (authenticated) {
+    if (authenticated && !checking) {
       // 使用 React Router 导航，避免无限跳转
       navigate(redirectPath, { replace: true });
     }
-  }, [authenticated, navigate, redirectPath]);
+  }, [authenticated, checking, navigate, redirectPath]);
 
   if (authenticated) {
     return (

@@ -137,9 +137,13 @@ export default function ProfilePage() {
 
       try {
         const dataUrl = await QRCode.toDataURL(twoFactorSetupData.otpauthUri, {
-          width: 220,
-          margin: 1,
-          errorCorrectionLevel: 'M',
+          width: 256,
+          margin: 2,
+          errorCorrectionLevel: 'H',
+          color: {
+            dark: '#111827',
+            light: '#FFFFFFFF',
+          },
         });
         if (!cancelled) {
           setTwoFactorQrDataUrl(dataUrl);
@@ -621,7 +625,7 @@ export default function ProfilePage() {
                   <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
                     <div className="rounded-2xl border border-default-200 bg-white p-3 shadow-sm">
                       {twoFactorQrDataUrl ? (
-                        <img src={twoFactorQrDataUrl} alt="2FA QR Code" className="mx-auto h-[220px] w-[220px] rounded-lg" />
+                        <img src={twoFactorQrDataUrl} alt="2FA QR Code" className="mx-auto h-64 w-64 rounded-lg" />
                       ) : (
                         <div className="flex h-[220px] w-[220px] items-center justify-center rounded-lg bg-default-100 text-sm text-default-500">
                           正在生成二维码...

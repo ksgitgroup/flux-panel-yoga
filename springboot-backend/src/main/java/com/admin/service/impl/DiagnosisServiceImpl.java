@@ -371,7 +371,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             JSONObject obj = JSON.parseObject(jsonStr);
             if (obj == null) return new double[]{avgTime, avgLoss};
             
-            // 优先使用预计算指标 (v1.4.3)
+            // 优先使用预计算指标 (v1.4.4)
             if (obj.containsKey("totalLatency")) {
                 Double tl = obj.getDouble("totalLatency");
                 if (tl != null) avgTime = tl;

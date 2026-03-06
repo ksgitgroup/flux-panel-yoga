@@ -22,10 +22,10 @@ public class WeChatWorkUtil {
      * @param webhookUrl 企业微信机器人 Webhook URL
      * @param content    Markdown 格式内容
      */
-    public static void sendMarkdown(String webhookUrl, String content) {
+    public static boolean sendMarkdown(String webhookUrl, String content) {
         if (webhookUrl == null || webhookUrl.trim().isEmpty()) {
             log.warn("[企业微信] Webhook URL 未配置，跳过通知");
-            return;
+            return false;
         }
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -42,11 +42,14 @@ public class WeChatWorkUtil {
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 log.info("[企业微信] 通知发送成功");
+                return true;
             } else {
                 log.warn("[企业微信] 通知发送失败，HTTP状态: {}", response.getStatusCode());
+                return false;
             }
         } catch (Exception e) {
             log.error("[企业微信] 发送通知异常: {}", e.getMessage(), e);
+            return false;
         }
     }
 }

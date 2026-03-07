@@ -240,6 +240,7 @@ export default function XuiPage() {
   const [form, setForm] = useState<XuiInstanceForm>(emptyForm());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [nameAutoFilled, setNameAutoFilled] = useState(false);
 
   const {
     isOpen: isFormOpen,
@@ -332,6 +333,17 @@ export default function XuiPage() {
     return `${window.location.origin}${selectedInstance.trafficCallbackPath}`;
   }, [selectedInstance]);
 
+  // Auto-fill instance name from selected asset (only in create mode)
+  useEffect(() => {
+    if (isEdit || !form.assetId) return;
+    const asset = assets.find(a => a.id === form.assetId);
+    if (!asset) return;
+    if (!form.name.trim() || nameAutoFilled) {
+      setForm(prev => ({ ...prev, name: asset.name }));
+      setNameAutoFilled(true);
+    }
+  }, [form.assetId]);
+
   const assetOptions = useMemo(
     () => [
       {
@@ -402,6 +414,7 @@ export default function XuiPage() {
     setIsEdit(false);
     setErrors({});
     setForm(emptyForm());
+    setNameAutoFilled(false);
     onFormOpen();
   };
 
@@ -612,7 +625,7 @@ export default function XuiPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <Card className="border border-divider/80">
           <CardBody className="gap-2 p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-default-400">Assets</p>
@@ -994,7 +1007,7 @@ export default function XuiPage() {
             <CardHeader className="flex flex-col items-start gap-2">
               <h2 className="text-lg font-semibold">协议汇总</h2>
               <p className="text-sm text-default-500">
-                按协议聚合入站数、在线数、流量与端口。后续你要做“服务器 / 面板 / 协议”的整体管理，这一层就是协议目录。
+                按协议聚合入站数、在线数、流量与端口。后续你要做"服务器 / 面板 / 协议"的整体管理，这一层就是协议目录。
               </p>
             </CardHeader>
             <CardBody>
@@ -1063,6 +1076,7 @@ export default function XuiPage() {
                   {selectedInstanceId ? '当前实例还没有同步到任何入站节点。' : '请选择一个 x-ui 实例查看快照。'}
                 </div>
               ) : (
+                <div className="overflow-x-auto -mx-3 px-3">
                 <Table removeWrapper aria-label="x-ui inbound snapshots">
                   <TableHeader>
                     <TableColumn>入站</TableColumn>
@@ -1107,6 +1121,7 @@ export default function XuiPage() {
                     }}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardBody>
           </Card>
@@ -1124,6 +1139,7 @@ export default function XuiPage() {
                   当前没有已同步的客户端数据。
                 </div>
               ) : (
+                <div className="overflow-x-auto -mx-3 px-3">
                 <Table removeWrapper aria-label="x-ui client snapshots">
                   <TableHeader>
                     <TableColumn>客户端</TableColumn>
@@ -1164,6 +1180,7 @@ export default function XuiPage() {
                     }}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardBody>
           </Card>
@@ -1184,15 +1201,38 @@ export default function XuiPage() {
               </p>
             </div>
 
+            <p className="text-xs font-medium uppercase tracking-widest text-default-400">绑定资产</p>
+            <Select
+              label="绑定服务器资产"
+              items={assetOptions}
+              selectedKeys={[form.assetId ? form.assetId.toString() : '__none__']}
+              onSelectionChange={(keys) => {
+                const selectedKey = Array.from(keys)[0] as string;
+                setForm((prev) => ({
+                  ...prev,
+                  assetId: selectedKey && selectedKey !== '__none__' ? Number(selectedKey) : null
+                }));
+              }}
+              description="选择资产后实例名称将自动填充。资产页可统一汇总该 VPS 的 X-UI、协议和转发。"
+            >
+              {(item) => (
+                <SelectItem key={item.key} description={item.description}>
+                  {item.label}
+                </SelectItem>
+              )}
+            </Select>
+
+            <p className="mt-2 text-xs font-medium uppercase tracking-widest text-default-400">实例信息</p>
             <div className="grid gap-4 md:grid-cols-2">
               <Input
                 label="实例名称"
-                placeholder="例如 HK-3X-01"
+                placeholder={form.assetId ? '已从资产自动填充' : '例如 HK-3X-01'}
                 value={form.name}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+                onValueChange={(value) => { setForm((prev) => ({ ...prev, name: value })); setNameAutoFilled(false); }}
                 isInvalid={!!errors.name}
                 errorMessage={errors.name}
                 isRequired
+                description={nameAutoFilled ? '已从绑定资产自动填充，可手动修改' : undefined}
               />
               <Input
                 label="实例地址"
@@ -1203,12 +1243,10 @@ export default function XuiPage() {
                 errorMessage={errors.baseUrl}
                 isRequired
               />
-              <Input
-                label="Web Base Path"
-                placeholder="可留空；若手填，示例为 / 或 /random/"
-                value={form.webBasePath}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, webBasePath: value }))}
-              />
+            </div>
+
+            <p className="mt-2 text-xs font-medium uppercase tracking-widest text-default-400">登录凭据</p>
+            <div className="grid gap-4 md:grid-cols-2">
               <Input
                 label="登录用户名"
                 placeholder="建议专门给 Flux 的同步账号"
@@ -1235,32 +1273,16 @@ export default function XuiPage() {
                 value={form.loginSecret}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, loginSecret: value }))}
               />
-              <Select
-                label="绑定资产"
-                items={assetOptions}
-                selectedKeys={[form.assetId ? form.assetId.toString() : '__none__']}
-                onSelectionChange={(keys) => {
-                  const selectedKey = Array.from(keys)[0] as string;
-                  setForm((prev) => ({
-                    ...prev,
-                    assetId: selectedKey && selectedKey !== '__none__' ? Number(selectedKey) : null
-                  }));
-                }}
-                description="建议优先绑定到服务器资产层，这样资产页才能统一汇总这台 VPS 的 X-UI、协议和转发关系。"
-              >
-                {(item) => (
-                  <SelectItem key={item.key} description={item.description}>
-                    {item.label}
-                  </SelectItem>
-                )}
-              </Select>
               <Input
-                label="兼容主机标签"
-                placeholder="例如 HK-VPS-01"
-                value={form.hostLabel}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, hostLabel: value }))}
-                description="保留给旧数据兼容或未绑定资产的场景。新接入实例优先使用“绑定资产”。"
+                label="Web Base Path"
+                placeholder="可留空；若手填，示例为 / 或 /random/"
+                value={form.webBasePath}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, webBasePath: value }))}
               />
+            </div>
+
+            <p className="mt-2 text-xs font-medium uppercase tracking-widest text-default-400">同步设置</p>
+            <div className="grid gap-4 md:grid-cols-2">
               <Input
                 label="同步间隔（分钟）"
                 type="number"

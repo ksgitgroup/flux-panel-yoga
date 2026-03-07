@@ -3,6 +3,7 @@ import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input, Textarea } from "@heroui/input";
+import { Select, SelectItem } from "@heroui/select";
 import {
   Modal,
   ModalBody,
@@ -12,6 +13,7 @@ import {
   useDisclosure
 } from "@heroui/modal";
 import { Spinner } from "@heroui/spinner";
+import { Progress } from "@heroui/progress";
 import {
   Table,
   TableBody,
@@ -25,6 +27,7 @@ import toast from 'react-hot-toast';
 import {
   AssetHost,
   AssetHostDetail,
+  MonitorNodeSnapshot,
   XuiInstance,
   createAsset,
   deleteAsset,
@@ -33,27 +36,55 @@ import {
   updateAsset
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
+import { useNavigate } from 'react-router-dom';
 
 interface AssetForm {
   id?: number;
   name: string;
   label: string;
   primaryIp: string;
+  ipv6: string;
   environment: string;
   provider: string;
   region: string;
+  role: string;
+  os: string;
+  cpuCores: string;
+  memTotalMb: string;
+  diskTotalGb: string;
+  bandwidthMbps: string;
+  monthlyTrafficGb: string;
+  sshPort: string;
+  purchaseDate: string;
+  expireDate: string;
+  monthlyCost: string;
+  currency: string;
+  tags: string;
+  monitorNodeUuid: string;
   remark: string;
 }
 
 const emptyForm = (): AssetForm => ({
-  name: '',
-  label: '',
-  primaryIp: '',
-  environment: '',
-  provider: '',
-  region: '',
-  remark: '',
+  name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
+  role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
+  monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
+  currency: 'CNY', tags: '', monitorNodeUuid: '', remark: '',
 });
+
+const ROLES = [
+  { key: '', label: '未指定' },
+  { key: 'entry', label: 'Entry (入口)' },
+  { key: 'relay', label: 'Relay (中转)' },
+  { key: 'landing', label: 'Landing (落地)' },
+  { key: 'standalone', label: 'Standalone (独立)' },
+];
+
+const CURRENCIES = [
+  { key: 'CNY', label: 'CNY' },
+  { key: 'USD', label: 'USD' },
+  { key: 'EUR', label: 'EUR' },
+  { key: 'JPY', label: 'JPY' },
+];
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 
@@ -62,24 +93,61 @@ const formatDate = (timestamp?: number | null) => {
   return new Date(timestamp).toLocaleString();
 };
 
+const formatDateShort = (timestamp?: number | null) => {
+  if (!timestamp) return '-';
+  return new Date(timestamp).toLocaleDateString();
+};
+
 const formatFlow = (value?: number | null) => {
   const bytes = value || 0;
   if (bytes === 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const formatSpeed = (bytesPerSec?: number | null) => {
+  const bytes = bytesPerSec || 0;
+  if (bytes < 1024) return `${bytes} B/s`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB/s`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`;
+};
+
+const formatUptime = (seconds?: number | null) => {
+  if (!seconds) return '-';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  if (d > 0) return `${d}d ${h}h`;
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+};
+
+const tsToDateInput = (ts?: number | null) => {
+  if (!ts) return '';
+  return new Date(ts).toISOString().split('T')[0];
+};
+
+const dateInputToTs = (value: string) => {
+  if (!value) return undefined;
+  return new Date(value + 'T00:00:00').getTime();
 };
 
 const getStatusChip = (status?: string | null) => {
   switch (status) {
-    case 'success':
-      return { color: 'success' as const, text: '成功' };
-    case 'failed':
-      return { color: 'danger' as const, text: '失败' };
-    case 'never':
-    default:
-      return { color: 'default' as const, text: '未执行' };
+    case 'success': return { color: 'success' as const, text: 'OK' };
+    case 'failed': return { color: 'danger' as const, text: 'Fail' };
+    default: return { color: 'default' as const, text: '-' };
+  }
+};
+
+const getRoleChip = (role?: string | null) => {
+  switch (role) {
+    case 'entry': return { color: 'primary' as const, text: 'Entry' };
+    case 'relay': return { color: 'warning' as const, text: 'Relay' };
+    case 'landing': return { color: 'success' as const, text: 'Landing' };
+    case 'standalone': return { color: 'secondary' as const, text: 'Standalone' };
+    default: return null;
   }
 };
 
@@ -87,6 +155,7 @@ const buildInstanceAddress = (instance: Pick<XuiInstance, 'baseUrl' | 'webBasePa
   `${instance.baseUrl}${instance.webBasePath || '/'}`;
 
 export default function AssetsPage() {
+  const navigate = useNavigate();
   const admin = isAdmin();
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -101,55 +170,30 @@ export default function AssetsPage() {
   const [isEdit, setIsEdit] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState<AssetHost | null>(null);
 
-  const {
-    isOpen: isFormOpen,
-    onOpen: onFormOpen,
-    onClose: onFormClose
-  } = useDisclosure();
+  const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
 
-  const {
-    isOpen: isDeleteOpen,
-    onOpen: onDeleteOpen,
-    onClose: onDeleteClose
-  } = useDisclosure();
-
+  useEffect(() => { void loadAssets(); }, []);
   useEffect(() => {
-    void loadAssets();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedAssetId) {
-      setDetail(null);
-      return;
-    }
+    if (!selectedAssetId) { setDetail(null); return; }
     void loadAssetDetail(selectedAssetId);
   }, [selectedAssetId]);
 
   const summary = useMemo(() => ({
     totalAssets: assets.length,
-    totalXuiInstances: assets.reduce((sum, item) => sum + (item.totalXuiInstances || 0), 0),
-    totalProtocols: assets.reduce((sum, item) => sum + (item.totalProtocols || 0), 0),
-    totalForwards: assets.reduce((sum, item) => sum + (item.totalForwards || 0), 0),
-    totalClients: assets.reduce((sum, item) => sum + (item.totalClients || 0), 0),
+    onlineAssets: assets.filter(a => a.monitorOnline === 1).length,
+    totalXuiInstances: assets.reduce((s, i) => s + (i.totalXuiInstances || 0), 0),
+    totalForwards: assets.reduce((s, i) => s + (i.totalForwards || 0), 0),
+    totalClients: assets.reduce((s, i) => s + (i.totalClients || 0), 0),
   }), [assets]);
 
   const filteredAssets = useMemo(() => {
-    const keyword = normalizeKeyword(searchKeyword);
-    if (!keyword) {
-      return assets;
-    }
-    return assets.filter((item) => {
-      const haystacks = [
-        item.name,
-        item.label,
-        item.primaryIp,
-        item.environment,
-        item.provider,
-        item.region,
-        item.remark,
-      ];
-      return haystacks.some((value) => normalizeKeyword(value).includes(keyword));
-    });
+    const kw = normalizeKeyword(searchKeyword);
+    if (!kw) return assets;
+    return assets.filter((item) =>
+      [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark]
+        .some((v) => normalizeKeyword(v).includes(kw))
+    );
   }, [assets, searchKeyword]);
 
   const selectedAsset = useMemo(
@@ -161,279 +205,243 @@ export default function AssetsPage() {
     setLoading(true);
     try {
       const response = await getAssetList();
-      if (response.code !== 0) {
-        toast.error(response.msg || '加载资产列表失败');
-        return;
-      }
+      if (response.code !== 0) { toast.error(response.msg || 'Failed'); return; }
       const list = response.data || [];
       setAssets(list);
-      setSelectedAssetId((current) => {
-        if (current && list.some((item) => item.id === current)) {
-          return current;
-        }
-        return list.length ? list[0].id : null;
-      });
-    } catch (error) {
-      toast.error('加载资产列表失败');
-    } finally {
-      setLoading(false);
-    }
+      setSelectedAssetId((cur) => (cur && list.some((i) => i.id === cur)) ? cur : (list[0]?.id ?? null));
+    } catch { toast.error('Failed to load assets'); }
+    finally { setLoading(false); }
   };
 
   const loadAssetDetail = async (assetId: number) => {
     setDetailLoading(true);
     try {
       const response = await getAssetDetail(assetId);
-      if (response.code !== 0) {
-        toast.error(response.msg || '加载资产详情失败');
-        return;
-      }
+      if (response.code !== 0) { toast.error(response.msg || 'Failed'); return; }
       setDetail(response.data || null);
-    } catch (error) {
-      toast.error('加载资产详情失败');
-    } finally {
-      setDetailLoading(false);
-    }
+    } catch { toast.error('Failed to load detail'); }
+    finally { setDetailLoading(false); }
   };
 
-  const openCreateModal = () => {
-    setIsEdit(false);
-    setErrors({});
-    setForm(emptyForm());
-    onFormOpen();
-  };
+  const openCreateModal = () => { setIsEdit(false); setErrors({}); setForm(emptyForm()); onFormOpen(); };
 
   const openEditModal = (asset: AssetHost) => {
-    setIsEdit(true);
-    setErrors({});
+    setIsEdit(true); setErrors({});
     setForm({
-      id: asset.id,
-      name: asset.name,
-      label: asset.label || '',
-      primaryIp: asset.primaryIp || '',
-      environment: asset.environment || '',
-      provider: asset.provider || '',
-      region: asset.region || '',
-      remark: asset.remark || '',
+      id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
+      ipv6: asset.ipv6 || '', environment: asset.environment || '', provider: asset.provider || '',
+      region: asset.region || '', role: asset.role || '', os: asset.os || '',
+      cpuCores: asset.cpuCores?.toString() || '', memTotalMb: asset.memTotalMb?.toString() || '',
+      diskTotalGb: asset.diskTotalGb?.toString() || '', bandwidthMbps: asset.bandwidthMbps?.toString() || '',
+      monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
+      purchaseDate: tsToDateInput(asset.purchaseDate), expireDate: tsToDateInput(asset.expireDate),
+      monthlyCost: asset.monthlyCost || '', currency: asset.currency || 'CNY',
+      tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', remark: asset.remark || '',
     });
     onFormOpen();
   };
 
   const validateForm = () => {
-    const nextErrors: Record<string, string> = {};
-    if (!form.name.trim()) nextErrors.name = '资产名称不能为空';
-    if (form.label.trim().length > 120) nextErrors.label = '资产标识不能超过 120 个字符';
-    if (form.primaryIp.trim().length > 128) nextErrors.primaryIp = '主 IP / 域名不能超过 128 个字符';
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    const e: Record<string, string> = {};
+    if (!form.name.trim()) e.name = 'Required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
     setSubmitLoading(true);
     try {
-      const payload = {
+      const payload: any = {
         ...(isEdit ? { id: form.id } : {}),
         name: form.name.trim(),
-        label: form.label.trim(),
-        primaryIp: form.primaryIp.trim(),
-        environment: form.environment.trim(),
-        provider: form.provider.trim(),
-        region: form.region.trim(),
-        remark: form.remark.trim(),
+        label: form.label.trim() || null,
+        primaryIp: form.primaryIp.trim() || null,
+        ipv6: form.ipv6.trim() || null,
+        environment: form.environment.trim() || null,
+        provider: form.provider.trim() || null,
+        region: form.region.trim() || null,
+        role: form.role || null,
+        os: form.os.trim() || null,
+        cpuCores: form.cpuCores ? parseInt(form.cpuCores) : null,
+        memTotalMb: form.memTotalMb ? parseInt(form.memTotalMb) : null,
+        diskTotalGb: form.diskTotalGb ? parseInt(form.diskTotalGb) : null,
+        bandwidthMbps: form.bandwidthMbps ? parseInt(form.bandwidthMbps) : null,
+        monthlyTrafficGb: form.monthlyTrafficGb ? parseInt(form.monthlyTrafficGb) : null,
+        sshPort: form.sshPort ? parseInt(form.sshPort) : null,
+        purchaseDate: dateInputToTs(form.purchaseDate) ?? null,
+        expireDate: dateInputToTs(form.expireDate) ?? null,
+        monthlyCost: form.monthlyCost.trim() || null,
+        currency: form.currency || null,
+        tags: form.tags.trim() || null,
+        monitorNodeUuid: form.monitorNodeUuid.trim() || null,
+        remark: form.remark.trim() || null,
       };
-      const response = isEdit
-        ? await updateAsset(payload)
-        : await createAsset(payload);
-      if (response.code !== 0) {
-        toast.error(response.msg || (isEdit ? '更新资产失败' : '创建资产失败'));
-        return;
-      }
-      toast.success(isEdit ? '资产已更新' : '资产已创建');
+      const response = isEdit ? await updateAsset(payload) : await createAsset(payload);
+      if (response.code !== 0) { toast.error(response.msg || 'Failed'); return; }
+      toast.success(isEdit ? 'Updated' : 'Created');
       onFormClose();
       await loadAssets();
       const targetId = response.data?.id || form.id;
-      if (targetId) {
-        setSelectedAssetId(targetId);
-      }
-    } catch (error) {
-      toast.error(isEdit ? '更新资产失败' : '创建资产失败');
-    } finally {
-      setSubmitLoading(false);
-    }
+      if (targetId) setSelectedAssetId(targetId);
+    } catch { toast.error('Failed'); }
+    finally { setSubmitLoading(false); }
   };
 
-  const openDeleteModal = (asset: AssetHost) => {
-    setAssetToDelete(asset);
-    onDeleteOpen();
-  };
-
+  const openDeleteModal = (asset: AssetHost) => { setAssetToDelete(asset); onDeleteOpen(); };
   const handleDelete = async () => {
     if (!assetToDelete) return;
     setActionLoadingId(assetToDelete.id);
     try {
       const response = await deleteAsset(assetToDelete.id);
-      if (response.code !== 0) {
-        toast.error(response.msg || '删除资产失败');
-        return;
-      }
-      toast.success('资产已删除');
-      onDeleteClose();
-      setAssetToDelete(null);
-      if (selectedAssetId === assetToDelete.id) {
-        setSelectedAssetId(null);
-      }
+      if (response.code !== 0) { toast.error(response.msg || 'Failed'); return; }
+      toast.success('Deleted');
+      onDeleteClose(); setAssetToDelete(null);
+      if (selectedAssetId === assetToDelete.id) setSelectedAssetId(null);
       await loadAssets();
-    } catch (error) {
-      toast.error('删除资产失败');
-    } finally {
-      setActionLoadingId(null);
-    }
+    } catch { toast.error('Failed'); }
+    finally { setActionLoadingId(null); }
   };
 
   if (!admin) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
         <CardBody className="p-6">
-          <h1 className="text-xl font-semibold text-danger">仅管理员可访问服务器资产</h1>
-          <p className="mt-2 text-sm text-danger-700">
-            资产层会把 X-UI、转发、探针和节点监控逐步归一到同一台 VPS 记录下，仅允许管理员维护。
-          </p>
+          <h1 className="text-xl font-semibold text-danger">Admin Only</h1>
         </CardBody>
       </Card>
     );
   }
 
   if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Spinner size="lg" />
-      </div>
-    );
+    return <div className="flex h-64 items-center justify-center"><Spinner size="lg" /></div>;
   }
+
+  const expiringSoon = assets.filter(a => a.expireDate && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">服务器资产</h1>
+          <h1 className="text-2xl font-bold">Server Assets</h1>
           <p className="mt-1 max-w-3xl text-sm text-default-500">
-            这里是新的资产主视角。每台 VPS 先落成一条资产记录，再把 X-UI 实例、协议目录、转发关系逐步挂载过来，后续再叠加探针与节点监控，形成真正的多层整合面。
+            VPS asset management. Each server is an asset with linked X-UI instances, protocol nodes, monitor probes, and forwarding rules.
           </p>
         </div>
-        <Button color="primary" onPress={openCreateModal}>
-          新增资产
-        </Button>
+        <Button color="primary" onPress={openCreateModal}>New Asset</Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Card className="border border-divider/80">
-          <CardBody className="gap-2 p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-default-400">Assets</p>
-            <p className="text-3xl font-semibold">{summary.totalAssets}</p>
-            <p className="text-sm text-default-500">已登记的服务器资产</p>
-          </CardBody>
-        </Card>
-        <Card className="border border-divider/80">
-          <CardBody className="gap-2 p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-default-400">X-UI</p>
-            <p className="text-3xl font-semibold">{summary.totalXuiInstances}</p>
-            <p className="text-sm text-default-500">挂载到资产上的面板实例</p>
-          </CardBody>
-        </Card>
-        <Card className="border border-divider/80">
-          <CardBody className="gap-2 p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-default-400">Protocols</p>
-            <p className="text-3xl font-semibold">{summary.totalProtocols}</p>
-            <p className="text-sm text-default-500">已识别到的协议种类总数</p>
-          </CardBody>
-        </Card>
-        <Card className="border border-divider/80">
-          <CardBody className="gap-2 p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-default-400">Forwards</p>
-            <p className="text-3xl font-semibold">{summary.totalForwards}</p>
-            <p className="text-sm text-default-500">已绑定 X-UI 远端的转发数</p>
-          </CardBody>
-        </Card>
-        <Card className="border border-divider/80">
-          <CardBody className="gap-2 p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-default-400">Clients</p>
-            <p className="text-3xl font-semibold">{summary.totalClients}</p>
-            <p className="text-sm text-default-500">当前已同步的客户端总量</p>
-          </CardBody>
-        </Card>
+      {/* Summary Cards */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
+          <p className="text-xs uppercase tracking-widest text-default-400">Assets</p>
+          <p className="text-3xl font-semibold">{summary.totalAssets}</p>
+        </CardBody></Card>
+        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
+          <p className="text-xs uppercase tracking-widest text-default-400">Online</p>
+          <p className="text-3xl font-semibold text-success">{summary.onlineAssets}</p>
+        </CardBody></Card>
+        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
+          <p className="text-xs uppercase tracking-widest text-default-400">X-UI</p>
+          <p className="text-3xl font-semibold">{summary.totalXuiInstances}</p>
+        </CardBody></Card>
+        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
+          <p className="text-xs uppercase tracking-widest text-default-400">Forwards</p>
+          <p className="text-3xl font-semibold">{summary.totalForwards}</p>
+        </CardBody></Card>
+        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
+          <p className="text-xs uppercase tracking-widest text-default-400">Clients</p>
+          <p className="text-3xl font-semibold">{summary.totalClients}</p>
+        </CardBody></Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      {/* Expiry Warnings */}
+      {expiringSoon.length > 0 && (
+        <Card className="border border-warning/30 bg-warning-50/60">
+          <CardBody className="p-4">
+            <p className="text-sm font-medium text-warning-700">
+              {expiringSoon.length} asset(s) expiring within 30 days:
+              {' '}{expiringSoon.map(a => a.name).join(', ')}
+            </p>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Main 2-column layout */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+        {/* Left: Asset List */}
         <Card className="border border-divider/80">
           <CardHeader className="flex flex-col items-start gap-3">
-            <div className="w-full">
-              <h2 className="text-lg font-semibold">资产目录</h2>
-              <p className="text-sm text-default-500">
-                先在资产层看全局，再进入 X-UI 或转发的子模块做细节操作，避免数据视角被拆散。
-              </p>
-            </div>
-            <Input
-              value={searchKeyword}
-              onValueChange={setSearchKeyword}
-              placeholder="按名称、标识、IP、区域或供应商筛选"
-            />
+            <h2 className="text-lg font-semibold">Assets</h2>
+            <Input value={searchKeyword} onValueChange={setSearchKeyword} placeholder="Filter by name, IP, role, region..." />
           </CardHeader>
           <CardBody className="space-y-3">
             {filteredAssets.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                {assets.length === 0 ? '还没有任何服务器资产记录。先创建一个资产。' : '没有匹配的资产。'}
+                {assets.length === 0 ? 'No assets yet.' : 'No matches.'}
               </div>
             ) : (
               filteredAssets.map((asset) => {
                 const selected = asset.id === selectedAssetId;
+                const roleChip = getRoleChip(asset.role);
+                const isOnline = asset.monitorOnline === 1;
                 return (
-                  <button
-                    type="button"
-                    key={asset.id}
-                    onClick={() => setSelectedAssetId(asset.id)}
+                  <button type="button" key={asset.id} onClick={() => setSelectedAssetId(asset.id)}
                     className={`w-full rounded-3xl border p-4 text-left transition-all ${
-                      selected
-                        ? 'border-primary bg-primary-50/70 shadow-lg shadow-primary/10'
+                      selected ? 'border-primary bg-primary-50/70 shadow-lg shadow-primary/10'
                         : 'border-divider/80 bg-content1 hover:border-primary/40 hover:bg-default-50'
-                    }`}
-                  >
+                    }`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
+                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-success' : 'bg-default-300'}`} />
                           <p className="truncate text-base font-semibold">{asset.name}</p>
-                          {asset.label ? <Chip size="sm" variant="flat">{asset.label}</Chip> : null}
+                          {asset.label && <Chip size="sm" variant="flat">{asset.label}</Chip>}
+                          {roleChip && <Chip size="sm" color={roleChip.color} variant="flat">{roleChip.text}</Chip>}
                         </div>
                         <p className="mt-1 truncate text-xs text-default-500">
-                          {asset.primaryIp || '未记录主公网 IP'}{asset.environment ? ` · ${asset.environment}` : ''}
+                          {asset.primaryIp || 'No IP'}{asset.environment ? ` / ${asset.environment}` : ''}
+                          {asset.provider ? ` / ${asset.provider}` : ''}
                         </p>
                       </div>
-                      <Chip size="sm" color={selected ? 'primary' : 'default'} variant="flat">
-                        {selected ? '当前资产' : '查看'}
-                      </Chip>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {asset.provider ? <Chip size="sm" variant="flat">{asset.provider}</Chip> : null}
-                      {asset.region ? <Chip size="sm" variant="flat">{asset.region}</Chip> : null}
-                    </div>
+                    {/* Monitor mini metrics */}
+                    {asset.monitorCpuUsage != null && (
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl bg-default-100/80 px-2 py-1.5">
+                          <p className="text-[10px] text-default-400">CPU</p>
+                          <p className="text-sm font-semibold">{asset.monitorCpuUsage.toFixed(1)}%</p>
+                        </div>
+                        <div className="rounded-xl bg-default-100/80 px-2 py-1.5">
+                          <p className="text-[10px] text-default-400">MEM</p>
+                          <p className="text-sm font-semibold">
+                            {asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100).toFixed(0) + '%' : '-'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-default-100/80 px-2 py-1.5">
+                          <p className="text-[10px] text-default-400">NET</p>
+                          <p className="text-sm font-semibold">{formatSpeed(asset.monitorNetIn)}</p>
+                        </div>
+                      </div>
+                    )}
 
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <div className="rounded-2xl bg-default-100/80 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">X-UI</p>
-                        <p className="mt-1 text-lg font-semibold">{asset.totalXuiInstances || 0}</p>
+                    <div className="mt-3 grid grid-cols-4 gap-1.5">
+                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
+                        <p className="text-[10px] text-default-400">X-UI</p>
+                        <p className="text-xs font-semibold">{asset.totalXuiInstances || 0}</p>
                       </div>
-                      <div className="rounded-2xl bg-default-100/80 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">协议</p>
-                        <p className="mt-1 text-lg font-semibold">{asset.totalProtocols || 0}</p>
+                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
+                        <p className="text-[10px] text-default-400">Proto</p>
+                        <p className="text-xs font-semibold">{asset.totalProtocols || 0}</p>
                       </div>
-                      <div className="rounded-2xl bg-default-100/80 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">转发</p>
-                        <p className="mt-1 text-lg font-semibold">{asset.totalForwards || 0}</p>
+                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
+                        <p className="text-[10px] text-default-400">Fwd</p>
+                        <p className="text-xs font-semibold">{asset.totalForwards || 0}</p>
                       </div>
-                      <div className="rounded-2xl bg-default-100/80 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">在线客户端</p>
-                        <p className="mt-1 text-lg font-semibold">{asset.onlineClients || 0}</p>
+                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
+                        <p className="text-[10px] text-default-400">Online</p>
+                        <p className="text-xs font-semibold">{asset.onlineClients || 0}</p>
                       </div>
                     </div>
                   </button>
@@ -443,31 +451,31 @@ export default function AssetsPage() {
           </CardBody>
         </Card>
 
+        {/* Right: Detail */}
         <div className="space-y-6">
+          {/* Asset Info */}
           <Card className="border border-divider/80">
             <CardHeader className="flex flex-col items-start gap-3">
               {!selectedAsset ? (
                 <div>
-                  <h2 className="text-lg font-semibold">资产总览</h2>
-                  <p className="text-sm text-default-500">请选择一个资产查看整合后的 X-UI、协议和转发关系。</p>
+                  <h2 className="text-lg font-semibold">Overview</h2>
+                  <p className="text-sm text-default-500">Select an asset from the list.</p>
                 </div>
               ) : (
                 <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300'}`} />
                       <h2 className="truncate text-lg font-semibold">{selectedAsset.name}</h2>
-                      {selectedAsset.label ? <Chip size="sm" variant="flat">{selectedAsset.label}</Chip> : null}
-                      {selectedAsset.environment ? <Chip size="sm" color="primary" variant="flat">{selectedAsset.environment}</Chip> : null}
+                      {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
+                      {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
                     </div>
-                    <p className="mt-1 break-all text-sm text-default-500">{selectedAsset.primaryIp || '未记录主公网 IP'}</p>
+                    <p className="mt-1 break-all text-sm text-default-500">{selectedAsset.primaryIp || 'No IP'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="flat" onPress={() => openEditModal(selectedAsset)}>
-                      编辑资产
-                    </Button>
-                    <Button size="sm" variant="flat" color="danger" onPress={() => openDeleteModal(selectedAsset)}>
-                      删除资产
-                    </Button>
+                    {detailLoading && <Spinner size="sm" />}
+                    <Button size="sm" variant="flat" onPress={() => openEditModal(selectedAsset)}>Edit</Button>
+                    <Button size="sm" variant="flat" color="danger" onPress={() => openDeleteModal(selectedAsset)}>Delete</Button>
                   </div>
                 </div>
               )}
@@ -475,112 +483,144 @@ export default function AssetsPage() {
             <CardBody>
               {!selectedAsset ? (
                 <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  资产层是后续整合探针、转发、X-UI 和节点监控的第一层。先从左侧选择一台服务器。
+                  Select a server asset to view its integrated X-UI, protocols, monitors and forwarding.
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                    {/* Server Info */}
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">资产信息</p>
-                      <div className="mt-3 space-y-2 text-sm">
-                        <p><span className="text-default-500">名称：</span>{selectedAsset.name}</p>
-                        <p><span className="text-default-500">标识：</span>{selectedAsset.label || '-'}</p>
-                        <p><span className="text-default-500">主公网 IP：</span>{selectedAsset.primaryIp || '-'}</p>
-                        <p><span className="text-default-500">环境：</span>{selectedAsset.environment || '-'}</p>
-                        <p><span className="text-default-500">供应商 / 区域：</span>{selectedAsset.provider || '-'} / {selectedAsset.region || '-'}</p>
+                      <p className="text-xs uppercase tracking-widest text-default-400">Server</p>
+                      <div className="mt-3 space-y-1.5 text-sm">
+                        <p><span className="text-default-500">IP:</span> {selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</p>
+                        <p><span className="text-default-500">SSH:</span> {selectedAsset.sshPort || 22}</p>
+                        <p><span className="text-default-500">OS:</span> {selectedAsset.os || '-'}</p>
+                        <p><span className="text-default-500">Specs:</span> {selectedAsset.cpuCores || '?'}C / {selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb}MB` : '?'} / {selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb}GB` : '?'}</p>
+                        <p><span className="text-default-500">BW:</span> {selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}{selectedAsset.monthlyTrafficGb ? ` / ${selectedAsset.monthlyTrafficGb} GB/mo` : ''}</p>
                       </div>
                     </div>
+
+                    {/* Provider & Cost */}
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">整合摘要</p>
-                      <div className="mt-3 space-y-2 text-sm">
-                        <p><span className="text-default-500">X-UI 实例：</span>{selectedAsset.totalXuiInstances || 0}</p>
-                        <p><span className="text-default-500">协议种类：</span>{selectedAsset.totalProtocols || 0}</p>
-                        <p><span className="text-default-500">联动转发：</span>{selectedAsset.totalForwards || 0}</p>
-                        <p><span className="text-default-500">最近观察到：</span>{formatDate(selectedAsset.lastObservedAt)}</p>
+                      <p className="text-xs uppercase tracking-widest text-default-400">Provider</p>
+                      <div className="mt-3 space-y-1.5 text-sm">
+                        <p><span className="text-default-500">Vendor:</span> {selectedAsset.provider || '-'}</p>
+                        <p><span className="text-default-500">Region:</span> {selectedAsset.region || '-'}</p>
+                        <p><span className="text-default-500">Cost:</span> {selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}` : '-'}/mo</p>
+                        <p><span className="text-default-500">Purchased:</span> {formatDateShort(selectedAsset.purchaseDate)}</p>
+                        <p>
+                          <span className="text-default-500">Expires:</span>{' '}
+                          {selectedAsset.expireDate ? (
+                            <span className={selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'font-semibold text-warning' : ''}>
+                              {formatDateShort(selectedAsset.expireDate)}
+                            </span>
+                          ) : '-'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Integration Summary */}
+                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <p className="text-xs uppercase tracking-widest text-default-400">Integration</p>
+                      <div className="mt-3 space-y-1.5 text-sm">
+                        <p><span className="text-default-500">X-UI:</span> {selectedAsset.totalXuiInstances || 0} instances</p>
+                        <p><span className="text-default-500">Protocols:</span> {selectedAsset.totalProtocols || 0} types</p>
+                        <p><span className="text-default-500">Forwards:</span> {selectedAsset.totalForwards || 0}</p>
+                        <p><span className="text-default-500">GOST Node:</span> {selectedAsset.gostNodeName || '-'}</p>
+                        <p><span className="text-default-500">Probe UUID:</span> {selectedAsset.monitorNodeUuid || '-'}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-divider/80 bg-content1 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">板块边界</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-2xl bg-default-50/80 p-3">
-                        <p className="text-sm font-medium">服务器层</p>
-                        <p className="mt-1 text-xs text-default-500">资产基础属性、供应商、区域、环境、主 IP，以及未来的探针归属。</p>
-                      </div>
-                      <div className="rounded-2xl bg-default-50/80 p-3">
-                        <p className="text-sm font-medium">X-UI 面板层</p>
-                        <p className="mt-1 text-xs text-default-500">每台服务器下的面板实例、同步状态、面板接入方式、回调入口。</p>
-                      </div>
-                      <div className="rounded-2xl bg-default-50/80 p-3">
-                        <p className="text-sm font-medium">协议与转发层</p>
-                        <p className="mt-1 text-xs text-default-500">按协议聚合的入站目录，以及由这些入站直接驱动的转发目标关系。</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedAsset.remark ? (
+                  {selectedAsset.remark && (
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4 text-sm text-default-700">
-                      <p className="font-medium">备注</p>
-                      <p className="mt-2">{selectedAsset.remark}</p>
+                      <p className="font-medium">Remark</p>
+                      <p className="mt-1">{selectedAsset.remark}</p>
                     </div>
-                  ) : null}
+                  )}
                 </div>
               )}
             </CardBody>
           </Card>
 
+          {/* Monitor Section */}
           <Card className="border border-divider/80">
             <CardHeader className="flex flex-col items-start gap-2">
-              <div className="flex w-full items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold">挂载的 X-UI 实例</h2>
-                  <p className="text-sm text-default-500">
-                    这部分把资产与 X-UI 面板真正绑定起来，不需要再进入单独实例页才知道这台服务器下面有哪些面板。
-                  </p>
-                </div>
-                {detailLoading ? <Spinner size="sm" /> : null}
-              </div>
+              <h2 className="text-lg font-semibold">Monitor (Komari)</h2>
+              <p className="text-sm text-default-500">Real-time metrics from linked probe node.</p>
             </CardHeader>
             <CardBody>
-              {!detail || detail.xuiInstances.length === 0 ? (
+              {!detail || !detail.monitorNodes || detail.monitorNodes.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  当前资产还没有绑定任何 X-UI 实例。
+                  No probe linked. Set the Monitor Node UUID in asset settings, or wait for the next sync cycle.
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
-                  {detail.xuiInstances.map((instance) => {
-                    const syncChip = getStatusChip(instance.lastSyncStatus);
-                    const testChip = getStatusChip(instance.lastTestStatus);
+                  {detail.monitorNodes.map((node: MonitorNodeSnapshot) => {
+                    const m = node.latestMetric;
+                    const memPct = m?.memTotal ? ((m.memUsed || 0) / m.memTotal * 100) : 0;
+                    const diskPct = m?.diskTotal ? ((m.diskUsed || 0) / m.diskTotal * 100) : 0;
                     return (
-                      <div key={instance.id} className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <div key={node.id} className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-base font-semibold">{instance.name}</p>
-                            <p className="mt-1 break-all text-xs text-default-500">{buildInstanceAddress(instance)}</p>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-block h-2.5 w-2.5 rounded-full ${node.online === 1 ? 'bg-success' : 'bg-default-300'}`} />
+                              <p className="truncate font-semibold">{node.name || node.remoteNodeUuid}</p>
+                            </div>
+                            <p className="mt-1 text-xs text-default-500">{node.ip}{node.os ? ` / ${node.os}` : ''}</p>
                           </div>
-                          <Chip size="sm" color={instance.syncEnabled === 1 ? 'success' : 'default'} variant="flat">
-                            {instance.syncEnabled === 1 ? '自动同步' : '手动同步'}
+                          <Chip size="sm" variant="flat" color={node.online === 1 ? 'success' : 'default'}>
+                            {node.online === 1 ? 'Online' : 'Offline'}
                           </Chip>
                         </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Chip size="sm" color={testChip.color} variant="flat">测试 {testChip.text}</Chip>
-                          <Chip size="sm" color={syncChip.color} variant="flat">同步 {syncChip.text}</Chip>
-                        </div>
-                        <div className="mt-4 grid grid-cols-2 gap-3">
-                          <div className="rounded-2xl bg-content1 p-3">
-                            <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">入站</p>
-                            <p className="mt-1 text-lg font-semibold">{instance.inboundCount || 0}</p>
+
+                        {m && (
+                          <div className="mt-4 space-y-3">
+                            <div>
+                              <div className="flex justify-between text-xs text-default-500">
+                                <span>CPU</span><span>{m.cpuUsage?.toFixed(1)}%</span>
+                              </div>
+                              <Progress size="sm" value={m.cpuUsage || 0} color={m.cpuUsage && m.cpuUsage > 80 ? 'danger' : 'primary'} className="mt-1" />
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-xs text-default-500">
+                                <span>Memory</span><span>{formatFlow(m.memUsed)} / {formatFlow(m.memTotal)}</span>
+                              </div>
+                              <Progress size="sm" value={memPct} color={memPct > 85 ? 'danger' : 'primary'} className="mt-1" />
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-xs text-default-500">
+                                <span>Disk</span><span>{formatFlow(m.diskUsed)} / {formatFlow(m.diskTotal)}</span>
+                              </div>
+                              <Progress size="sm" value={diskPct} color={diskPct > 90 ? 'danger' : 'primary'} className="mt-1" />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                              <div className="rounded-xl bg-content1 p-2">
+                                <p className="text-[10px] text-default-400">NET IN</p>
+                                <p className="text-xs font-semibold">{formatSpeed(m.netIn)}</p>
+                              </div>
+                              <div className="rounded-xl bg-content1 p-2">
+                                <p className="text-[10px] text-default-400">NET OUT</p>
+                                <p className="text-xs font-semibold">{formatSpeed(m.netOut)}</p>
+                              </div>
+                              <div className="rounded-xl bg-content1 p-2">
+                                <p className="text-[10px] text-default-400">UPTIME</p>
+                                <p className="text-xs font-semibold">{formatUptime(m.uptime)}</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-3 text-xs text-default-500">
+                              <span>Load: {m.load1?.toFixed(2) || '-'}</span>
+                              <span>Conn: {m.connections || 0}</span>
+                              <span>Proc: {m.processCount || 0}</span>
+                              <span>Sampled: {formatDate(m.sampledAt)}</span>
+                            </div>
                           </div>
-                          <div className="rounded-2xl bg-content1 p-3">
-                            <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">客户端</p>
-                            <p className="mt-1 text-lg font-semibold">{instance.clientCount || 0}</p>
-                          </div>
-                        </div>
-                        <div className="mt-4 space-y-2 text-sm">
-                          <p><span className="text-default-500">账号：</span>{instance.username}</p>
-                          <p><span className="text-default-500">最近同步：</span>{formatDate(instance.lastSyncAt)}</p>
-                          <p><span className="text-default-500">最近上报：</span>{formatDate(instance.lastTrafficPushAt)}</p>
+                        )}
+
+                        <div className="mt-3 text-xs text-default-500">
+                          <span>{node.cpuName || '-'} / {node.cpuCores || '?'}C</span>
+                          <span className="ml-2">v{node.version || '?'}</span>
                         </div>
                       </div>
                     );
@@ -590,48 +630,85 @@ export default function AssetsPage() {
             </CardBody>
           </Card>
 
+          {/* X-UI Instances */}
           <Card className="border border-divider/80">
-            <CardHeader className="flex flex-col items-start gap-2">
-              <h2 className="text-lg font-semibold">协议目录</h2>
-              <p className="text-sm text-default-500">
-                资产层按协议收拢所有 X-UI 面板的入站总量、在线数和流量。这是后续联动套餐、分类、探针告警和节点策略的基础目录。
-              </p>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">X-UI Instances</h2>
+              <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/xui')}>
+                Manage X-UI
+              </Button>
+            </CardHeader>
+            <CardBody>
+              {!detail || detail.xuiInstances.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                  No X-UI instances linked.
+                  <Button size="sm" variant="light" color="primary" className="ml-2" onPress={() => navigate('/xui')}>
+                    Go to X-UI to add one
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {detail.xuiInstances.map((inst) => {
+                    const syncChip = getStatusChip(inst.lastSyncStatus);
+                    return (
+                      <button type="button" key={inst.id} onClick={() => navigate('/xui')}
+                        className="rounded-3xl border border-divider/80 bg-default-50/80 p-4 text-left transition-all hover:border-primary/40 hover:bg-primary-50/40">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold">{inst.name}</p>
+                            <p className="mt-1 break-all text-xs text-default-500">{buildInstanceAddress(inst)}</p>
+                          </div>
+                          <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <div className="rounded-xl bg-content1 p-2">
+                            <p className="text-[10px] text-default-400">Inbounds</p>
+                            <p className="text-sm font-semibold">{inst.inboundCount || 0}</p>
+                          </div>
+                          <div className="rounded-xl bg-content1 p-2">
+                            <p className="text-[10px] text-default-400">Clients</p>
+                            <p className="text-sm font-semibold">{inst.clientCount || 0}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between text-xs text-default-500">
+                          <span>User: {inst.username} / Synced: {formatDate(inst.lastSyncAt)}</span>
+                          <span className="text-primary">View Details &rarr;</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Protocol Directory */}
+          <Card className="border border-divider/80">
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Protocol Directory</h2>
             </CardHeader>
             <CardBody>
               {!detail || detail.protocolSummaries.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  当前资产还没有协议级快照。
-                </div>
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">No protocol data.</div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {detail.protocolSummaries.map((item) => (
                     <div key={item.protocol} className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-base font-semibold uppercase">{item.protocol}</p>
-                          <p className="mt-1 text-xs text-default-500">{item.transportSummary || '-'}</p>
-                        </div>
-                        <Chip size="sm" color="primary" variant="flat">
-                          {item.inboundCount} 入站
-                        </Chip>
+                        <p className="font-semibold uppercase">{item.protocol}</p>
+                        <Chip size="sm" color="primary" variant="flat">{item.inboundCount} inbound</Chip>
                       </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-content1 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">客户端</p>
-                          <p className="mt-1 text-lg font-semibold">{item.clientCount || 0}</p>
-                          <p className="text-xs text-default-500">在线 {item.onlineClientCount || 0}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-content1 p-2">
+                          <p className="text-[10px] text-default-400">Clients</p>
+                          <p className="text-sm font-semibold">{item.clientCount || 0} <span className="text-xs text-default-500">({item.onlineClientCount || 0} on)</span></p>
                         </div>
-                        <div className="rounded-2xl bg-content1 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">累计流量</p>
-                          <p className="mt-1 text-lg font-semibold">{formatFlow(item.allTime)}</p>
-                          <p className="text-xs text-default-500">{formatFlow(item.up)} / {formatFlow(item.down)}</p>
+                        <div className="rounded-xl bg-content1 p-2">
+                          <p className="text-[10px] text-default-400">Traffic</p>
+                          <p className="text-sm font-semibold">{formatFlow(item.allTime)}</p>
                         </div>
                       </div>
-                      <div className="mt-4 space-y-2 text-sm">
-                        <p><span className="text-default-500">启用 / 停用：</span>{item.enabledInboundCount || 0} / {item.disabledInboundCount || 0}</p>
-                        <p><span className="text-default-500">远端已删：</span>{item.deletedInboundCount || 0}</p>
-                        <p><span className="text-default-500">端口摘要：</span>{item.portSummary || '-'}</p>
-                      </div>
+                      <p className="mt-2 text-xs text-default-500">Ports: {item.portSummary || '-'}</p>
                     </div>
                   ))}
                 </div>
@@ -639,169 +716,174 @@ export default function AssetsPage() {
             </CardBody>
           </Card>
 
+          {/* Forward Links */}
           <Card className="border border-divider/80">
-            <CardHeader className="flex flex-col items-start gap-2">
-              <h2 className="text-lg font-semibold">联动转发</h2>
-              <p className="text-sm text-default-500">
-                这里展示当前资产下已经绑定到 X-UI 节点的转发规则。下一步在转发管理里就可以直接从这些协议节点挑选远端地址。
-              </p>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Forward Links</h2>
+              <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/forward')}>
+                Manage Forwards
+              </Button>
             </CardHeader>
             <CardBody>
               {!detail || detail.forwards.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  当前资产还没有绑定 X-UI 节点的转发配置。
+                  No forwards linked.
+                  <Button size="sm" variant="light" color="primary" className="ml-2" onPress={() => navigate('/forward')}>
+                    Go to Forwards
+                  </Button>
                 </div>
               ) : (
-                <Table removeWrapper aria-label="asset forward links">
-                  <TableHeader>
-                    <TableColumn>转发</TableColumn>
-                    <TableColumn>隧道</TableColumn>
-                    <TableColumn>远端来源</TableColumn>
-                    <TableColumn>当前地址</TableColumn>
-                    <TableColumn>状态</TableColumn>
-                    <TableColumn>最近更新</TableColumn>
-                  </TableHeader>
-                  <TableBody items={detail.forwards}>
-                    {(item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <div className="min-w-[180px]">
-                            <p className="font-medium">{item.name}</p>
-                            <p className="text-xs text-default-500">{item.remoteSourceType === 'xui' ? 'X-UI 联动' : '手工地址'}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.tunnelName || '-'}</TableCell>
-                        <TableCell>
-                          <div className="min-w-[220px]">
-                            <p>{item.remoteSourceLabel || '-'}</p>
-                            <p className="text-xs text-default-500">{item.remoteSourceProtocol || '-'}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.remoteAddr}</TableCell>
-                        <TableCell>
+                <>
+                  {/* Mobile: card layout */}
+                  <div className="space-y-3 md:hidden">
+                    {detail.forwards.map((item) => (
+                      <button type="button" key={item.id} onClick={() => navigate('/forward')}
+                        className="w-full rounded-2xl border border-divider/80 bg-default-50/80 p-3 text-left transition-all hover:border-primary/40">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate font-medium">{item.name}</p>
                           <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
-                            {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
+                            {item.status === 1 ? 'Running' : item.status === 0 ? 'Paused' : 'Error'}
                           </Chip>
-                        </TableCell>
-                        <TableCell>{formatDate(item.updatedTime || item.createdTime)}</TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-default-500">
+                          <span>Tunnel: {item.tunnelName || '-'}</span>
+                          <span>Addr: {item.remoteAddr}</span>
+                        </div>
+                        {item.remoteSourceLabel && (
+                          <Chip size="sm" variant="flat" color="secondary" className="mt-2">{item.remoteSourceLabel}</Chip>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Desktop: table layout */}
+                  <div className="hidden md:block">
+                    <Table removeWrapper aria-label="forwards">
+                      <TableHeader>
+                        <TableColumn>Forward</TableColumn>
+                        <TableColumn>Tunnel</TableColumn>
+                        <TableColumn>Source</TableColumn>
+                        <TableColumn>Address</TableColumn>
+                        <TableColumn>Status</TableColumn>
+                      </TableHeader>
+                      <TableBody items={detail.forwards}>
+                        {(item) => (
+                          <TableRow key={item.id} className="cursor-pointer" onClick={() => navigate('/forward')}>
+                            <TableCell><p className="font-medium">{item.name}</p></TableCell>
+                            <TableCell>{item.tunnelName || '-'}</TableCell>
+                            <TableCell>{item.remoteSourceLabel || '-'}</TableCell>
+                            <TableCell className="text-xs">{item.remoteAddr}</TableCell>
+                            <TableCell>
+                              <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
+                                {item.status === 1 ? 'Running' : item.status === 0 ? 'Paused' : 'Error'}
+                              </Chip>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
-            </CardBody>
-          </Card>
-
-          <Card className="border border-divider/80">
-            <CardHeader className="flex flex-col items-start gap-2">
-              <h2 className="text-lg font-semibold">后续整合位</h2>
-              <p className="text-sm text-default-500">
-                这块预留给探针与节点监控联动。当前先把资产、X-UI 和转发三层关系稳定下来，再把 Pika / Komari 的探针实例挂到同一资产。
-              </p>
-            </CardHeader>
-            <CardBody>
-              <div className="rounded-3xl border border-dashed border-divider/80 p-5 text-sm text-default-500">
-                当前版本已经实现：
-                资产记录、X-UI 资产绑定、协议汇总、X-UI 节点到转发的联动入口。
-                下一阶段建议补：
-                探针实例绑定、资产级节点监控聚合、转发与探针告警联动。
-              </div>
             </CardBody>
           </Card>
         </div>
       </div>
 
-      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="3xl" scrollBehavior="inside">
+      {/* Create/Edit Modal */}
+      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="4xl" scrollBehavior="inside">
         <ModalContent>
-          <ModalHeader>{isEdit ? '编辑服务器资产' : '新增服务器资产'}</ModalHeader>
+          <ModalHeader>{isEdit ? 'Edit Asset' : 'New Asset'}</ModalHeader>
           <ModalBody>
-            <div className="rounded-3xl border border-primary/20 bg-primary-50/60 p-4 text-sm text-primary-700">
-              <p className="font-medium">实施原则</p>
-              <p className="mt-2">
-                资产层不直接承接业务配置，它负责把同一台 VPS 上的 X-UI、探针、转发和节点监控都归并到一条记录下，后续各子模块再通过资产 ID 建立关系。
-              </p>
+            <p className="text-xs font-medium uppercase tracking-widest text-default-400">Basic</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Input label="Name" placeholder="HK-VPS-01" value={form.name}
+                onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
+              <Input label="Label" placeholder="Optional identifier" value={form.label}
+                onValueChange={(v) => setForm(p => ({ ...p, label: v }))} />
+              <Select label="Role" selectedKeys={form.role ? [form.role] : []}
+                onSelectionChange={(keys) => setForm(p => ({ ...p, role: Array.from(keys)[0]?.toString() || '' }))}>
+                {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
             </div>
 
+            <p className="mt-4 text-xs font-medium uppercase tracking-widest text-default-400">Network</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Input label="Primary IP / Domain" value={form.primaryIp}
+                onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
+              <Input label="IPv6" value={form.ipv6}
+                onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))} />
+              <Input label="SSH Port" type="number" value={form.sshPort}
+                onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
+            </div>
+
+            <p className="mt-4 text-xs font-medium uppercase tracking-widest text-default-400">Specs</p>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <Input label="OS" placeholder="Ubuntu 22" value={form.os}
+                onValueChange={(v) => setForm(p => ({ ...p, os: v }))} />
+              <Input label="CPU Cores" type="number" value={form.cpuCores}
+                onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))} />
+              <Input label="RAM (MB)" type="number" value={form.memTotalMb}
+                onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))} />
+              <Input label="Disk (GB)" type="number" value={form.diskTotalGb}
+                onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))} />
+              <Input label="BW (Mbps)" type="number" value={form.bandwidthMbps}
+                onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
+            </div>
+
+            <p className="mt-4 text-xs font-medium uppercase tracking-widest text-default-400">Provider & Cost</p>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Input label="Provider" placeholder="DMIT / Vultr" value={form.provider}
+                onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
+              <Input label="Region" placeholder="Hong Kong" value={form.region}
+                onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
+              <Input label="Environment" placeholder="PROD / DEV" value={form.environment}
+                onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+              <Input label="Monthly Traffic (GB)" type="number" value={form.monthlyTrafficGb}
+                onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Input label="Monthly Cost" value={form.monthlyCost}
+                onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
+              <Select label="Currency" selectedKeys={form.currency ? [form.currency] : ['CNY']}
+                onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
+                {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+              </Select>
+              <Input label="Purchase Date" type="date" value={form.purchaseDate}
+                onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
+              <Input label="Expire Date" type="date" value={form.expireDate}
+                onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
+            </div>
+
+            <p className="mt-4 text-xs font-medium uppercase tracking-widest text-default-400">Integration</p>
             <div className="grid gap-4 md:grid-cols-2">
-              <Input
-                label="资产名称"
-                placeholder="例如 HK-VPS-01"
-                value={form.name}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
-                isInvalid={!!errors.name}
-                errorMessage={errors.name}
-                isRequired
-              />
-              <Input
-                label="资产标识"
-                placeholder="可选，便于跨模块快速识别"
-                value={form.label}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, label: value }))}
-                isInvalid={!!errors.label}
-                errorMessage={errors.label}
-              />
-              <Input
-                label="主公网 IP / 域名"
-                placeholder="例如 1.2.3.4 或 host.example.com"
-                value={form.primaryIp}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, primaryIp: value }))}
-                isInvalid={!!errors.primaryIp}
-                errorMessage={errors.primaryIp}
-              />
-              <Input
-                label="环境"
-                placeholder="例如 PROD / DEV / HK"
-                value={form.environment}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, environment: value }))}
-              />
-              <Input
-                label="供应商"
-                placeholder="例如 DMIT / Vultr / Oracle"
-                value={form.provider}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, provider: value }))}
-              />
-              <Input
-                label="区域"
-                placeholder="例如 Hong Kong / Tokyo"
-                value={form.region}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, region: value }))}
-              />
+              <Input label="Monitor Node UUID" placeholder="Komari node UUID" value={form.monitorNodeUuid}
+                onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))} />
+              <Input label="Tags (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
+                onValueChange={(v) => setForm(p => ({ ...p, tags: v }))} />
             </div>
 
-            <Textarea
-              label="备注"
-              placeholder="记录用途、机房、探针部署计划、转发用途等"
-              value={form.remark}
-              onValueChange={(value) => setForm((prev) => ({ ...prev, remark: value }))}
-              minRows={3}
-            />
+            <Textarea label="Remark" value={form.remark}
+              onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} minRows={2} />
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={onFormClose}>取消</Button>
+            <Button variant="flat" onPress={onFormClose}>Cancel</Button>
             <Button color="primary" isLoading={submitLoading} onPress={handleSubmit}>
-              {isEdit ? '保存修改' : '创建资产'}
+              {isEdit ? 'Save' : 'Create'}
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
+      {/* Delete Modal */}
       <Modal isOpen={isDeleteOpen} onOpenChange={(open) => !open && onDeleteClose()}>
         <ModalContent>
-          <ModalHeader>删除服务器资产</ModalHeader>
+          <ModalHeader>Delete Asset</ModalHeader>
           <ModalBody>
-            <p className="text-sm text-default-600">
-              确认删除 <span className="font-semibold">{assetToDelete?.name}</span> 吗？如果该资产下仍挂有 X-UI 实例或被转发引用，后端会拒绝删除。
-            </p>
+            <p className="text-sm">Delete <span className="font-semibold">{assetToDelete?.name}</span>? Assets with linked X-UI instances or forwards cannot be deleted.</p>
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={onDeleteClose}>取消</Button>
-            <Button
-              color="danger"
-              isLoading={actionLoadingId === assetToDelete?.id}
-              onPress={handleDelete}
-            >
-              确认删除
-            </Button>
+            <Button variant="flat" onPress={onDeleteClose}>Cancel</Button>
+            <Button color="danger" isLoading={actionLoadingId === assetToDelete?.id} onPress={handleDelete}>Delete</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

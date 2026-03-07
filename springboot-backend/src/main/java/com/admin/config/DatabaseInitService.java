@@ -307,7 +307,116 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.warn("[DatabaseInit] 回填 AssetHost 与 X-UI 关联时发生异常: {}", e.getMessage());
         }
-        
+
+        // 8. Extend Asset Host with VPS management fields (P0 incremental)
+        try {
+            updateColumn("asset_host", "ipv6", "varchar(128) DEFAULT NULL COMMENT 'IPv6 地址'");
+            updateColumn("asset_host", "role", "varchar(40) DEFAULT NULL COMMENT '角色：entry / relay / landing / standalone'");
+            updateColumn("asset_host", "os", "varchar(80) DEFAULT NULL COMMENT '操作系统'");
+            updateColumn("asset_host", "cpu_cores", "int(10) DEFAULT NULL COMMENT 'CPU 核心数'");
+            updateColumn("asset_host", "mem_total_mb", "int(10) DEFAULT NULL COMMENT '总内存 (MB)'");
+            updateColumn("asset_host", "disk_total_gb", "int(10) DEFAULT NULL COMMENT '总磁盘 (GB)'");
+            updateColumn("asset_host", "bandwidth_mbps", "int(10) DEFAULT NULL COMMENT '带宽 (Mbps)'");
+            updateColumn("asset_host", "monthly_traffic_gb", "int(10) DEFAULT NULL COMMENT '月流量限额 (GB)'");
+            updateColumn("asset_host", "ssh_port", "int(10) DEFAULT NULL COMMENT 'SSH 端口'");
+            updateColumn("asset_host", "purchase_date", "bigint(20) DEFAULT NULL COMMENT '购买日期'");
+            updateColumn("asset_host", "expire_date", "bigint(20) DEFAULT NULL COMMENT '到期日期'");
+            updateColumn("asset_host", "monthly_cost", "varchar(40) DEFAULT NULL COMMENT '月费用'");
+            updateColumn("asset_host", "currency", "varchar(10) DEFAULT NULL COMMENT '币种：CNY / USD'");
+            updateColumn("asset_host", "tags", "varchar(500) DEFAULT NULL COMMENT '标签 (JSON 数组)'");
+            updateColumn("asset_host", "gost_node_id", "bigint(20) DEFAULT NULL COMMENT '关联 GOST 节点 ID'");
+            updateColumn("asset_host", "monitor_node_uuid", "varchar(64) DEFAULT NULL COMMENT '关联探针节点 UUID'");
+            updateColumn("node", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
+            log.info("[DatabaseInit] AssetHost VPS 管理字段增量升级完成");
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] AssetHost 字段升级异常: {}", e.getMessage());
+        }
+
+        // 9. Create Monitor integration tables (P0.5)
+        try {
+            String createMonitorInstanceTable = "CREATE TABLE IF NOT EXISTS `monitor_instance` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(120) NOT NULL COMMENT '实例名称'," +
+                    "`type` varchar(40) NOT NULL DEFAULT 'komari' COMMENT '探针类型：komari / pika'," +
+                    "`base_url` varchar(255) NOT NULL COMMENT '探针服务端地址'," +
+                    "`api_key` varchar(255) DEFAULT NULL COMMENT 'API Key / Token'," +
+                    "`sync_enabled` tinyint(1) DEFAULT 1 COMMENT '是否自动同步'," +
+                    "`sync_interval_minutes` int(10) DEFAULT 5 COMMENT '同步间隔（分钟）'," +
+                    "`allow_insecure_tls` tinyint(1) DEFAULT 0 COMMENT '是否允许跳过 TLS 校验'," +
+                    "`remark` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`last_sync_at` bigint(20) DEFAULT NULL COMMENT '最后同步时间'," +
+                    "`last_sync_status` varchar(20) DEFAULT 'never' COMMENT '最后同步状态'," +
+                    "`last_sync_error` text DEFAULT NULL COMMENT '最后同步错误'," +
+                    "`node_count` int(10) DEFAULT 0 COMMENT '节点总数'," +
+                    "`online_node_count` int(10) DEFAULT 0 COMMENT '在线节点数'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_monitor_instance_name` (`name`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='探针实例管理表'";
+            jdbcTemplate.execute(createMonitorInstanceTable);
+
+            String createMonitorNodeSnapshotTable = "CREATE TABLE IF NOT EXISTS `monitor_node_snapshot` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '所属探针实例'," +
+                    "`remote_node_uuid` varchar(64) NOT NULL COMMENT '远端节点 UUID'," +
+                    "`asset_id` bigint(20) DEFAULT NULL COMMENT '关联资产 ID'," +
+                    "`name` varchar(120) DEFAULT NULL COMMENT '节点名称'," +
+                    "`ip` varchar(128) DEFAULT NULL COMMENT 'IPv4 地址'," +
+                    "`ipv6` varchar(128) DEFAULT NULL COMMENT 'IPv6 地址'," +
+                    "`os` varchar(120) DEFAULT NULL COMMENT '操作系统'," +
+                    "`cpu_name` varchar(200) DEFAULT NULL COMMENT 'CPU 型号'," +
+                    "`cpu_cores` int(10) DEFAULT NULL COMMENT 'CPU 核心数'," +
+                    "`mem_total` bigint(20) DEFAULT NULL COMMENT '总内存 (bytes)'," +
+                    "`disk_total` bigint(20) DEFAULT NULL COMMENT '总磁盘 (bytes)'," +
+                    "`region` varchar(80) DEFAULT NULL COMMENT '区域'," +
+                    "`version` varchar(40) DEFAULT NULL COMMENT 'Agent 版本'," +
+                    "`online` tinyint(1) DEFAULT 0 COMMENT '是否在线'," +
+                    "`last_active_at` bigint(20) DEFAULT NULL COMMENT '最后活跃时间'," +
+                    "`last_sync_at` bigint(20) DEFAULT NULL COMMENT '最后同步时间'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：远端已移除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_monitor_node_instance_uuid` (`instance_id`, `remote_node_uuid`)," +
+                    "KEY `idx_monitor_node_asset` (`asset_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='探针节点快照表'";
+            jdbcTemplate.execute(createMonitorNodeSnapshotTable);
+
+            String createMonitorMetricLatestTable = "CREATE TABLE IF NOT EXISTS `monitor_metric_latest` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`node_snapshot_id` bigint(20) NOT NULL COMMENT '关联节点快照'," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '所属探针实例'," +
+                    "`remote_node_uuid` varchar(64) NOT NULL COMMENT '远端节点 UUID'," +
+                    "`cpu_usage` double DEFAULT NULL COMMENT 'CPU 使用率 (%)'," +
+                    "`mem_used` bigint(20) DEFAULT NULL COMMENT '已用内存 (bytes)'," +
+                    "`mem_total` bigint(20) DEFAULT NULL COMMENT '总内存 (bytes)'," +
+                    "`disk_used` bigint(20) DEFAULT NULL COMMENT '已用磁盘 (bytes)'," +
+                    "`disk_total` bigint(20) DEFAULT NULL COMMENT '总磁盘 (bytes)'," +
+                    "`net_in` bigint(20) DEFAULT NULL COMMENT '当前入站速度 (bytes/s)'," +
+                    "`net_out` bigint(20) DEFAULT NULL COMMENT '当前出站速度 (bytes/s)'," +
+                    "`net_total_up` bigint(20) DEFAULT NULL COMMENT '累计上传 (bytes)'," +
+                    "`net_total_down` bigint(20) DEFAULT NULL COMMENT '累计下载 (bytes)'," +
+                    "`load1` double DEFAULT NULL COMMENT '1 分钟负载'," +
+                    "`uptime` bigint(20) DEFAULT NULL COMMENT '运行时长 (秒)'," +
+                    "`connections` int(10) DEFAULT NULL COMMENT 'TCP 连接数'," +
+                    "`process_count` int(10) DEFAULT NULL COMMENT '进程数'," +
+                    "`sampled_at` bigint(20) DEFAULT NULL COMMENT '采样时间'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_monitor_metric_instance_uuid` (`instance_id`, `remote_node_uuid`)," +
+                    "KEY `idx_monitor_metric_node` (`node_snapshot_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='探针最新指标表'";
+            jdbcTemplate.execute(createMonitorMetricLatestTable);
+
+            log.info("[DatabaseInit] Monitor 探针集成表校验成功");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] Monitor 探针集成表创建失败: {}", e.getMessage());
+        }
+
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }
 

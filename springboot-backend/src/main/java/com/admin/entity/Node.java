@@ -32,4 +32,6 @@ public class Node extends BaseEntity {
 
     private Integer portEnd;
 
+    private Long assetId;
+
 }

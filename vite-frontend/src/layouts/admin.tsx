@@ -38,7 +38,6 @@ export default function AdminLayout({
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false);
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [now, setNow] = useState(() => new Date());
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: '',
@@ -186,11 +185,6 @@ export default function AdminLayout({
     };
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   // 退出登录
   const handleLogout = () => {
     safeLogout();
@@ -288,18 +282,6 @@ export default function AdminLayout({
   const primaryPaths = new Set(primaryMenuItems.map((item) => item.path));
   const managementMenuItems = filteredMenuItems.filter((item) => !primaryPaths.has(item.path));
   const isManagementRoute = managementMenuItems.some((item) => item.path === location.pathname);
-  const currentTime = now.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-  });
-  const currentDate = now.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(0,111,238,0.08),_transparent_22%),linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(241,245,249,0.9))] text-foreground dark:bg-black">
       {/* 移动端遮罩层 */}
@@ -368,7 +350,7 @@ export default function AdminLayout({
 
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-30 border-b border-white/70 bg-white/88 shadow-sm backdrop-blur-xl dark:border-default-100/10 dark:bg-black/84">
-          <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 lg:px-6">
+          <div className="mx-auto flex max-w-[1800px] items-center gap-2.5 px-3 py-2.5 lg:px-6">
             {isMobile && (
               <Button
                 isIconOnly
@@ -383,22 +365,21 @@ export default function AdminLayout({
               </Button>
             )}
 
-            <div className="min-w-0 flex-shrink-0 xl:w-[330px]">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-[20px] bg-primary/10 text-primary shadow-inner">
-                  <Logo size={24} />
+            <div className="min-w-0 flex-shrink-0 xl:w-[240px]">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner">
+                  <Logo size={20} />
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h1 className="truncate text-lg font-black tracking-[0.08em] text-foreground lg:text-xl">{siteConfig.name}</h1>
-                    <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.24em] text-primary">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <h1 className="truncate text-[15px] font-black tracking-[0.04em] text-foreground lg:text-base">{siteConfig.name}</h1>
+                    <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-primary">
                       {siteConfig.environment_name}
                     </span>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-default-500">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-default-500">
                     <span>{siteConfig.release_version}</span>
                     <span>{siteConfig.build_revision}</span>
-                    <span className="hidden xl:inline">{siteConfig.build_time}</span>
                   </div>
                 </div>
               </div>
@@ -407,7 +388,7 @@ export default function AdminLayout({
             {!isMobile && (
               <nav className="min-w-0 flex-1 px-1">
                 <div className="flex items-center overflow-x-auto [scrollbar-width:none]">
-                  <div className="inline-flex min-w-max items-center gap-1.5 rounded-[28px] border border-divider bg-white/82 p-1.5 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.45)] dark:bg-default-100/10">
+                  <div className="inline-flex min-w-max items-center gap-0.5 rounded-[24px] border border-divider bg-white/82 p-1 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.45)] dark:bg-default-100/10">
                     {primaryMenuItems.map((item) => {
                       const isActive = location.pathname === item.path;
                       return (
@@ -415,7 +396,7 @@ export default function AdminLayout({
                           key={item.path}
                           onClick={() => handleMenuClick(item.path)}
                           className={`
-                            inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-all
+                            inline-flex h-8.5 items-center gap-2 rounded-full px-3 text-sm font-semibold transition-all
                             ${isActive
                               ? 'bg-primary text-white shadow-lg shadow-primary/25'
                               : 'text-default-500 hover:bg-white hover:text-foreground dark:hover:bg-default-100/10 dark:hover:text-default-100'}
@@ -432,48 +413,21 @@ export default function AdminLayout({
             )}
 
             <div className="ml-auto flex items-center gap-2 lg:gap-3">
-              <div className="hidden 2xl:flex items-center gap-3 rounded-[22px] border border-divider bg-default-50/80 px-3 py-2 text-right shadow-sm dark:bg-default-100/10">
-                <div>
-                  <div className="text-lg font-bold leading-none text-foreground">{currentTime}</div>
-                  <div className="mt-1 text-[11px] tracking-[0.2em] text-default-500">{currentDate}</div>
-                </div>
-              </div>
-
               {isAdmin && (
-                <Dropdown placement="bottom-end">
-                  <DropdownTrigger>
-                    <Button
-                      size="sm"
-                      variant={isManagementRoute ? "solid" : "flat"}
-                      color={isManagementRoute ? "primary" : "default"}
-                      className="h-11 rounded-[18px] border border-divider bg-white/80 px-4 font-semibold shadow-sm dark:bg-default-100/10"
-                      startContent={
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-                        </svg>
-                      }
-                    >
-                      {!isMobile && '系统'}
-                    </Button>
-                  </DropdownTrigger>
-                  <DropdownMenu aria-label="系统管理">
-                    <DropdownItem key="user" onPress={() => handleMenuClick('/user')}>
-                      用户管理
-                    </DropdownItem>
-                    <DropdownItem key="limit" onPress={() => handleMenuClick('/limit')}>
-                      限速管理
-                    </DropdownItem>
-                    <DropdownItem key="protocol" onPress={() => handleMenuClick('/protocol')}>
-                      协议管理
-                    </DropdownItem>
-                    <DropdownItem key="tag" onPress={() => handleMenuClick('/tag')}>
-                      标签管理
-                    </DropdownItem>
-                    <DropdownItem key="config" onPress={() => handleMenuClick('/config')}>
-                      网站配置
-                    </DropdownItem>
-                  </DropdownMenu>
-                </Dropdown>
+                <Button
+                  size="sm"
+                  variant={isManagementRoute ? "solid" : "flat"}
+                  color={isManagementRoute ? "primary" : "default"}
+                  className="h-10 rounded-[18px] border border-divider bg-white/80 px-3.5 font-semibold shadow-sm dark:bg-default-100/10"
+                  startContent={
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                    </svg>
+                  }
+                  onPress={() => navigate('/config?section=basic')}
+                >
+                  {!isMobile && '系统'}
+                </Button>
               )}
 
               <Dropdown placement="bottom-end">
@@ -481,7 +435,7 @@ export default function AdminLayout({
                   <Button
                     size="sm"
                     variant="flat"
-                    className="h-11 min-w-[176px] justify-between gap-3 rounded-[22px] border border-divider bg-white/85 px-2 pr-3 font-semibold shadow-sm dark:bg-default-100/10"
+                    className="h-10 min-w-[136px] justify-between gap-2 rounded-[20px] border border-divider bg-white/85 px-2 pr-2.5 font-semibold shadow-sm dark:bg-default-100/10"
                   >
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       {username?.slice(0, 1).toUpperCase() || 'U'}
@@ -489,9 +443,7 @@ export default function AdminLayout({
                     {!isMobile && (
                       <div className="min-w-0 flex-1 text-left leading-tight">
                         <div className="truncate text-sm font-semibold text-foreground">{username}</div>
-                        <div className="truncate pt-0.5 text-[10px] uppercase tracking-[0.18em] text-default-400">
-                          {isAdmin ? 'Admin' : 'Member'}
-                        </div>
+                        <div className="pt-0.5 text-[10px] uppercase tracking-[0.18em] text-default-400">{isAdmin ? 'Admin' : 'Member'}</div>
                       </div>
                     )}
                     <svg className="h-4 w-4 text-default-400" fill="currentColor" viewBox="0 0 20 20">

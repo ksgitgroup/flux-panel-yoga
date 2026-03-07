@@ -15,6 +15,7 @@ import { SettingsPage } from "@/pages/settings";
 import MonitorPage from "@/pages/monitor";
 import ProtocolPage from "@/pages/protocol";
 import TagPage from "@/pages/tag";
+import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
@@ -269,8 +270,10 @@ function App() {
       <Route
         path="/user"
         element={
-          <ProtectedRoute useSimpleLayout={true}>
-            <UserPage />
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <UserPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />
@@ -278,7 +281,9 @@ function App() {
         path="/protocol"
         element={
           <ProtectedRoute>
-            <ProtocolPage />
+            <SystemWorkspace>
+              <ProtocolPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />
@@ -286,7 +291,9 @@ function App() {
         path="/tag"
         element={
           <ProtectedRoute>
-            <TagPage />
+            <SystemWorkspace>
+              <TagPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />
@@ -301,16 +308,20 @@ function App() {
       <Route
         path="/limit"
         element={
-          <ProtectedRoute useSimpleLayout={true}>
-            <LimitPage />
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <LimitPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />
       <Route
         path="/config"
         element={
-          <ProtectedRoute useSimpleLayout={true}>
-            <ConfigPage />
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <ConfigPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />

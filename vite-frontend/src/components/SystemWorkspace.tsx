@@ -127,31 +127,28 @@ export function SystemWorkspace({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="space-y-4">
-        <div className="rounded-[28px] border border-divider bg-white/90 p-4 shadow-sm dark:bg-default-100/10">
+    <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <aside className="space-y-4 lg:sticky lg:top-[84px] lg:self-start">
+        <div className="rounded-[24px] border border-divider bg-white/90 p-3 shadow-sm dark:bg-default-100/10">
           <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-[18px] bg-primary/10 text-primary">
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h10" />
               </svg>
             </div>
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.22em] text-default-400">System Workbench</p>
-              <h2 className="truncate text-lg font-semibold text-foreground">系统工作台</h2>
+              <p className="text-[10px] uppercase tracking-[0.22em] text-default-400">System</p>
+              <h2 className="truncate text-base font-semibold text-foreground">系统工作台</h2>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <Chip size="sm" variant="flat" color="primary">{siteConfig.environment_name}</Chip>
             <Chip size="sm" variant="flat">{siteConfig.build_revision}</Chip>
           </div>
-          <p className="mt-3 text-xs leading-6 text-default-500">
-            将网站配置和系统资源配置收敛到同一块工作区里，避免从右上角菜单反复跳转。
-          </p>
         </div>
 
-        <div className="rounded-[28px] border border-divider bg-white/90 p-3 shadow-sm dark:bg-default-100/10">
-          <div className="hidden xl:block space-y-4">
+        <div className="rounded-[24px] border border-divider bg-white/90 p-3 shadow-sm dark:bg-default-100/10">
+          <div className="hidden lg:block space-y-4">
             {Object.entries(groupedNav).map(([group, items]) => (
               <div key={group}>
                 <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-default-400">{group}</p>
@@ -175,7 +172,7 @@ export function SystemWorkspace({ children }: { children: ReactNode }) {
             ))}
           </div>
 
-          <div className="flex gap-2 overflow-x-auto xl:hidden [scrollbar-width:none]">
+          <div className="flex gap-2 overflow-x-auto lg:hidden [scrollbar-width:none]">
             {navItems.map((item) => (
               <Link
                 key={item.key}

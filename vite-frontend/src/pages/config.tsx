@@ -505,59 +505,38 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="space-y-6 p-1 lg:p-2">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="rounded-2xl bg-primary/10 p-3 text-primary">
-            <SettingsIcon className="h-7 w-7" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">网站配置</h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              系统工作台左侧负责导航，当前页面只呈现一个配置分区，减少整页堆叠和来回滚动。
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip variant="flat" color="primary">环境：{configs.site_environment_name || '未设置'}</Chip>
-          <Chip variant="flat" color={configs.wechat_webhook_enabled === 'true' ? 'success' : 'default'}>
-            企业微信：{configs.wechat_webhook_enabled === 'true' ? '已启用' : '未启用'}
-          </Chip>
-          <Button
-            color="primary"
-            startContent={<SaveIcon className="w-4 h-4" />}
-            onClick={handleSave}
-            isLoading={saving}
-            disabled={!hasChanges}
-          >
-            {saving ? '保存中...' : '保存配置'}
-          </Button>
-        </div>
-      </div>
-
-      <Card className="border border-default-200 bg-[linear-gradient(135deg,rgba(20,184,166,0.08),rgba(37,99,235,0.06))] shadow-sm">
+    <div className="space-y-4 p-1 lg:p-2">
+      <Card className="border border-default-200 shadow-sm">
         <CardBody className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-default-400">Ops Snapshot</p>
-            <h2 className="mt-2 text-lg font-semibold text-foreground">当前告警会带上环境名，并按冷静期合并重复异常</h2>
-            <p className="mt-1 text-sm text-default-500">
-              推荐至少配置：环境名称、自动诊断间隔、Webhook 地址、冷静期、异常模板、恢复模板。
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
+              <SettingsIcon className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold">网站配置</h1>
+                <Chip size="sm" variant="flat" color="primary">{CONFIG_SECTIONS[activeSection].chip}</Chip>
+              </div>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                左侧导航负责切换配置分区，这里只显示当前页面需要编辑的配置项。
+              </p>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
-            <div className="rounded-2xl border border-default-200 bg-white/80 px-4 py-3 dark:bg-black/20">
-              <p className="text-xs text-default-400">自动诊断</p>
-              <p className="mt-1 text-base font-semibold text-foreground">
-                {configs.auto_diagnosis_enabled === 'true' ? `${configs.auto_diagnosis_interval || '30'} 分钟` : '未启用'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-default-200 bg-white/80 px-4 py-3 dark:bg-black/20">
-              <p className="text-xs text-default-400">告警节流</p>
-              <p className="mt-1 text-base font-semibold text-foreground">
-                {configs.wechat_webhook_enabled === 'true' ? `${configs.wechat_webhook_cooldown_minutes || '30'} 分钟` : '未启用'}
-              </p>
-            </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip size="sm" variant="flat" color="primary">环境：{configs.site_environment_name || '未设置'}</Chip>
+            <Chip size="sm" variant="flat" color={configs.auto_diagnosis_enabled === 'true' ? 'success' : 'default'}>
+              自动诊断：{configs.auto_diagnosis_enabled === 'true' ? `${configs.auto_diagnosis_interval || '30'} 分钟` : '未启用'}
+            </Chip>
+            <Button
+              color="primary"
+              startContent={<SaveIcon className="w-4 h-4" />}
+              onClick={handleSave}
+              isLoading={saving}
+              disabled={!hasChanges}
+            >
+              {saving ? '保存中...' : '保存配置'}
+            </Button>
           </div>
         </CardBody>
       </Card>

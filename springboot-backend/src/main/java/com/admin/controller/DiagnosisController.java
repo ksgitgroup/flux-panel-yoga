@@ -60,6 +60,14 @@ public class DiagnosisController extends BaseController {
     }
 
     /**
+     * 获取当前诊断运行状态
+     */
+    @PostMapping("/runtime-status")
+    public R runtimeStatus() {
+        return diagnosisService.getRuntimeStatus();
+    }
+
+    /**
      * 批量获取最新诊断记录
      * 参数: targetType (forward/tunnel), targetIds (ID数组)
      */

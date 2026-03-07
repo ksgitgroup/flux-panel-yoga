@@ -119,6 +119,7 @@ export const getDiagnosisSummary = () => Network.post("/diagnosis/summary");
 export const getDiagnosisHistory = (data: { targetType: string; targetId: number; limit?: number }) =>
   Network.post("/diagnosis/history", data);
 export const runDiagnosisNow = () => Network.post("/diagnosis/run-now");
+export const getDiagnosisRuntimeStatus = () => Network.post("/diagnosis/runtime-status");
 export const testWebhook = () => Network.post("/diagnosis/test-webhook");
 export const getDiagnosisLatestBatch = (data: { targetType: string; targetIds: number[] }) =>
   Network.post("/diagnosis/latest-batch", data);

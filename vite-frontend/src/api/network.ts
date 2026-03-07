@@ -42,6 +42,14 @@ interface ApiResponse<T = any> {
   data: T;
 }
 
+function buildUnauthorizedResponse<T = any>(message?: string): ApiResponse<T> {
+  return {
+    code: 401,
+    msg: message || '未登录或token已过期',
+    data: null as T,
+  };
+}
+
 // 处理token失效的逻辑
 function handleTokenExpired() {
   // 清除localStorage中的token
@@ -83,6 +91,7 @@ const Network = {
           // 检查是否token失效
           if (isTokenExpired(response.data)) {
             handleTokenExpired();
+            resolve(response.data);
             return;
           }
           resolve(response.data);
@@ -93,6 +102,7 @@ const Network = {
            // 检查是否是401错误（token失效）
            if (error.response && error.response.status === 401) {
              handleTokenExpired();
+             resolve(buildUnauthorizedResponse<T>(error.response?.data?.msg));
              return;
            }
            
@@ -120,6 +130,7 @@ const Network = {
           // 检查是否token失效
           if (isTokenExpired(response.data)) {
             handleTokenExpired();
+            resolve(response.data);
             return;
           }
           resolve(response.data);
@@ -130,6 +141,7 @@ const Network = {
            // 检查是否是401错误（token失效）
            if (error.response && error.response.status === 401) {
              handleTokenExpired();
+             resolve(buildUnauthorizedResponse<T>(error.response?.data?.msg));
              return;
            }
            

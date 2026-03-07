@@ -288,7 +288,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setRegion(client.getString("region"));
             existing.setVersion(client.getString("version"));
             existing.setOnline(isOnline ? 1 : 0);
-            existing.setLastActiveAt(isOnline ? now : existing.getLastActiveAt());
+            existing.setLastActiveAt(isOnline ? now : (existing.getLastActiveAt() != null ? existing.getLastActiveAt() : 0L));
             existing.setLastSyncAt(now);
             existing.setUpdatedTime(now);
 
@@ -602,7 +602,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         instance.setName(name != null ? name.trim() : null);
         instance.setType(type != null ? type.trim().toLowerCase(Locale.ROOT) : TYPE_KOMARI);
         instance.setBaseUrl(baseUrl != null ? baseUrl.trim().replaceAll("/+$", "") : null);
-        instance.setApiKey(apiKey != null ? apiKey.trim() : null);
+        // Only update apiKey if explicitly provided (avoid null erasure from frontend not sending it)
+        if (apiKey != null) {
+            instance.setApiKey(apiKey.trim());
+        }
         instance.setSyncEnabled(syncEnabled != null ? syncEnabled : 1);
         instance.setSyncIntervalMinutes(syncIntervalMinutes != null ? syncIntervalMinutes : 5);
         instance.setAllowInsecureTls(allowInsecureTls != null ? allowInsecureTls : 0);

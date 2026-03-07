@@ -286,6 +286,7 @@ export interface MonitorInstance {
   name: string;
   type: string;
   baseUrl: string;
+  apiKey?: string | null;
   syncEnabled?: number | null;
   syncIntervalMinutes?: number | null;
   allowInsecureTls?: number | null;

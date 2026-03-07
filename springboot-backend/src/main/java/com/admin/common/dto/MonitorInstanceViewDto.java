@@ -13,6 +13,8 @@ public class MonitorInstanceViewDto {
 
     private String baseUrl;
 
+    private String apiKey;
+
     private Integer syncEnabled;
 
     private Integer syncIntervalMinutes;

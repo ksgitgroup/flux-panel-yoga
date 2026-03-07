@@ -803,15 +803,29 @@ export default function ForwardPage() {
 
   const handleXuiTargetChange = (inboundId: number | null) => {
     const target = xuiTargets.find((item) => item.inboundSnapshotId === inboundId) || null;
-    setForm(prev => ({
-      ...prev,
-      remoteAddr: target?.remoteAddress || '',
-      remoteSourceAssetId: target?.assetId || null,
-      remoteSourceInstanceId: target?.instanceId || null,
-      remoteSourceInboundId: target?.inboundSnapshotId || null,
-      remoteSourceLabel: target?.sourceLabel || '',
-      remoteSourceProtocol: target?.protocol || ''
-    }));
+    setForm(prev => {
+      const next = {
+        ...prev,
+        remoteAddr: target?.remoteAddress || '',
+        remoteSourceAssetId: target?.assetId || null,
+        remoteSourceInstanceId: target?.instanceId || null,
+        remoteSourceInboundId: target?.inboundSnapshotId || null,
+        remoteSourceLabel: target?.sourceLabel || '',
+        remoteSourceProtocol: target?.protocol || ''
+      };
+      // Auto-fill forward name from XUI target label if name is empty
+      if (target?.sourceLabel && !prev.name.trim()) {
+        next.name = target.sourceLabel;
+      }
+      // Auto-set protocol from XUI target if available
+      if (target?.protocol && protocols.length > 0) {
+        const match = protocols.find(p => p.name.toLowerCase() === target.protocol!.toLowerCase());
+        if (match && !prev.protocolId) {
+          next.protocolId = match.id;
+        }
+      }
+      return next;
+    });
     setErrors((prev) => ({ ...prev, remoteAddr: '' }));
   };
 
@@ -1872,6 +1886,11 @@ export default function ForwardPage() {
                         <Chip size="sm" color="secondary" variant="flat" className="text-[10px]">
                           X-UI
                         </Chip>
+                        {forward.remoteSourceProtocol && (
+                          <Chip size="sm" variant="flat" className="text-[10px]">
+                            {forward.remoteSourceProtocol.toUpperCase()}
+                          </Chip>
+                        )}
                         <span className="truncate text-[11px] text-default-500">{forward.remoteSourceLabel}</span>
                       </div>
                     ) : null}
@@ -2997,16 +3016,29 @@ export default function ForwardPage() {
 
                       {selectedXuiTarget ? (
                         <div className="rounded-2xl border border-secondary/20 bg-content1 p-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Chip size="sm" color="secondary" variant="flat">X-UI 联动</Chip>
-                            <Chip size="sm" variant="flat">{selectedXuiTarget.protocol || 'unknown'}</Chip>
-                            <Chip size="sm" variant="flat">{selectedXuiTarget.instanceName}</Chip>
+                          {/* Visual chain: Tunnel → Forward → XUI Inbound */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                            {selectedTunnel && (
+                              <>
+                                <Chip size="sm" color="primary" variant="flat">{selectedTunnel.name}</Chip>
+                                <span className="text-default-400">&rarr;</span>
+                              </>
+                            )}
+                            <Chip size="sm" color="secondary" variant="flat">{selectedXuiTarget.protocol?.toUpperCase() || '?'}</Chip>
+                            <span className="text-default-400">&rarr;</span>
+                            <Chip size="sm" variant="flat">{selectedXuiTarget.assetName || '?'}</Chip>
+                            <span className="text-default-400">&rarr;</span>
+                            <span className="font-mono text-default-600">{selectedXuiTarget.remoteAddress}</span>
                           </div>
-                          <div className="mt-3 space-y-2 text-sm">
-                            <p><span className="text-default-500">来源资产：</span>{selectedXuiTarget.assetName || '未绑定资产'}</p>
-                            <p><span className="text-default-500">节点标签：</span>{selectedXuiTarget.sourceLabel}</p>
-                            <p><span className="text-default-500">远端地址：</span><code>{selectedXuiTarget.remoteAddress}</code></p>
-                            <p><span className="text-default-500">客户端：</span>{selectedXuiTarget.clientCount || 0} / 在线 {selectedXuiTarget.onlineClientCount || 0}</p>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-default-500">资产：</span>{selectedXuiTarget.assetName || '未绑定'}</p>
+                              <p><span className="text-default-500">X-UI：</span>{selectedXuiTarget.instanceName}</p>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-default-500">标签：</span>{selectedXuiTarget.sourceLabel}</p>
+                              <p><span className="text-default-500">客户端：</span>{selectedXuiTarget.clientCount || 0} (在线 {selectedXuiTarget.onlineClientCount || 0})</p>
+                            </div>
                           </div>
                         </div>
                       ) : null}

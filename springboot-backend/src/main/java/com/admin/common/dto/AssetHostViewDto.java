@@ -13,11 +13,45 @@ public class AssetHostViewDto {
 
     private String primaryIp;
 
+    private String ipv6;
+
     private String environment;
 
     private String provider;
 
     private String region;
+
+    private String role;
+
+    private String os;
+
+    private Integer cpuCores;
+
+    private Integer memTotalMb;
+
+    private Integer diskTotalGb;
+
+    private Integer bandwidthMbps;
+
+    private Integer monthlyTrafficGb;
+
+    private Integer sshPort;
+
+    private Long purchaseDate;
+
+    private Long expireDate;
+
+    private String monthlyCost;
+
+    private String currency;
+
+    private String tags;
+
+    private Long gostNodeId;
+
+    private String gostNodeName;
+
+    private String monitorNodeUuid;
 
     private String remark;
 
@@ -34,4 +68,16 @@ public class AssetHostViewDto {
     private Integer totalForwards;
 
     private Long lastObservedAt;
+
+    private Integer monitorOnline;
+
+    private Double monitorCpuUsage;
+
+    private Long monitorMemUsed;
+
+    private Long monitorMemTotal;
+
+    private Long monitorNetIn;
+
+    private Long monitorNetOut;
 }

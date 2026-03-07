@@ -14,4 +14,6 @@ public class AssetHostDetailDto {
     private List<XuiProtocolSummaryViewDto> protocolSummaries;
 
     private List<AssetForwardLinkViewDto> forwards;
+
+    private List<MonitorNodeSnapshotViewDto> monitorNodes;
 }

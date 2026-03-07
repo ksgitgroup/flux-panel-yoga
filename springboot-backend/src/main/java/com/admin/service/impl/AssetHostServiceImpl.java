@@ -2,16 +2,10 @@ package com.admin.service.impl;
 
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
-import com.admin.entity.AssetHost;
-import com.admin.entity.Forward;
-import com.admin.entity.Tunnel;
-import com.admin.entity.XuiInboundSnapshot;
-import com.admin.entity.XuiInstance;
-import com.admin.mapper.AssetHostMapper;
-import com.admin.mapper.ForwardMapper;
-import com.admin.mapper.XuiInboundSnapshotMapper;
-import com.admin.mapper.XuiInstanceMapper;
+import com.admin.entity.*;
+import com.admin.mapper.*;
 import com.admin.service.AssetHostService;
+import com.admin.service.MonitorService;
 import com.admin.service.TunnelService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -42,6 +36,15 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     @Resource
     private TunnelService tunnelService;
+
+    @Resource
+    private NodeMapper nodeMapper;
+
+    @Resource
+    private MonitorNodeSnapshotMapper monitorNodeSnapshotMapper;
+
+    @Resource
+    private MonitorMetricLatestMapper monitorMetricLatestMapper;
 
     @Override
     public R getAllAssets() {
@@ -86,11 +89,15 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .eq(Forward::getRemoteSourceAssetId, asset.getId())
                 .orderByDesc(Forward::getUpdatedTime, Forward::getId));
 
+        // Build monitor nodes for this asset
+        List<MonitorNodeSnapshotViewDto> monitorNodes = buildMonitorNodesForAsset(asset);
+
         AssetHostDetailDto detail = new AssetHostDetailDto();
         detail.setAsset(assetView);
         detail.setXuiInstances(enrichInstanceCounts(instanceViews, inbounds));
         detail.setProtocolSummaries(buildProtocolSummaries(inbounds));
         detail.setForwards(buildForwardLinks(forwards));
+        detail.setMonitorNodes(monitorNodes);
         return R.ok(detail);
     }
 
@@ -99,7 +106,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         validateDuplicate(dto.getName(), dto.getLabel(), null);
         long now = System.currentTimeMillis();
         AssetHost asset = new AssetHost();
-        applyAssetDto(asset, dto.getName(), dto.getLabel(), dto.getPrimaryIp(), dto.getEnvironment(), dto.getProvider(), dto.getRegion(), dto.getRemark());
+        applyAssetDto(asset, dto);
         asset.setCreatedTime(now);
         asset.setUpdatedTime(now);
         asset.setStatus(0);
@@ -111,7 +118,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     public R updateAsset(AssetHostUpdateDto dto) {
         AssetHost asset = getRequiredAsset(dto.getId());
         validateDuplicate(dto.getName(), dto.getLabel(), dto.getId());
-        applyAssetDto(asset, dto.getName(), dto.getLabel(), dto.getPrimaryIp(), dto.getEnvironment(), dto.getProvider(), dto.getRegion(), dto.getRemark());
+        applyAssetDtoFromUpdate(asset, dto);
         asset.setUpdatedTime(System.currentTimeMillis());
         this.updateById(asset);
         return R.ok(buildAssetViews(Collections.singletonList(asset)).stream().findFirst().orElse(null));
@@ -133,6 +140,8 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         this.removeById(asset.getId());
         return R.ok();
     }
+
+    // ==================== Private Helpers ====================
 
     private AssetHost getRequiredAsset(Long id) {
         AssetHost asset = this.getById(id);
@@ -169,21 +178,56 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         }
     }
 
-    private void applyAssetDto(AssetHost asset,
-                               String name,
-                               String label,
-                               String primaryIp,
-                               String environment,
-                               String provider,
-                               String region,
-                               String remark) {
-        asset.setName(trimToNull(name));
-        asset.setLabel(trimToNull(label));
-        asset.setPrimaryIp(trimToNull(primaryIp));
-        asset.setEnvironment(trimToNull(environment));
-        asset.setProvider(trimToNull(provider));
-        asset.setRegion(trimToNull(region));
-        asset.setRemark(trimToNull(remark));
+    private void applyAssetDto(AssetHost asset, AssetHostDto dto) {
+        asset.setName(trimToNull(dto.getName()));
+        asset.setLabel(trimToNull(dto.getLabel()));
+        asset.setPrimaryIp(trimToNull(dto.getPrimaryIp()));
+        asset.setIpv6(trimToNull(dto.getIpv6()));
+        asset.setEnvironment(trimToNull(dto.getEnvironment()));
+        asset.setProvider(trimToNull(dto.getProvider()));
+        asset.setRegion(trimToNull(dto.getRegion()));
+        asset.setRole(trimToNull(dto.getRole()));
+        asset.setOs(trimToNull(dto.getOs()));
+        asset.setCpuCores(dto.getCpuCores());
+        asset.setMemTotalMb(dto.getMemTotalMb());
+        asset.setDiskTotalGb(dto.getDiskTotalGb());
+        asset.setBandwidthMbps(dto.getBandwidthMbps());
+        asset.setMonthlyTrafficGb(dto.getMonthlyTrafficGb());
+        asset.setSshPort(dto.getSshPort());
+        asset.setPurchaseDate(dto.getPurchaseDate());
+        asset.setExpireDate(dto.getExpireDate());
+        asset.setMonthlyCost(trimToNull(dto.getMonthlyCost()));
+        asset.setCurrency(trimToNull(dto.getCurrency()));
+        asset.setTags(trimToNull(dto.getTags()));
+        asset.setGostNodeId(dto.getGostNodeId());
+        asset.setMonitorNodeUuid(trimToNull(dto.getMonitorNodeUuid()));
+        asset.setRemark(trimToNull(dto.getRemark()));
+    }
+
+    private void applyAssetDtoFromUpdate(AssetHost asset, AssetHostUpdateDto dto) {
+        asset.setName(trimToNull(dto.getName()));
+        asset.setLabel(trimToNull(dto.getLabel()));
+        asset.setPrimaryIp(trimToNull(dto.getPrimaryIp()));
+        asset.setIpv6(trimToNull(dto.getIpv6()));
+        asset.setEnvironment(trimToNull(dto.getEnvironment()));
+        asset.setProvider(trimToNull(dto.getProvider()));
+        asset.setRegion(trimToNull(dto.getRegion()));
+        asset.setRole(trimToNull(dto.getRole()));
+        asset.setOs(trimToNull(dto.getOs()));
+        asset.setCpuCores(dto.getCpuCores());
+        asset.setMemTotalMb(dto.getMemTotalMb());
+        asset.setDiskTotalGb(dto.getDiskTotalGb());
+        asset.setBandwidthMbps(dto.getBandwidthMbps());
+        asset.setMonthlyTrafficGb(dto.getMonthlyTrafficGb());
+        asset.setSshPort(dto.getSshPort());
+        asset.setPurchaseDate(dto.getPurchaseDate());
+        asset.setExpireDate(dto.getExpireDate());
+        asset.setMonthlyCost(trimToNull(dto.getMonthlyCost()));
+        asset.setCurrency(trimToNull(dto.getCurrency()));
+        asset.setTags(trimToNull(dto.getTags()));
+        asset.setGostNodeId(dto.getGostNodeId());
+        asset.setMonitorNodeUuid(trimToNull(dto.getMonitorNodeUuid()));
+        asset.setRemark(trimToNull(dto.getRemark()));
     }
 
     private List<AssetHostViewDto> buildAssetViews(List<AssetHost> assets) {
@@ -192,6 +236,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         }
         List<Long> assetIds = assets.stream().map(AssetHost::getId).collect(Collectors.toList());
 
+        // XUI data
         List<XuiInstance> instances = xuiInstanceMapper.selectList(new LambdaQueryWrapper<XuiInstance>()
                 .in(XuiInstance::getAssetId, assetIds));
         Map<Long, List<XuiInstance>> instancesByAsset = instances.stream()
@@ -211,11 +256,48 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .filter(item -> item.getRemoteSourceAssetId() != null)
                 .collect(Collectors.groupingBy(Forward::getRemoteSourceAssetId, Collectors.counting()));
 
+        // GOST node names
+        Set<Long> gostNodeIds = assets.stream()
+                .map(AssetHost::getGostNodeId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> gostNodeNameMap = gostNodeIds.isEmpty()
+                ? Collections.emptyMap()
+                : nodeMapper.selectBatchIds(gostNodeIds).stream()
+                .collect(Collectors.toMap(Node::getId, Node::getName, (a, b) -> a));
+
+        // Monitor data - lookup by monitorNodeUuid
+        List<String> monitorUuids = assets.stream()
+                .map(AssetHost::getMonitorNodeUuid)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toList());
+        Map<String, MonitorNodeSnapshot> nodeSnapshotByUuid = Collections.emptyMap();
+        Map<String, MonitorMetricLatest> metricByUuid = Collections.emptyMap();
+        if (!monitorUuids.isEmpty()) {
+            List<MonitorNodeSnapshot> snapshots = monitorNodeSnapshotMapper.selectList(
+                    new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                            .in(MonitorNodeSnapshot::getRemoteNodeUuid, monitorUuids));
+            nodeSnapshotByUuid = snapshots.stream()
+                    .collect(Collectors.toMap(MonitorNodeSnapshot::getRemoteNodeUuid, s -> s, (a, b) -> a));
+
+            List<MonitorMetricLatest> metrics = monitorMetricLatestMapper.selectList(
+                    new LambdaQueryWrapper<MonitorMetricLatest>()
+                            .in(MonitorMetricLatest::getRemoteNodeUuid, monitorUuids));
+            metricByUuid = metrics.stream()
+                    .collect(Collectors.toMap(MonitorMetricLatest::getRemoteNodeUuid, m -> m, (a, b) -> a));
+        }
+
         List<AssetHostViewDto> result = new ArrayList<>();
         for (AssetHost asset : assets) {
             AssetHostViewDto dto = new AssetHostViewDto();
             BeanUtils.copyProperties(asset, dto);
 
+            // GOST node name
+            if (asset.getGostNodeId() != null) {
+                dto.setGostNodeName(gostNodeNameMap.get(asset.getGostNodeId()));
+            }
+
+            // XUI aggregation
             List<XuiInstance> assetInstances = instancesByAsset.getOrDefault(asset.getId(), Collections.emptyList());
             Set<String> protocols = new HashSet<>();
             int totalInbounds = 0;
@@ -246,12 +328,71 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             dto.setOnlineClients(onlineClients);
             dto.setTotalForwards(forwardCountMap.getOrDefault(asset.getId(), 0L).intValue());
             dto.setLastObservedAt(lastObservedAt == 0L ? null : lastObservedAt);
+
+            // Monitor enrichment
+            if (StringUtils.hasText(asset.getMonitorNodeUuid())) {
+                MonitorNodeSnapshot snapshot = nodeSnapshotByUuid.get(asset.getMonitorNodeUuid());
+                if (snapshot != null) {
+                    dto.setMonitorOnline(snapshot.getOnline());
+                }
+                MonitorMetricLatest metric = metricByUuid.get(asset.getMonitorNodeUuid());
+                if (metric != null) {
+                    dto.setMonitorCpuUsage(metric.getCpuUsage());
+                    dto.setMonitorMemUsed(metric.getMemUsed());
+                    dto.setMonitorMemTotal(metric.getMemTotal());
+                    dto.setMonitorNetIn(metric.getNetIn());
+                    dto.setMonitorNetOut(metric.getNetOut());
+                }
+            }
+
             result.add(dto);
         }
 
         result.sort(Comparator.comparingLong((AssetHostViewDto item) -> safeLong(item.getLastObservedAt())).reversed()
                 .thenComparing(AssetHostViewDto::getName, Comparator.nullsLast(String::compareTo)));
         return result;
+    }
+
+    private List<MonitorNodeSnapshotViewDto> buildMonitorNodesForAsset(AssetHost asset) {
+        List<MonitorNodeSnapshot> nodes;
+        if (StringUtils.hasText(asset.getMonitorNodeUuid())) {
+            nodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                    .eq(MonitorNodeSnapshot::getRemoteNodeUuid, asset.getMonitorNodeUuid()));
+        } else {
+            nodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                    .eq(MonitorNodeSnapshot::getAssetId, asset.getId()));
+        }
+
+        if (nodes.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> uuids = nodes.stream().map(MonitorNodeSnapshot::getRemoteNodeUuid).collect(Collectors.toList());
+        Set<Long> mInstanceIds = nodes.stream().map(MonitorNodeSnapshot::getInstanceId).collect(Collectors.toSet());
+
+        List<MonitorMetricLatest> metrics = monitorMetricLatestMapper.selectList(
+                new LambdaQueryWrapper<MonitorMetricLatest>()
+                        .in(MonitorMetricLatest::getInstanceId, mInstanceIds)
+                        .in(MonitorMetricLatest::getRemoteNodeUuid, uuids));
+        Map<String, MonitorMetricLatest> metricMap = new HashMap<>();
+        for (MonitorMetricLatest m : metrics) {
+            metricMap.put(m.getInstanceId() + ":" + m.getRemoteNodeUuid(), m);
+        }
+
+        return nodes.stream().map(node -> {
+            MonitorNodeSnapshotViewDto dto = new MonitorNodeSnapshotViewDto();
+            BeanUtils.copyProperties(node, dto);
+            dto.setAssetId(asset.getId());
+            dto.setAssetName(asset.getName());
+
+            MonitorMetricLatest metric = metricMap.get(node.getInstanceId() + ":" + node.getRemoteNodeUuid());
+            if (metric != null) {
+                MonitorMetricLatestViewDto metricDto = new MonitorMetricLatestViewDto();
+                BeanUtils.copyProperties(metric, metricDto);
+                dto.setLatestMetric(metricDto);
+            }
+            return dto;
+        }).collect(Collectors.toList());
     }
 
     private List<XuiInstanceViewDto> enrichInstanceCounts(List<XuiInstanceViewDto> instances, List<XuiInboundSnapshot> inbounds) {

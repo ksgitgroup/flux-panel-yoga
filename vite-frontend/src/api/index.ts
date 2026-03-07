@@ -191,9 +191,26 @@ export interface AssetHost {
   name: string;
   label?: string | null;
   primaryIp?: string | null;
+  ipv6?: string | null;
   environment?: string | null;
   provider?: string | null;
   region?: string | null;
+  role?: string | null;
+  os?: string | null;
+  cpuCores?: number | null;
+  memTotalMb?: number | null;
+  diskTotalGb?: number | null;
+  bandwidthMbps?: number | null;
+  monthlyTrafficGb?: number | null;
+  sshPort?: number | null;
+  purchaseDate?: number | null;
+  expireDate?: number | null;
+  monthlyCost?: string | null;
+  currency?: string | null;
+  tags?: string | null;
+  gostNodeId?: number | null;
+  gostNodeName?: string | null;
+  monitorNodeUuid?: string | null;
   remark?: string | null;
   totalXuiInstances: number;
   totalProtocols: number;
@@ -202,6 +219,12 @@ export interface AssetHost {
   onlineClients: number;
   totalForwards: number;
   lastObservedAt?: number | null;
+  monitorOnline?: number | null;
+  monitorCpuUsage?: number | null;
+  monitorMemUsed?: number | null;
+  monitorMemTotal?: number | null;
+  monitorNetIn?: number | null;
+  monitorNetOut?: number | null;
 }
 
 export interface AssetForwardLink {
@@ -218,11 +241,70 @@ export interface AssetForwardLink {
   updatedTime?: number | null;
 }
 
+export interface MonitorMetricLatest {
+  cpuUsage?: number | null;
+  memUsed?: number | null;
+  memTotal?: number | null;
+  diskUsed?: number | null;
+  diskTotal?: number | null;
+  netIn?: number | null;
+  netOut?: number | null;
+  netTotalUp?: number | null;
+  netTotalDown?: number | null;
+  load1?: number | null;
+  uptime?: number | null;
+  connections?: number | null;
+  processCount?: number | null;
+  sampledAt?: number | null;
+}
+
+export interface MonitorNodeSnapshot {
+  id: number;
+  instanceId: number;
+  instanceName?: string | null;
+  remoteNodeUuid: string;
+  assetId?: number | null;
+  assetName?: string | null;
+  name?: string | null;
+  ip?: string | null;
+  ipv6?: string | null;
+  os?: string | null;
+  cpuName?: string | null;
+  cpuCores?: number | null;
+  memTotal?: number | null;
+  diskTotal?: number | null;
+  region?: string | null;
+  version?: string | null;
+  online?: number | null;
+  lastActiveAt?: number | null;
+  lastSyncAt?: number | null;
+  latestMetric?: MonitorMetricLatest | null;
+}
+
+export interface MonitorInstance {
+  id: number;
+  name: string;
+  type: string;
+  baseUrl: string;
+  syncEnabled?: number | null;
+  syncIntervalMinutes?: number | null;
+  allowInsecureTls?: number | null;
+  remark?: string | null;
+  lastSyncAt?: number | null;
+  lastSyncStatus?: string | null;
+  lastSyncError?: string | null;
+  nodeCount?: number | null;
+  onlineNodeCount?: number | null;
+  createdTime?: number | null;
+  updatedTime?: number | null;
+}
+
 export interface AssetHostDetail {
   asset: AssetHost;
   xuiInstances: XuiInstance[];
   protocolSummaries: XuiProtocolSummary[];
   forwards: AssetForwardLink[];
+  monitorNodes?: MonitorNodeSnapshot[];
 }
 
 export interface XuiForwardTarget {
@@ -388,3 +470,13 @@ export const deleteAsset = (id: number) => Network.post("/asset/delete", { id })
 export const getForwardXuiTargets = () => Network.post<XuiForwardTarget[]>("/forward/xui-targets");
 export const getPortalLinks = () => Network.post<PortalLink[]>("/portal/list");
 export const savePortalLinks = (items: PortalLink[]) => Network.post<PortalLink[]>("/portal/save", { items });
+
+// Monitor (Komari/Pika probe integration)
+export const getMonitorList = () => Network.post<MonitorInstance[]>("/monitor/list");
+export const getMonitorDetail = (id: number) => Network.post("/monitor/detail", { id });
+export const createMonitorInstance = (data: any) => Network.post<MonitorInstance>("/monitor/create", data);
+export const updateMonitorInstance = (data: any) => Network.post<MonitorInstance>("/monitor/update", data);
+export const deleteMonitorInstance = (id: number) => Network.post("/monitor/delete", { id });
+export const testMonitorInstance = (id: number) => Network.post("/monitor/test", { id });
+export const syncMonitorInstance = (id: number) => Network.post("/monitor/sync", { id });
+export const getMonitorUnboundNodes = () => Network.post<MonitorNodeSnapshot[]>("/monitor/unbound-nodes");

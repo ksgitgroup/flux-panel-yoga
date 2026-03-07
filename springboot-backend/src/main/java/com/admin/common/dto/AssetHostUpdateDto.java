@@ -18,11 +18,43 @@ public class AssetHostUpdateDto {
 
     private String primaryIp;
 
+    private String ipv6;
+
     private String environment;
 
     private String provider;
 
     private String region;
+
+    private String role;
+
+    private String os;
+
+    private Integer cpuCores;
+
+    private Integer memTotalMb;
+
+    private Integer diskTotalGb;
+
+    private Integer bandwidthMbps;
+
+    private Integer monthlyTrafficGb;
+
+    private Integer sshPort;
+
+    private Long purchaseDate;
+
+    private Long expireDate;
+
+    private String monthlyCost;
+
+    private String currency;
+
+    private String tags;
+
+    private Long gostNodeId;
+
+    private String monitorNodeUuid;
 
     private String remark;
 }

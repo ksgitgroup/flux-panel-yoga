@@ -78,3 +78,9 @@
 - 已确认当前“本地运行工具链本体”并不接近 20G：`openjdk@21` 约 `332M`、`maven` 约 `11M`、`node@20` 约 `57M`。
 - 已确认主要占用来自 Docker/Colima 运行时与缓存：`.colima` 约 `7.8G`、Docker 本地镜像约 `2.2G`、Homebrew 缓存约 `610M`、npm 全局缓存约 `654M`、Maven 仓库约 `203M`。
 - 已扩展 `scripts/cleanup_local_artifacts.sh`，新增 `deep-host` 模式，用于在空间极低时进一步回收宿主机缓存与未使用的 Docker 资源。
+
+## 2026-03-07 CI Release Visibility Result
+
+- 已移除 `.gitlab-ci.yml` 中对 `dev -> main` MR 标题和描述的强制校验，不再因为 MR 文案缺失阻塞合并。
+- 已新增 `scripts/print_ci_commit_summary.sh`，让 `build:dev` 和 `build:prod` 自动在 CI 日志中打印本次版本号、当前提交和提交摘要。
+- 已保留 `scripts/prepare_release_mr.sh` 与 `.gitlab/merge_request_templates/Default.md` 作为可选工具，但不再要求每次发布手工填写。

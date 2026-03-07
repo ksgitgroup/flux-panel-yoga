@@ -27,22 +27,9 @@ variables:
   DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"  # 服务器 B 部署目录
 
 stages:
-  - verify
   - build
   - deploy
   - sync        # 同步到 GitHub，让安装脚本从公开 URL 下载到最新代码
-
-# ──────────────────────────────────────────────────────────────
-# dev -> main MR 规范校验：阻止标题仅为 dev，要求发布描述完整
-# ──────────────────────────────────────────────────────────────
-verify:release-mr:
-  stage: verify
-  tags:
-    - Rn1-Runner-General-01
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "dev" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
-  script:
-    - bash scripts/validate_release_mr.sh
 
 # ──────────────────────────────────────────────────────────────
 # dev 分支同步：将 dev 分支推送到 GitHub 触发 Actions 构建
@@ -59,9 +46,9 @@ build:dev:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
     - |
+      bash scripts/print_ci_commit_summary.sh
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="dev-${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
-      echo "🔖 发布版本: v${APP_VERSION}"
       echo "🧬 追踪标识: ${TRACE_TAG}"
       echo "🏷️ 部署入口标签: ${DEV_TAG}"
       echo "ℹ️ dev 镜像构建已移交给 GitHub Actions（解决服务器 B 内存不足）"
@@ -93,9 +80,9 @@ build:prod:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
     - |
+      bash scripts/print_ci_commit_summary.sh
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
-      echo "🔖 发布版本: v${APP_VERSION}"
       echo "🧬 追踪标识: ${TRACE_TAG}"
       echo "🏷️ 部署入口标签: ${PROD_TAG}"
       echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."

@@ -90,3 +90,10 @@
 3. 保留原 `cleanup_local_artifacts.sh` 的轻量自动清理逻辑，用于每次构建后回收项目内 `target/dist/.cache` 和无用 Docker 镜像。
 4. 追加 `deep-host` 模式，专门处理磁盘告急场景，额外清理 Homebrew 缓存、npm 全局缓存、Maven 失效元数据以及未使用的 Docker 容器/网络/volume。
 5. 明确 `.colima` 是本地 Docker/Colima 虚拟机磁盘，本身就是开发环境的主要占用项；如果要继续大幅回收，只能停用本地 Docker 并删除或重建 Colima。
+
+## 2026-03-07 CI Release Visibility Walkthrough
+
+1. 复盘 MR 15 失败日志，确认并非生产构建逻辑损坏，而是 `validate_release_mr.sh` 对 `dev -> main` 的 MR 标题/描述进行了强制校验。
+2. 根据“不要手工维护 MR 文案”的新要求，删除 `.gitlab-ci.yml` 中的 `verify:release-mr` 门禁 job。
+3. 新增 `scripts/print_ci_commit_summary.sh`，在 `build:dev` / `build:prod` 阶段自动输出版本号、当前短 SHA 和本次提交摘要。
+4. 保留 MR 模板与 `prepare_release_mr.sh` 作为人工发布说明的可选工具，但从“必填门禁”降级为“辅助工具”。

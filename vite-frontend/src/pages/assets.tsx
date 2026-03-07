@@ -545,14 +545,23 @@ export default function AssetsPage() {
 
           {/* Monitor Section */}
           <Card className="border border-divider/80">
-            <CardHeader className="flex flex-col items-start gap-2">
-              <h2 className="text-lg font-semibold">Monitor (Komari)</h2>
-              <p className="text-sm text-default-500">Real-time metrics from linked probe node.</p>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold">Monitor (Komari)</h2>
+                <p className="text-sm text-default-500">Real-time metrics from linked probe node.</p>
+              </div>
+              <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/probe')}>
+                Manage Probes
+              </Button>
             </CardHeader>
             <CardBody>
               {!detail || !detail.monitorNodes || detail.monitorNodes.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  No probe linked. Set the Monitor Node UUID in asset settings, or wait for the next sync cycle.
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500 text-center">
+                  No probe linked.{' '}
+                  <span className="text-primary cursor-pointer hover:underline" onClick={() => navigate('/probe')}>
+                    Go to Probe Management
+                  </span>{' '}
+                  to add and sync a Komari instance, then bind nodes to assets.
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">

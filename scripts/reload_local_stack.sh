@@ -21,4 +21,5 @@ fi
 
 echo "🔄 正在使用最新 local 镜像重建本地容器..."
 COMPOSE_PROJECT_NAME=flux-panel-yoga-local $DC -f docker-compose-v4.local.yml up -d --force-recreate
+bash ./scripts/cleanup_local_artifacts.sh post-reload || true
 echo "✅ 本地容器已切换到最新镜像。"

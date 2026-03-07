@@ -72,6 +72,30 @@ public class UserController extends BaseController {
     }
 
     @LogAnnotation
+    @PostMapping("/2fa/status")
+    public R getTwoFactorStatus() {
+        return userService.getTwoFactorStatus();
+    }
+
+    @LogAnnotation
+    @PostMapping("/2fa/setup")
+    public R prepareTwoFactorSetup() {
+        return userService.prepareTwoFactorSetup();
+    }
+
+    @LogAnnotation
+    @PostMapping("/2fa/enable")
+    public R enableTwoFactor(@Validated @RequestBody TwoFactorEnableDto twoFactorEnableDto) {
+        return userService.enableTwoFactor(twoFactorEnableDto);
+    }
+
+    @LogAnnotation
+    @PostMapping("/2fa/disable")
+    public R disableTwoFactor(@Validated @RequestBody TwoFactorDisableDto twoFactorDisableDto) {
+        return userService.disableTwoFactor(twoFactorDisableDto);
+    }
+
+    @LogAnnotation
     @RequireRole
     @PostMapping("/reset")
     public R reset(@Validated @RequestBody ResetFlowDto resetFlowDto) {

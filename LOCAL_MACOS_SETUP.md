@@ -98,6 +98,30 @@ docker-compose -f docker-compose-v4.local.yml down
 - `./scripts/build_docker.sh` 只负责生成最新 `local` 镜像
 - 如果本地容器已经在运行，必须执行 `./scripts/reload_local_stack.sh`
 - 否则 `http://localhost:8080` / `http://localhost:6365` 仍可能是旧容器
+- 以上两个脚本现在会自动调用 `./scripts/cleanup_local_artifacts.sh`，回收构建产物、npm 缓存和无用 Docker 镜像
+- 这台 Mac 可用空间紧张时，优先执行：
+
+```bash
+./scripts/cleanup_local_artifacts.sh post-reload
+```
+
+如果宿主机磁盘已经逼近极限（例如低于 `5 GiB`），再执行一次深度清理：
+
+```bash
+./scripts/cleanup_local_artifacts.sh deep-host
+```
+
+这会额外清理：
+
+- Homebrew 下载缓存
+- npm 全局缓存
+- Maven 失效元数据
+- 未使用的 Docker 容器、网络和 volume
+
+说明：
+
+- `deep-host` 不会删除当前正在运行的容器和 volume
+- 但它会让后续某些依赖重新下载，因此只在磁盘紧张时使用
 
 ## 5. 前端本地开发模式
 
@@ -132,6 +156,14 @@ git switch dev
 ./scripts/sync_dev.sh
 ```
 
+说明：
+
+- `./scripts/ship_dev.sh` 会先执行 `./scripts/verify_build.sh`
+- 验证通过后才会创建本地 commit
+- 然后按这个新 commit 重建本地 Docker 镜像并重载容器
+- 最后再推送到 `origin/dev`
+- 因此本地页面中的“提交标识”会和刚推送的 commit 保持一致
+
 当需要发布到生产环境 C 时：
 
 ```bash
@@ -142,6 +174,17 @@ git push origin main
 ```
 
 之后在 GitLab 中手动确认生产部署任务。
+
+如果是通过 Merge Request 从 `dev` 合入 `main`，先在本地生成建议标题与描述：
+
+```bash
+./scripts/prepare_release_mr.sh
+```
+
+仓库已提供默认 MR 模板 `.gitlab/merge_request_templates/Default.md`，并在 GitLab CI 中校验：
+
+- 标题不能只写 `dev`
+- 必须填写“发布摘要 / 本次变更 / 本地验证 / 风险与回滚”
 
 ## 7. 当前项目对这台 Mac 的关键注意点
 

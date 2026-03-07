@@ -5,6 +5,7 @@ export interface LoginData {
   username: string;
   password: string;
   captchaId: string;
+  twoFactorCode?: string;
 }
 
 export interface LoginResponse {
@@ -12,6 +13,23 @@ export interface LoginResponse {
   role_id: number;
   name: string;
   requirePasswordChange?: boolean;
+  requireTwoFactorSetup?: boolean;
+  twoFactorRequired?: boolean;
+  twoFactorEnabled?: boolean;
+}
+
+export interface TwoFactorStatusResponse {
+  enabled: boolean;
+  required: boolean;
+  enforcementScope: 'disabled' | 'admin' | 'all' | string;
+  boundAt?: number;
+  username: string;
+  issuer: string;
+}
+
+export interface TwoFactorSetupResponse extends TwoFactorStatusResponse {
+  secret: string;
+  otpauthUri: string;
 }
 
 export const login = (data: LoginData) => Network.post<LoginResponse>("/user/login", data);
@@ -76,6 +94,10 @@ export const deleteSpeedLimit = (id: number) => Network.post("/speed-limit/delet
 
 // 修改密码接口
 export const updatePassword = (data: any) => Network.post("/user/updatePassword", data);
+export const getTwoFactorStatus = () => Network.post<TwoFactorStatusResponse>("/user/2fa/status");
+export const setupTwoFactor = () => Network.post<TwoFactorSetupResponse>("/user/2fa/setup");
+export const enableTwoFactor = (data: { currentPassword: string; oneTimeCode: string }) => Network.post("/user/2fa/enable", data);
+export const disableTwoFactor = (data: { currentPassword: string; oneTimeCode: string }) => Network.post("/user/2fa/disable", data);
 
 // 重置流量接口
 export const resetUserFlow = (data: { id: number; type: number }) => Network.post("/user/reset", data);
@@ -114,4 +136,3 @@ export const createTag = (data: any) => Network.post("/tag/create", data);
 export const getTagList = () => Network.post("/tag/list");
 export const updateTag = (data: any) => Network.post("/tag/update", data);
 export const deleteTag = (id: number) => Network.post("/tag/delete", { id });
-

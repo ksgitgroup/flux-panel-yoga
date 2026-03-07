@@ -97,6 +97,16 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
         }
 
+        // 3.1 Modify User Table for 2FA
+        try {
+            updateColumn("user", "two_factor_enabled", "tinyint(1) DEFAULT 0 COMMENT '是否启用TOTP二步验证'");
+            updateColumn("user", "two_factor_secret", "varchar(128) DEFAULT NULL COMMENT 'TOTP密钥，仅启用2FA时保存'");
+            updateColumn("user", "two_factor_bound_at", "bigint(20) DEFAULT NULL COMMENT '2FA绑定完成时间'");
+            log.info("[DatabaseInit] User 表 2FA 字段增量升级检测完成");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] User 表 2FA 字段升级失败: {}", e.getMessage());
+        }
+
         // 4. Initialize vite_config diagnosis and alert settings
         try {
             updateColumn("vite_config", "description", "varchar(255) DEFAULT NULL COMMENT '配置描述'");
@@ -105,6 +115,7 @@ public class DatabaseInitService {
             ensureConfig("auto_diagnosis_enabled", "true", "是否开启后台自动诊断任务");
             ensureConfig("auto_diagnosis_interval", "30", "自动诊断间隔时间(分钟)");
             ensureConfig("site_environment_name", "默认环境", "当前部署环境名称，例如 LOCAL / DEV / PROD");
+            ensureConfig("two_factor_enforcement_scope", "disabled", "二步验证强制范围：disabled/admin/all");
             ensureConfig("wechat_webhook_enabled", "false", "是否启用企业微信机器人告警");
             ensureConfig("wechat_webhook_url", "", "企业微信机器人 Webhook 地址");
             ensureConfig("wechat_webhook_cooldown_minutes", "30", "两次异常通知之间的最短间隔(分钟)");

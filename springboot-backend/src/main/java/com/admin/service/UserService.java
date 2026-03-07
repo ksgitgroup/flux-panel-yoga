@@ -26,8 +26,16 @@ public interface UserService extends IService<User> {
     R deleteUser(Long id);
 
     R getUserPackageInfo();
-    
+
     R updatePassword(ChangePasswordDto changePasswordDto);
+
+    R getTwoFactorStatus();
+
+    R prepareTwoFactorSetup();
+
+    R enableTwoFactor(TwoFactorEnableDto twoFactorEnableDto);
+
+    R disableTwoFactor(TwoFactorDisableDto twoFactorDisableDto);
 
     R reset(ResetFlowDto resetFlowDto);
 }

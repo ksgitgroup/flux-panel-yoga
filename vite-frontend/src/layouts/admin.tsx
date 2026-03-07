@@ -38,6 +38,7 @@ export default function AdminLayout({
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false);
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: '',
@@ -185,6 +186,11 @@ export default function AdminLayout({
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // 退出登录
   const handleLogout = () => {
     safeLogout();
@@ -275,154 +281,279 @@ export default function AdminLayout({
     !item.adminOnly || isAdmin
   );
 
+  const primaryPaths = new Set(['/dashboard', '/forward', '/tunnel', '/node', '/monitor']);
+  const primaryMenuItems = filteredMenuItems.filter((item) => primaryPaths.has(item.path));
+  const managementMenuItems = filteredMenuItems.filter((item) => !primaryPaths.has(item.path));
+  const isManagementRoute = managementMenuItems.some((item) => item.path === location.pathname);
+  const currentTime = now.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+  const currentDate = now.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
   return (
-    <div className={`flex ${isMobile ? 'min-h-screen' : 'h-screen'} bg-gray-100 dark:bg-black`}>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(0,111,238,0.08),_transparent_22%),linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(241,245,249,0.9))] text-foreground dark:bg-black">
       {/* 移动端遮罩层 */}
       {isMobile && mobileMenuVisible && (
         <div
-          className="fixed inset-0 backdrop-blur-sm bg-white/50 dark:bg-black/30 z-40"
+          className="fixed inset-0 z-40 backdrop-blur-sm bg-white/50 dark:bg-black/30"
           onClick={hideMobileMenu}
         />
       )}
 
-      {/* 左侧菜单栏 */}
-      <aside className={`
-        ${isMobile ? 'fixed' : 'relative'} 
-        ${isMobile && !mobileMenuVisible ? '-translate-x-full' : 'translate-x-0'}
-        ${isMobile ? 'w-64' : 'w-72'} 
-        bg-white dark:bg-black 
-        shadow-lg 
-        border-r border-gray-200 dark:border-gray-600
-        z-50 
-        transition-transform duration-300 ease-in-out
-        flex flex-col
-        ${isMobile ? 'h-screen' : 'h-full'}
-        ${isMobile ? 'top-0 left-0' : ''}
-      `}>
-        {/* Logo 区域 */}
-        <div className="px-3 py-3 h-14 flex items-center">
-          <div className="flex items-center gap-2 w-full">
-            <Logo size={24} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <h1 className="text-sm font-bold text-foreground overflow-hidden whitespace-nowrap">{siteConfig.name}</h1>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                  {siteConfig.environment_name}
-                </span>
+      {/* 移动端抽屉菜单 */}
+      {isMobile && (
+        <aside
+          className={`
+            fixed left-0 top-0 z-50 h-screen w-72 border-r border-divider bg-white/95 shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-in-out dark:bg-black/95
+            ${mobileMenuVisible ? 'translate-x-0' : '-translate-x-full'}
+          `}
+        >
+          <div className="flex items-center justify-between border-b border-divider px-5 py-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <Logo size={22} />
+              <div className="min-w-0">
+                <div className="truncate text-sm font-bold text-foreground">{siteConfig.name}</div>
+                <div className="text-[11px] text-default-500">{siteConfig.environment_name} · {siteConfig.release_version}</div>
               </div>
-              <p className="text-xs text-default-500">{siteConfig.release_version} · {siteConfig.commit_sha}</p>
             </div>
+            <Button isIconOnly size="sm" variant="light" onPress={hideMobileMenu}>
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </Button>
           </div>
-        </div>
 
-        {/* 菜单导航 */}
-        <nav className="flex-1 px-4 py-6 overflow-y-auto">
-          <ul className="space-y-1">
-            {filteredMenuItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              return (
-                <li key={item.path}>
+          <nav className="flex-1 overflow-y-auto px-4 py-5">
+            <div className="space-y-1">
+              {filteredMenuItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
                   <button
+                    key={item.path}
                     onClick={() => handleMenuClick(item.path)}
                     className={`
-                       w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left
-                       transition-colors duration-200 min-h-[44px]
-                       ${isActive
-                        ? 'bg-primary-100 dark:bg-primary-600/20 text-primary-600 dark:text-primary-300'
-                        : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900'
-                      }
-                     `}
+                      flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors
+                      ${isActive
+                        ? 'bg-primary text-white shadow-lg shadow-primary/25'
+                        : 'text-default-700 hover:bg-default-100 dark:text-default-200 dark:hover:bg-default-100/10'}
+                    `}
                   >
-                    <div className="flex-shrink-0">
-                      {item.icon}
-                    </div>
-                    <span className="font-medium text-sm">{item.label}</span>
+                    <span className="flex-shrink-0">{item.icon}</span>
+                    <span className="text-sm font-medium">{item.label}</span>
                   </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50/50 dark:bg-black/20">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-default-400">发布版本</span>
-              <span className="text-sm font-semibold text-foreground">{siteConfig.release_version}</span>
+                );
+              })}
             </div>
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] uppercase font-bold text-default-400">提交标识</span>
-              <span className="text-xs text-default-500">{siteConfig.build_revision}</span>
-            </div>
-          </div>
-          <p className="mt-3 text-[11px] text-default-400">
-            {siteConfig.environment_name} 环境 · GitLab CI 与镜像标签会对齐到同一提交短 SHA。
-          </p>
-        </div>
-      </aside>
+          </nav>
 
-      {/* 主内容区域 */}
-      <div className={`flex flex-col flex-1 ${isMobile ? 'min-h-0' : 'h-full overflow-hidden'}`}>
-        {/* 顶部导航栏 */}
-        <header className="bg-white dark:bg-black shadow-md border-b border-gray-200 dark:border-gray-600 h-14 flex items-center justify-between px-4 lg:px-6 relative z-10">
-          <div className="flex items-center gap-4">
-            {/* 移动端菜单按钮 */}
+          <div className="border-t border-divider px-5 py-4 text-xs text-default-500">
+            <div className="flex items-center justify-between">
+              <span>{siteConfig.release_version}</span>
+              <span>{siteConfig.build_revision}</span>
+            </div>
+            <p className="mt-2">{siteConfig.environment_name} 环境 · 本机布局已收敛为统一头部导航。</p>
+          </div>
+        </aside>
+      )}
+
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-30 border-b border-white/70 bg-white/85 shadow-sm backdrop-blur-xl dark:border-default-100/10 dark:bg-black/80">
+          <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 lg:px-6">
             {isMobile && (
               <Button
                 isIconOnly
+                size="sm"
                 variant="light"
                 onPress={toggleMobileMenu}
-                className="lg:hidden"
+                className="flex-shrink-0"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </Button>
             )}
+
+            <div className="min-w-0 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner">
+                  <Logo size={24} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h1 className="truncate text-lg font-black tracking-[0.08em] text-foreground lg:text-xl">{siteConfig.name}</h1>
+                    <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.24em] text-primary">
+                      {siteConfig.environment_name}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-default-500">
+                    <span>{siteConfig.release_version}</span>
+                    <span>{siteConfig.build_revision}</span>
+                    <span className="hidden xl:inline">{siteConfig.build_time}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {!isMobile && (
+              <nav className="mx-auto min-w-0 flex-1 px-2">
+                <div className="flex items-center justify-center overflow-x-auto [scrollbar-width:none]">
+                  <div className="inline-flex min-w-max items-center gap-1 rounded-full border border-divider bg-default-50/80 p-1 shadow-inner dark:bg-default-100/10">
+                    {primaryMenuItems.map((item) => {
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <button
+                          key={item.path}
+                          onClick={() => handleMenuClick(item.path)}
+                          className={`
+                            inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-all
+                            ${isActive
+                              ? 'bg-primary text-white shadow-lg shadow-primary/25'
+                              : 'text-default-500 hover:bg-white hover:text-foreground dark:hover:bg-default-100/10 dark:hover:text-default-100'}
+                          `}
+                        >
+                          <span className="flex-shrink-0">{item.icon}</span>
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </nav>
+            )}
+
+            <div className="ml-auto flex items-center gap-2 lg:gap-3">
+              <div className="hidden xl:flex items-center gap-3 rounded-2xl border border-divider bg-default-50/80 px-3 py-2 text-right shadow-sm dark:bg-default-100/10">
+                <div>
+                  <div className="text-lg font-bold leading-none text-foreground">{currentTime}</div>
+                  <div className="mt-1 text-[11px] tracking-[0.2em] text-default-500">{currentDate}</div>
+                </div>
+              </div>
+
+              {isAdmin && (
+                <Dropdown placement="bottom-end">
+                  <DropdownTrigger>
+                    <Button
+                      size="sm"
+                      variant={isManagementRoute ? "solid" : "flat"}
+                      color={isManagementRoute ? "primary" : "default"}
+                      className="font-semibold"
+                      startContent={
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                        </svg>
+                      }
+                    >
+                      {!isMobile && '系统'}
+                    </Button>
+                  </DropdownTrigger>
+                  <DropdownMenu aria-label="系统管理">
+                    <DropdownItem key="user" onPress={() => handleMenuClick('/user')}>
+                      用户管理
+                    </DropdownItem>
+                    <DropdownItem key="limit" onPress={() => handleMenuClick('/limit')}>
+                      限速管理
+                    </DropdownItem>
+                    <DropdownItem key="protocol" onPress={() => handleMenuClick('/protocol')}>
+                      协议管理
+                    </DropdownItem>
+                    <DropdownItem key="tag" onPress={() => handleMenuClick('/tag')}>
+                      标签管理
+                    </DropdownItem>
+                    <DropdownItem key="config" onPress={() => handleMenuClick('/config')}>
+                      网站配置
+                    </DropdownItem>
+                  </DropdownMenu>
+                </Dropdown>
+              )}
+
+              <Dropdown placement="bottom-end">
+                <DropdownTrigger>
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className="gap-2 rounded-full border border-divider bg-white/80 px-3 font-semibold shadow-sm dark:bg-default-100/10"
+                  >
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                      {username?.slice(0, 1).toUpperCase() || 'U'}
+                    </span>
+                    {!isMobile && (
+                      <div className="text-left">
+                        <div className="text-sm text-foreground">{username}</div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-default-400">
+                          {isAdmin ? 'Admin' : 'Member'}
+                        </div>
+                      </div>
+                    )}
+                    <svg className="h-4 w-4 text-default-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </Button>
+                </DropdownTrigger>
+                <DropdownMenu aria-label="用户菜单">
+                  <DropdownItem key="profile" onPress={() => handleMenuClick('/profile')}>
+                    个人中心
+                  </DropdownItem>
+                  <DropdownItem key="change-password" onPress={onOpen}>
+                    修改密码
+                  </DropdownItem>
+                  <DropdownItem
+                    key="logout"
+                    className="text-danger"
+                    color="danger"
+                    onPress={handleLogout}
+                  >
+                    退出登录
+                  </DropdownItem>
+                </DropdownMenu>
+              </Dropdown>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* 用户菜单 */}
-            <Dropdown placement="bottom-end">
-              <DropdownTrigger>
-                <Button variant="light" className="text-sm font-medium text-foreground">
-                  {username}
-                  <svg className="w-4 h-4 ml-1" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </Button>
-              </DropdownTrigger>
-              <DropdownMenu aria-label="用户菜单">
-                <DropdownItem
-                  key="change-password"
-                  startContent={
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clipRule="evenodd" />
-                    </svg>
-                  }
-                  onPress={onOpen}
-                >
-                  修改密码
-                </DropdownItem>
-                <DropdownItem
-                  key="logout"
-                  startContent={
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
-                    </svg>
-                  }
-                  className="text-danger"
-                  color="danger"
-                  onPress={handleLogout}
-                >
-                  退出登录
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
-          </div>
+          {!isMobile && (
+            <div className="border-t border-divider/60 px-6 py-2 text-xs text-default-500">
+              <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-3">
+                <div className="min-w-0 truncate">
+                  运维面板统一采用横向导航，主要业务入口集中在顶部，中后台配置收敛到右上角系统菜单。
+                </div>
+                <div className="hidden lg:flex items-center gap-4">
+                  <span>发布版本 {siteConfig.release_version}</span>
+                  <span>提交标识 {siteConfig.build_revision}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isMobile && (
+            <div className="overflow-x-auto border-t border-divider/60 px-3 py-2 [scrollbar-width:none]">
+              <div className="flex min-w-max items-center gap-2">
+                {primaryMenuItems.map((item) => {
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Button
+                      key={item.path}
+                      size="sm"
+                      variant={isActive ? "solid" : "flat"}
+                      color={isActive ? "primary" : "default"}
+                      onPress={() => handleMenuClick(item.path)}
+                      className="font-medium"
+                    >
+                      {item.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </header>
 
-        {/* 主内容 */}
-        <main className={`flex-1 bg-gray-100 dark:bg-black ${isMobile ? '' : 'overflow-y-auto'}`}>
+        <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col px-3 py-4 lg:px-6 lg:py-6">
           {children}
         </main>
       </div>

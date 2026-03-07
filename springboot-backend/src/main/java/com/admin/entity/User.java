@@ -59,5 +59,11 @@ public class User extends BaseEntity {
 
     private Long flowResetTime;
 
+    private Integer twoFactorEnabled;
+
+    private String twoFactorSecret;
+
+    private Long twoFactorBoundAt;
+
 
 }

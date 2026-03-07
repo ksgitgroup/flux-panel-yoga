@@ -46,9 +46,9 @@ build:dev:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
     - |
+      bash scripts/print_ci_commit_summary.sh
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="dev-${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
-      echo "🔖 发布版本: v${APP_VERSION}"
       echo "🧬 追踪标识: ${TRACE_TAG}"
       echo "🏷️ 部署入口标签: ${DEV_TAG}"
       echo "ℹ️ dev 镜像构建已移交给 GitHub Actions（解决服务器 B 内存不足）"
@@ -80,9 +80,9 @@ build:prod:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
     - |
+      bash scripts/print_ci_commit_summary.sh
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
-      echo "🔖 发布版本: v${APP_VERSION}"
       echo "🧬 追踪标识: ${TRACE_TAG}"
       echo "🏷️ 部署入口标签: ${PROD_TAG}"
       echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."

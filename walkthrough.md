@@ -142,3 +142,16 @@
 8. 将低空间预检前移到 `verify_build.sh` 和 `build_docker.sh`，不足时先做 `pre-build` 清理，仍不足再做 `deep-host` 清理，并在低于安全阈值时提前失败。
 9. 将清理脚本改为输出真实 Docker 回收结果，不再把 `docker image prune`、`builder prune` 等输出全部吞掉，同时通过 `EXIT` trap 接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`、`sync_dev.sh`。
 10. 执行 `./scripts/verify_build.sh` 与 `./scripts/build_docker.sh`，确认后端打包、前端 `tsc + vite build`、Docker 镜像构建与清理链路全部通过，且本地磁盘余量在构建后仍能回收到约 `10GiB`。
+
+## 2026-03-07 Asset Layer and X-UI Forward Linkage Walkthrough
+
+1. 复盘当前 `X-UI 管理` 页面，确认虽然已经有“服务器层 / 面板层 / 协议层”概念，但视图仍局限在“先点进某一个 X-UI 实例后再看明细”，不满足真正的整合要求。
+2. 在后端新增 `asset_host` 作为服务器资产主表，并把 `xui_instance.asset_id` 作为资产绑定入口，同时保留 `host_label` 兼容历史数据。
+3. 在 `DatabaseInitService` 中加入资产表自动创建和旧 `host_label -> asset_host` 的回填逻辑，确保 A / B / C 环境不需要手工执行 SQL。
+4. 新增 `AssetHostServiceImpl` 与对应控制器，聚合单个资产下的 X-UI 实例、协议摘要和已联动的转发关系。
+5. 前端新增 `服务器资产` 页面，并放到顶栏一级导航，让管理员可以先看“这台 VPS”再看其下所有 X-UI 和转发对象。
+6. 在 `X-UI 管理` 中加入“绑定资产”配置，使实例在录入时就能归属到某台服务器资产。
+7. 在 `forward` 表中新增 `remote_source_*` 字段，用来记录一个转发的远端地址来自哪个 X-UI inbound 快照，而不是只保存裸 `host:port`。
+8. 在 `ForwardServiceImpl` 中加入 X-UI 目标绑定逻辑：当来源类型为 `xui` 时，后端会根据实例地址和 inbound 端口重新生成 `remoteAddr`，而不是信任前端提交的任意值。
+9. 在前端“转发管理”中新增“手工地址 / X-UI 节点”两种来源模式；管理员现在可以先选隧道，再直接选某个已同步的 X-UI 节点作为远端地址。
+10. 执行 `./scripts/verify_build.sh`，确认资产页、X-UI 资产绑定、转发来源切换和相关后端增量迁移全部通过编译。

@@ -117,3 +117,15 @@
 - 已新增前端 `X-UI 管理` 页面，并接入系统工作台导航，支持实例管理、状态查看、测试连接、立即同步和已同步入站/客户端快照展示。
 - 已执行 `./scripts/verify_build.sh`，确认后端打包、前端 `tsc + vite build` 和 CI YAML 校验全部通过。
 - 已执行 `./scripts/build_docker.sh`，确认前后端 Docker 镜像均可构建成功，新增模块可进入现有本地容器运行链路。
+
+## 2026-03-07 Asset Layer and X-UI Forward Linkage Result
+
+- 已新增 `asset_host` 表，并在 `DatabaseInitService` 中加入自动创建与旧 `xui_instance.host_label` 回填逻辑。
+- 已新增 `AssetHostController`、`AssetHostService` 及对应 DTO，支持资产列表、详情、创建、修改、删除。
+- 已新增前端 `服务器资产` 页面，并提升为顶栏一级导航，用于在不进入单个 X-UI 实例的情况下，直接查看 VPS -> X-UI -> 协议 -> 转发的聚合关系。
+- 已让 `xui_instance` 支持绑定 `asset_id`，前端实例表单新增“绑定资产”配置。
+- 已为 `forward` 增加 `remote_source_type / asset_id / instance_id / inbound_id / label / protocol` 六个来源字段。
+- 已新增管理员专用 `/api/v1/forward/xui-targets` 接口，用于从已同步的 X-UI inbound 快照中生成可选远端目标目录。
+- 已在前端“转发管理”中增加远端来源模式：管理员可在“手工地址”和“X-UI 节点”之间切换，并直接把某个隧道绑定到某个已同步的 X-UI 协议节点。
+- 已在 X-UI 同步完成后刷新引用它的转发 `remoteAddr`，为后续“节点变更 -> 联动刷新转发目标”打下基础。
+- 已再次执行 `./scripts/verify_build.sh`，确认资产页、X-UI 资产绑定和转发联动功能全部通过构建校验。

@@ -46,6 +46,8 @@ export interface XuiInstance {
   baseUrl: string;
   webBasePath: string;
   username: string;
+  assetId?: number | null;
+  assetName?: string | null;
   hostLabel?: string | null;
   managementMode: 'observe' | 'flux_managed' | string;
   syncEnabled: number;
@@ -184,6 +186,64 @@ export interface XuiSyncResult {
   message: string;
 }
 
+export interface AssetHost {
+  id: number;
+  name: string;
+  label?: string | null;
+  primaryIp?: string | null;
+  environment?: string | null;
+  provider?: string | null;
+  region?: string | null;
+  remark?: string | null;
+  totalXuiInstances: number;
+  totalProtocols: number;
+  totalInbounds: number;
+  totalClients: number;
+  onlineClients: number;
+  totalForwards: number;
+  lastObservedAt?: number | null;
+}
+
+export interface AssetForwardLink {
+  id: number;
+  name: string;
+  tunnelId?: number | null;
+  tunnelName?: string | null;
+  status: number;
+  remoteAddr: string;
+  remoteSourceType?: string | null;
+  remoteSourceLabel?: string | null;
+  remoteSourceProtocol?: string | null;
+  createdTime?: number | null;
+  updatedTime?: number | null;
+}
+
+export interface AssetHostDetail {
+  asset: AssetHost;
+  xuiInstances: XuiInstance[];
+  protocolSummaries: XuiProtocolSummary[];
+  forwards: AssetForwardLink[];
+}
+
+export interface XuiForwardTarget {
+  assetId?: number | null;
+  assetName?: string | null;
+  assetLabel?: string | null;
+  instanceId: number;
+  instanceName: string;
+  inboundSnapshotId: number;
+  protocol?: string | null;
+  remark?: string | null;
+  tag?: string | null;
+  port?: number | null;
+  transportSummary?: string | null;
+  clientCount?: number | null;
+  onlineClientCount?: number | null;
+  remoteHost: string;
+  remoteAddress: string;
+  sourceLabel: string;
+}
+
 export interface PortalLink {
   id: string;
   groupName: string;
@@ -320,5 +380,11 @@ export const testXuiInstance = (id: number) => Network.post<{
   message: string;
 }>("/xui/test", { id });
 export const syncXuiInstance = (id: number) => Network.post<XuiSyncResult>("/xui/sync", { id });
+export const getAssetList = () => Network.post<AssetHost[]>("/asset/list");
+export const getAssetDetail = (id: number) => Network.post<AssetHostDetail>("/asset/detail", { id });
+export const createAsset = (data: any) => Network.post<AssetHost>("/asset/create", data);
+export const updateAsset = (data: any) => Network.post<AssetHost>("/asset/update", data);
+export const deleteAsset = (id: number) => Network.post("/asset/delete", { id });
+export const getForwardXuiTargets = () => Network.post<XuiForwardTarget[]>("/forward/xui-targets");
 export const getPortalLinks = () => Network.post<PortalLink[]>("/portal/list");
 export const savePortalLinks = (items: PortalLink[]) => Network.post<PortalLink[]>("/portal/save", { items });

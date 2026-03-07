@@ -28,6 +28,8 @@ public class XuiInstanceUpdateDto {
 
     private String loginSecret;
 
+    private Long assetId;
+
     private String hostLabel;
 
     private String managementMode;

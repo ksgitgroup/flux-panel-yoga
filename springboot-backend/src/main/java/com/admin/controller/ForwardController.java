@@ -8,6 +8,7 @@ import com.admin.common.dto.ForwardBatchUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.entity.Forward;
 import com.admin.service.ForwardService;
+import com.admin.service.XuiService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
@@ -30,6 +31,9 @@ public class ForwardController extends BaseController {
 
     @Autowired
     private ForwardService forwardService;
+
+    @Autowired
+    private XuiService xuiService;
 
     @LogAnnotation
     @PostMapping("/create")
@@ -123,6 +127,13 @@ public class ForwardController extends BaseController {
     @PostMapping("/batch-update")
     public R batchUpdate(@Validated @RequestBody ForwardBatchUpdateDto batchDto) {
         return forwardService.batchUpdateForward(batchDto);
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/xui-targets")
+    public R xuiTargets() {
+        return xuiService.getForwardTargets();
     }
 
 }

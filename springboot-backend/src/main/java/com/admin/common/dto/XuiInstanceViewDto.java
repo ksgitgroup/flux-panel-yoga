@@ -15,6 +15,10 @@ public class XuiInstanceViewDto {
 
     private String username;
 
+    private Long assetId;
+
+    private String assetName;
+
     private String hostLabel;
 
     private String managementMode;

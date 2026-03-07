@@ -52,10 +52,13 @@ import {
   getDiagnosisLatestBatch,
   getProtocolList,
   getTagList,
-  createTag
+  createTag,
+  getForwardXuiTargets,
+  XuiForwardTarget
 } from "@/api";
 import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
+import { isAdmin } from "@/utils/auth";
 
 interface Protocol {
   id: number;
@@ -88,6 +91,12 @@ interface Forward {
   inx?: number;
   protocolId?: number;
   tagIds?: string;
+  remoteSourceType?: string | null;
+  remoteSourceAssetId?: number | null;
+  remoteSourceInstanceId?: number | null;
+  remoteSourceInboundId?: number | null;
+  remoteSourceLabel?: string | null;
+  remoteSourceProtocol?: string | null;
 }
 
 interface Tunnel {
@@ -108,6 +117,12 @@ interface ForwardForm {
   strategy: string;
   protocolId: number | null;
   tagIds: string[];
+  remoteSourceType: 'manual' | 'xui';
+  remoteSourceAssetId: number | null;
+  remoteSourceInstanceId: number | null;
+  remoteSourceInboundId: number | null;
+  remoteSourceLabel: string;
+  remoteSourceProtocol: string;
 }
 
 interface AddressItem {
@@ -212,11 +227,14 @@ const parseDiagnosisResultsJson = (resultsJson?: string): Array<any> => {
 };
 
 export default function ForwardPage() {
+  const adminUser = isAdmin();
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [xuiTargets, setXuiTargets] = useState<XuiForwardTarget[]>([]);
+  const [xuiAssetFilter, setXuiAssetFilter] = useState<string>('all');
 
   // 快速创建标签
   const createQuickTag = async (name: string) => {
@@ -349,7 +367,13 @@ export default function ForwardPage() {
     interfaceName: '',
     strategy: 'fifo',
     protocolId: null,
-    tagIds: []
+    tagIds: [],
+    remoteSourceType: 'manual',
+    remoteSourceAssetId: null,
+    remoteSourceInstanceId: null,
+    remoteSourceInboundId: null,
+    remoteSourceLabel: '',
+    remoteSourceProtocol: ''
   });
 
   // 表单验证错误
@@ -363,6 +387,38 @@ export default function ForwardPage() {
   useEffect(() => {
     setSelectedForwardIds((prev) => prev.filter((id) => forwards.some((forward) => forward.id === id)));
   }, [forwards]);
+
+  const selectedXuiTarget = useMemo(
+    () => xuiTargets.find((target) => target.inboundSnapshotId === form.remoteSourceInboundId) || null,
+    [form.remoteSourceInboundId, xuiTargets]
+  );
+
+  const filteredXuiTargets = useMemo(() => {
+    if (xuiAssetFilter === 'all') {
+      return xuiTargets;
+    }
+    if (xuiAssetFilter === '__unbound__') {
+      return xuiTargets.filter((target) => !target.assetId);
+    }
+    return xuiTargets.filter((target) => String(target.assetId) === xuiAssetFilter);
+  }, [xuiAssetFilter, xuiTargets]);
+
+  const xuiAssetOptions = useMemo(() => {
+    const options = [
+      { key: 'all', label: '全部资产' },
+      { key: '__unbound__', label: '未绑定资产' },
+    ];
+    const assetMap = new Map<string, string>();
+    xuiTargets.forEach((target) => {
+      if (target.assetId && target.assetName) {
+        assetMap.set(String(target.assetId), target.assetName);
+      }
+    });
+    Array.from(assetMap.entries()).forEach(([key, label]) => {
+      options.push({ key, label });
+    });
+    return options;
+  }, [xuiTargets]);
 
   const initializeFlatOrder = (sourceForwards: Forward[]) => {
     const currentUserId = JwtUtil.getUserIdFromToken();
@@ -424,11 +480,12 @@ export default function ForwardPage() {
   const loadData = async (lod = true) => {
     setLoading(lod);
     try {
-      const [forwardsRes, tunnelsRes, protocolsRes, tagsRes] = await Promise.all([
+      const [forwardsRes, tunnelsRes, protocolsRes, tagsRes, xuiTargetsRes] = await Promise.all([
         getForwardList(),
         userTunnel(),
         getProtocolList(),
-        getTagList()
+        getTagList(),
+        adminUser ? getForwardXuiTargets() : Promise.resolve({ code: 0, msg: '', data: [] as XuiForwardTarget[] })
       ]);
 
       if (forwardsRes.code === 0) {
@@ -457,6 +514,11 @@ export default function ForwardPage() {
 
       if (protocolsRes.code === 0) setProtocols(protocolsRes.data || []);
       if (tagsRes.code === 0) setTags(tagsRes.data || []);
+      if (xuiTargetsRes.code === 0) {
+        setXuiTargets(xuiTargetsRes.data || []);
+      } else if (adminUser) {
+        toast.error(xuiTargetsRes.msg || '加载 X-UI 节点目录失败');
+      }
     } catch (error) {
       console.error('加载数据失败:', error);
       toast.error('加载数据失败');
@@ -534,7 +596,11 @@ export default function ForwardPage() {
       newErrors.tunnelId = '请选择关联隧道';
     }
 
-    if (!form.remoteAddr.trim()) {
+    if (form.remoteSourceType === 'xui') {
+      if (!form.remoteSourceInboundId) {
+        newErrors.remoteAddr = '请选择 X-UI 节点';
+      }
+    } else if (!form.remoteAddr.trim()) {
       newErrors.remoteAddr = '请输入远程地址';
     } else {
       // 验证地址格式
@@ -577,8 +643,15 @@ export default function ForwardPage() {
       interfaceName: '',
       strategy: 'fifo',
       protocolId: null,
-      tagIds: []
+      tagIds: [],
+      remoteSourceType: 'manual',
+      remoteSourceAssetId: null,
+      remoteSourceInstanceId: null,
+      remoteSourceInboundId: null,
+      remoteSourceLabel: '',
+      remoteSourceProtocol: ''
     });
+    setXuiAssetFilter('all');
     setSelectedTunnel(null);
     setErrors({});
     setModalOpen(true);
@@ -597,8 +670,21 @@ export default function ForwardPage() {
       interfaceName: forward.interfaceName || '',
       strategy: forward.strategy || 'fifo',
       protocolId: forward.protocolId || null,
-      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : []
+      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : [],
+      remoteSourceType: forward.remoteSourceType === 'xui' ? 'xui' : 'manual',
+      remoteSourceAssetId: forward.remoteSourceAssetId || null,
+      remoteSourceInstanceId: forward.remoteSourceInstanceId || null,
+      remoteSourceInboundId: forward.remoteSourceInboundId || null,
+      remoteSourceLabel: forward.remoteSourceLabel || '',
+      remoteSourceProtocol: forward.remoteSourceProtocol || ''
     });
+    setXuiAssetFilter(
+      forward.remoteSourceType === 'xui'
+        ? forward.remoteSourceAssetId
+          ? String(forward.remoteSourceAssetId)
+          : '__unbound__'
+        : 'all'
+    );
     const tunnel = tunnels.find(t => t.id === forward.tunnelId);
     setSelectedTunnel(tunnel || null);
     setErrors({});
@@ -616,8 +702,21 @@ export default function ForwardPage() {
       interfaceName: forward.interfaceName || '',
       strategy: forward.strategy || 'fifo',
       protocolId: forward.protocolId || null,
-      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : []
+      tagIds: forward.tagIds ? forward.tagIds.split(',').filter(Boolean) : [],
+      remoteSourceType: forward.remoteSourceType === 'xui' ? 'xui' : 'manual',
+      remoteSourceAssetId: forward.remoteSourceAssetId || null,
+      remoteSourceInstanceId: forward.remoteSourceInstanceId || null,
+      remoteSourceInboundId: forward.remoteSourceInboundId || null,
+      remoteSourceLabel: forward.remoteSourceLabel || '',
+      remoteSourceProtocol: forward.remoteSourceProtocol || ''
     });
+    setXuiAssetFilter(
+      forward.remoteSourceType === 'xui'
+        ? forward.remoteSourceAssetId
+          ? String(forward.remoteSourceAssetId)
+          : '__unbound__'
+        : 'all'
+    );
     const tunnel = tunnels.find(t => t.id === forward.tunnelId);
     setSelectedTunnel(tunnel || null);
     setErrors({});
@@ -670,19 +769,67 @@ export default function ForwardPage() {
     setForm(prev => ({ ...prev, tunnelId: parseInt(tunnelId) }));
   };
 
+  const handleRemoteSourceTypeChange = (value: 'manual' | 'xui') => {
+    setForm(prev => ({
+      ...prev,
+      remoteSourceType: value,
+      remoteAddr: value === 'manual' ? prev.remoteAddr : '',
+      remoteSourceAssetId: value === 'manual' ? null : prev.remoteSourceAssetId,
+      remoteSourceInstanceId: value === 'manual' ? null : prev.remoteSourceInstanceId,
+      remoteSourceInboundId: value === 'manual' ? null : prev.remoteSourceInboundId,
+      remoteSourceLabel: value === 'manual' ? '' : prev.remoteSourceLabel,
+      remoteSourceProtocol: value === 'manual' ? '' : prev.remoteSourceProtocol,
+      strategy: value === 'manual' ? prev.strategy : 'fifo',
+    }));
+    setErrors((prev) => ({ ...prev, remoteAddr: '' }));
+    if (value === 'manual') {
+      setXuiAssetFilter('all');
+    }
+  };
+
+  const handleXuiAssetFilterChange = (key: string) => {
+    setXuiAssetFilter(key);
+    setForm(prev => ({
+      ...prev,
+      remoteAddr: '',
+      remoteSourceAssetId: null,
+      remoteSourceInstanceId: null,
+      remoteSourceInboundId: null,
+      remoteSourceLabel: '',
+      remoteSourceProtocol: ''
+    }));
+    setErrors((prev) => ({ ...prev, remoteAddr: '' }));
+  };
+
+  const handleXuiTargetChange = (inboundId: number | null) => {
+    const target = xuiTargets.find((item) => item.inboundSnapshotId === inboundId) || null;
+    setForm(prev => ({
+      ...prev,
+      remoteAddr: target?.remoteAddress || '',
+      remoteSourceAssetId: target?.assetId || null,
+      remoteSourceInstanceId: target?.instanceId || null,
+      remoteSourceInboundId: target?.inboundSnapshotId || null,
+      remoteSourceLabel: target?.sourceLabel || '',
+      remoteSourceProtocol: target?.protocol || ''
+    }));
+    setErrors((prev) => ({ ...prev, remoteAddr: '' }));
+  };
+
   // 提交表单
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
     setSubmitLoading(true);
     try {
-      const processedRemoteAddr = form.remoteAddr
-        .split('\n')
-        .map(addr => addr.trim())
-        .filter(addr => addr)
-        .join(',');
+      const processedRemoteAddr = form.remoteSourceType === 'xui'
+        ? form.remoteAddr.trim()
+        : form.remoteAddr
+          .split('\n')
+          .map(addr => addr.trim())
+          .filter(addr => addr)
+          .join(',');
 
-      const addressCount = processedRemoteAddr.split(',').length;
+      const addressCount = processedRemoteAddr ? processedRemoteAddr.split(',').length : 0;
 
       let res;
       if (isEdit) {
@@ -697,7 +844,13 @@ export default function ForwardPage() {
           interfaceName: form.interfaceName,
           strategy: addressCount > 1 ? form.strategy : 'fifo',
           protocolId: form.protocolId,
-          tagIds: form.tagIds ? form.tagIds.join(',') : null
+          tagIds: form.tagIds ? form.tagIds.join(',') : null,
+          remoteSourceType: form.remoteSourceType,
+          remoteSourceAssetId: form.remoteSourceAssetId,
+          remoteSourceInstanceId: form.remoteSourceInstanceId,
+          remoteSourceInboundId: form.remoteSourceInboundId,
+          remoteSourceLabel: form.remoteSourceLabel || null,
+          remoteSourceProtocol: form.remoteSourceProtocol || null
         };
         res = await updateForward(updateData);
       } else {
@@ -710,7 +863,13 @@ export default function ForwardPage() {
           interfaceName: form.interfaceName,
           strategy: addressCount > 1 ? form.strategy : 'fifo',
           protocolId: form.protocolId,
-          tagIds: form.tagIds ? form.tagIds.join(',') : null
+          tagIds: form.tagIds ? form.tagIds.join(',') : null,
+          remoteSourceType: form.remoteSourceType,
+          remoteSourceAssetId: form.remoteSourceAssetId,
+          remoteSourceInstanceId: form.remoteSourceInstanceId,
+          remoteSourceInboundId: form.remoteSourceInboundId,
+          remoteSourceLabel: form.remoteSourceLabel || null,
+          remoteSourceProtocol: form.remoteSourceProtocol || null
         };
         res = await createForward(createData);
       }
@@ -1411,6 +1570,8 @@ export default function ForwardPage() {
         return (
           (f.name && f.name.toLowerCase().includes(keyword)) ||
           (f.remoteAddr && f.remoteAddr.toLowerCase().includes(keyword)) ||
+          (f.remoteSourceLabel && f.remoteSourceLabel.toLowerCase().includes(keyword)) ||
+          (f.remoteSourceProtocol && f.remoteSourceProtocol.toLowerCase().includes(keyword)) ||
           (f.inIp && f.inIp.toLowerCase().includes(keyword)) ||
           (f.inPort && f.inPort.toString().includes(keyword))
         );
@@ -1698,12 +1859,22 @@ export default function ForwardPage() {
                 onClick={() => showAddressModal(forward.remoteAddr, null, '目标地址')}
                 title={formatRemoteAddress(forward.remoteAddr)}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    <span className="text-xs font-medium text-default-600 flex-shrink-0">目标:</span>
-                    <code className="text-xs font-mono text-foreground truncate min-w-0">
-                      {formatRemoteAddress(forward.remoteAddr)}
-                    </code>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-default-600 flex-shrink-0">目标:</span>
+                      <code className="text-xs font-mono text-foreground truncate min-w-0">
+                        {formatRemoteAddress(forward.remoteAddr)}
+                      </code>
+                    </div>
+                    {forward.remoteSourceType === 'xui' && forward.remoteSourceLabel ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <Chip size="sm" color="secondary" variant="flat" className="text-[10px]">
+                          X-UI
+                        </Chip>
+                        <span className="truncate text-[11px] text-default-500">{forward.remoteSourceLabel}</span>
+                      </div>
+                    ) : null}
                   </div>
                   {hasMultipleAddresses(forward.remoteAddr) && (
                     <svg className="w-3 h-3 text-default-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1987,6 +2158,11 @@ export default function ForwardPage() {
               >
                 <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-default-400">目标</div>
                 <code className="mt-1 block truncate font-mono text-xs text-foreground">{formatRemoteAddress(forward.remoteAddr)}</code>
+                {forward.remoteSourceType === 'xui' && forward.remoteSourceLabel ? (
+                  <p className="mt-1 truncate text-[11px] text-default-500">
+                    X-UI · {forward.remoteSourceLabel}
+                  </p>
+                ) : null}
               </button>
             </div>
 
@@ -2747,18 +2923,108 @@ export default function ForwardPage() {
                     }
                   />
 
-                  <Textarea
-                    label="远程地址"
-                    placeholder="请输入远程地址，多个地址用换行分隔&#10;例如:&#10;192.168.1.100:8080&#10;example.com:3000"
-                    value={form.remoteAddr}
-                    onChange={(e) => setForm(prev => ({ ...prev, remoteAddr: e.target.value }))}
-                    isInvalid={!!errors.remoteAddr}
-                    errorMessage={errors.remoteAddr}
-                    variant="bordered"
-                    description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
-                    minRows={3}
-                    maxRows={6}
-                  />
+                  {adminUser ? (
+                    <div className="rounded-3xl border border-divider bg-default-50/70 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">远端来源</p>
+                          <p className="mt-1 text-xs text-default-500">
+                            手工模式仍可直填地址；X-UI 模式会把远端地址绑定到已同步的某个协议节点，后续该节点端口变化时可被同步刷新。
+                          </p>
+                        </div>
+                      </div>
+                      <Tabs
+                        className="mt-3"
+                        selectedKey={form.remoteSourceType}
+                        onSelectionChange={(key) => handleRemoteSourceTypeChange(key as 'manual' | 'xui')}
+                      >
+                        <Tab key="manual" title="手工地址" />
+                        <Tab key="xui" title="X-UI 节点" />
+                      </Tabs>
+                    </div>
+                  ) : null}
+
+                  {form.remoteSourceType === 'xui' && adminUser ? (
+                    <div className="space-y-4 rounded-3xl border border-secondary/20 bg-secondary-50/40 p-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Select
+                          label="来源资产过滤"
+                          items={xuiAssetOptions}
+                          selectedKeys={[xuiAssetFilter]}
+                          onSelectionChange={(keys) => {
+                            const selectedKey = Array.from(keys)[0] as string;
+                            handleXuiAssetFilterChange(selectedKey || 'all');
+                          }}
+                          variant="bordered"
+                        >
+                          {(item) => (
+                            <SelectItem key={item.key}>
+                              {item.label}
+                            </SelectItem>
+                          )}
+                        </Select>
+
+                        <Select
+                          label="X-UI 节点"
+                          placeholder="选择一个已同步的协议节点"
+                          selectedKeys={form.remoteSourceInboundId ? [form.remoteSourceInboundId.toString()] : []}
+                          onSelectionChange={(keys) => {
+                            const selectedKey = Array.from(keys)[0] as string;
+                            handleXuiTargetChange(selectedKey ? parseInt(selectedKey, 10) : null);
+                          }}
+                          isInvalid={!!errors.remoteAddr}
+                          errorMessage={errors.remoteAddr}
+                          variant="bordered"
+                          description="节点来自 X-UI 已同步的 inbound 快照，转发保存的是绑定关系，不只是一次性的 host:port。"
+                        >
+                          {filteredXuiTargets.map((target) => (
+                            <SelectItem
+                              key={target.inboundSnapshotId}
+                              textValue={`${target.sourceLabel} ${target.remoteAddress}`}
+                              description={`${target.assetName || '未绑定资产'} · ${target.instanceName} · ${target.remoteAddress}`}
+                            >
+                              {target.sourceLabel}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                      </div>
+
+                      {filteredXuiTargets.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-secondary/30 bg-content1 p-4 text-sm text-default-500">
+                          当前没有可选的 X-UI 节点。先去 X-UI 管理里完成实例同步，再回来绑定转发。
+                        </div>
+                      ) : null}
+
+                      {selectedXuiTarget ? (
+                        <div className="rounded-2xl border border-secondary/20 bg-content1 p-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Chip size="sm" color="secondary" variant="flat">X-UI 联动</Chip>
+                            <Chip size="sm" variant="flat">{selectedXuiTarget.protocol || 'unknown'}</Chip>
+                            <Chip size="sm" variant="flat">{selectedXuiTarget.instanceName}</Chip>
+                          </div>
+                          <div className="mt-3 space-y-2 text-sm">
+                            <p><span className="text-default-500">来源资产：</span>{selectedXuiTarget.assetName || '未绑定资产'}</p>
+                            <p><span className="text-default-500">节点标签：</span>{selectedXuiTarget.sourceLabel}</p>
+                            <p><span className="text-default-500">远端地址：</span><code>{selectedXuiTarget.remoteAddress}</code></p>
+                            <p><span className="text-default-500">客户端：</span>{selectedXuiTarget.clientCount || 0} / 在线 {selectedXuiTarget.onlineClientCount || 0}</p>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Textarea
+                      label="远程地址"
+                      placeholder="请输入远程地址，多个地址用换行分隔&#10;例如:&#10;192.168.1.100:8080&#10;example.com:3000"
+                      value={form.remoteAddr}
+                      onChange={(e) => setForm(prev => ({ ...prev, remoteAddr: e.target.value }))}
+                      isInvalid={!!errors.remoteAddr}
+                      errorMessage={errors.remoteAddr}
+                      variant="bordered"
+                      description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
+                      minRows={3}
+                      maxRows={6}
+                    />
+                  )}
 
                   <Input
                     label="出口网卡名或IP"
@@ -2829,7 +3095,7 @@ export default function ForwardPage() {
                     </Select>
                   </div>
 
-                  {getAddressCount(form.remoteAddr) > 1 && (
+                  {form.remoteSourceType === 'manual' && getAddressCount(form.remoteAddr) > 1 && (
                     <Select
                       label="负载策略"
                       placeholder="请选择负载均衡策略"

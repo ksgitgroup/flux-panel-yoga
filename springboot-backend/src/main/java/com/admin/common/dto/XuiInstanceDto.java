@@ -26,6 +26,8 @@ public class XuiInstanceDto {
 
     private String loginSecret;
 
+    private Long assetId;
+
     private String hostLabel;
 
     private String managementMode;

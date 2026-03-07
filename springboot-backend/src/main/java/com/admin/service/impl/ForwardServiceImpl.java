@@ -11,6 +11,8 @@ import com.admin.common.utils.JwtUtil;
 import com.admin.common.utils.WebSocketServer;
 import com.admin.entity.*;
 import com.admin.mapper.ForwardMapper;
+import com.admin.mapper.XuiInboundSnapshotMapper;
+import com.admin.mapper.XuiInstanceMapper;
 import com.admin.service.*;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -23,6 +25,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.net.URI;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -66,6 +69,12 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
     @Resource
     DiagnosisService diagnosisService;
+
+    @Resource
+    private XuiInboundSnapshotMapper xuiInboundSnapshotMapper;
+
+    @Resource
+    private XuiInstanceMapper xuiInstanceMapper;
 
 
     @Override
@@ -1025,6 +1034,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         Forward forward = new Forward();
         // 先复制DTO的属性，再设置其他属性，避免被覆盖
         BeanUtils.copyProperties(forwardDto, forward);
+        applyRemoteSourceBinding(forward, forwardDto.getRemoteSourceType(), forwardDto.getRemoteSourceAssetId(),
+                forwardDto.getRemoteSourceInstanceId(), forwardDto.getRemoteSourceInboundId(),
+                forwardDto.getRemoteSourceLabel(), forwardDto.getRemoteSourceProtocol());
         forward.setStatus(FORWARD_STATUS_ACTIVE);
         forward.setInPort(portAllocation.getInPort());
         forward.setOutPort(portAllocation.getOutPort());
@@ -1041,6 +1053,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     private Forward updateForwardEntity(ForwardUpdateDto forwardUpdateDto, Forward existForward, Tunnel tunnel) {
         Forward forward = new Forward();
         BeanUtils.copyProperties(forwardUpdateDto, forward);
+        applyRemoteSourceBinding(forward, forwardUpdateDto.getRemoteSourceType(), forwardUpdateDto.getRemoteSourceAssetId(),
+                forwardUpdateDto.getRemoteSourceInstanceId(), forwardUpdateDto.getRemoteSourceInboundId(),
+                forwardUpdateDto.getRemoteSourceLabel(), forwardUpdateDto.getRemoteSourceProtocol());
 
         // 处理端口分配逻辑
         boolean tunnelChanged = !existForward.getTunnelId().equals(forwardUpdateDto.getTunnelId());
@@ -1069,6 +1084,109 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
         forward.setUpdatedTime(System.currentTimeMillis());
         return forward;
+    }
+
+    private void applyRemoteSourceBinding(Forward forward,
+                                          String remoteSourceType,
+                                          Long remoteSourceAssetId,
+                                          Long remoteSourceInstanceId,
+                                          Long remoteSourceInboundId,
+                                          String remoteSourceLabel,
+                                          String remoteSourceProtocol) {
+        String normalizedType = normalizeRemoteSourceType(remoteSourceType);
+        if (!"xui".equals(normalizedType)) {
+            forward.setRemoteSourceType("manual");
+            forward.setRemoteSourceAssetId(null);
+            forward.setRemoteSourceInstanceId(null);
+            forward.setRemoteSourceInboundId(null);
+            forward.setRemoteSourceLabel(null);
+            forward.setRemoteSourceProtocol(null);
+            return;
+        }
+
+        if (remoteSourceInboundId == null) {
+            throw new RuntimeException("缺少关联的 X-UI 节点");
+        }
+        XuiInboundSnapshot inbound = xuiInboundSnapshotMapper.selectById(remoteSourceInboundId);
+        if (inbound == null || inbound.getPort() == null) {
+            throw new RuntimeException("关联的 X-UI 节点不存在或没有可用端口");
+        }
+        if (inbound.getStatus() != null && inbound.getStatus() == 1) {
+            throw new RuntimeException("关联的 X-UI 节点已从远端删除");
+        }
+
+        Long resolvedInstanceId = remoteSourceInstanceId != null ? remoteSourceInstanceId : inbound.getInstanceId();
+        XuiInstance instance = xuiInstanceMapper.selectById(resolvedInstanceId);
+        if (instance == null) {
+            throw new RuntimeException("关联的 X-UI 实例不存在");
+        }
+        if (!Objects.equals(instance.getId(), inbound.getInstanceId())) {
+            throw new RuntimeException("X-UI 实例与节点绑定不匹配");
+        }
+
+        String remoteHost = resolveRemoteHost(instance.getBaseUrl());
+        if (remoteHost == null) {
+            throw new RuntimeException("无法从 X-UI 实例地址解析远程主机");
+        }
+
+        forward.setRemoteAddr(buildRemoteAddress(remoteHost, inbound.getPort()));
+        forward.setRemoteSourceType("xui");
+        forward.setRemoteSourceAssetId(instance.getAssetId() != null ? instance.getAssetId() : remoteSourceAssetId);
+        forward.setRemoteSourceInstanceId(instance.getId());
+        forward.setRemoteSourceInboundId(inbound.getId());
+        forward.setRemoteSourceProtocol(trimToNull(inbound.getProtocol()) != null ? trimToNull(inbound.getProtocol()) : trimToNull(remoteSourceProtocol));
+        forward.setRemoteSourceLabel(buildInboundSourceLabel(instance, inbound, remoteSourceLabel));
+    }
+
+    private String normalizeRemoteSourceType(String value) {
+        if (value == null) {
+            return "manual";
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? "manual" : normalized;
+    }
+
+    private String buildInboundSourceLabel(XuiInstance instance, XuiInboundSnapshot inbound, String fallback) {
+        String inboundName = trimToNull(inbound.getRemark()) != null
+                ? trimToNull(inbound.getRemark())
+                : trimToNull(inbound.getTag()) != null ? trimToNull(inbound.getTag()) : trimToNull(fallback);
+        String protocol = trimToNull(inbound.getProtocol()) != null ? trimToNull(inbound.getProtocol()).toLowerCase(Locale.ROOT) : "unknown";
+        return instance.getName() + " / " + protocol + " / " + (inboundName != null ? inboundName : ("Inbound #" + inbound.getRemoteInboundId()));
+    }
+
+    private String resolveRemoteHost(String baseUrl) {
+        try {
+            URI uri = new URI(baseUrl);
+            String host = uri.getHost();
+            if ((host == null || host.isBlank()) && uri.getRawAuthority() != null) {
+                host = uri.getRawAuthority();
+                int portIndex = host.lastIndexOf(':');
+                if (portIndex > 0 && host.indexOf(']') < 0) {
+                    host = host.substring(0, portIndex);
+                }
+            }
+            if (host == null || host.isBlank()) {
+                return null;
+            }
+            if (host.contains(":") && !(host.startsWith("[") && host.endsWith("]"))) {
+                return "[" + host + "]";
+            }
+            return host;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String buildRemoteAddress(String host, Integer port) {
+        return host + ":" + port;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     /**

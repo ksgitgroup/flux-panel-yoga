@@ -2,11 +2,15 @@ package com.admin.service.impl;
 
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
+import com.admin.entity.AssetHost;
+import com.admin.entity.Forward;
 import com.admin.entity.XuiClientSnapshot;
 import com.admin.entity.XuiInboundSnapshot;
 import com.admin.entity.XuiInstance;
 import com.admin.entity.XuiSyncLog;
 import com.admin.entity.XuiTrafficDeltaEvent;
+import com.admin.mapper.AssetHostMapper;
+import com.admin.mapper.ForwardMapper;
 import com.admin.mapper.XuiClientSnapshotMapper;
 import com.admin.mapper.XuiInboundSnapshotMapper;
 import com.admin.mapper.XuiInstanceMapper;
@@ -98,13 +102,22 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     @Resource
     private XuiCredentialCryptoService xuiCredentialCryptoService;
 
+    @Resource
+    private AssetHostMapper assetHostMapper;
+
+    @Resource
+    private ForwardMapper forwardMapper;
+
     @Override
     public R getAllInstances() {
         List<XuiInstance> instances = this.list(new LambdaQueryWrapper<XuiInstance>()
                 .orderByDesc(XuiInstance::getUpdatedTime, XuiInstance::getId));
+        Map<Long, AssetHost> assetMap = loadAssetHostMap(instances.stream()
+                .map(XuiInstance::getAssetId)
+                .collect(Collectors.toSet()));
 
         List<XuiInstanceViewDto> data = instances.stream()
-                .map(this::toInstanceView)
+                .map(instance -> toInstanceView(instance, assetMap))
                 .collect(Collectors.toList());
         return R.ok(data);
     }
@@ -114,9 +127,10 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         XuiInstance instance = getRequiredInstance(id);
         List<XuiInboundSnapshotViewDto> inboundViews = loadInboundViews(instance.getId());
         List<XuiClientSnapshotViewDto> clientViews = loadClientViews(instance.getId());
+        Map<Long, AssetHost> assetMap = loadAssetHostMap(Collections.singleton(instance.getAssetId()));
 
         XuiInstanceDetailDto detail = new XuiInstanceDetailDto();
-        detail.setInstance(toInstanceView(instance));
+        detail.setInstance(toInstanceView(instance, assetMap));
         detail.setInbounds(inboundViews);
         detail.setClients(clientViews);
         detail.setProtocolSummaries(buildProtocolSummaries(inboundViews));
@@ -146,7 +160,9 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         instance.setUsername(dto.getUsername().trim());
         instance.setEncryptedPassword(xuiCredentialCryptoService.encrypt(dto.getPassword()));
         instance.setEncryptedLoginSecret(encryptOptionalSecret(dto.getLoginSecret()));
-        instance.setHostLabel(trimToNull(dto.getHostLabel()));
+        AssetHost asset = resolveAssetBinding(dto.getAssetId(), dto.getHostLabel());
+        instance.setAssetId(asset == null ? null : asset.getId());
+        instance.setHostLabel(asset == null ? trimToNull(dto.getHostLabel()) : asset.getName());
         instance.setManagementMode(normalizeManagementMode(dto.getManagementMode()));
         instance.setSyncEnabled(normalizeFlag(dto.getSyncEnabled()));
         instance.setSyncIntervalMinutes(dto.getSyncIntervalMinutes());
@@ -160,7 +176,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         instance.setStatus(0);
 
         this.save(instance);
-        return R.ok(toInstanceView(instance));
+        return R.ok(toInstanceView(instance, loadAssetHostMap(Collections.singleton(instance.getAssetId()))));
     }
 
     @Override
@@ -182,7 +198,9 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         if (StringUtils.hasText(dto.getLoginSecret())) {
             existing.setEncryptedLoginSecret(encryptOptionalSecret(dto.getLoginSecret()));
         }
-        existing.setHostLabel(trimToNull(dto.getHostLabel()));
+        AssetHost asset = resolveAssetBinding(dto.getAssetId(), dto.getHostLabel());
+        existing.setAssetId(asset == null ? null : asset.getId());
+        existing.setHostLabel(asset == null ? trimToNull(dto.getHostLabel()) : asset.getName());
         existing.setManagementMode(normalizeManagementMode(dto.getManagementMode()));
         existing.setSyncEnabled(normalizeFlag(dto.getSyncEnabled()));
         existing.setSyncIntervalMinutes(dto.getSyncIntervalMinutes());
@@ -191,7 +209,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         existing.setUpdatedTime(System.currentTimeMillis());
 
         this.updateById(existing);
-        return R.ok(toInstanceView(existing));
+        refreshLinkedForwardTargets(existing);
+        return R.ok(toInstanceView(existing, loadAssetHostMap(Collections.singleton(existing.getAssetId()))));
     }
 
     @Override
@@ -252,6 +271,63 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         } catch (Exception e) {
             return R.err("同步失败: " + shortenError(e.getMessage()));
         }
+    }
+
+    @Override
+    public R getForwardTargets() {
+        List<XuiInstance> instances = this.list(new LambdaQueryWrapper<XuiInstance>()
+                .orderByDesc(XuiInstance::getUpdatedTime, XuiInstance::getId));
+        if (instances.isEmpty()) {
+            return R.ok(Collections.emptyList());
+        }
+        Map<Long, XuiInstance> instanceMap = instances.stream().collect(Collectors.toMap(XuiInstance::getId, item -> item));
+        Map<Long, AssetHost> assetMap = loadAssetHostMap(instances.stream()
+                .map(XuiInstance::getAssetId)
+                .collect(Collectors.toSet()));
+        List<XuiInboundSnapshot> inbounds = xuiInboundSnapshotMapper.selectList(new LambdaQueryWrapper<XuiInboundSnapshot>()
+                .in(XuiInboundSnapshot::getInstanceId, instanceMap.keySet())
+                .eq(XuiInboundSnapshot::getStatus, 0)
+                .eq(XuiInboundSnapshot::getEnable, 1)
+                .isNotNull(XuiInboundSnapshot::getPort)
+                .orderByAsc(XuiInboundSnapshot::getProtocol, XuiInboundSnapshot::getPort));
+
+        List<XuiForwardTargetViewDto> targets = new ArrayList<>();
+        for (XuiInboundSnapshot inbound : inbounds) {
+            XuiInstance instance = instanceMap.get(inbound.getInstanceId());
+            if (instance == null) {
+                continue;
+            }
+            String remoteHost = resolveRemoteHost(instance.getBaseUrl());
+            if (!StringUtils.hasText(remoteHost)) {
+                continue;
+            }
+            AssetHost asset = assetMap.get(instance.getAssetId());
+            XuiForwardTargetViewDto dto = new XuiForwardTargetViewDto();
+            dto.setAssetId(asset == null ? null : asset.getId());
+            dto.setAssetName(asset == null ? null : asset.getName());
+            dto.setAssetLabel(asset == null ? null : asset.getLabel());
+            dto.setInstanceId(instance.getId());
+            dto.setInstanceName(instance.getName());
+            dto.setInboundSnapshotId(inbound.getId());
+            dto.setProtocol(inbound.getProtocol());
+            dto.setRemark(inbound.getRemark());
+            dto.setTag(inbound.getTag());
+            dto.setPort(inbound.getPort());
+            dto.setTransportSummary(inbound.getTransportSummary());
+            dto.setClientCount(inbound.getClientCount());
+            dto.setOnlineClientCount(inbound.getOnlineClientCount());
+            dto.setRemoteHost(remoteHost);
+            dto.setRemoteAddress(buildRemoteAddress(remoteHost, inbound.getPort()));
+            dto.setSourceLabel(buildInboundSourceLabel(instance, inbound));
+            targets.add(dto);
+        }
+
+        targets.sort(Comparator
+                .comparing(XuiForwardTargetViewDto::getAssetName, Comparator.nullsLast(String::compareTo))
+                .thenComparing(XuiForwardTargetViewDto::getInstanceName, Comparator.nullsLast(String::compareTo))
+                .thenComparing(XuiForwardTargetViewDto::getProtocol, Comparator.nullsLast(String::compareTo))
+                .thenComparing(XuiForwardTargetViewDto::getPort, Comparator.nullsLast(Integer::compareTo)));
+        return R.ok(targets);
     }
 
     @Override
@@ -322,6 +398,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         try {
             XuiRemoteSnapshot remoteSnapshot = fetchRemoteSnapshot(instance);
             XuiSyncResultDto result = persistRemoteSnapshot(instance, remoteSnapshot, trigger, startedAt);
+            refreshLinkedForwardTargets(instance);
             long finishedAt = result.getFinishedAt() == null ? System.currentTimeMillis() : result.getFinishedAt();
             saveSyncLog(instance.getId(),
                     trigger,
@@ -1139,8 +1216,14 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     private XuiInstanceViewDto toInstanceView(XuiInstance instance) {
+        return toInstanceView(instance, loadAssetHostMap(Collections.singleton(instance.getAssetId())));
+    }
+
+    private XuiInstanceViewDto toInstanceView(XuiInstance instance, Map<Long, AssetHost> assetMap) {
         XuiInstanceViewDto dto = new XuiInstanceViewDto();
         BeanUtils.copyProperties(instance, dto);
+        AssetHost asset = assetMap.get(instance.getAssetId());
+        dto.setAssetName(asset == null ? null : asset.getName());
         dto.setPasswordConfigured(StringUtils.hasText(instance.getEncryptedPassword()));
         dto.setLoginSecretConfigured(StringUtils.hasText(instance.getEncryptedLoginSecret()));
         dto.setTrafficCallbackPath("/api/v1/xui/traffic/" + instance.getTrafficToken());
@@ -1153,6 +1236,17 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         dto.setInboundCount(inboundCount == null ? 0L : inboundCount.longValue());
         dto.setClientCount(clientCount == null ? 0L : clientCount.longValue());
         return dto;
+    }
+
+    private Map<Long, AssetHost> loadAssetHostMap(Set<Long> assetIds) {
+        Set<Long> validIds = assetIds == null
+                ? Collections.emptySet()
+                : assetIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (validIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return assetHostMapper.selectBatchIds(validIds).stream()
+                .collect(Collectors.toMap(AssetHost::getId, item -> item));
     }
 
     private List<XuiInboundSnapshotViewDto> loadInboundViews(Long instanceId) {
@@ -1343,6 +1437,34 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         return count > 0 ? "已存在同名的 x-ui 实例" : null;
     }
 
+    private AssetHost resolveAssetBinding(Long assetId, String hostLabel) {
+        if (assetId != null) {
+            AssetHost asset = assetHostMapper.selectById(assetId);
+            if (asset == null) {
+                throw new IllegalStateException("所选资产不存在");
+            }
+            return asset;
+        }
+        String normalizedHostLabel = trimToNull(hostLabel);
+        if (!StringUtils.hasText(normalizedHostLabel)) {
+            return null;
+        }
+        AssetHost existing = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                .eq(AssetHost::getName, normalizedHostLabel)
+                .last("limit 1"));
+        if (existing != null) {
+            return existing;
+        }
+        AssetHost asset = new AssetHost();
+        asset.setName(normalizedHostLabel);
+        asset.setLabel(normalizedHostLabel);
+        asset.setCreatedTime(System.currentTimeMillis());
+        asset.setUpdatedTime(System.currentTimeMillis());
+        asset.setStatus(0);
+        assetHostMapper.insert(asset);
+        return asset;
+    }
+
     private NormalizedInstanceEndpoint normalizeEndpointInput(String baseUrlInput, String webBasePathInput) {
         if (!StringUtils.hasText(baseUrlInput)) {
             throw new IllegalStateException("实例地址不能为空");
@@ -1514,6 +1636,80 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             return "";
         }
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void refreshLinkedForwardTargets(XuiInstance instance) {
+        if (instance == null || instance.getId() == null) {
+            return;
+        }
+        List<Forward> linkedForwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
+                .eq(Forward::getRemoteSourceType, "xui")
+                .eq(Forward::getRemoteSourceInstanceId, instance.getId()));
+        if (linkedForwards.isEmpty()) {
+            return;
+        }
+
+        String remoteHost = resolveRemoteHost(instance.getBaseUrl());
+        if (!StringUtils.hasText(remoteHost)) {
+            return;
+        }
+
+        Map<Long, XuiInboundSnapshot> inboundMap = xuiInboundSnapshotMapper.selectList(new LambdaQueryWrapper<XuiInboundSnapshot>()
+                        .eq(XuiInboundSnapshot::getInstanceId, instance.getId()))
+                .stream()
+                .filter(item -> item.getId() != null)
+                .collect(Collectors.toMap(XuiInboundSnapshot::getId, item -> item, (left, right) -> left));
+
+        for (Forward forward : linkedForwards) {
+            XuiInboundSnapshot inbound = inboundMap.get(forward.getRemoteSourceInboundId());
+            if (inbound == null || inbound.getPort() == null) {
+                continue;
+            }
+            forward.setRemoteAddr(buildRemoteAddress(remoteHost, inbound.getPort()));
+            forward.setRemoteSourceAssetId(instance.getAssetId());
+            forward.setRemoteSourceProtocol(trimToNull(inbound.getProtocol()));
+            forward.setRemoteSourceLabel(buildInboundSourceLabel(instance, inbound));
+            forward.setUpdatedTime(System.currentTimeMillis());
+            forwardMapper.updateById(forward);
+        }
+    }
+
+    private String buildInboundSourceLabel(XuiInstance instance, XuiInboundSnapshot inbound) {
+        String protocol = StringUtils.hasText(inbound.getProtocol()) ? inbound.getProtocol().trim().toLowerCase(Locale.ROOT) : "unknown";
+        String inboundName = trimToNull(inbound.getRemark()) != null
+                ? trimToNull(inbound.getRemark())
+                : trimToNull(inbound.getTag()) != null ? trimToNull(inbound.getTag()) : "Inbound #" + inbound.getRemoteInboundId();
+        return instance.getName() + " / " + protocol + " / " + inboundName;
+    }
+
+    private String resolveRemoteHost(String baseUrl) {
+        try {
+            URI uri = new URI(baseUrl);
+            String host = uri.getHost();
+            if (!StringUtils.hasText(host) && StringUtils.hasText(uri.getRawAuthority())) {
+                host = uri.getRawAuthority();
+                int portIndex = host.lastIndexOf(':');
+                if (portIndex > 0 && host.indexOf(']') < 0) {
+                    host = host.substring(0, portIndex);
+                }
+            }
+            if (!StringUtils.hasText(host)) {
+                return null;
+            }
+            if (host.contains(":") && !(host.startsWith("[") && host.endsWith("]"))) {
+                return "[" + host + "]";
+            }
+            return host;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String buildRemoteAddress(String host, Integer port) {
+        if (!StringUtils.hasText(host) || port == null) {
+            return null;
+        }
+        return host + ":" + port;
     }
 
     private String trimToNull(String value) {

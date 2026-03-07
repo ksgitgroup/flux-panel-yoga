@@ -106,6 +106,17 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
+    key: 'assets',
+    label: '服务器资产',
+    path: '/assets',
+    group: '外部集成',
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16v4H4zM4 14h16v4H4z" />
+      </svg>
+    ),
+  },
+  {
     key: 'xui',
     label: 'X-UI 管理',
     path: '/xui',

@@ -112,11 +112,21 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     @Override
     public R getInstanceDetail(Long id) {
         XuiInstance instance = getRequiredInstance(id);
+        List<XuiInboundSnapshotViewDto> inboundViews = loadInboundViews(instance.getId());
+        List<XuiClientSnapshotViewDto> clientViews = loadClientViews(instance.getId());
 
         XuiInstanceDetailDto detail = new XuiInstanceDetailDto();
         detail.setInstance(toInstanceView(instance));
-        detail.setInbounds(loadInboundViews(instance.getId()));
-        detail.setClients(loadClientViews(instance.getId()));
+        detail.setInbounds(inboundViews);
+        detail.setClients(clientViews);
+        detail.setProtocolSummaries(buildProtocolSummaries(inboundViews));
+        try {
+            detail.setServerStatus(fetchLiveServerStatus(instance));
+        } catch (Exception e) {
+            String errorMessage = shortenError(e.getMessage());
+            detail.setServerStatusError(errorMessage);
+            log.warn("[XuiDetail] 读取实例 {} 的远端节点监控失败: {}", instance.getName(), errorMessage);
+        }
         return R.ok(detail);
     }
 
@@ -378,6 +388,32 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             remoteSnapshot.setApiFlavor(apiProbe.getProfile().getFlavor());
             remoteSnapshot.setResolvedBasePath(session.getResolvedBasePath());
             return remoteSnapshot;
+        }
+    }
+
+    private XuiServerStatusViewDto fetchLiveServerStatus(XuiInstance instance) throws Exception {
+        try (XuiRemoteSession session = openRemoteSession(instance)) {
+            List<String> candidatePaths = Arrays.asList(
+                    "/panel/api/server/status",
+                    "/xui/API/server/status",
+                    "/server/status"
+            );
+            List<String> failures = new ArrayList<>();
+
+            for (String path : candidatePaths) {
+                RemoteJsonProbe probe = executeJsonProbe(session.getHttpClient(), buildGet(session, path));
+                if (!probe.isSuccess()) {
+                    failures.add(probe.getErrorMessage());
+                    continue;
+                }
+                try {
+                    JSONObject serverObject = ensureSuccessObject(probe.getJson(), "读取远端节点监控失败");
+                    return toServerStatusView(serverObject);
+                } catch (Exception e) {
+                    failures.add(shortenError(e.getMessage()));
+                }
+            }
+            throw new IllegalStateException("读取远端节点监控失败，已尝试: " + String.join("；", failures));
         }
     }
 
@@ -1148,6 +1184,144 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
                 .collect(Collectors.toList());
     }
 
+    private List<XuiProtocolSummaryViewDto> buildProtocolSummaries(List<XuiInboundSnapshotViewDto> inboundViews) {
+        if (inboundViews == null || inboundViews.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<String, XuiProtocolSummaryViewDto> summaries = new LinkedHashMap<>();
+        Map<String, LinkedHashSet<String>> portsByProtocol = new HashMap<>();
+        Map<String, LinkedHashSet<String>> transportsByProtocol = new HashMap<>();
+
+        for (XuiInboundSnapshotViewDto inbound : inboundViews) {
+            String protocol = StringUtils.hasText(inbound.getProtocol()) ? inbound.getProtocol().trim().toLowerCase(Locale.ROOT) : "unknown";
+            XuiProtocolSummaryViewDto summary = summaries.computeIfAbsent(protocol, key -> {
+                XuiProtocolSummaryViewDto dto = new XuiProtocolSummaryViewDto();
+                dto.setProtocol(key);
+                dto.setInboundCount(0);
+                dto.setActiveInboundCount(0);
+                dto.setEnabledInboundCount(0);
+                dto.setDisabledInboundCount(0);
+                dto.setDeletedInboundCount(0);
+                dto.setClientCount(0);
+                dto.setOnlineClientCount(0);
+                dto.setUp(0L);
+                dto.setDown(0L);
+                dto.setAllTime(0L);
+                dto.setPortSummary("-");
+                dto.setTransportSummary("-");
+                return dto;
+            });
+
+            summary.setInboundCount(safeInteger(summary.getInboundCount()) + 1);
+            if (inbound.getStatus() != null && inbound.getStatus() == 1) {
+                summary.setDeletedInboundCount(safeInteger(summary.getDeletedInboundCount()) + 1);
+            } else {
+                summary.setActiveInboundCount(safeInteger(summary.getActiveInboundCount()) + 1);
+                if (inbound.getEnable() != null && inbound.getEnable() == 0) {
+                    summary.setDisabledInboundCount(safeInteger(summary.getDisabledInboundCount()) + 1);
+                } else {
+                    summary.setEnabledInboundCount(safeInteger(summary.getEnabledInboundCount()) + 1);
+                }
+            }
+            summary.setClientCount(safeInteger(summary.getClientCount()) + safeInteger(inbound.getClientCount()));
+            summary.setOnlineClientCount(safeInteger(summary.getOnlineClientCount()) + safeInteger(inbound.getOnlineClientCount()));
+            summary.setUp(safeLong(summary.getUp()) + safeLong(inbound.getUp()));
+            summary.setDown(safeLong(summary.getDown()) + safeLong(inbound.getDown()));
+            summary.setAllTime(safeLong(summary.getAllTime()) + safeLong(inbound.getAllTime()));
+
+            if (inbound.getPort() != null) {
+                String portValue = StringUtils.hasText(inbound.getListen())
+                        ? inbound.getListen() + ":" + inbound.getPort()
+                        : String.valueOf(inbound.getPort());
+                portsByProtocol.computeIfAbsent(protocol, key -> new LinkedHashSet<>()).add(portValue);
+            }
+            if (StringUtils.hasText(inbound.getTransportSummary()) && !"-".equals(inbound.getTransportSummary())) {
+                transportsByProtocol.computeIfAbsent(protocol, key -> new LinkedHashSet<>()).add(inbound.getTransportSummary());
+            }
+        }
+
+        for (XuiProtocolSummaryViewDto summary : summaries.values()) {
+            summary.setPortSummary(compactPreview(portsByProtocol.get(summary.getProtocol()), 4));
+            summary.setTransportSummary(compactPreview(transportsByProtocol.get(summary.getProtocol()), 3));
+        }
+
+        return summaries.values().stream()
+                .sorted(Comparator.comparingLong((XuiProtocolSummaryViewDto item) -> safeLong(item.getAllTime())).reversed()
+                        .thenComparing(XuiProtocolSummaryViewDto::getProtocol, Comparator.nullsLast(String::compareTo)))
+                .collect(Collectors.toList());
+    }
+
+    private XuiServerStatusViewDto toServerStatusView(JSONObject serverObject) {
+        XuiServerStatusViewDto dto = new XuiServerStatusViewDto();
+        if (serverObject == null) {
+            return dto;
+        }
+        dto.setCpuUsage(serverObject.getDouble("cpu"));
+        dto.setCpuCores(serverObject.getInteger("cpuCores"));
+        dto.setLogicalProcessors(serverObject.getInteger("logicalPro"));
+        dto.setCpuSpeedMhz(serverObject.getInteger("cpuSpeedMhz"));
+        dto.setUptime(serverObject.getLong("uptime"));
+        dto.setTcpCount(serverObject.getInteger("tcpCount"));
+        dto.setUdpCount(serverObject.getInteger("udpCount"));
+
+        JSONObject mem = serverObject.getJSONObject("mem");
+        if (mem != null) {
+            dto.setMemoryUsed(mem.getLong("current"));
+            dto.setMemoryTotal(mem.getLong("total"));
+        }
+
+        JSONObject swap = serverObject.getJSONObject("swap");
+        if (swap != null) {
+            dto.setSwapUsed(swap.getLong("current"));
+            dto.setSwapTotal(swap.getLong("total"));
+        }
+
+        JSONObject disk = serverObject.getJSONObject("disk");
+        if (disk != null) {
+            dto.setDiskUsed(disk.getLong("current"));
+            dto.setDiskTotal(disk.getLong("total"));
+        }
+
+        JSONObject xray = serverObject.getJSONObject("xray");
+        if (xray != null) {
+            dto.setXrayState(xray.getString("state"));
+            dto.setXrayErrorMessage(xray.getString("errorMsg"));
+            dto.setXrayVersion(xray.getString("version"));
+        }
+
+        JSONArray loads = serverObject.getJSONArray("loads");
+        if (loads != null) {
+            dto.setLoads(loads.toJavaList(Double.class));
+        }
+
+        JSONObject netIo = serverObject.getJSONObject("netIO");
+        if (netIo != null) {
+            dto.setNetIoUp(netIo.getLong("up"));
+            dto.setNetIoDown(netIo.getLong("down"));
+        }
+
+        JSONObject netTraffic = serverObject.getJSONObject("netTraffic");
+        if (netTraffic != null) {
+            dto.setNetTrafficSent(netTraffic.getLong("sent"));
+            dto.setNetTrafficReceived(netTraffic.getLong("recv"));
+        }
+
+        JSONObject publicIp = serverObject.getJSONObject("publicIP");
+        if (publicIp != null) {
+            dto.setPublicIpv4(trimToNull(publicIp.getString("ipv4")));
+            dto.setPublicIpv6(trimToNull(publicIp.getString("ipv6")));
+        }
+
+        JSONObject appStats = serverObject.getJSONObject("appStats");
+        if (appStats != null) {
+            dto.setAppThreads(appStats.getInteger("threads"));
+            dto.setAppMemory(appStats.getLong("mem"));
+            dto.setAppUptime(appStats.getLong("uptime"));
+        }
+        return dto;
+    }
+
     private XuiInstance getRequiredInstance(Long id) {
         XuiInstance instance = this.getById(id);
         if (instance == null) {
@@ -1273,6 +1447,26 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             return lastOnlineMap.get(email);
         }
         return clientLastOnline;
+    }
+
+    private int safeInteger(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private long safeLong(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    private String compactPreview(LinkedHashSet<String> values, int limit) {
+        if (values == null || values.isEmpty()) {
+            return "-";
+        }
+        List<String> orderedValues = new ArrayList<>(values);
+        if (orderedValues.size() <= limit) {
+            return String.join(", ", orderedValues);
+        }
+        List<String> preview = orderedValues.subList(0, limit);
+        return String.join(", ", preview) + " +" + (orderedValues.size() - limit);
     }
 
     private String extractTransportSummary(String streamSettingsJson) {

@@ -14,29 +14,40 @@ CRITICAL_SPACE_MB="${CRITICAL_SPACE_MB:-3072}"
 MIN_REQUIRED_SPACE_MB="${MIN_REQUIRED_SPACE_MB:-2048}"
 
 cleanup_on_exit() {
-    bash ./scripts/cleanup_local_artifacts.sh post-build || true
+    bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" post-build || true
 }
 
 read_free_mb() {
     df -Pm "$ROOT_DIR" | awk 'NR==2 {print $4}'
 }
 
+run_cleanup_phase() {
+    local mode="$1"
+    local preserve_outputs="${2:-0}"
+    if [ "$preserve_outputs" = "1" ]; then
+        KEEP_BUILD_OUTPUT=1 bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" "$mode" || true
+    else
+        bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" "$mode" || true
+    fi
+}
+
 ensure_local_free_space() {
     local phase="$1"
+    local preserve_outputs="${2:-0}"
     local free_mb
     free_mb="$(read_free_mb)"
     echo "💽 ${phase}前可用空间: ${free_mb}MB"
 
     if [ "$free_mb" -lt "$LOW_SPACE_MB" ]; then
         echo "⚠️ 可用空间低于 ${LOW_SPACE_MB}MB，先执行预清理..."
-        bash ./scripts/cleanup_local_artifacts.sh pre-build || true
+        run_cleanup_phase pre-build "$preserve_outputs"
         free_mb="$(read_free_mb)"
         echo "💽 预清理后可用空间: ${free_mb}MB"
     fi
 
     if [ "$free_mb" -lt "$CRITICAL_SPACE_MB" ]; then
         echo "⚠️ 可用空间仍低于 ${CRITICAL_SPACE_MB}MB，执行深度清理..."
-        bash ./scripts/cleanup_local_artifacts.sh deep-host || true
+        run_cleanup_phase deep-host "$preserve_outputs"
         free_mb="$(read_free_mb)"
         echo "💽 深度清理后可用空间: ${free_mb}MB"
     fi
@@ -95,7 +106,7 @@ if [ "$TAG" = "local" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "---------------------------------------------------"
     echo "正在构建前端 dist..."
     echo "---------------------------------------------------"
-    ensure_local_free_space "前端 dist 构建"
+    ensure_local_free_space "前端 dist 构建" 1
     (
         cd vite-frontend
         if [ ! -d node_modules ]; then
@@ -107,7 +118,7 @@ if [ "$TAG" = "local" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "---------------------------------------------------"
     echo "正在构建后端镜像: $REGISTRY/springboot-backend:$TAG"
     echo "---------------------------------------------------"
-    ensure_local_free_space "后端镜像构建"
+    ensure_local_free_space "后端镜像构建" 1
     docker build \
         --build-arg APP_VERSION="$APP_VERSION" \
         --build-arg GIT_SHA="$GIT_SHA" \
@@ -120,7 +131,7 @@ if [ "$TAG" = "local" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "---------------------------------------------------"
     echo "正在构建前端镜像: $REGISTRY/vite-frontend:$TAG"
     echo "---------------------------------------------------"
-    ensure_local_free_space "前端镜像构建"
+    ensure_local_free_space "前端镜像构建" 1
     docker build \
         --build-arg APP_VERSION="$APP_VERSION" \
         --build-arg GIT_SHA="$GIT_SHA" \

@@ -302,6 +302,7 @@ export default function ForwardPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [diagnosisModalOpen, setDiagnosisModalOpen] = useState(false);
+  const [historyDetailModalOpen, setHistoryDetailModalOpen] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -311,6 +312,7 @@ export default function ForwardPage() {
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
   const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisHistoryItem[]>([]);
   const [_historyLoading, setHistoryLoading] = useState(false);
+  const [historyPreview, setHistoryPreview] = useState<{ forwardName: string; item: DiagnosisHistoryItem } | null>(null);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
 
@@ -1556,6 +1558,7 @@ export default function ForwardPage() {
       .map((forward) => forward.id),
     [visibleForwards, diagnosisMap]
   );
+  const visibleUnhealthyCount = visibleUnhealthyIds.length;
   const tagUsageCount = useMemo(() => {
     return tags.reduce<Record<string, number>>((acc, tag) => {
       acc[tag.id.toString()] = accessibleForwards.filter((forward) =>
@@ -1571,7 +1574,11 @@ export default function ForwardPage() {
       return;
     }
 
-    setSelectedForwardIds(allVisibleSelected ? [] : visibleForwardIds);
+    setSelectedForwardIds((prev) => (
+      allVisibleSelected
+        ? prev.filter((id) => !visibleForwardIds.includes(id))
+        : Array.from(new Set([...prev, ...visibleForwardIds]))
+    ));
   };
 
   const handleSelectVisibleUnhealthy = () => {
@@ -1580,7 +1587,15 @@ export default function ForwardPage() {
       return;
     }
 
-    setSelectedForwardIds(visibleUnhealthyIds);
+    setSelectedForwardIds((prev) => [
+      ...prev.filter((id) => !visibleForwardIds.includes(id)),
+      ...visibleUnhealthyIds,
+    ]);
+  };
+
+  const openHistoryDetail = (forwardName: string, item: DiagnosisHistoryItem) => {
+    setHistoryPreview({ forwardName, item });
+    setHistoryDetailModalOpen(true);
   };
 
   // 可拖拽的转发卡片组件
@@ -1617,6 +1632,8 @@ export default function ForwardPage() {
     const statusDisplay = getStatusDisplay(forward.status);
     const strategyDisplay = getStrategyDisplay(forward.strategy);
     const protocolName = protocols.find((protocol) => protocol.id === forward.protocolId)?.name;
+    const diag = diagnosisMap[forward.id];
+    const latestHistory = diag?.history?.[0];
     const forwardTags = splitTagIds(forward.tagIds)
       .map((tagId) => tags.find((tag) => tag.id.toString() === tagId))
       .filter((tag): tag is Tag => Boolean(tag));
@@ -1660,21 +1677,15 @@ export default function ForwardPage() {
               <div className="flex flex-col min-w-0 flex-1">
                 <h3 className="font-semibold text-foreground text-sm break-all">{forward.name}</h3>
               </div>
-              {/* 诊断健康+延迟徽标 */}
-              {(() => {
-                const diag = diagnosisMap[forward.id];
-                return (
-                  <div className="flex-shrink-0 ml-auto self-start">
-                    <SpeedBadge
-                      averageTime={diag?.averageTime}
-                      packetLoss={diag?.packetLoss}
-                      overallSuccess={diag?.overallSuccess}
-                      history={diag?.history}
-                      compact
-                    />
-                  </div>
-                );
-              })()}
+              <div className="flex-shrink-0 ml-auto self-start">
+                <SpeedBadge
+                  averageTime={diag?.averageTime}
+                  packetLoss={diag?.packetLoss}
+                  overallSuccess={diag?.overallSuccess}
+                  history={diag?.history}
+                  compact
+                />
+              </div>
             </div>
             {/* 第二行：隧道名 + 状态开关 */}
             <div className="flex justify-between items-center mt-1">
@@ -1853,43 +1864,63 @@ export default function ForwardPage() {
           <div className="mt-4 pt-3 border-t border-divider">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] uppercase font-bold text-default-400 tracking-wider">最近 10 次历史 (诊断看板)</span>
-              {(() => {
-                const diag = diagnosisMap[forward.id];
-                if (!diag) return null;
-                return (
-                  <Chip size="sm" variant="flat" color={diag.overallSuccess ? 'success' : 'danger'} className="h-4 text-[9px] px-1 min-w-0">
-                    {diag.overallSuccess ? '正常' : '故障'}
-                  </Chip>
-                );
-              })()}
+              {diag && (
+                <Chip size="sm" variant="flat" color={diag.overallSuccess ? 'success' : 'danger'} className="h-4 text-[9px] px-1 min-w-0">
+                  {diag.overallSuccess ? '正常' : '故障'}
+                </Chip>
+              )}
             </div>
-            {(() => {
-              const diag = diagnosisMap[forward.id];
-              if (!diag?.history || diag.history.length === 0) {
-                return (
-                  <div className="flex items-center justify-center p-2 rounded-lg bg-default-50 dark:bg-default-100/30 border border-dashed border-divider">
-                    <span className="text-[10px] text-default-400 italic">暂无诊断数据</span>
-                  </div>
-                );
-              }
-              return (
+            {!diag?.history || diag.history.length === 0 ? (
+              <div className="flex items-center justify-center p-2 rounded-lg bg-default-50 dark:bg-default-100/30 border border-dashed border-divider">
+                <span className="text-[10px] text-default-400 italic">暂无诊断数据</span>
+              </div>
+            ) : (
+              <>
+                {latestHistory && (
+                  <button
+                    type="button"
+                    onClick={() => openHistoryDetail(forward.name, latestHistory)}
+                    className="mb-2 flex w-full items-center justify-between rounded-2xl border border-divider bg-default-50/80 px-3 py-2 text-left transition-colors hover:bg-default-100 dark:bg-default-100/10 dark:hover:bg-default-100/20"
+                  >
+                    <div>
+                      <div className="text-[11px] font-semibold text-foreground">最近一次测速</div>
+                      <div className="mt-1 text-[10px] text-default-500">
+                        {new Date(latestHistory.createdTime).toLocaleString('zh-CN')}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className={`text-sm font-mono font-semibold ${latestHistory.overallSuccess ? 'text-success-600' : 'text-danger-600'}`}>
+                          {latestHistory.overallSuccess ? `${Math.round(latestHistory.averageTime || 0)}ms` : '故障'}
+                        </div>
+                        <div className="text-[10px] text-default-400">点击查看节点结果</div>
+                      </div>
+                      <svg className="h-4 w-4 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </button>
+                )}
+
                 <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5" style={{ scrollbarWidth: 'none' }}>
                   {diag.history.slice(0, 10).map((h, i) => (
-                    <div
+                    <button
+                      type="button"
                       key={i}
-                      className={`flex-shrink-0 w-8 h-7 rounded-md flex flex-col items-center justify-center shadow-sm transition-all hover:scale-110 active:scale-95 cursor-help ${h.overallSuccess ? 'bg-success-500/90 text-white' : 'bg-danger-500/90 text-white'
+                      onClick={() => openHistoryDetail(forward.name, h)}
+                      className={`flex-shrink-0 w-9 h-8 rounded-md flex flex-col items-center justify-center shadow-sm transition-all hover:scale-110 active:scale-95 ${h.overallSuccess ? 'bg-success-500/90 text-white' : 'bg-danger-500/90 text-white'
                         }`}
-                      title={`时间: ${new Date(h.createdTime).toLocaleString()}\n${h.overallSuccess ? `延迟: ${Math.round(h.averageTime || 0)}ms` : '故障'}`}
+                      title={`时间: ${new Date(h.createdTime).toLocaleString()}\n${h.overallSuccess ? `延迟: ${Math.round(h.averageTime || 0)}ms` : '故障'}\n点击查看此次测速详情`}
                     >
                       <span className="text-[10px] font-bold leading-none">
                         {h.overallSuccess ? (h.averageTime ? Math.round(h.averageTime) : '✓') : '✗'}
                       </span>
                       {h.overallSuccess && <span className="text-[6px] opacity-70 mt-0.5">ms</span>}
-                    </div>
+                    </button>
                   ))}
                 </div>
-              );
-            })()}
+              </>
+            )}
           </div>
         </CardBody>
       </Card>
@@ -1910,60 +1941,97 @@ export default function ForwardPage() {
   }
   return (
 
-    <div className="px-3 lg:px-6 py-8">
-      <div className="mb-6 flex flex-col gap-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground lg:text-[30px]">转发管理</h1>
-              <Chip size="sm" variant="flat" color="primary">
-                {viewMode === 'grouped' ? '分组视图' : '平铺视图'}
-              </Chip>
-              <Chip size="sm" variant="flat" color={activeFilterCount > 0 ? 'warning' : 'default'}>
-                筛选 {visibleForwards.length} / {accessibleForwards.length}
-              </Chip>
-              <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? 'secondary' : 'default'}>
-                已选 {selectedForwardIds.length}
-              </Chip>
+    <div className="py-2">
+      <div className="mb-5 rounded-[30px] border border-divider/80 bg-white/85 p-4 shadow-[0_22px_60px_-42px_rgba(15,23,42,0.35)] backdrop-blur-xl dark:bg-default-100/15">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Forward Console</div>
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground">转发管理</h1>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip size="sm" variant="flat" color="primary">
+                    {viewMode === 'grouped' ? '分组视图' : '平铺视图'}
+                  </Chip>
+                  <Chip size="sm" variant="flat" color={activeFilterCount > 0 ? 'warning' : 'default'}>
+                    筛选 {visibleForwards.length} / {accessibleForwards.length}
+                  </Chip>
+                  {hiddenSelectedCount > 0 && (
+                    <Chip size="sm" variant="flat" color="warning">
+                      隐藏已选 {hiddenSelectedCount}
+                    </Chip>
+                  )}
+                </div>
+              </div>
+              <p className="mt-2 text-sm text-default-500">
+                把视图切换、导入导出、搜索筛选和批量处理收敛到一个控制板里，避免顶部重复占屏。
+              </p>
             </div>
-            <p className="mt-2 text-sm text-default-500">
-              搜索、筛选、诊断和批量处理收敛在同一条工具栏里，默认仅展示当前权限范围内的转发。
-            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="flat"
+                color="default"
+                onPress={handleViewModeChange}
+                title={viewMode === 'grouped' ? '切换到平铺视图' : '切换到分组视图'}
+                startContent={viewMode === 'grouped' ? (
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 16a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+                  </svg>
+                )}
+              >
+                {isMobile ? null : (viewMode === 'grouped' ? '平铺视图' : '分组视图')}
+              </Button>
+              <Button
+                size="sm"
+                variant="flat"
+                color="warning"
+                onPress={handleImport}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '导入'}
+              </Button>
+              <Button
+                size="sm"
+                variant="flat"
+                color="success"
+                onPress={handleExport}
+                isLoading={exportLoading}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8v12m0 0l4-4m-4 4l-4-4M17 16V4m0 0l4 4m-4-4l-4 4" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '导出'}
+              </Button>
+              <Button
+                size="sm"
+                variant="solid"
+                color="primary"
+                onPress={handleAdd}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '新增转发'}
+              </Button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="flat"
-              color="default"
-              onPress={handleViewModeChange}
-              isIconOnly
-              className="text-sm"
-              title={viewMode === 'grouped' ? '切换到平铺视图' : '切换到分组视图'}
-            >
-              {viewMode === 'grouped' ? (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 16a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-                </svg>
-              )}
-            </Button>
-            <Button size="sm" variant="flat" color="warning" onPress={handleImport}>
-              导入
-            </Button>
-            <Button size="sm" variant="flat" color="success" onPress={handleExport} isLoading={exportLoading}>
-              导出
-            </Button>
-            <Button size="sm" variant="solid" color="primary" onPress={handleAdd}>
-              新增转发
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-[28px] border border-divider bg-white/80 p-4 shadow-sm backdrop-blur-md dark:bg-default-100/20">
           <div className="flex flex-wrap items-center gap-2.5">
             <Input
               value={searchKeyword}
@@ -2139,45 +2207,95 @@ export default function ForwardPage() {
             )}
           </div>
 
-          <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              <Chip size="sm" variant="flat" color="primary">
-                当前结果 {visibleForwards.length}
-              </Chip>
-              <Chip size="sm" variant="flat" color={selectedForwardIds.length > 0 ? "secondary" : "default"}>
-                已选择 {selectedForwardIds.length}
-              </Chip>
-              <Chip size="sm" variant="flat" color={unhealthyCount > 0 ? "danger" : "default"}>
-                故障项 {unhealthyCount}
-              </Chip>
-              {hiddenSelectedCount > 0 && (
-                <Chip size="sm" variant="flat" color="warning">
-                  隐藏已选 {hiddenSelectedCount}
-                </Chip>
-              )}
+              <div className="inline-flex items-center gap-2 rounded-full border border-divider bg-default-50/80 px-3 py-1.5 text-xs font-medium text-default-600 shadow-sm dark:bg-default-100/10">
+                <span>当前结果 <span className="font-semibold text-foreground">{visibleForwards.length}</span></span>
+                <Divider orientation="vertical" className="h-4" />
+                <span>已选择 <span className="font-semibold text-foreground">{selectedForwardIds.length}</span></span>
+                <Divider orientation="vertical" className="h-4" />
+                <span className={visibleUnhealthyCount > 0 ? 'text-danger-600' : ''}>故障项 <span className="font-semibold">{visibleUnhealthyCount}</span></span>
+              </div>
+              <span className="text-xs text-default-500">批量操作仅作用于当前筛选结果，隐藏项会被保留。</span>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant={allVisibleSelected ? "solid" : "flat"} color="primary" onPress={handleToggleSelectAllVisible}>
-                {allVisibleSelected ? '取消全选' : '全选当前结果'}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant={allVisibleSelected ? "solid" : "flat"}
+                color="primary"
+                onPress={handleToggleSelectAllVisible}
+                title={allVisibleSelected ? '取消全选当前结果' : '全选当前结果'}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : (allVisibleSelected ? '取消全选' : '全选结果')}
               </Button>
-              <Button size="sm" variant="flat" color="warning" onPress={handleSelectVisibleUnhealthy}>
-                仅选故障项
+              <Button
+                size="sm"
+                variant="flat"
+                color="warning"
+                onPress={handleSelectVisibleUnhealthy}
+                title="只保留当前筛选中的故障项"
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m0 3.75h.007v.008H12v-.008z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.29 3.86l-7.5 13A2 2 0 004.5 20h15a2 2 0 001.71-3.14l-7.5-13a2 2 0 00-3.42 0z" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '仅选故障'}
               </Button>
-              <Button size="sm" variant="flat" color="secondary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('protocol')}>
-                批量设置协议
+              <Button
+                size="sm"
+                variant="flat"
+                color="secondary"
+                isDisabled={selectedForwardIds.length === 0}
+                onPress={() => openBatchModal('protocol')}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9h8M8 15h5M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '批量协议'}
               </Button>
-              <Button size="sm" variant="flat" color="primary" isDisabled={selectedForwardIds.length === 0} onPress={() => openBatchModal('tag')}>
-                批量打标签
+              <Button
+                size="sm"
+                variant="flat"
+                color="primary"
+                isDisabled={selectedForwardIds.length === 0}
+                onPress={() => openBatchModal('tag')}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '批量标签'}
               </Button>
-              <Button size="sm" variant="flat" color="danger" isDisabled={selectedForwardIds.length === 0} onPress={handleBatchDelete}>
-                批量删除
+              <Button
+                size="sm"
+                variant="flat"
+                color="danger"
+                isDisabled={selectedForwardIds.length === 0}
+                onPress={handleBatchDelete}
+                startContent={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+                  </svg>
+                }
+              >
+                {isMobile ? null : '批量删除'}
               </Button>
             </div>
           </div>
 
           {(searchKeyword || statusFilter !== 'all' || healthFilter !== 'all' || tunnelFilter !== null || protocolFilter !== null || tagFilters.length > 0) && (
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-divider/70 pt-3">
+            <div className="flex flex-wrap gap-2 border-t border-divider/70 pt-3">
               {searchKeyword && (
                 <Chip size="sm" variant="flat" onClose={() => setSearchKeyword("")} className="bg-default-100 text-default-600">
                   搜索: {searchKeyword}
@@ -2608,6 +2726,114 @@ export default function ForwardPage() {
               ))}
             </div>
           </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* 测速历史详情弹窗 */}
+      <Modal
+        isOpen={historyDetailModalOpen}
+        onOpenChange={setHistoryDetailModalOpen}
+        size="2xl"
+        scrollBehavior="outside"
+        backdrop="blur"
+        placement="center"
+      >
+        <ModalContent>
+          {(onClose) => {
+            const parsedResults = parseDiagnosisResultsJson(historyPreview?.item.resultsJson);
+
+            return (
+              <>
+                <ModalHeader className="flex flex-col gap-1">
+                  <h2 className="text-xl font-bold">测速详情</h2>
+                  {historyPreview && (
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-default-500">
+                      <span>{historyPreview.forwardName}</span>
+                      <span>·</span>
+                      <span>{new Date(historyPreview.item.createdTime).toLocaleString('zh-CN')}</span>
+                    </div>
+                  )}
+                </ModalHeader>
+                <ModalBody>
+                  {historyPreview && (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <Card className="border border-divider bg-default-50/80 shadow-none dark:bg-default-100/10">
+                          <CardBody className="py-4">
+                            <div className="text-xs uppercase tracking-[0.18em] text-default-400">状态</div>
+                            <div className={`mt-2 text-lg font-semibold ${historyPreview.item.overallSuccess ? 'text-success-600' : 'text-danger-600'}`}>
+                              {historyPreview.item.overallSuccess ? '整体正常' : '存在故障'}
+                            </div>
+                          </CardBody>
+                        </Card>
+                        <Card className="border border-divider bg-default-50/80 shadow-none dark:bg-default-100/10">
+                          <CardBody className="py-4">
+                            <div className="text-xs uppercase tracking-[0.18em] text-default-400">平均延迟</div>
+                            <div className="mt-2 text-lg font-mono font-semibold text-foreground">
+                              {historyPreview.item.averageTime !== undefined ? `${historyPreview.item.averageTime.toFixed(0)} ms` : '--'}
+                            </div>
+                          </CardBody>
+                        </Card>
+                        <Card className="border border-divider bg-default-50/80 shadow-none dark:bg-default-100/10">
+                          <CardBody className="py-4">
+                            <div className="text-xs uppercase tracking-[0.18em] text-default-400">丢包率</div>
+                            <div className="mt-2 text-lg font-mono font-semibold text-foreground">
+                              {historyPreview.item.packetLoss !== undefined ? `${historyPreview.item.packetLoss.toFixed(1)} %` : '--'}
+                            </div>
+                          </CardBody>
+                        </Card>
+                      </div>
+
+                      {parsedResults.length > 0 ? (
+                        <div className="space-y-3">
+                          {parsedResults.map((result: any, index: number) => (
+                            <Card key={index} className={`border shadow-none ${result.success ? 'border-success/30 bg-success-50/40 dark:bg-success-500/5' : 'border-danger/30 bg-danger-50/40 dark:bg-danger-500/5'}`}>
+                              <CardBody className="gap-3 py-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <div className="text-sm font-semibold text-foreground">{result.description || `节点 ${index + 1}`}</div>
+                                    <div className="mt-1 text-xs text-default-500">节点: {result.nodeName || '-'}</div>
+                                  </div>
+                                  <Chip size="sm" variant="flat" color={result.success ? 'success' : 'danger'}>
+                                    {result.success ? '连接成功' : '连接失败'}
+                                  </Chip>
+                                </div>
+                                <div className="grid gap-2 text-sm text-default-600 sm:grid-cols-2">
+                                  <div>
+                                    <span className="text-default-400">目标:</span>{' '}
+                                    <code className="font-mono text-foreground">
+                                      {result.targetIp}{result.targetPort ? `:${result.targetPort}` : ''}
+                                    </code>
+                                  </div>
+                                  {result.success ? (
+                                    <div className="flex flex-wrap gap-4">
+                                      <span>延迟 <strong className="font-mono text-foreground">{result.averageTime?.toFixed(0) || '--'} ms</strong></span>
+                                      <span>丢包 <strong className="font-mono text-foreground">{result.packetLoss?.toFixed(1) || '0'} %</strong></span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-danger-600">{result.message || '此次测速返回失败'}</div>
+                                  )}
+                                </div>
+                              </CardBody>
+                            </Card>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-divider bg-default-50 px-4 py-6 text-sm text-default-500">
+                          该次历史记录没有可展开的节点链路，通常是旧版本数据或诊断返回结构不完整。
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </ModalBody>
+                <ModalFooter>
+                  <Button variant="light" onPress={onClose}>
+                    关闭
+                  </Button>
+                </ModalFooter>
+              </>
+            );
+          }}
         </ModalContent>
       </Modal>
 

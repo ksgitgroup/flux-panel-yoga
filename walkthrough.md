@@ -72,3 +72,13 @@
 5. 调整 `scripts/ship_dev.sh`，在创建 commit 后追加 `build_docker.sh` 与 `reload_local_stack.sh`，确保本地 UI 的提交标识同步到刚提交的新 SHA。
 6. 执行 `./scripts/verify_build.sh`，确认后端 `admin-1.4.4.jar`、前端 `flux-panel@1.4.4 build` 和 CI YAML 校验全部通过。
 7. 执行 `./scripts/build_docker.sh` 与 `./scripts/reload_local_stack.sh`，确认本地容器已切到最新 `local` 镜像且运行目录仍指向 `/Users/mac/Developer/flux-panel-yoga`。
+
+## 2026-03-07 Forward Console Layout Walkthrough
+
+1. 审查 `AdminLayout` 与 `ForwardPage`，确认当前桌面端布局同时存在左侧栏和顶部条，导致首屏被导航结构吃掉。
+2. 将桌面端后台改为横向头部布局：左侧保留品牌与版本信息，中间聚合主业务导航，右侧收敛系统管理、用户菜单和时间信息。
+3. 将 `网站配置` 从主导航中移走，合并进右上角系统下拉菜单，避免和主业务入口抢占导航权重。
+4. 重构“转发管理”顶部区域，把视图切换、导入、导出、新增转发并入同一控制板，并让搜索、Tabs、Select 筛选和批量操作成为连续的交互流。
+5. 优化筛选后的批量选择逻辑：全选当前结果和仅选故障项只替换当前可见结果，不再误清空隐藏选择。
+6. 将转发卡片底部测速历史改为可点击查看详情，新增单次测速详情弹窗，直接展示节点链路、目标地址、延迟和丢包结果。
+7. 执行 `./scripts/verify_build.sh`，确认新的后台布局和转发页交互在 `tsc + vite build` 下通过。

@@ -67,6 +67,18 @@ export default function AdminLayout({
       )
     },
     {
+      path: '/portal',
+      label: '自定义导航',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12h14"></path>
+          <path d="M12 5l7 7-7 7"></path>
+        </svg>
+      ),
+      adminOnly: true
+    },
+    {
       path: '/tunnel',
       label: '隧道管理',
       icon: (
@@ -102,6 +114,19 @@ export default function AdminLayout({
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+        </svg>
+      ),
+      adminOnly: true
+    },
+    {
+      path: '/portal/config',
+      label: '导航配置',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 6h16"></path>
+          <path d="M4 12h10"></path>
+          <path d="M4 18h7"></path>
         </svg>
       ),
       adminOnly: true
@@ -275,7 +300,7 @@ export default function AdminLayout({
     !item.adminOnly || isAdmin
   );
 
-  const primaryMenuOrder = ['/dashboard', '/monitor', '/forward', '/tunnel', '/node'];
+  const primaryMenuOrder = ['/dashboard', '/portal', '/monitor', '/forward', '/tunnel', '/node'];
   const primaryMenuItems = primaryMenuOrder
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));

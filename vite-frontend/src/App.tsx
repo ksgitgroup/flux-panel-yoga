@@ -16,6 +16,8 @@ import MonitorPage from "@/pages/monitor";
 import ProtocolPage from "@/pages/protocol";
 import TagPage from "@/pages/tag";
 import XuiPage from "@/pages/xui";
+import PortalPage from "@/pages/portal";
+import PortalConfigPage from "@/pages/portal-config";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
@@ -253,6 +255,14 @@ function App() {
         }
       />
       <Route
+        path="/portal"
+        element={
+          <ProtectedRoute>
+            <PortalPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/tunnel"
         element={
           <ProtectedRoute>
@@ -303,7 +313,17 @@ function App() {
         element={
           <ProtectedRoute>
             <SystemWorkspace>
-              <XuiPage />
+            <XuiPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/config"
+        element={
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <PortalConfigPage />
             </SystemWorkspace>
           </ProtectedRoute>
         }

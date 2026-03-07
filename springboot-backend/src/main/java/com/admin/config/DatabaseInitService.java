@@ -129,6 +129,7 @@ public class DatabaseInitService {
                     "企业微信恢复通知模板，支持占位符变量");
             ensureConfig("wechat_webhook_last_sent_at", "0", "系统内部使用：最近一次告警发送时间");
             ensureConfig("wechat_webhook_last_status", "healthy", "系统内部使用：最近一次告警状态");
+            ensureConfig("portal_nav_links", "[]", "自定义导航入口配置(JSON)");
             log.info("[DatabaseInit] 自动诊断与告警配置项初始化成功");
         } catch (Exception e) {
             log.warn("[DatabaseInit] 尝试初始化诊断配置项时发生异常: {}", e.getMessage());

@@ -105,6 +105,24 @@ docker-compose -f docker-compose-v4.local.yml down
 ./scripts/cleanup_local_artifacts.sh post-reload
 ```
 
+如果宿主机磁盘已经逼近极限（例如低于 `5 GiB`），再执行一次深度清理：
+
+```bash
+./scripts/cleanup_local_artifacts.sh deep-host
+```
+
+这会额外清理：
+
+- Homebrew 下载缓存
+- npm 全局缓存
+- Maven 失效元数据
+- 未使用的 Docker 容器、网络和 volume
+
+说明：
+
+- `deep-host` 不会删除当前正在运行的容器和 volume
+- 但它会让后续某些依赖重新下载，因此只在磁盘紧张时使用
+
 ## 5. 前端本地开发模式
 
 如果你不想走前端 Docker 容器，也可以直接在主机上运行 Vite：

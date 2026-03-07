@@ -82,3 +82,11 @@
 5. 优化筛选后的批量选择逻辑：全选当前结果和仅选故障项只替换当前可见结果，不再误清空隐藏选择。
 6. 将转发卡片底部测速历史改为可点击查看详情，新增单次测速详情弹窗，直接展示节点链路、目标地址、延迟和丢包结果。
 7. 执行 `./scripts/verify_build.sh`，确认新的后台布局和转发页交互在 `tsc + vite build` 下通过。
+
+## 2026-03-07 Disk Hygiene Walkthrough
+
+1. 审查用户机器实际磁盘占用，确认当前剩余空间仅约 `1.5GiB`，不能再把问题模糊归因于“Java/Maven 安装本身”。
+2. 用 `du` 和 `docker system df` 拆分占用来源，确认最大项依次为 `.colima`、Docker 镜像、Homebrew 缓存、npm 全局缓存和 Maven 仓库。
+3. 保留原 `cleanup_local_artifacts.sh` 的轻量自动清理逻辑，用于每次构建后回收项目内 `target/dist/.cache` 和无用 Docker 镜像。
+4. 追加 `deep-host` 模式，专门处理磁盘告急场景，额外清理 Homebrew 缓存、npm 全局缓存、Maven 失效元数据以及未使用的 Docker 容器/网络/volume。
+5. 明确 `.colima` 是本地 Docker/Colima 虚拟机磁盘，本身就是开发环境的主要占用项；如果要继续大幅回收，只能停用本地 Docker 并删除或重建 Colima。

@@ -195,13 +195,17 @@ export default function AssetsPage() {
     void loadAssetDetail(selectedAssetId);
   }, [selectedAssetId]);
 
-  const summary = useMemo(() => ({
-    totalAssets: assets.length,
-    onlineAssets: assets.filter(a => a.monitorOnline === 1).length,
-    totalXuiInstances: assets.reduce((s, i) => s + (i.totalXuiInstances || 0), 0),
-    totalForwards: assets.reduce((s, i) => s + (i.totalForwards || 0), 0),
-    totalClients: assets.reduce((s, i) => s + (i.totalClients || 0), 0),
-  }), [assets]);
+  const summary = useMemo(() => {
+    const online = assets.filter(a => a.monitorOnline === 1).length;
+    return {
+      totalAssets: assets.length,
+      onlineAssets: online,
+      offlineAssets: assets.length - online,
+      totalXuiInstances: assets.reduce((s, i) => s + (i.totalXuiInstances || 0), 0),
+      totalForwards: assets.reduce((s, i) => s + (i.totalForwards || 0), 0),
+      totalClients: assets.reduce((s, i) => s + (i.totalClients || 0), 0),
+    };
+  }, [assets]);
 
   const filteredAssets = useMemo(() => {
     const kw = normalizeKeyword(searchKeyword);
@@ -417,25 +421,29 @@ export default function AssetsPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
         <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-xs tracking-widest text-default-400">资产总数</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400">资产总数</p>
           <p className="text-3xl font-semibold">{summary.totalAssets}</p>
         </CardBody></Card>
         <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-xs tracking-widest text-default-400">在线</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400">在线</p>
           <p className="text-3xl font-semibold text-success">{summary.onlineAssets}</p>
         </CardBody></Card>
         <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-xs tracking-widest text-default-400">X-UI 实例</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400">离线</p>
+          <p className={`text-3xl font-semibold ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
+        </CardBody></Card>
+        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
+          <p className="text-[10px] font-bold tracking-widest text-default-400">X-UI 实例</p>
           <p className="text-3xl font-semibold">{summary.totalXuiInstances}</p>
         </CardBody></Card>
         <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-xs tracking-widest text-default-400">转发规则</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400">转发规则</p>
           <p className="text-3xl font-semibold">{summary.totalForwards}</p>
         </CardBody></Card>
         <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-xs tracking-widest text-default-400">客户端</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400">客户端</p>
           <p className="text-3xl font-semibold">{summary.totalClients}</p>
         </CardBody></Card>
       </div>
@@ -490,25 +498,29 @@ export default function AssetsPage() {
                       </div>
                     </div>
 
-                    {/* Monitor mini metrics */}
-                    {asset.monitorCpuUsage != null && (
-                      <div className="mt-3 grid grid-cols-3 gap-2">
-                        <div className="rounded-xl bg-default-100/80 px-2 py-1.5">
-                          <p className="text-[10px] text-default-400">CPU</p>
-                          <p className="text-sm font-semibold">{asset.monitorCpuUsage.toFixed(1)}%</p>
+                    {/* Monitor mini metrics - Pika-style progress bars */}
+                    {asset.monitorCpuUsage != null && (() => {
+                      const cpu = asset.monitorCpuUsage || 0;
+                      const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
+                      const barColor = (v: number) => v > 90 ? 'danger' as const : v > 75 ? 'warning' as const : 'success' as const;
+                      return (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="w-8 text-[10px] font-medium text-default-400">CPU</span>
+                            <Progress size="sm" value={cpu} color={barColor(cpu)} className="flex-1" aria-label="CPU" />
+                            <span className="w-10 text-right text-xs font-mono font-medium">{cpu.toFixed(1)}%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="w-8 text-[10px] font-medium text-default-400">MEM</span>
+                            <Progress size="sm" value={memPct} color={barColor(memPct)} className="flex-1" aria-label="MEM" />
+                            <span className="w-10 text-right text-xs font-mono font-medium">{memPct.toFixed(0)}%</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-default-400">
+                            <span>{formatSpeed(asset.monitorNetIn)} / {formatSpeed(asset.monitorNetOut)}</span>
+                          </div>
                         </div>
-                        <div className="rounded-xl bg-default-100/80 px-2 py-1.5">
-                          <p className="text-[10px] text-default-400">MEM</p>
-                          <p className="text-sm font-semibold">
-                            {asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100).toFixed(0) + '%' : '-'}
-                          </p>
-                        </div>
-                        <div className="rounded-xl bg-default-100/80 px-2 py-1.5">
-                          <p className="text-[10px] text-default-400">NET</p>
-                          <p className="text-sm font-semibold">{formatSpeed(asset.monitorNetIn)}</p>
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     <div className="mt-3 grid grid-cols-4 gap-1.5">
                       <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
@@ -572,9 +584,14 @@ export default function AssetsPage() {
               ) : (
                 <div className="space-y-4">
                   <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                    {/* Server Info */}
+                    {/* Server Info - from probe sync */}
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <p className="text-xs tracking-widest text-default-400">服务器</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs tracking-widest text-default-400">服务器</p>
+                        {selectedAsset.monitorNodeUuid && (
+                          <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>探针同步</Chip>
+                        )}
+                      </div>
                       <div className="mt-3 space-y-1.5 text-sm">
                         <p><span className="text-default-500">IP:</span> {selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</p>
                         <p><span className="text-default-500">SSH:</span> {selectedAsset.sshPort || 22}</p>
@@ -584,9 +601,12 @@ export default function AssetsPage() {
                       </div>
                     </div>
 
-                    {/* Provider & Cost */}
+                    {/* Provider & Cost - Flux only */}
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <p className="text-xs tracking-widest text-default-400">供应商</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs tracking-widest text-default-400">供应商与费用</p>
+                        <Chip size="sm" variant="flat" color="default" classNames={{content: "text-[10px]"}}>手动管理</Chip>
+                      </div>
                       <div className="mt-3 space-y-1.5 text-sm">
                         <p><span className="text-default-500">厂商:</span> {selectedAsset.provider || '-'}</p>
                         <p><span className="text-default-500">地区:</span> {selectedAsset.region || '-'}</p>
@@ -605,13 +625,16 @@ export default function AssetsPage() {
 
                     {/* Integration Summary */}
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <p className="text-xs tracking-widest text-default-400">关联信息</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs tracking-widest text-default-400">关联信息</p>
+                        <Chip size="sm" variant="flat" color="default" classNames={{content: "text-[10px]"}}>Flux</Chip>
+                      </div>
                       <div className="mt-3 space-y-1.5 text-sm">
                         <p><span className="text-default-500">X-UI:</span> {selectedAsset.totalXuiInstances || 0} 个实例</p>
                         <p><span className="text-default-500">协议:</span> {selectedAsset.totalProtocols || 0} 种</p>
                         <p><span className="text-default-500">转发:</span> {selectedAsset.totalForwards || 0} 条</p>
                         <p><span className="text-default-500">GOST 节点:</span> {selectedAsset.gostNodeName || '-'}</p>
-                        <p><span className="text-default-500">探针 UUID:</span> {selectedAsset.monitorNodeUuid || '-'}</p>
+                        <p><span className="text-default-500">探针 UUID:</span> <span className="font-mono text-xs">{selectedAsset.monitorNodeUuid || '-'}</span></p>
                       </div>
                     </div>
                   </div>
@@ -653,67 +676,75 @@ export default function AssetsPage() {
                     const m = node.latestMetric;
                     const memPct = m?.memTotal ? ((m.memUsed || 0) / m.memTotal * 100) : 0;
                     const diskPct = m?.diskTotal ? ((m.diskUsed || 0) / m.diskTotal * 100) : 0;
+                    const barColor = (v: number) => v > 90 ? 'danger' as const : v > 75 ? 'warning' as const : 'success' as const;
                     return (
-                      <div key={node.id} className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <div key={node.id} className={`rounded-3xl border p-4 transition-all ${
+                        node.online === 1 ? 'border-divider/80 bg-default-50/80' : 'border-default-200 bg-default-100/50 opacity-70'
+                      }`}>
+                        {/* Header */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className={`inline-block h-2.5 w-2.5 rounded-full ${node.online === 1 ? 'bg-success' : 'bg-default-300'}`} />
+                              <span className={`inline-block h-2.5 w-2.5 rounded-full ${node.online === 1 ? 'bg-success animate-pulse' : 'bg-default-300'}`} />
                               <p className="truncate font-semibold">{node.name || node.remoteNodeUuid}</p>
                             </div>
-                            <p className="mt-1 text-xs text-default-500">{node.ip}{node.os ? ` / ${node.os}` : ''}</p>
+                            <p className="mt-1 text-xs text-default-500 font-mono">{node.ip}{node.os ? ` / ${node.os}` : ''}</p>
                           </div>
                           <Chip size="sm" variant="flat" color={node.online === 1 ? 'success' : 'default'}>
                             {node.online === 1 ? '在线' : '离线'}
                           </Chip>
                         </div>
 
-                        {m && (
-                          <div className="mt-4 space-y-3">
-                            <div>
-                              <div className="flex justify-between text-xs text-default-500">
-                                <span>CPU</span><span>{m.cpuUsage?.toFixed(1)}%</span>
-                              </div>
-                              <Progress size="sm" value={m.cpuUsage || 0} color={m.cpuUsage && m.cpuUsage > 80 ? 'danger' : 'primary'} className="mt-1" />
+                        {/* Metrics - Pika-style compact bars */}
+                        {m ? (
+                          <div className="mt-4 space-y-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">CPU</span>
+                              <Progress size="sm" value={m.cpuUsage || 0} color={barColor(m.cpuUsage || 0)} className="flex-1" aria-label="CPU" />
+                              <span className="w-12 text-right text-xs font-mono font-medium">{m.cpuUsage?.toFixed(1)}%</span>
                             </div>
-                            <div>
-                              <div className="flex justify-between text-xs text-default-500">
-                                <span>内存</span><span>{formatFlow(m.memUsed)} / {formatFlow(m.memTotal)}</span>
-                              </div>
-                              <Progress size="sm" value={memPct} color={memPct > 85 ? 'danger' : 'primary'} className="mt-1" />
+                            <div className="flex items-center gap-2">
+                              <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">MEM</span>
+                              <Progress size="sm" value={memPct} color={barColor(memPct)} className="flex-1" aria-label="MEM" />
+                              <span className="w-12 text-right text-xs font-mono font-medium">{memPct.toFixed(0)}%</span>
                             </div>
-                            <div>
-                              <div className="flex justify-between text-xs text-default-500">
-                                <span>硬盘</span><span>{formatFlow(m.diskUsed)} / {formatFlow(m.diskTotal)}</span>
-                              </div>
-                              <Progress size="sm" value={diskPct} color={diskPct > 90 ? 'danger' : 'primary'} className="mt-1" />
+                            <div className="flex items-center gap-2">
+                              <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">DISK</span>
+                              <Progress size="sm" value={diskPct} color={barColor(diskPct)} className="flex-1" aria-label="DISK" />
+                              <span className="w-12 text-right text-xs font-mono font-medium">{diskPct.toFixed(0)}%</span>
                             </div>
-                            <div className="grid grid-cols-3 gap-2 text-center">
-                              <div className="rounded-xl bg-content1 p-2">
-                                <p className="text-[10px] text-default-400">下行</p>
-                                <p className="text-xs font-semibold">{formatSpeed(m.netIn)}</p>
+
+                            {/* Compact stats grid */}
+                            <div className="grid grid-cols-3 gap-1.5 pt-1">
+                              <div className="rounded-lg bg-content1 px-2 py-1.5 text-center">
+                                <p className="text-[9px] font-medium text-default-400">NET IN</p>
+                                <p className="text-xs font-semibold font-mono">{formatSpeed(m.netIn)}</p>
                               </div>
-                              <div className="rounded-xl bg-content1 p-2">
-                                <p className="text-[10px] text-default-400">上行</p>
-                                <p className="text-xs font-semibold">{formatSpeed(m.netOut)}</p>
+                              <div className="rounded-lg bg-content1 px-2 py-1.5 text-center">
+                                <p className="text-[9px] font-medium text-default-400">NET OUT</p>
+                                <p className="text-xs font-semibold font-mono">{formatSpeed(m.netOut)}</p>
                               </div>
-                              <div className="rounded-xl bg-content1 p-2">
-                                <p className="text-[10px] text-default-400">运行</p>
+                              <div className="rounded-lg bg-content1 px-2 py-1.5 text-center">
+                                <p className="text-[9px] font-medium text-default-400">UPTIME</p>
                                 <p className="text-xs font-semibold">{formatUptime(m.uptime)}</p>
                               </div>
                             </div>
-                            <div className="flex flex-wrap gap-3 text-xs text-default-500">
-                              <span>负载: {m.load1?.toFixed(2) || '-'}</span>
-                              <span>连接: {m.connections || 0}</span>
-                              <span>进程: {m.processCount || 0}</span>
-                              <span>采样: {formatDate(m.sampledAt)}</span>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-default-400 font-mono">
+                              <span>LOAD {m.load1?.toFixed(2) || '-'}</span>
+                              <span>CONN {m.connections || 0}</span>
+                              <span>PROC {m.processCount || 0}</span>
                             </div>
                           </div>
-                        )}
+                        ) : node.online !== 1 ? (
+                          <div className="mt-4 flex items-center gap-2 rounded-lg bg-default-200/50 px-3 py-2 text-xs text-default-400">
+                            <span>CONNECTION_LOST</span>
+                          </div>
+                        ) : null}
 
-                        <div className="mt-3 text-xs text-default-500">
-                          <span>{node.cpuName || '-'} / {node.cpuCores || '?'}C</span>
-                          <span className="ml-2">v{node.version || '?'}</span>
+                        {/* Hardware footer */}
+                        <div className="mt-2.5 flex items-center justify-between border-t border-divider/50 pt-2 text-[11px] text-default-400">
+                          <span className="truncate">{node.cpuName || '-'} / {node.cpuCores || '?'}C</span>
+                          <span className="flex-shrink-0 ml-2">v{node.version || '?'}</span>
                         </div>
                       </div>
                     );

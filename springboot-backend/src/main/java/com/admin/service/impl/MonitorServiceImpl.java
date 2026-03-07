@@ -156,8 +156,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     public R syncInstance(Long id) {
         MonitorInstance instance = getRequiredInstance(id);
         try {
-            performSync(instance);
-            return R.ok("Sync completed successfully");
+            Map<String, Object> summary = performSync(instance);
+            return R.ok(summary);
         } catch (Exception e) {
             log.error("[MonitorSync] Manual sync failed for instance {}: {}", instance.getName(), e.getMessage());
             return R.err("Sync failed: " + e.getMessage());
@@ -199,11 +199,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     // ==================== Core Sync Logic (Komari) ====================
 
-    private void performSync(MonitorInstance instance) {
+    private Map<String, Object> performSync(MonitorInstance instance) {
         long now = System.currentTimeMillis();
+        Map<String, Object> summary = new LinkedHashMap<>();
         try {
             if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
-                syncKomari(instance);
+                summary = syncKomari(instance);
             } else {
                 log.warn("[MonitorSync] Unsupported probe type: {}", instance.getType());
                 throw new RuntimeException("Unsupported probe type: " + instance.getType());
@@ -219,9 +220,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             instance.setUpdatedTime(now);
             this.updateById(instance);
         }
+        return summary;
     }
 
-    private void syncKomari(MonitorInstance instance) {
+    private Map<String, Object> syncKomari(MonitorInstance instance) {
         // 1. Fetch node list from komari admin API (returns full data including IP/version)
         String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
         if (clientsJson == null) {
@@ -229,7 +231,6 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
 
         // /api/admin/client/list returns raw JSON array: [{...}, ...]
-        // Try parsing as array first, then as object with "data" wrapper
         JSONArray clients;
         String trimmed = clientsJson.trim();
         if (trimmed.startsWith("[")) {
@@ -250,6 +251,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         long now = System.currentTimeMillis();
         Set<String> seenUuids = new HashSet<>();
         int onlineCount = 0;
+        int newNodes = 0;
+        int updatedNodes = 0;
+        int newAssets = 0;
 
         for (int i = 0; i < clients.size(); i++) {
             JSONObject client = clients.getJSONObject(i);
@@ -269,12 +273,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 onlineCount++;
             }
 
-            if (existing == null) {
+            boolean isNew = (existing == null);
+            if (isNew) {
                 existing = new MonitorNodeSnapshot();
                 existing.setInstanceId(instance.getId());
                 existing.setRemoteNodeUuid(uuid);
                 existing.setCreatedTime(now);
                 existing.setStatus(0);
+                newNodes++;
+            } else {
+                updatedNodes++;
             }
 
             existing.setName(client.getString("name"));
@@ -300,7 +308,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
             // 2. Auto-create asset for new nodes
             if (existing.getAssetId() == null) {
-                autoCreateAssetFromNode(existing, instance);
+                boolean created = autoCreateAssetFromNode(existing, instance);
+                if (created) newAssets++;
             }
 
             // 3. Fetch latest metrics for each online node
@@ -309,7 +318,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // 3. Mark removed nodes
+        // 4. Mark removed nodes
+        int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId()));
         for (MonitorNodeSnapshot node : allNodes) {
@@ -318,12 +328,24 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 node.setStatus(1);
                 node.setUpdatedTime(now);
                 monitorNodeSnapshotMapper.updateById(node);
+                removedNodes++;
             }
         }
 
-        // 4. Update instance counters
+        // 5. Update instance counters
         instance.setNodeCount(seenUuids.size());
         instance.setOnlineNodeCount(onlineCount);
+
+        // 6. Build sync summary
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", seenUuids.size());
+        summary.put("online", onlineCount);
+        summary.put("offline", seenUuids.size() - onlineCount);
+        summary.put("newNodes", newNodes);
+        summary.put("updatedNodes", updatedNodes);
+        summary.put("removedNodes", removedNodes);
+        summary.put("newAssets", newAssets);
+        return summary;
     }
 
     private void syncKomariNodeMetrics(MonitorInstance instance, MonitorNodeSnapshot nodeSnapshot, String uuid) {
@@ -440,15 +462,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     // ==================== Auto-Create Asset from Probe Node ====================
 
-    private void autoCreateAssetFromNode(MonitorNodeSnapshot node, MonitorInstance instance) {
+    private boolean autoCreateAssetFromNode(MonitorNodeSnapshot node, MonitorInstance instance) {
         // Skip if node already linked to an asset
-        if (node.getAssetId() != null) return;
+        if (node.getAssetId() != null) return false;
 
         // Skip if an asset already references this node UUID
         int existingCount = assetHostMapper.selectCount(new LambdaQueryWrapper<AssetHost>()
                 .eq(AssetHost::getMonitorNodeUuid, node.getRemoteNodeUuid())
                 .eq(AssetHost::getStatus, 0)).intValue();
-        if (existingCount > 0) return;
+        if (existingCount > 0) return false;
 
         // Skip if name already taken
         String assetName = StringUtils.hasText(node.getName()) ? node.getName() : node.getIp();
@@ -489,8 +511,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             node.setAssetId(asset.getId());
             monitorNodeSnapshotMapper.updateById(node);
             log.info("[MonitorSync] Auto-created asset '{}' from probe node {}", assetName, node.getRemoteNodeUuid());
+            return true;
         } catch (Exception e) {
             log.warn("[MonitorSync] Failed to auto-create asset for node {}: {}", node.getRemoteNodeUuid(), e.getMessage());
+            return false;
         }
     }
 

@@ -180,7 +180,22 @@ export default function ProbePage() {
     setActionLoading('sync-' + id);
     try {
       const res = await syncMonitorInstance(id);
-      res.code === 0 ? toast.success('同步完成') : toast.error(res.msg || '同步失败');
+      if (res.code === 0) {
+        const s = res.data as any;
+        if (s && typeof s.total === 'number') {
+          toast.success(
+            `同步完成: ${s.total} 节点 (${s.online} 在线, ${s.offline} 离线)` +
+            (s.newNodes > 0 ? ` / 新增 ${s.newNodes}` : '') +
+            (s.removedNodes > 0 ? ` / 移除 ${s.removedNodes}` : '') +
+            (s.newAssets > 0 ? ` / 自动创建 ${s.newAssets} 资产` : ''),
+            { duration: 5000 }
+          );
+        } else {
+          toast.success('同步完成');
+        }
+      } else {
+        toast.error(res.msg || '同步失败');
+      }
       loadInstances();
       if (selectedId === id) loadDetail(id);
     } catch { toast.error('同步失败'); } finally { setActionLoading(null); }

@@ -21,6 +21,8 @@ public class XuiInstance extends BaseEntity {
 
     private String encryptedPassword;
 
+    private String encryptedLoginSecret;
+
     private String hostLabel;
 
     private String managementMode;

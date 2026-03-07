@@ -26,6 +26,8 @@ public class XuiInstanceUpdateDto {
 
     private String password;
 
+    private String loginSecret;
+
     private String hostLabel;
 
     private String managementMode;

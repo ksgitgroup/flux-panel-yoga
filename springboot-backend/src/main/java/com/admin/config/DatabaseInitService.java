@@ -143,6 +143,7 @@ public class DatabaseInitService {
                     "`web_base_path` varchar(120) DEFAULT '/' COMMENT 'x-ui Web Base Path'," +
                     "`username` varchar(120) NOT NULL COMMENT '登录用户名'," +
                     "`encrypted_password` text NOT NULL COMMENT '加密后的登录密码'," +
+                    "`encrypted_login_secret` text DEFAULT NULL COMMENT '加密后的 Secret Token'," +
                     "`host_label` varchar(120) DEFAULT NULL COMMENT '资产主机标识'," +
                     "`management_mode` varchar(20) DEFAULT 'observe' COMMENT 'observe 或 flux_managed'," +
                     "`sync_enabled` tinyint(1) DEFAULT 1 COMMENT '是否自动同步'," +
@@ -166,6 +167,7 @@ public class DatabaseInitService {
                     "UNIQUE KEY `uk_xui_instance_traffic_token` (`traffic_token`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui 实例管理表'";
             jdbcTemplate.execute(createXuiInstanceTable);
+            updateColumn("xui_instance", "encrypted_login_secret", "text DEFAULT NULL COMMENT '加密后的 Secret Token'");
 
             String createXuiInboundSnapshotTable = "CREATE TABLE IF NOT EXISTS `xui_inbound_snapshot` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +

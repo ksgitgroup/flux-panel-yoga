@@ -29,6 +29,8 @@ public class XuiInstanceViewDto {
 
     private Boolean passwordConfigured;
 
+    private Boolean loginSecretConfigured;
+
     private String trafficCallbackPath;
 
     private Long lastSyncAt;

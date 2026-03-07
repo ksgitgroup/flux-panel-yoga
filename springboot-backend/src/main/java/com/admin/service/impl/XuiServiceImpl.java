@@ -49,6 +49,8 @@ import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -59,8 +61,12 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     private static final String STATUS_FAILED = "failed";
     private static final String MODE_OBSERVE = "observe";
     private static final String MODE_FLUX_MANAGED = "flux_managed";
+    private static final String API_FLAVOR_3XUI = "3x-ui";
+    private static final String API_FLAVOR_PANEL_API = "panel-api";
+    private static final String API_FLAVOR_XUI_API = "xui-api";
     private static final int FLAG_TRUE = 1;
     private static final int FLAG_FALSE = 0;
+    private static final Pattern BASE_PATH_PATTERN = Pattern.compile("basePath\\s*=\\s*['\"]([^'\"]+)['\"]");
 
     private final Set<Long> runningSyncInstanceIds = ConcurrentHashMap.newKeySet();
 
@@ -112,12 +118,14 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         }
 
         long now = System.currentTimeMillis();
+        NormalizedInstanceEndpoint endpoint = normalizeEndpointInput(dto.getBaseUrl(), dto.getWebBasePath());
         XuiInstance instance = new XuiInstance();
         instance.setName(dto.getName().trim());
-        instance.setBaseUrl(normalizeBaseUrl(dto.getBaseUrl()));
-        instance.setWebBasePath(normalizeBasePath(dto.getWebBasePath()));
+        instance.setBaseUrl(endpoint.getBaseUrl());
+        instance.setWebBasePath(endpoint.getWebBasePath());
         instance.setUsername(dto.getUsername().trim());
         instance.setEncryptedPassword(xuiCredentialCryptoService.encrypt(dto.getPassword()));
+        instance.setEncryptedLoginSecret(encryptOptionalSecret(dto.getLoginSecret()));
         instance.setHostLabel(trimToNull(dto.getHostLabel()));
         instance.setManagementMode(normalizeManagementMode(dto.getManagementMode()));
         instance.setSyncEnabled(normalizeFlag(dto.getSyncEnabled()));
@@ -143,12 +151,16 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             return R.err(duplicateError);
         }
 
+        NormalizedInstanceEndpoint endpoint = normalizeEndpointInput(dto.getBaseUrl(), dto.getWebBasePath());
         existing.setName(dto.getName().trim());
-        existing.setBaseUrl(normalizeBaseUrl(dto.getBaseUrl()));
-        existing.setWebBasePath(normalizeBasePath(dto.getWebBasePath()));
+        existing.setBaseUrl(endpoint.getBaseUrl());
+        existing.setWebBasePath(endpoint.getWebBasePath());
         existing.setUsername(dto.getUsername().trim());
         if (StringUtils.hasText(dto.getPassword())) {
             existing.setEncryptedPassword(xuiCredentialCryptoService.encrypt(dto.getPassword()));
+        }
+        if (StringUtils.hasText(dto.getLoginSecret())) {
+            existing.setEncryptedLoginSecret(encryptOptionalSecret(dto.getLoginSecret()));
         }
         existing.setHostLabel(trimToNull(dto.getHostLabel()));
         existing.setManagementMode(normalizeManagementMode(dto.getManagementMode()));
@@ -195,7 +207,11 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             result.put("instanceName", instance.getName());
             result.put("remoteInboundCount", remoteSnapshot.getInbounds().size());
             result.put("remoteClientCount", remoteSnapshot.getRemoteClientCount());
-            result.put("message", "连接成功并拿到远端快照");
+            result.put("apiFlavor", remoteSnapshot.getApiFlavor());
+            result.put("resolvedBasePath", remoteSnapshot.getResolvedBasePath());
+            result.put("message", String.format("连接成功并拿到远端快照（%s，Base Path: %s）",
+                    remoteSnapshot.getApiFlavor(),
+                    remoteSnapshot.getResolvedBasePath()));
             return R.ok(result);
         } catch (Exception e) {
             long finishedAt = System.currentTimeMillis();
@@ -308,34 +324,38 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
 
     private XuiRemoteSnapshot fetchRemoteSnapshot(XuiInstance instance) throws Exception {
         try (XuiRemoteSession session = openRemoteSession(instance)) {
-            JSONObject inboundResponse = executeJson(session.getHttpClient(), buildGet(instance, "/panel/api/inbounds/list"));
-            JSONArray inboundArray = ensureSuccessArray(inboundResponse, "读取入站列表失败");
+            RemoteApiProbe apiProbe = resolveRemoteApiProfile(session);
+            JSONArray inboundArray = ensureSuccessArray(apiProbe.getResponse(), "读取入站列表失败");
 
             Set<String> onlineEmails = Collections.emptySet();
             Map<String, Long> lastOnlineMap = Collections.emptyMap();
 
-            try {
-                JSONObject onlineResponse = executeJson(session.getHttpClient(), buildPost(instance, "/panel/api/inbounds/onlines", "{}"));
-                onlineEmails = ensureSuccessArray(onlineResponse, "读取在线客户端失败")
-                        .toJavaList(String.class)
-                        .stream()
-                        .filter(StringUtils::hasText)
-                        .map(this::normalizeEmail)
-                        .collect(Collectors.toSet());
-            } catch (Exception e) {
-                log.warn("[XuiSync] 读取在线客户端失败，将继续同步基础快照: {}", e.getMessage());
+            if (StringUtils.hasText(apiProbe.getProfile().getOnlinesPath())) {
+                try {
+                    JSONObject onlineResponse = executeJson(session.getHttpClient(), buildPost(session, apiProbe.getProfile().getOnlinesPath(), "{}"));
+                    onlineEmails = ensureSuccessArray(onlineResponse, "读取在线客户端失败")
+                            .toJavaList(String.class)
+                            .stream()
+                            .filter(StringUtils::hasText)
+                            .map(this::normalizeEmail)
+                            .collect(Collectors.toSet());
+                } catch (Exception e) {
+                    log.warn("[XuiSync] 读取在线客户端失败，将继续同步基础快照: {}", e.getMessage());
+                }
             }
 
-            try {
-                JSONObject lastOnlineResponse = executeJson(session.getHttpClient(), buildPost(instance, "/panel/api/inbounds/lastOnline", "{}"));
-                JSONObject lastOnlineObject = ensureSuccessObject(lastOnlineResponse, "读取最后在线时间失败");
-                Map<String, Long> lastOnlineTemp = new HashMap<>();
-                for (String key : lastOnlineObject.keySet()) {
-                    lastOnlineTemp.put(normalizeEmail(key), lastOnlineObject.getLongValue(key));
+            if (StringUtils.hasText(apiProbe.getProfile().getLastOnlinePath())) {
+                try {
+                    JSONObject lastOnlineResponse = executeJson(session.getHttpClient(), buildPost(session, apiProbe.getProfile().getLastOnlinePath(), "{}"));
+                    JSONObject lastOnlineObject = ensureSuccessObject(lastOnlineResponse, "读取最后在线时间失败");
+                    Map<String, Long> lastOnlineTemp = new HashMap<>();
+                    for (String key : lastOnlineObject.keySet()) {
+                        lastOnlineTemp.put(normalizeEmail(key), lastOnlineObject.getLongValue(key));
+                    }
+                    lastOnlineMap = lastOnlineTemp;
+                } catch (Exception e) {
+                    log.warn("[XuiSync] 读取最后在线时间失败，将继续同步基础快照: {}", e.getMessage());
                 }
-                lastOnlineMap = lastOnlineTemp;
-            } catch (Exception e) {
-                log.warn("[XuiSync] 读取最后在线时间失败，将继续同步基础快照: {}", e.getMessage());
             }
 
             XuiRemoteSnapshot remoteSnapshot = new XuiRemoteSnapshot();
@@ -343,6 +363,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             remoteSnapshot.setOnlineEmails(onlineEmails);
             remoteSnapshot.setLastOnlineMap(lastOnlineMap);
             remoteSnapshot.setRemoteClientCount(countRemoteClients(remoteSnapshot.getInbounds()));
+            remoteSnapshot.setApiFlavor(apiProbe.getProfile().getFlavor());
+            remoteSnapshot.setResolvedBasePath(session.getResolvedBasePath());
             return remoteSnapshot;
         }
     }
@@ -356,15 +378,34 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
                 .build();
 
         CloseableHttpClient httpClient = buildHttpClient(instance, cookieStore, requestConfig);
-        HttpPost loginRequest = buildPost(instance, "/login", JSON.toJSONString(buildLoginPayload(instance)));
+        ResolvedRemoteBootstrap bootstrap = resolveRemoteBootstrap(instance, httpClient);
+
+        Boolean remoteTwoFactorEnabled = probeFlagEndpoint(httpClient,
+                buildPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/getTwoFactorEnable", "{}"));
+        if (Boolean.TRUE.equals(remoteTwoFactorEnabled)) {
+            httpClient.close();
+            throw new IllegalStateException("远端 x-ui 登录启用了 2FA，请为 Flux 使用未启用 2FA 的专用同步账号");
+        }
+
+        Boolean remoteSecretRequired = probeFlagEndpoint(httpClient,
+                buildPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/getSecretStatus", "{}"));
+        if (Boolean.TRUE.equals(remoteSecretRequired) && !StringUtils.hasText(instance.getEncryptedLoginSecret())) {
+            httpClient.close();
+            throw new IllegalStateException("远端 x-ui 启用了 Secret Token，请在 Flux 中补充 Secret Token 后再测试连接");
+        }
+
+        HttpPost loginRequest = buildPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/login", JSON.toJSONString(buildLoginPayload(instance)));
         JSONObject loginResponse = executeJson(httpClient, loginRequest);
         boolean success = Boolean.TRUE.equals(loginResponse.getBoolean("success"));
         if (!success) {
-            EntityUtils.consumeQuietly(loginRequest.getEntity());
             httpClient.close();
             throw new IllegalStateException(extractRemoteError(loginResponse, "登录 x-ui 失败"));
         }
-        return new XuiRemoteSession(httpClient);
+        return new XuiRemoteSession(httpClient,
+                instance.getBaseUrl(),
+                bootstrap.getResolvedBasePath(),
+                bootstrap.getSecretStatusSupported(),
+                bootstrap.getTwoFactorSupported());
     }
 
     private CloseableHttpClient buildHttpClient(XuiInstance instance,
@@ -390,6 +431,9 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         JSONObject payload = new JSONObject();
         payload.put("username", instance.getUsername());
         payload.put("password", xuiCredentialCryptoService.decrypt(instance.getEncryptedPassword()));
+        if (StringUtils.hasText(instance.getEncryptedLoginSecret())) {
+            payload.put("loginSecret", xuiCredentialCryptoService.decrypt(instance.getEncryptedLoginSecret()));
+        }
         return payload;
     }
 
@@ -405,6 +449,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         result.setTrigger(trigger);
         result.setRemoteInboundCount(remoteSnapshot.getInbounds().size());
         result.setRemoteClientCount(remoteSnapshot.getRemoteClientCount());
+        result.setApiFlavor(remoteSnapshot.getApiFlavor());
+        result.setResolvedBasePath(remoteSnapshot.getResolvedBasePath());
 
         Map<Integer, XuiInboundSnapshot> localInboundMap = xuiInboundSnapshotMapper.selectList(
                         new LambdaQueryWrapper<XuiInboundSnapshot>().eq(XuiInboundSnapshot::getInstanceId, instance.getId()))
@@ -707,22 +753,143 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         xuiSyncLogMapper.insert(logRecord);
     }
 
+    private ResolvedRemoteBootstrap resolveRemoteBootstrap(XuiInstance instance, CloseableHttpClient httpClient) throws Exception {
+        String configuredBasePath = normalizeBasePath(instance.getWebBasePath());
+        RemoteHttpResponse response = executeRequest(httpClient, new HttpGet(buildRemoteUrl(instance.getBaseUrl(), configuredBasePath, "")));
+        if (response.getStatusCode() >= 400) {
+            throw new IllegalStateException("无法访问远端 x-ui 登录页: HTTP " + response.getStatusCode());
+        }
+        String resolvedBasePath = normalizeBasePath(extractBasePathFromHtml(response.getBody()));
+        if (!StringUtils.hasText(resolvedBasePath) || "/".equals(resolvedBasePath)) {
+            resolvedBasePath = configuredBasePath;
+        }
+
+        ResolvedRemoteBootstrap bootstrap = new ResolvedRemoteBootstrap();
+        bootstrap.setResolvedBasePath(resolvedBasePath);
+        bootstrap.setSecretStatusSupported(response.getBody() != null && response.getBody().contains("getSecretStatus"));
+        bootstrap.setTwoFactorSupported(response.getBody() != null && response.getBody().contains("getTwoFactorEnable"));
+        return bootstrap;
+    }
+
+    private String extractBasePathFromHtml(String html) {
+        if (!StringUtils.hasText(html)) {
+            return null;
+        }
+        Matcher matcher = BASE_PATH_PATTERN.matcher(html);
+        if (!matcher.find()) {
+            return null;
+        }
+        String raw = matcher.group(1);
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        return raw.replace("\\/", "/");
+    }
+
+    private Boolean probeFlagEndpoint(CloseableHttpClient httpClient, HttpPost request) {
+        try {
+            RemoteJsonProbe probe = executeJsonProbe(httpClient, request);
+            if (!probe.isSuccess()) {
+                return null;
+            }
+            JSONObject json = probe.getJson();
+            if (!Boolean.TRUE.equals(json.getBoolean("success"))) {
+                return null;
+            }
+            return json.getBoolean("obj");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private RemoteApiProbe resolveRemoteApiProfile(XuiRemoteSession session) throws Exception {
+        List<RemoteApiProfile> candidateProfiles = new ArrayList<>();
+        if (session.getSecretStatusSupported() && !session.getTwoFactorSupported()) {
+            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_PANEL_API, "/panel/api/inbounds/", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_XUI_API, "/xui/API/inbounds/", "/xui/API/inbounds/onlines", null));
+            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_3XUI, "/panel/api/inbounds/list", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+        } else {
+            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_3XUI, "/panel/api/inbounds/list", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_PANEL_API, "/panel/api/inbounds/", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_XUI_API, "/xui/API/inbounds/", "/xui/API/inbounds/onlines", null));
+        }
+
+        List<String> failures = new ArrayList<>();
+        Set<String> deduplicatedPaths = new LinkedHashSet<>();
+        for (RemoteApiProfile profile : candidateProfiles) {
+            if (!deduplicatedPaths.add(profile.getListPath())) {
+                continue;
+            }
+            RemoteJsonProbe probe = executeJsonProbe(session.getHttpClient(), buildGet(session, profile.getListPath()));
+            if (probe.isSuccess() && Boolean.TRUE.equals(probe.getJson().getBoolean("success"))) {
+                return new RemoteApiProbe(profile, probe.getJson());
+            }
+            failures.add(profile.getFlavor() + " -> " + probe.getErrorMessage());
+        }
+
+        throw new IllegalStateException("无法识别远端 x-ui API 风格，已尝试: " + String.join("；", failures));
+    }
+
     private JSONObject executeJson(CloseableHttpClient httpClient, HttpUriRequest request) throws Exception {
+        RemoteJsonProbe probe = executeJsonProbe(httpClient, request);
+        if (!probe.isSuccess()) {
+            throw new IllegalStateException(probe.getErrorMessage());
+        }
+        return probe.getJson();
+    }
+
+    private RemoteJsonProbe executeJsonProbe(CloseableHttpClient httpClient, HttpUriRequest request) throws Exception {
         request.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
+        RemoteHttpResponse response = executeRequest(httpClient, request);
+        if (response.getStatusCode() >= 400) {
+            String hint = response.getStatusCode() == 404
+                    ? "，请检查实例地址、Web Base Path 或远端面板兼容模式"
+                    : "";
+            return RemoteJsonProbe.failure(response.getRequestUri(),
+                    "远端接口 " + response.getRequestUri() + " 返回 HTTP " + response.getStatusCode() + hint);
+        }
+        if (!StringUtils.hasText(response.getBody())) {
+            return RemoteJsonProbe.failure(response.getRequestUri(),
+                    "远端接口 " + response.getRequestUri() + " 返回空响应");
+        }
+        if (looksLikeHtml(response)) {
+            return RemoteJsonProbe.failure(response.getRequestUri(),
+                    "远端接口 " + response.getRequestUri() + " 返回 HTML 登录页，可能是凭据失效、接口路径不兼容，或该实例需要旧版 x-ui 兼容模式");
+        }
+        try {
+            JSONObject json = JSON.parseObject(response.getBody());
+            if (json == null) {
+                return RemoteJsonProbe.failure(response.getRequestUri(),
+                        "远端接口 " + response.getRequestUri() + " 返回了无法识别的 JSON 响应");
+            }
+            return RemoteJsonProbe.success(response.getRequestUri(), json);
+        } catch (Exception e) {
+            return RemoteJsonProbe.failure(response.getRequestUri(),
+                    "远端接口 " + response.getRequestUri() + " 返回非 JSON 内容: " + shortenError(response.getBody()));
+        }
+    }
+
+    private RemoteHttpResponse executeRequest(CloseableHttpClient httpClient, HttpUriRequest request) throws Exception {
         try (CloseableHttpResponse response = httpClient.execute(request)) {
             String body = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
-            int statusCode = response.getStatusLine().getStatusCode();
-            if (statusCode >= 400) {
-                String hint = statusCode == 404
-                        ? "，请检查实例地址与 Web Base Path 是否正确"
-                        : "";
-                throw new IllegalStateException("远端接口 " + request.getURI() + " 返回 HTTP " + statusCode + hint);
-            }
-            if (!StringUtils.hasText(body)) {
-                throw new IllegalStateException("远端接口 " + request.getURI() + " 返回空响应");
-            }
-            return JSON.parseObject(body);
+            String contentType = response.getEntity() == null || response.getEntity().getContentType() == null
+                    ? ""
+                    : response.getEntity().getContentType().getValue();
+            return new RemoteHttpResponse(
+                    request.getURI().toString(),
+                    response.getStatusLine().getStatusCode(),
+                    contentType,
+                    body
+            );
         }
+    }
+
+    private boolean looksLikeHtml(RemoteHttpResponse response) {
+        String body = response.getBody() == null ? "" : response.getBody().trim().toLowerCase(Locale.ROOT);
+        String contentType = response.getContentType() == null ? "" : response.getContentType().toLowerCase(Locale.ROOT);
+        return contentType.contains("text/html")
+                || body.startsWith("<!doctype html")
+                || body.startsWith("<html");
     }
 
     private JSONArray ensureSuccessArray(JSONObject response, String defaultMessage) {
@@ -744,11 +911,23 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     private HttpGet buildGet(XuiInstance instance, String path) {
-        return new HttpGet(buildRemoteUrl(instance, path));
+        return new HttpGet(buildRemoteUrl(instance.getBaseUrl(), instance.getWebBasePath(), path));
+    }
+
+    private HttpGet buildGet(XuiRemoteSession session, String path) {
+        return new HttpGet(buildRemoteUrl(session.getBaseUrl(), session.getResolvedBasePath(), path));
     }
 
     private HttpPost buildPost(XuiInstance instance, String path, String body) {
-        HttpPost post = new HttpPost(buildRemoteUrl(instance, path));
+        return buildPost(instance.getBaseUrl(), instance.getWebBasePath(), path, body);
+    }
+
+    private HttpPost buildPost(XuiRemoteSession session, String path, String body) {
+        return buildPost(session.getBaseUrl(), session.getResolvedBasePath(), path, body);
+    }
+
+    private HttpPost buildPost(String baseUrl, String basePath, String path, String body) {
+        HttpPost post = new HttpPost(buildRemoteUrl(baseUrl, basePath, path));
         post.setHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.getMimeType());
         if (body != null) {
             post.setEntity(new StringEntity(body, ContentType.APPLICATION_JSON));
@@ -757,18 +936,28 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     private String buildRemoteUrl(XuiInstance instance, String path) {
-        String basePath = normalizeBasePath(instance.getWebBasePath());
-        String normalizedPath = path.startsWith("/") ? path : "/" + path;
-        if ("/".equals(basePath)) {
-            return instance.getBaseUrl() + normalizedPath;
+        return buildRemoteUrl(instance.getBaseUrl(), instance.getWebBasePath(), path);
+    }
+
+    private String buildRemoteUrl(String baseUrl, String webBasePath, String path) {
+        String basePath = normalizeBasePath(webBasePath);
+        String normalizedPath = StringUtils.hasText(path)
+                ? (path.startsWith("/") ? path : "/" + path)
+                : "";
+        if (!StringUtils.hasText(normalizedPath)) {
+            return "/".equals(basePath) ? baseUrl + "/" : baseUrl + basePath;
         }
-        return instance.getBaseUrl() + basePath.substring(0, basePath.length() - 1) + normalizedPath;
+        if ("/".equals(basePath)) {
+            return baseUrl + normalizedPath;
+        }
+        return baseUrl + basePath.substring(0, basePath.length() - 1) + normalizedPath;
     }
 
     private XuiInstanceViewDto toInstanceView(XuiInstance instance) {
         XuiInstanceViewDto dto = new XuiInstanceViewDto();
         BeanUtils.copyProperties(instance, dto);
         dto.setPasswordConfigured(StringUtils.hasText(instance.getEncryptedPassword()));
+        dto.setLoginSecretConfigured(StringUtils.hasText(instance.getEncryptedLoginSecret()));
         dto.setTrafficCallbackPath("/api/v1/xui/traffic/" + instance.getTrafficToken());
         Integer inboundCount = xuiInboundSnapshotMapper.selectCount(new LambdaQueryWrapper<XuiInboundSnapshot>()
                 .eq(XuiInboundSnapshot::getInstanceId, instance.getId())
@@ -831,12 +1020,12 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         return count > 0 ? "已存在同名的 x-ui 实例" : null;
     }
 
-    private String normalizeBaseUrl(String baseUrl) {
-        if (!StringUtils.hasText(baseUrl)) {
+    private NormalizedInstanceEndpoint normalizeEndpointInput(String baseUrlInput, String webBasePathInput) {
+        if (!StringUtils.hasText(baseUrlInput)) {
             throw new IllegalStateException("实例地址不能为空");
         }
         try {
-            URI uri = new URI(baseUrl.trim());
+            URI uri = new URI(baseUrlInput.trim());
             String scheme = uri.getScheme();
             if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
                 throw new IllegalStateException("实例地址只支持 http 或 https");
@@ -844,12 +1033,12 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             if (!StringUtils.hasText(uri.getHost()) && !StringUtils.hasText(uri.getRawAuthority())) {
                 throw new IllegalStateException("实例地址缺少主机名");
             }
-            String path = trimToNull(uri.getPath());
-            if (path != null && !"/".equals(path)) {
-                throw new IllegalStateException("实例地址不要包含路径，请把路径填到 Web Base Path");
-            }
             String authority = StringUtils.hasText(uri.getRawAuthority()) ? uri.getRawAuthority() : uri.getHost();
-            return scheme.toLowerCase(Locale.ROOT) + "://" + authority;
+            String normalizedBaseUrl = scheme.toLowerCase(Locale.ROOT) + "://" + authority;
+            String pathFromBaseUrl = normalizeBasePath(uri.getPath());
+            String pathFromField = normalizeBasePath(webBasePathInput);
+            String normalizedBasePath = !"/".equals(pathFromBaseUrl) ? pathFromBaseUrl : pathFromField;
+            return new NormalizedInstanceEndpoint(normalizedBaseUrl, normalizedBasePath);
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
@@ -862,13 +1051,53 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             return "/";
         }
         String value = webBasePath.trim();
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            try {
+                value = new URI(value).getPath();
+            } catch (Exception ignored) {
+                value = "/";
+            }
+        }
+        if (!StringUtils.hasText(value)) {
+            return "/";
+        }
+        value = value.replaceAll("/{2,}", "/");
         if (!value.startsWith("/")) {
             value = "/" + value;
+        }
+        if ("/panel".equalsIgnoreCase(value) || "/panel/".equalsIgnoreCase(value)) {
+            return "/";
+        }
+        if (value.endsWith("/panel")) {
+            value = value.substring(0, value.length() - "/panel".length());
+        } else if (value.endsWith("/panel/")) {
+            value = value.substring(0, value.length() - "/panel/".length());
+        }
+        if ("/login".equalsIgnoreCase(value) || "/login/".equalsIgnoreCase(value)) {
+            return "/";
+        }
+        if (value.endsWith("/login")) {
+            value = value.substring(0, value.length() - "/login".length());
+        } else if (value.endsWith("/login/")) {
+            value = value.substring(0, value.length() - "/login/".length());
+        }
+        if (!StringUtils.hasText(value)) {
+            return "/";
         }
         if (!value.endsWith("/")) {
             value = value + "/";
         }
         return value.replaceAll("/{2,}", "/");
+    }
+
+    private String encryptOptionalSecret(String loginSecret) {
+        if (loginSecret == null) {
+            return null;
+        }
+        if (!StringUtils.hasText(loginSecret)) {
+            return null;
+        }
+        return xuiCredentialCryptoService.encrypt(loginSecret);
     }
 
     private String normalizeManagementMode(String mode) {
@@ -996,17 +1225,132 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         private Set<String> onlineEmails = Collections.emptySet();
         private Map<String, Long> lastOnlineMap = Collections.emptyMap();
         private Integer remoteClientCount = 0;
+        private String apiFlavor;
+        private String resolvedBasePath;
+    }
+
+    @Getter
+    private static class RemoteApiProfile {
+        private final String flavor;
+        private final String listPath;
+        private final String onlinesPath;
+        private final String lastOnlinePath;
+
+        private RemoteApiProfile(String flavor, String listPath, String onlinesPath, String lastOnlinePath) {
+            this.flavor = flavor;
+            this.listPath = listPath;
+            this.onlinesPath = onlinesPath;
+            this.lastOnlinePath = lastOnlinePath;
+        }
+    }
+
+    @Getter
+    private static class RemoteApiProbe {
+        private final RemoteApiProfile profile;
+        private final JSONObject response;
+
+        private RemoteApiProbe(RemoteApiProfile profile, JSONObject response) {
+            this.profile = profile;
+            this.response = response;
+        }
+    }
+
+    @Getter
+    @Setter
+    private static class ResolvedRemoteBootstrap {
+        private String resolvedBasePath;
+        private Boolean secretStatusSupported = false;
+        private Boolean twoFactorSupported = false;
+    }
+
+    @Getter
+    private static class RemoteHttpResponse {
+        private final String requestUri;
+        private final int statusCode;
+        private final String contentType;
+        private final String body;
+
+        private RemoteHttpResponse(String requestUri, int statusCode, String contentType, String body) {
+            this.requestUri = requestUri;
+            this.statusCode = statusCode;
+            this.contentType = contentType;
+            this.body = body;
+        }
+    }
+
+    @Getter
+    private static class RemoteJsonProbe {
+        private final String requestUri;
+        private final JSONObject json;
+        private final String errorMessage;
+
+        private RemoteJsonProbe(String requestUri, JSONObject json, String errorMessage) {
+            this.requestUri = requestUri;
+            this.json = json;
+            this.errorMessage = errorMessage;
+        }
+
+        private static RemoteJsonProbe success(String requestUri, JSONObject json) {
+            return new RemoteJsonProbe(requestUri, json, null);
+        }
+
+        private static RemoteJsonProbe failure(String requestUri, String errorMessage) {
+            return new RemoteJsonProbe(requestUri, null, errorMessage);
+        }
+
+        private boolean isSuccess() {
+            return json != null;
+        }
+    }
+
+    @Getter
+    private static class NormalizedInstanceEndpoint {
+        private final String baseUrl;
+        private final String webBasePath;
+
+        private NormalizedInstanceEndpoint(String baseUrl, String webBasePath) {
+            this.baseUrl = baseUrl;
+            this.webBasePath = webBasePath;
+        }
     }
 
     private static class XuiRemoteSession implements AutoCloseable {
         private final CloseableHttpClient httpClient;
+        private final String baseUrl;
+        private final String resolvedBasePath;
+        private final Boolean secretStatusSupported;
+        private final Boolean twoFactorSupported;
 
-        private XuiRemoteSession(CloseableHttpClient httpClient) {
+        private XuiRemoteSession(CloseableHttpClient httpClient,
+                                 String baseUrl,
+                                 String resolvedBasePath,
+                                 Boolean secretStatusSupported,
+                                 Boolean twoFactorSupported) {
             this.httpClient = httpClient;
+            this.baseUrl = baseUrl;
+            this.resolvedBasePath = resolvedBasePath;
+            this.secretStatusSupported = secretStatusSupported;
+            this.twoFactorSupported = twoFactorSupported;
         }
 
         public CloseableHttpClient getHttpClient() {
             return httpClient;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public String getResolvedBasePath() {
+            return resolvedBasePath;
+        }
+
+        public Boolean getSecretStatusSupported() {
+            return secretStatusSupported;
+        }
+
+        public Boolean getTwoFactorSupported() {
+            return twoFactorSupported;
         }
 
         @Override

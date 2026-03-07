@@ -45,6 +45,7 @@ interface XuiInstanceForm {
   webBasePath: string;
   username: string;
   password: string;
+  loginSecret: string;
   hostLabel: string;
   managementMode: string;
   syncEnabled: boolean;
@@ -54,16 +55,17 @@ interface XuiInstanceForm {
 }
 
 const MANAGEMENT_MODES = [
-  { key: 'observe', label: 'Observe', description: '只读观察，远端改动通过轮询同步进 Flux。' },
-  { key: 'flux_managed', label: 'Flux Managed', description: '后续用于以 Flux 作为主控写回远端。' },
+  { key: 'observe', label: 'Observe', description: '只读观察，远端改动通过轮询自动回流到 Flux。' },
+  { key: 'flux_managed', label: 'Flux Managed', description: '后续可由 Flux 作为主控，向远端 x-ui 下发修改。' },
 ];
 
 const emptyForm = (): XuiInstanceForm => ({
   name: '',
   baseUrl: '',
-  webBasePath: '/',
+  webBasePath: '',
   username: '',
   password: '',
+  loginSecret: '',
   hostLabel: '',
   managementMode: 'observe',
   syncEnabled: true,
@@ -108,6 +110,14 @@ const getSnapshotStatusChip = (status: number, enabled?: number) => {
   return { color: 'success' as const, text: '正常' };
 };
 
+const getManagementModeMeta = (mode?: string | null) =>
+  MANAGEMENT_MODES.find((item) => item.key === mode) || MANAGEMENT_MODES[0];
+
+const buildInstanceAddress = (instance: Pick<XuiInstance, 'baseUrl' | 'webBasePath'>) =>
+  `${instance.baseUrl}${instance.webBasePath || '/'}`;
+
+const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
+
 export default function XuiPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -120,6 +130,7 @@ export default function XuiPage() {
   const [instanceToDelete, setInstanceToDelete] = useState<XuiInstance | null>(null);
   const [form, setForm] = useState<XuiInstanceForm>(emptyForm());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [searchKeyword, setSearchKeyword] = useState('');
 
   const {
     isOpen: isFormOpen,
@@ -144,6 +155,7 @@ export default function XuiPage() {
       setDetail(null);
       return;
     }
+    setDetail(null);
     void loadDetail(selectedInstanceId);
   }, [selectedInstanceId]);
 
@@ -153,14 +165,42 @@ export default function XuiPage() {
     return map;
   }, [detail]);
 
-  const summary = useMemo(() => {
-    return {
-      totalInstances: instances.length,
-      autoSyncInstances: instances.filter((item) => item.syncEnabled === 1).length,
-      totalInbounds: instances.reduce((sum, item) => sum + (item.inboundCount || 0), 0),
-      totalClients: instances.reduce((sum, item) => sum + (item.clientCount || 0), 0),
-    };
-  }, [instances]);
+  const summary = useMemo(() => ({
+    totalInstances: instances.length,
+    autoSyncInstances: instances.filter((item) => item.syncEnabled === 1).length,
+    totalInbounds: instances.reduce((sum, item) => sum + (item.inboundCount || 0), 0),
+    totalClients: instances.reduce((sum, item) => sum + (item.clientCount || 0), 0),
+  }), [instances]);
+
+  const filteredInstances = useMemo(() => {
+    const keyword = normalizeKeyword(searchKeyword);
+    if (!keyword) {
+      return instances;
+    }
+    return instances.filter((instance) => {
+      const haystacks = [
+        instance.name,
+        instance.hostLabel,
+        instance.baseUrl,
+        instance.webBasePath,
+        instance.username,
+        instance.remark,
+      ];
+      return haystacks.some((value) => normalizeKeyword(value).includes(keyword));
+    });
+  }, [instances, searchKeyword]);
+
+  const selectedInstance = useMemo(
+    () => instances.find((instance) => instance.id === selectedInstanceId) || null,
+    [instances, selectedInstanceId]
+  );
+
+  const selectedCallbackUrl = useMemo(() => {
+    if (!selectedInstance) {
+      return '';
+    }
+    return `${window.location.origin}${selectedInstance.trafficCallbackPath}`;
+  }, [selectedInstance]);
 
   const loadInstances = async () => {
     setLoading(true);
@@ -218,6 +258,7 @@ export default function XuiPage() {
       webBasePath: instance.webBasePath || '/',
       username: instance.username,
       password: '',
+      loginSecret: '',
       hostLabel: instance.hostLabel || '',
       managementMode: instance.managementMode || 'observe',
       syncEnabled: instance.syncEnabled === 1,
@@ -246,12 +287,34 @@ export default function XuiPage() {
     if (!validateForm()) return;
     setSubmitLoading(true);
     try {
-      const payload = {
-        ...form,
+      const payload: Record<string, unknown> = {
+        ...(isEdit ? { id: form.id } : {}),
+        name: form.name.trim(),
+        baseUrl: form.baseUrl.trim(),
+        webBasePath: form.webBasePath.trim(),
+        username: form.username.trim(),
+        hostLabel: form.hostLabel.trim(),
+        managementMode: form.managementMode,
         syncEnabled: form.syncEnabled ? 1 : 0,
         syncIntervalMinutes: Number(form.syncIntervalMinutes),
         allowInsecureTls: form.allowInsecureTls ? 1 : 0,
+        remark: form.remark.trim(),
       };
+
+      if (isEdit) {
+        if (form.password.trim()) {
+          payload.password = form.password.trim();
+        }
+        if (form.loginSecret.trim()) {
+          payload.loginSecret = form.loginSecret.trim();
+        }
+      } else {
+        payload.password = form.password.trim();
+        if (form.loginSecret.trim()) {
+          payload.loginSecret = form.loginSecret.trim();
+        }
+      }
+
       const response = isEdit
         ? await updateXuiInstance(payload)
         : await createXuiInstance(payload);
@@ -305,7 +368,9 @@ export default function XuiPage() {
         toast.error(response.msg || '连接测试失败');
         return;
       }
-      toast.success(`${instance.name} 连接成功，读取到 ${response.data.remoteInboundCount} 个入站`);
+      const flavor = response.data?.apiFlavor || 'auto';
+      const basePath = response.data?.resolvedBasePath || instance.webBasePath || '/';
+      toast.success(`${instance.name} 连接成功，识别为 ${flavor}，Base Path ${basePath}`);
       await loadInstances();
       if (selectedInstanceId === instance.id) {
         await loadDetail(instance.id);
@@ -325,7 +390,8 @@ export default function XuiPage() {
         toast.error(response.msg || '同步失败');
         return;
       }
-      toast.success(response.data?.message || '同步完成');
+      const flavor = response.data?.apiFlavor ? ` · ${response.data.apiFlavor}` : '';
+      toast.success(`${response.data?.message || '同步完成'}${flavor}`);
       await loadInstances();
       if (selectedInstanceId === instance.id) {
         await loadDetail(instance.id);
@@ -340,6 +406,16 @@ export default function XuiPage() {
   const openDeleteModal = (instance: XuiInstance) => {
     setInstanceToDelete(instance);
     onDeleteOpen();
+  };
+
+  const copyCallbackUrl = async () => {
+    if (!selectedCallbackUrl) return;
+    try {
+      await navigator.clipboard.writeText(selectedCallbackUrl);
+      toast.success('上报地址已复制');
+    } catch (error) {
+      toast.error('复制失败，请手动复制');
+    }
   };
 
   if (!admin) {
@@ -368,8 +444,8 @@ export default function XuiPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold">X-UI 管理</h1>
-          <p className="mt-1 text-sm text-default-500">
-            在 Flux 中登记 x-ui / 3x-ui 实例，执行连接测试、只读同步和后续统一纳管。当前版本只保存脱敏快照，不向前端暴露明文密码。
+          <p className="mt-1 max-w-3xl text-sm text-default-500">
+            在 Flux 中登记 x-ui / 3x-ui 实例，统一执行连接测试、快照同步、流量上报接入和后续集中纳管。实例列表只返回脱敏状态，不向前端暴露明文凭据。
           </p>
         </div>
         <Button color="primary" onPress={openCreateModal}>
@@ -408,149 +484,224 @@ export default function XuiPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-        <div className="space-y-4">
-          {instances.length === 0 ? (
-            <Card className="border border-dashed border-divider/80">
-              <CardBody className="p-6 text-sm text-default-500">
-                还没有登记任何 x-ui 实例。先新增一个测试实例，再执行连接测试和同步。
-              </CardBody>
-            </Card>
-          ) : (
-            instances.map((instance) => {
-              const syncChip = getStatusChip(instance.lastSyncStatus);
-              const testChip = getStatusChip(instance.lastTestStatus);
-              const selected = instance.id === selectedInstanceId;
-              const callbackUrl = `${window.location.origin}${instance.trafficCallbackPath}`;
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+        <Card className="border border-divider/80">
+          <CardHeader className="flex flex-col items-start gap-3">
+            <div className="w-full">
+              <h2 className="text-lg font-semibold">实例目录</h2>
+              <p className="text-sm text-default-500">
+                左侧统一登记与筛选实例，右侧只操作当前选中的环境，避免多环境并排混乱。
+              </p>
+            </div>
+            <Input
+              value={searchKeyword}
+              onValueChange={setSearchKeyword}
+              placeholder="按名称、主机标识、域名或账号筛选"
+            />
+          </CardHeader>
+          <CardBody className="space-y-3">
+            {filteredInstances.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                {instances.length === 0 ? '还没有登记任何 x-ui 实例。先新增一个测试实例。' : '没有匹配的实例。'}
+              </div>
+            ) : (
+              filteredInstances.map((instance) => {
+                const selected = instance.id === selectedInstanceId;
+                const syncChip = getStatusChip(instance.lastSyncStatus);
+                const testChip = getStatusChip(instance.lastTestStatus);
+                const modeMeta = getManagementModeMeta(instance.managementMode);
 
-              return (
-                <Card
-                  key={instance.id}
-                  className={`border transition-all ${selected ? 'border-primary shadow-lg shadow-primary/10' : 'border-divider/80'}`}
-                >
-                  <CardHeader className="flex flex-col items-start gap-3">
-                    <div className="flex w-full items-start justify-between gap-3">
+                return (
+                  <button
+                    type="button"
+                    key={instance.id}
+                    onClick={() => setSelectedInstanceId(instance.id)}
+                    className={`w-full rounded-3xl border p-4 text-left transition-all ${
+                      selected
+                        ? 'border-primary bg-primary-50/70 shadow-lg shadow-primary/10'
+                        : 'border-divider/80 bg-content1 hover:border-primary/40 hover:bg-default-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedInstanceId(instance.id)}
-                          className="text-left"
-                        >
-                          <h2 className="truncate text-lg font-semibold">{instance.name}</h2>
-                        </button>
-                        <p className="truncate text-sm text-default-500">{instance.baseUrl}{instance.webBasePath}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-base font-semibold">{instance.name}</p>
+                          {instance.hostLabel ? (
+                            <Chip size="sm" variant="flat">{instance.hostLabel}</Chip>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 truncate text-xs text-default-500">{buildInstanceAddress(instance)}</p>
                       </div>
-                      <Chip color={instance.syncEnabled === 1 ? 'success' : 'default'} variant="flat">
-                        {instance.syncEnabled === 1 ? '自动同步' : '手动同步'}
+                      <Chip size="sm" color={selected ? 'primary' : 'default'} variant="flat">
+                        {selected ? '当前实例' : '查看'}
                       </Chip>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Chip size="sm" variant="flat">{instance.managementMode}</Chip>
-                      <Chip size="sm" variant="flat">{instance.username}</Chip>
-                      {instance.hostLabel ? <Chip size="sm" variant="flat">{instance.hostLabel}</Chip> : null}
-                    </div>
-                  </CardHeader>
-                  <CardBody className="space-y-4 pt-0">
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-2xl bg-default-100/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.16em] text-default-400">入站</p>
-                        <p className="mt-1 text-xl font-semibold">{instance.inboundCount}</p>
-                      </div>
-                      <div className="rounded-2xl bg-default-100/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.16em] text-default-400">客户端</p>
-                        <p className="mt-1 text-xl font-semibold">{instance.clientCount}</p>
-                      </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Chip size="sm" color={instance.syncEnabled === 1 ? 'success' : 'default'} variant="flat">
+                        {instance.syncEnabled === 1 ? '自动同步' : '手动同步'}
+                      </Chip>
+                      <Chip size="sm" variant="flat">{modeMeta.label}</Chip>
+                      <Chip size="sm" color={instance.passwordConfigured ? 'success' : 'danger'} variant="flat">
+                        {instance.passwordConfigured ? '密码已配置' : '缺少密码'}
+                      </Chip>
+                      {instance.loginSecretConfigured ? (
+                        <Chip size="sm" color="secondary" variant="flat">Secret Token 已配置</Chip>
+                      ) : null}
                     </div>
 
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-default-500">测试状态</span>
-                        <Chip size="sm" color={testChip.color} variant="flat">{testChip.text}</Chip>
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="rounded-2xl bg-default-100/80 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">入站</p>
+                        <p className="mt-1 text-lg font-semibold">{instance.inboundCount}</p>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-default-500">同步状态</span>
-                        <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
+                      <div className="rounded-2xl bg-default-100/80 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">客户端</p>
+                        <p className="mt-1 text-lg font-semibold">{instance.clientCount}</p>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-default-500">凭据状态</span>
-                        <Chip size="sm" color={instance.passwordConfigured ? 'success' : 'danger'} variant="flat">
-                          {instance.passwordConfigured ? '已配置' : '缺失'}
-                        </Chip>
+                      <div className="rounded-2xl bg-default-100/80 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">测试</p>
+                        <Chip size="sm" color={testChip.color} variant="flat" className="mt-1">{testChip.text}</Chip>
+                      </div>
+                      <div className="rounded-2xl bg-default-100/80 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">同步</p>
+                        <Chip size="sm" color={syncChip.color} variant="flat" className="mt-1">{syncChip.text}</Chip>
                       </div>
                     </div>
-
-                    <div className="space-y-1 text-xs text-default-500">
-                      <p>同步间隔：{instance.syncIntervalMinutes} 分钟</p>
-                      <p>最近测试：{formatDate(instance.lastTestAt)}</p>
-                      <p>最近同步：{formatDate(instance.lastSyncAt)}</p>
-                      <p>最近流量上报：{formatDate(instance.lastTrafficPushAt)}</p>
-                      <p className="break-all">上报地址：{callbackUrl}</p>
-                    </div>
-
-                    {(instance.lastSyncError || instance.lastTestError) ? (
-                      <div className="rounded-2xl border border-warning/20 bg-warning-50/60 p-3 text-xs text-warning-700">
-                        {instance.lastSyncError || instance.lastTestError}
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="primary"
-                        onPress={() => setSelectedInstanceId(instance.id)}
-                      >
-                        查看快照
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="secondary"
-                        isLoading={actionLoadingId === instance.id}
-                        onPress={() => handleTest(instance)}
-                      >
-                        测试连接
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="success"
-                        isLoading={actionLoadingId === instance.id}
-                        onPress={() => handleSync(instance)}
-                      >
-                        立即同步
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        onPress={() => openEditModal(instance)}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        color="danger"
-                        onPress={() => openDeleteModal(instance)}
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </CardBody>
-                </Card>
-              );
-            })
-          )}
-        </div>
+                  </button>
+                );
+              })
+            )}
+          </CardBody>
+        </Card>
 
         <div className="space-y-6">
+          <Card className="border border-divider/80">
+            <CardHeader className="flex flex-col items-start gap-3">
+              {!selectedInstance ? (
+                <div>
+                  <h2 className="text-lg font-semibold">实例概览</h2>
+                  <p className="text-sm text-default-500">请选择一个 x-ui 实例查看详细状态。</p>
+                </div>
+              ) : (
+                <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-lg font-semibold">{selectedInstance.name}</h2>
+                      <Chip size="sm" variant="flat">{getManagementModeMeta(selectedInstance.managementMode).label}</Chip>
+                      <Chip size="sm" color={selectedInstance.syncEnabled === 1 ? 'success' : 'default'} variant="flat">
+                        {selectedInstance.syncEnabled === 1 ? '自动同步' : '手动同步'}
+                      </Chip>
+                    </div>
+                    <p className="mt-1 break-all text-sm text-default-500">{buildInstanceAddress(selectedInstance)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="secondary"
+                      isLoading={actionLoadingId === selectedInstance.id}
+                      onPress={() => handleTest(selectedInstance)}
+                    >
+                      测试连接
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="success"
+                      isLoading={actionLoadingId === selectedInstance.id}
+                      onPress={() => handleSync(selectedInstance)}
+                    >
+                      立即同步
+                    </Button>
+                    <Button size="sm" variant="flat" onPress={() => openEditModal(selectedInstance)}>
+                      编辑
+                    </Button>
+                    <Button size="sm" variant="flat" color="danger" onPress={() => openDeleteModal(selectedInstance)}>
+                      删除
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardHeader>
+            <CardBody>
+              {!selectedInstance ? (
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                  从左侧实例目录选择一个环境后，这里会显示连接方式、凭据状态、上报地址和错误信息。
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-2">
+                    <Chip size="sm" color={getStatusChip(selectedInstance.lastTestStatus).color} variant="flat">
+                      测试：{getStatusChip(selectedInstance.lastTestStatus).text}
+                    </Chip>
+                    <Chip size="sm" color={getStatusChip(selectedInstance.lastSyncStatus).color} variant="flat">
+                      同步：{getStatusChip(selectedInstance.lastSyncStatus).text}
+                    </Chip>
+                    <Chip size="sm" color={selectedInstance.passwordConfigured ? 'success' : 'danger'} variant="flat">
+                      {selectedInstance.passwordConfigured ? '登录密码已配置' : '登录密码缺失'}
+                    </Chip>
+                    <Chip size="sm" color={selectedInstance.loginSecretConfigured ? 'secondary' : 'default'} variant="flat">
+                      {selectedInstance.loginSecretConfigured ? 'Secret Token 已配置' : '未配置 Secret Token'}
+                    </Chip>
+                    <Chip size="sm" color={selectedInstance.allowInsecureTls === 1 ? 'warning' : 'success'} variant="flat">
+                      {selectedInstance.allowInsecureTls === 1 ? '跳过 TLS 校验' : '严格 TLS 校验'}
+                    </Chip>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">连接信息</p>
+                      <div className="mt-3 space-y-2 text-sm">
+                        <p><span className="text-default-500">面板入口：</span><span className="break-all">{buildInstanceAddress(selectedInstance)}</span></p>
+                        <p><span className="text-default-500">登录账号：</span>{selectedInstance.username}</p>
+                        <p><span className="text-default-500">主机标识：</span>{selectedInstance.hostLabel || '-'}</p>
+                        <p><span className="text-default-500">同步策略：</span>{selectedInstance.syncIntervalMinutes} 分钟 / {selectedInstance.syncEnabled === 1 ? '自动' : '手动'}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs uppercase tracking-[0.16em] text-default-400">流量上报地址</p>
+                        <Button size="sm" variant="flat" onPress={copyCallbackUrl}>复制</Button>
+                      </div>
+                      <p className="mt-3 break-all text-sm">{selectedCallbackUrl}</p>
+                      <p className="mt-2 text-xs text-default-500">
+                        仅在管理员界面展示，日志中已做脱敏。把它填到远端 x-ui 的 External Traffic Inform URI 即可接收增量流量上报。
+                      </p>
+                    </div>
+                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">最近活动</p>
+                      <div className="mt-3 space-y-2 text-sm">
+                        <p><span className="text-default-500">最近测试：</span>{formatDate(selectedInstance.lastTestAt)}</p>
+                        <p><span className="text-default-500">最近同步：</span>{formatDate(selectedInstance.lastSyncAt)}</p>
+                        <p><span className="text-default-500">最近流量上报：</span>{formatDate(selectedInstance.lastTrafficPushAt)}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">接入备注</p>
+                      <p className="mt-3 text-sm text-default-700">{selectedInstance.remark || '未填写备注'}</p>
+                      <p className="mt-2 text-xs text-default-500">{getManagementModeMeta(selectedInstance.managementMode).description}</p>
+                    </div>
+                  </div>
+
+                  {(selectedInstance.lastSyncError || selectedInstance.lastTestError) ? (
+                    <div className="rounded-3xl border border-warning/20 bg-warning-50/70 p-4 text-sm text-warning-700">
+                      <p className="font-medium">最近错误</p>
+                      <p className="mt-2 break-all">{selectedInstance.lastSyncError || selectedInstance.lastTestError}</p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
           <Card className="border border-divider/80">
             <CardHeader className="flex flex-col items-start gap-2">
               <div className="flex w-full items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">已同步入站节点</h2>
                   <p className="text-sm text-default-500">
-                    当前展示 Flux 已保存的远端快照。后续写回和分类管理都将基于这层数据。
+                    当前展示 Flux 保存的远端入站快照。节点新增、修改、删除会在同步时做 diff 并更新这里的数据。
                   </p>
                 </div>
                 {detailLoading ? <Spinner size="sm" /> : null}
@@ -614,7 +765,7 @@ export default function XuiPage() {
             <CardHeader className="flex flex-col items-start gap-2">
               <h2 className="text-lg font-semibold">已同步客户端</h2>
               <p className="text-sm text-default-500">
-                第一阶段只保存管理所需的脱敏元数据和流量统计，不保存远端客户端的 UUID / 密码等业务凭据。
+                第一阶段只保存纳管所需的脱敏元数据和流量统计，不向前端返回远端客户端的 UUID、密码等业务凭据。
               </p>
             </CardHeader>
             <CardBody>
@@ -669,10 +820,20 @@ export default function XuiPage() {
         </div>
       </div>
 
-      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="3xl" scrollBehavior="inside">
+      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="4xl" scrollBehavior="inside">
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑 X-UI 实例' : '新增 X-UI 实例'}</ModalHeader>
           <ModalBody>
+            <div className="rounded-3xl border border-primary/20 bg-primary-50/60 p-4 text-sm text-primary-700">
+              <p className="font-medium">接入说明</p>
+              <p className="mt-2">
+                可以直接粘贴完整登录地址，例如 <code>http://host/random/panel/</code>。后端会优先从完整地址里解析真实 Base Path，不再要求手工把 <code>/panel/</code> 改写成根路径。
+              </p>
+              <p className="mt-2">
+                如果远端是旧版 x-ui 且启用了 Secret Token，请把 Secret Token 一并录入。Flux 只在服务端保存加密后的凭据，列表与详情接口不会回传明文。
+              </p>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <Input
                 label="实例名称"
@@ -685,7 +846,7 @@ export default function XuiPage() {
               />
               <Input
                 label="实例地址"
-                placeholder="https://panel.example.com"
+                placeholder="可直接粘贴完整登录地址，例如 http://host/random/panel/"
                 value={form.baseUrl}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, baseUrl: value }))}
                 isInvalid={!!errors.baseUrl}
@@ -694,13 +855,13 @@ export default function XuiPage() {
               />
               <Input
                 label="Web Base Path"
-                placeholder="/ 或 /random-path/"
+                placeholder="可留空；若手填，示例为 / 或 /random/"
                 value={form.webBasePath}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, webBasePath: value }))}
               />
               <Input
                 label="登录用户名"
-                placeholder="建议专门给 Flux 的服务账号"
+                placeholder="建议专门给 Flux 的同步账号"
                 value={form.username}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, username: value }))}
                 isInvalid={!!errors.username}
@@ -718,22 +879,18 @@ export default function XuiPage() {
                 isRequired={!isEdit}
               />
               <Input
+                label={isEdit ? 'Secret Token（留空则保持不变）' : 'Secret Token（可选）'}
+                placeholder="仅旧版 x-ui 启用了 Secret Token 时填写"
+                type="password"
+                value={form.loginSecret}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, loginSecret: value }))}
+              />
+              <Input
                 label="主机标识"
                 placeholder="例如 HK-VPS-01"
                 value={form.hostLabel}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, hostLabel: value }))}
               />
-              <Select
-                label="管理模式"
-                selectedKeys={[form.managementMode]}
-                onSelectionChange={(keys) => setForm((prev) => ({ ...prev, managementMode: Array.from(keys)[0] as string }))}
-              >
-                {MANAGEMENT_MODES.map((item) => (
-                  <SelectItem key={item.key}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </Select>
               <Input
                 label="同步间隔（分钟）"
                 type="number"
@@ -743,6 +900,18 @@ export default function XuiPage() {
                 errorMessage={errors.syncIntervalMinutes}
               />
             </div>
+
+            <Select
+              label="管理模式"
+              selectedKeys={[form.managementMode]}
+              onSelectionChange={(keys) => setForm((prev) => ({ ...prev, managementMode: Array.from(keys)[0] as string }))}
+            >
+              {MANAGEMENT_MODES.map((item) => (
+                <SelectItem key={item.key} description={item.description}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </Select>
 
             <div className="grid gap-4 md:grid-cols-2">
               <Switch
@@ -761,19 +930,19 @@ export default function XuiPage() {
 
             <Textarea
               label="备注"
-              placeholder="记录该实例的用途、部署区域或接入说明"
+              placeholder="记录该实例用途、部署区域、纳管范围或与 VPS / 探针的绑定说明"
               value={form.remark}
               onValueChange={(value) => setForm((prev) => ({ ...prev, remark: value }))}
               minRows={3}
             />
 
-            <div className="rounded-2xl border border-primary/20 bg-primary-50/60 p-4 text-sm text-primary-700">
-              <p className="font-medium">安全提示</p>
-              <p className="mt-1">
-                Flux 只在服务端保存加密后的 x-ui 登录密码，实例列表和详情接口不会返回明文密码。建议为每台 x-ui 使用专门的同步账号，并关闭该账号的交互式 2FA。
+            <div className="rounded-3xl border border-default-200 bg-default-50/80 p-4 text-sm text-default-600">
+              <p className="font-medium text-default-700">安全提示</p>
+              <p className="mt-2">
+                建议为每台 x-ui 使用专门的同步账号，不要复用日常管理账号。若远端登录启用了 2FA，Flux 会拒绝使用该账号做程序化同步。
               </p>
               <p className="mt-2">
-                路径提示：如果你的面板登录地址是 <code>http://host/panel/</code>，这里的 <code>Web Base Path</code> 应填 <code>/</code>；如果登录地址是 <code>http://host/random/panel/</code>，则应填 <code>/random/</code>，不要填 <code>/panel/</code>。
+                路径兼容说明：<code>/panel/api/inbounds/list</code>、<code>/panel/api/inbounds/</code> 与旧版 <code>/xui/API/inbounds/</code> 都会由后端自动探测，不再要求你手工切换兼容模式。
               </p>
             </div>
           </ModalBody>

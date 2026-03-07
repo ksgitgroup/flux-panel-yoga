@@ -15,6 +15,10 @@ public class XuiSyncResultDto {
 
     private Integer remoteClientCount;
 
+    private String apiFlavor;
+
+    private String resolvedBasePath;
+
     private Integer createdInboundCount;
 
     private Integer updatedInboundCount;

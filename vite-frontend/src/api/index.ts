@@ -53,6 +53,7 @@ export interface XuiInstance {
   allowInsecureTls: number;
   remark?: string | null;
   passwordConfigured: boolean;
+  loginSecretConfigured: boolean;
   trafficCallbackPath: string;
   lastSyncAt?: number | null;
   lastSyncStatus?: string | null;
@@ -123,6 +124,8 @@ export interface XuiSyncResult {
   trigger: string;
   remoteInboundCount: number;
   remoteClientCount: number;
+  apiFlavor?: string | null;
+  resolvedBasePath?: string | null;
   createdInboundCount?: number;
   updatedInboundCount?: number;
   deletedInboundCount?: number;
@@ -246,5 +249,13 @@ export const getXuiDetail = (id: number) => Network.post<XuiInstanceDetail>("/xu
 export const createXuiInstance = (data: any) => Network.post<XuiInstance>("/xui/create", data);
 export const updateXuiInstance = (data: any) => Network.post<XuiInstance>("/xui/update", data);
 export const deleteXuiInstance = (id: number) => Network.post("/xui/delete", { id });
-export const testXuiInstance = (id: number) => Network.post<{ instanceId: number; instanceName: string; remoteInboundCount: number; remoteClientCount: number; message: string }>("/xui/test", { id });
+export const testXuiInstance = (id: number) => Network.post<{
+  instanceId: number;
+  instanceName: string;
+  remoteInboundCount: number;
+  remoteClientCount: number;
+  apiFlavor?: string | null;
+  resolvedBasePath?: string | null;
+  message: string;
+}>("/xui/test", { id });
 export const syncXuiInstance = (id: number) => Network.post<XuiSyncResult>("/xui/sync", { id });

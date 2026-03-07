@@ -222,20 +222,25 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     }
 
     private void syncKomari(MonitorInstance instance) {
-        // 1. Fetch node list from komari API
-        String clientsJson = httpGet(instance, "/api/clients", instance.getAllowInsecureTls());
+        // 1. Fetch node list from komari admin API (returns full data including IP/version)
+        String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
         if (clientsJson == null) {
             throw new RuntimeException("Failed to fetch clients from komari");
         }
 
-        JSONObject clientsResponse = JSON.parseObject(clientsJson);
+        // /api/admin/client/list returns raw JSON array: [{...}, ...]
+        // Try parsing as array first, then as object with "data" wrapper
         JSONArray clients;
-        if (clientsResponse.containsKey("data")) {
-            clients = clientsResponse.getJSONArray("data");
-        } else if (clientsResponse.containsKey("clients")) {
-            clients = clientsResponse.getJSONArray("clients");
+        String trimmed = clientsJson.trim();
+        if (trimmed.startsWith("[")) {
+            clients = JSON.parseArray(trimmed);
         } else {
-            clients = JSON.parseArray(clientsJson);
+            JSONObject clientsResponse = JSON.parseObject(trimmed);
+            if (clientsResponse.containsKey("data")) {
+                clients = clientsResponse.getJSONArray("data");
+            } else {
+                clients = new JSONArray();
+            }
         }
 
         if (clients == null) {

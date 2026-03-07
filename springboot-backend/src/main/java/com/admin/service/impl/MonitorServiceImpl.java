@@ -2,9 +2,11 @@ package com.admin.service.impl;
 
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
+import com.admin.entity.AssetHost;
 import com.admin.entity.MonitorInstance;
 import com.admin.entity.MonitorMetricLatest;
 import com.admin.entity.MonitorNodeSnapshot;
+import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.MonitorInstanceMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
 import com.admin.mapper.MonitorNodeSnapshotMapper;
@@ -18,7 +20,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.ssl.SSLContexts;
@@ -51,6 +55,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private MonitorMetricLatestMapper monitorMetricLatestMapper;
+
+    @Resource
+    private AssetHostMapper assetHostMapper;
 
     // ==================== CRUD ====================
 
@@ -286,7 +293,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 monitorNodeSnapshotMapper.updateById(existing);
             }
 
-            // 2. Fetch latest metrics for each online node
+            // 2. Auto-create asset for new nodes
+            if (existing.getAssetId() == null) {
+                autoCreateAssetFromNode(existing, instance);
+            }
+
+            // 3. Fetch latest metrics for each online node
             if (isOnline) {
                 syncKomariNodeMetrics(instance, existing, uuid);
             }
@@ -375,6 +387,108 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return false;
     }
 
+    // ==================== Provision Agent (Komari Admin API) ====================
+
+    @Override
+    public R provisionAgent(MonitorProvisionDto dto) {
+        MonitorInstance instance = getRequiredInstance(dto.getInstanceId());
+        if (!TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            return R.err("仅支持 Komari 类型探针实例");
+        }
+        if (!StringUtils.hasText(instance.getApiKey())) {
+            return R.err("该探针实例未配置 API Key，无法创建客户端");
+        }
+
+        try {
+            // Call Komari admin API to create client
+            String bodyJson = dto.getName() != null ? "{\"name\":\"" + dto.getName().trim() + "\"}" : "{}";
+            String responseJson = httpPost(instance, "/api/admin/client/add", bodyJson, instance.getAllowInsecureTls());
+            JSONObject resp = JSON.parseObject(responseJson);
+
+            if (!"success".equals(resp.getString("status"))) {
+                return R.err("Komari 返回错误: " + resp.getString("message"));
+            }
+
+            String uuid = resp.getString("uuid");
+            String token = resp.getString("token");
+            String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+
+            // Build install command
+            String installCmd = String.format(
+                    "curl -fsSL https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | " +
+                    "bash -s -- --endpoint %s --token %s", baseUrl, token);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("uuid", uuid);
+            result.put("token", token);
+            result.put("instanceId", instance.getId());
+            result.put("instanceName", instance.getName());
+            result.put("endpoint", baseUrl);
+            result.put("installCommand", installCmd);
+
+            return R.ok(result);
+        } catch (Exception e) {
+            log.error("[MonitorProvision] Failed to provision agent on {}: {}", instance.getName(), e.getMessage());
+            return R.err("创建探针客户端失败: " + e.getMessage());
+        }
+    }
+
+    // ==================== Auto-Create Asset from Probe Node ====================
+
+    private void autoCreateAssetFromNode(MonitorNodeSnapshot node, MonitorInstance instance) {
+        // Skip if node already linked to an asset
+        if (node.getAssetId() != null) return;
+
+        // Skip if an asset already references this node UUID
+        int existingCount = assetHostMapper.selectCount(new LambdaQueryWrapper<AssetHost>()
+                .eq(AssetHost::getMonitorNodeUuid, node.getRemoteNodeUuid())
+                .eq(AssetHost::getStatus, 0)).intValue();
+        if (existingCount > 0) return;
+
+        // Skip if name already taken
+        String assetName = StringUtils.hasText(node.getName()) ? node.getName() : node.getIp();
+        if (!StringUtils.hasText(assetName)) {
+            assetName = node.getRemoteNodeUuid().substring(0, 8);
+        }
+        int nameCount = assetHostMapper.selectCount(new LambdaQueryWrapper<AssetHost>()
+                .eq(AssetHost::getName, assetName)
+                .eq(AssetHost::getStatus, 0)).intValue();
+        if (nameCount > 0) {
+            assetName = assetName + "-" + node.getRemoteNodeUuid().substring(0, 4);
+        }
+
+        long now = System.currentTimeMillis();
+        AssetHost asset = new AssetHost();
+        asset.setName(assetName);
+        asset.setPrimaryIp(node.getIp());
+        asset.setIpv6(node.getIpv6());
+        asset.setOs(node.getOs());
+        asset.setCpuCores(node.getCpuCores());
+        asset.setRegion(node.getRegion());
+        asset.setMonitorNodeUuid(node.getRemoteNodeUuid());
+        asset.setCreatedTime(now);
+        asset.setUpdatedTime(now);
+        asset.setStatus(0);
+
+        // Convert memTotal (bytes) -> MB, diskTotal (bytes) -> GB
+        if (node.getMemTotal() != null && node.getMemTotal() > 0) {
+            asset.setMemTotalMb((int) (node.getMemTotal() / (1024 * 1024)));
+        }
+        if (node.getDiskTotal() != null && node.getDiskTotal() > 0) {
+            asset.setDiskTotalGb((int) (node.getDiskTotal() / (1024L * 1024 * 1024)));
+        }
+
+        try {
+            assetHostMapper.insert(asset);
+            // Link back
+            node.setAssetId(asset.getId());
+            monitorNodeSnapshotMapper.updateById(node);
+            log.info("[MonitorSync] Auto-created asset '{}' from probe node {}", assetName, node.getRemoteNodeUuid());
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Failed to auto-create asset for node {}: {}", node.getRemoteNodeUuid(), e.getMessage());
+        }
+    }
+
     // ==================== HTTP Client ====================
 
     private String httpGet(MonitorInstance instance, String path, Integer allowInsecureTls) {
@@ -391,6 +505,40 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 request.setHeader("Authorization", "Bearer " + instance.getApiKey());
             }
             request.setHeader("Accept", "application/json");
+
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String httpPost(MonitorInstance instance, String path, String jsonBody, Integer allowInsecureTls) {
+        String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
+        try {
+            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+            HttpPost request = new HttpPost(url);
+            request.setConfig(RequestConfig.custom()
+                    .setConnectTimeout(10_000)
+                    .setSocketTimeout(15_000)
+                    .build());
+
+            if (StringUtils.hasText(instance.getApiKey())) {
+                request.setHeader("Authorization", "Bearer " + instance.getApiKey());
+            }
+            request.setHeader("Accept", "application/json");
+            request.setHeader("Content-Type", "application/json");
+            if (jsonBody != null) {
+                request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+            }
 
             try (CloseableHttpResponse response = client.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();

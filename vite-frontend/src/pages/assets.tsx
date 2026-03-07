@@ -28,13 +28,17 @@ import toast from 'react-hot-toast';
 import {
   AssetHost,
   AssetHostDetail,
+  MonitorInstance,
   MonitorNodeSnapshot,
+  MonitorProvisionResult,
   XuiInstance,
   createAsset,
   deleteAsset,
   getAssetDetail,
   getAssetList,
+  getMonitorList,
   getMonitorUnboundNodes,
+  provisionMonitorAgent,
   updateAsset
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
@@ -173,9 +177,17 @@ export default function AssetsPage() {
   const [assetToDelete, setAssetToDelete] = useState<AssetHost | null>(null);
   const [unboundNodes, setUnboundNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [importLoading, setImportLoading] = useState(false);
+  // Provision (添加服务器)
+  const [monitorInstances, setMonitorInstances] = useState<MonitorInstance[]>([]);
+  const [provisionStep, setProvisionStep] = useState<'select' | 'result'>('select');
+  const [provisionName, setProvisionName] = useState('');
+  const [provisionInstanceId, setProvisionInstanceId] = useState<string>('');
+  const [provisionLoading, setProvisionLoading] = useState(false);
+  const [provisionResult, setProvisionResult] = useState<MonitorProvisionResult | null>(null);
 
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
 
   useEffect(() => { void loadAssets(); }, []);
   useEffect(() => {
@@ -259,6 +271,40 @@ export default function AssetsPage() {
       monitorNodeUuid: node.remoteNodeUuid || p.monitorNodeUuid,
     }));
     toast.success(`已导入探针节点: ${node.name || node.ip}`);
+  };
+
+  // Provision flow
+  const openProvisionModal = async () => {
+    setProvisionStep('select');
+    setProvisionName('');
+    setProvisionInstanceId('');
+    setProvisionResult(null);
+    onProvisionOpen();
+    try {
+      const res = await getMonitorList();
+      if (res.code === 0) setMonitorInstances(res.data || []);
+    } catch { /* ignore */ }
+  };
+
+  const handleProvision = async () => {
+    const iid = parseInt(provisionInstanceId);
+    if (!iid) { toast.error('请选择探针实例'); return; }
+    setProvisionLoading(true);
+    try {
+      const res = await provisionMonitorAgent(iid, provisionName || undefined);
+      if (res.code === 0 && res.data) {
+        setProvisionResult(res.data);
+        setProvisionStep('result');
+        toast.success('客户端创建成功');
+      } else {
+        toast.error(res.msg || '创建失败');
+      }
+    } catch { toast.error('请求失败'); }
+    finally { setProvisionLoading(false); }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => toast.success('已复制到剪贴板'));
   };
 
   const openEditModal = (asset: AssetHost) => {
@@ -364,7 +410,10 @@ export default function AssetsPage() {
             每台服务器作为一个资产，自动关联探针数据、X-UI 实例、协议节点和转发规则。
           </p>
         </div>
-        <Button color="primary" onPress={openCreateModal}>新建资产</Button>
+        <div className="flex gap-2">
+          <Button color="primary" onPress={openProvisionModal}>添加服务器</Button>
+          <Button variant="flat" onPress={openCreateModal}>手动新建</Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -413,7 +462,7 @@ export default function AssetsPage() {
           <CardBody className="space-y-3">
             {filteredAssets.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                {assets.length === 0 ? '暂无资产，点击「新建资产」添加' : '没有匹配的结果'}
+                {assets.length === 0 ? '暂无资产，点击「添加服务器」开始' : '没有匹配的结果'}
               </div>
             ) : (
               filteredAssets.map((asset) => {
@@ -592,11 +641,11 @@ export default function AssetsPage() {
             <CardBody>
               {!detail || !detail.monitorNodes || detail.monitorNodes.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500 text-center">
-                  暂无关联探针。{' '}
+                  暂无关联探针。通过「添加服务器」一键部署探针，或前往
                   <span className="text-primary cursor-pointer hover:underline" onClick={() => navigate('/probe')}>
-                    前往探针管理
-                  </span>{' '}
-                  添加并同步 Komari 实例，然后将节点绑定到资产。
+                    探针管理
+                  </span>
+                  手动同步。
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -629,35 +678,35 @@ export default function AssetsPage() {
                             </div>
                             <div>
                               <div className="flex justify-between text-xs text-default-500">
-                                <span>Memory</span><span>{formatFlow(m.memUsed)} / {formatFlow(m.memTotal)}</span>
+                                <span>内存</span><span>{formatFlow(m.memUsed)} / {formatFlow(m.memTotal)}</span>
                               </div>
                               <Progress size="sm" value={memPct} color={memPct > 85 ? 'danger' : 'primary'} className="mt-1" />
                             </div>
                             <div>
                               <div className="flex justify-between text-xs text-default-500">
-                                <span>Disk</span><span>{formatFlow(m.diskUsed)} / {formatFlow(m.diskTotal)}</span>
+                                <span>硬盘</span><span>{formatFlow(m.diskUsed)} / {formatFlow(m.diskTotal)}</span>
                               </div>
                               <Progress size="sm" value={diskPct} color={diskPct > 90 ? 'danger' : 'primary'} className="mt-1" />
                             </div>
                             <div className="grid grid-cols-3 gap-2 text-center">
                               <div className="rounded-xl bg-content1 p-2">
-                                <p className="text-[10px] text-default-400">NET IN</p>
+                                <p className="text-[10px] text-default-400">下行</p>
                                 <p className="text-xs font-semibold">{formatSpeed(m.netIn)}</p>
                               </div>
                               <div className="rounded-xl bg-content1 p-2">
-                                <p className="text-[10px] text-default-400">NET OUT</p>
+                                <p className="text-[10px] text-default-400">上行</p>
                                 <p className="text-xs font-semibold">{formatSpeed(m.netOut)}</p>
                               </div>
                               <div className="rounded-xl bg-content1 p-2">
-                                <p className="text-[10px] text-default-400">UPTIME</p>
+                                <p className="text-[10px] text-default-400">运行</p>
                                 <p className="text-xs font-semibold">{formatUptime(m.uptime)}</p>
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-3 text-xs text-default-500">
-                              <span>Load: {m.load1?.toFixed(2) || '-'}</span>
-                              <span>Conn: {m.connections || 0}</span>
-                              <span>Proc: {m.processCount || 0}</span>
-                              <span>Sampled: {formatDate(m.sampledAt)}</span>
+                              <span>负载: {m.load1?.toFixed(2) || '-'}</span>
+                              <span>连接: {m.connections || 0}</span>
+                              <span>进程: {m.processCount || 0}</span>
+                              <span>采样: {formatDate(m.sampledAt)}</span>
                             </div>
                           </div>
                         )}
@@ -959,6 +1008,115 @@ export default function AssetsPage() {
           <ModalFooter>
             <Button variant="flat" onPress={onDeleteClose}>取消</Button>
             <Button color="danger" isLoading={actionLoadingId === assetToDelete?.id} onPress={handleDelete}>删除</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Provision Modal - 添加服务器 */}
+      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => !open && onProvisionClose()} size="2xl">
+        <ModalContent>
+          <ModalHeader>添加服务器</ModalHeader>
+          <ModalBody>
+            {provisionStep === 'select' ? (
+              <div className="space-y-4">
+                <p className="text-sm text-default-500">
+                  选择一个已配置的探针实例，系统将在 Komari 上创建客户端并生成安装命令。
+                  将命令粘贴到 VPS 执行后，探针会自动上报数据，同步后自动创建服务器资产。
+                </p>
+                <Select
+                  label="探针实例"
+                  placeholder="选择 Komari 实例"
+                  selectedKeys={provisionInstanceId ? [provisionInstanceId] : []}
+                  onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
+                >
+                  {monitorInstances.map(inst => (
+                    <SelectItem key={inst.id.toString()}>
+                      {inst.name} ({inst.baseUrl})
+                    </SelectItem>
+                  ))}
+                </Select>
+                <Input
+                  label="服务器名称（可选）"
+                  placeholder="例如 HK-VPS-01，留空自动生成"
+                  value={provisionName}
+                  onValueChange={setProvisionName}
+                />
+                {monitorInstances.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
+                    暂无探针实例。请先在
+                    <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
+                      {' '}探针管理{' '}
+                    </span>
+                    中添加 Komari 实例。
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-success-200 bg-success-50 p-4 dark:border-success-800 dark:bg-success-950">
+                  <p className="text-sm font-medium text-success-700 dark:text-success-400">客户端创建成功</p>
+                  <p className="mt-1 text-xs text-success-600 dark:text-success-500">
+                    探针: {provisionResult?.instanceName} / UUID: {provisionResult?.uuid?.slice(0, 8)}...
+                  </p>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-sm font-medium">一键安装命令</p>
+                  <p className="mb-2 text-xs text-default-500">复制以下命令到 VPS 上以 root 执行：</p>
+                  <div className="relative rounded-lg bg-default-100 p-3 dark:bg-default-50">
+                    <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
+                      {provisionResult?.installCommand}
+                    </code>
+                    <Button
+                      size="sm"
+                      color="primary"
+                      variant="flat"
+                      className="absolute right-2 top-2"
+                      onPress={() => provisionResult && copyToClipboard(provisionResult.installCommand)}
+                    >
+                      复制
+                    </Button>
+                  </div>
+                </div>
+
+                <Accordion variant="light">
+                  <AccordionItem key="manual" title="手动安装参数" classNames={{ title: "text-xs text-default-400" }}>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="text-default-500 min-w-[70px]">Endpoint:</span>
+                        <code className="flex-1 rounded bg-default-100 px-2 py-1">{provisionResult?.endpoint}</code>
+                        <Button size="sm" variant="light" onPress={() => provisionResult && copyToClipboard(provisionResult.endpoint)}>复制</Button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-default-500 min-w-[70px]">Token:</span>
+                        <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{provisionResult?.token}</code>
+                        <Button size="sm" variant="light" onPress={() => provisionResult && copyToClipboard(provisionResult.token)}>复制</Button>
+                      </div>
+                    </div>
+                  </AccordionItem>
+                </Accordion>
+
+                <p className="text-xs text-default-400">
+                  安装完成后，前往探针管理点击「同步」，系统将自动发现新节点并创建服务器资产。
+                </p>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            {provisionStep === 'select' ? (
+              <>
+                <Button variant="flat" onPress={onProvisionClose}>取消</Button>
+                <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
+                  isDisabled={!provisionInstanceId}>
+                  创建并生成命令
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="flat" onPress={() => setProvisionStep('select')}>再添加一台</Button>
+                <Button color="primary" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
+              </>
+            )}
           </ModalFooter>
         </ModalContent>
       </Modal>

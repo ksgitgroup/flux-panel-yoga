@@ -480,3 +480,14 @@ export const deleteMonitorInstance = (id: number) => Network.post("/monitor/dele
 export const testMonitorInstance = (id: number) => Network.post("/monitor/test", { id });
 export const syncMonitorInstance = (id: number) => Network.post("/monitor/sync", { id });
 export const getMonitorUnboundNodes = () => Network.post<MonitorNodeSnapshot[]>("/monitor/unbound-nodes");
+
+export interface MonitorProvisionResult {
+  uuid: string;
+  token: string;
+  instanceId: number;
+  instanceName: string;
+  endpoint: string;
+  installCommand: string;
+}
+export const provisionMonitorAgent = (instanceId: number, name?: string) =>
+  Network.post<MonitorProvisionResult>("/monitor/provision", { instanceId, name });

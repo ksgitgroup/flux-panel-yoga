@@ -28,6 +28,8 @@ import {
   XuiInboundSnapshot,
   XuiInstance,
   XuiInstanceDetail,
+  XuiProtocolSummary,
+  XuiServerStatus,
   createXuiInstance,
   deleteXuiInstance,
   getXuiDetail,
@@ -88,6 +90,34 @@ const formatFlow = (value?: number | null) => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 };
 
+const formatPercent = (value?: number | null) => {
+  if (value === undefined || value === null || Number.isNaN(value)) return '-';
+  return `${value.toFixed(2)}%`;
+};
+
+const formatUsage = (used?: number | null, total?: number | null) => {
+  if (!total) {
+    return used ? formatFlow(used) : '-';
+  }
+  return `${formatFlow(used)} / ${formatFlow(total)}`;
+};
+
+const formatUptime = (value?: number | null) => {
+  if (!value) return '-';
+  const seconds = Math.max(0, Math.floor(value));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+};
+
+const formatLoadAverage = (loads?: number[] | null) => {
+  if (!loads || loads.length === 0) return '-';
+  return loads.map((value) => value.toFixed(2)).join(' / ');
+};
+
 const getStatusChip = (status?: string | null) => {
   switch (status) {
     case 'success':
@@ -117,6 +147,80 @@ const buildInstanceAddress = (instance: Pick<XuiInstance, 'baseUrl' | 'webBasePa
   `${instance.baseUrl}${instance.webBasePath || '/'}`;
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
+
+const buildProtocolSummaryFallback = (inbounds: XuiInboundSnapshot[]): XuiProtocolSummary[] => {
+  if (!inbounds.length) {
+    return [];
+  }
+  const summaryMap = new Map<string, XuiProtocolSummary>();
+  const portMap = new Map<string, Set<string>>();
+  const transportMap = new Map<string, Set<string>>();
+
+  inbounds.forEach((inbound) => {
+    const protocol = normalizeKeyword(inbound.protocol) || 'unknown';
+    if (!summaryMap.has(protocol)) {
+      summaryMap.set(protocol, {
+        protocol,
+        inboundCount: 0,
+        activeInboundCount: 0,
+        enabledInboundCount: 0,
+        disabledInboundCount: 0,
+        deletedInboundCount: 0,
+        clientCount: 0,
+        onlineClientCount: 0,
+        up: 0,
+        down: 0,
+        allTime: 0,
+        portSummary: '-',
+        transportSummary: '-',
+      });
+    }
+
+    const summary = summaryMap.get(protocol)!;
+    summary.inboundCount += 1;
+    if (inbound.status === 1) {
+      summary.deletedInboundCount += 1;
+    } else {
+      summary.activeInboundCount += 1;
+      if (inbound.enable === 0) {
+        summary.disabledInboundCount += 1;
+      } else {
+        summary.enabledInboundCount += 1;
+      }
+    }
+    summary.clientCount += inbound.clientCount || 0;
+    summary.onlineClientCount += inbound.onlineClientCount || 0;
+    summary.up = (summary.up || 0) + (inbound.up || 0);
+    summary.down = (summary.down || 0) + (inbound.down || 0);
+    summary.allTime = (summary.allTime || 0) + (inbound.allTime || 0);
+
+    if (inbound.port) {
+      const value = inbound.listen ? `${inbound.listen}:${inbound.port}` : String(inbound.port);
+      if (!portMap.has(protocol)) {
+        portMap.set(protocol, new Set<string>());
+      }
+      portMap.get(protocol)!.add(value);
+    }
+    if (inbound.transportSummary && inbound.transportSummary !== '-') {
+      if (!transportMap.has(protocol)) {
+        transportMap.set(protocol, new Set<string>());
+      }
+      transportMap.get(protocol)!.add(inbound.transportSummary);
+    }
+  });
+
+  return Array.from(summaryMap.values())
+    .map((summary) => {
+      const ports = Array.from(portMap.get(summary.protocol) || []);
+      const transports = Array.from(transportMap.get(summary.protocol) || []);
+      return {
+        ...summary,
+        portSummary: ports.length ? ports.slice(0, 4).join(', ') + (ports.length > 4 ? ` +${ports.length - 4}` : '') : '-',
+        transportSummary: transports.length ? transports.slice(0, 3).join(', ') + (transports.length > 3 ? ` +${transports.length - 3}` : '') : '-',
+      };
+    })
+    .sort((a, b) => (b.allTime || 0) - (a.allTime || 0));
+};
 
 export default function XuiPage() {
   const [loading, setLoading] = useState(true);
@@ -165,6 +269,13 @@ export default function XuiPage() {
     return map;
   }, [detail]);
 
+  const protocolSummaries = useMemo(
+    () => detail?.protocolSummaries?.length ? detail.protocolSummaries : buildProtocolSummaryFallback(detail?.inbounds || []),
+    [detail]
+  );
+
+  const liveServerStatus: XuiServerStatus | null = detail?.serverStatus || null;
+
   const summary = useMemo(() => ({
     totalInstances: instances.length,
     autoSyncInstances: instances.filter((item) => item.syncEnabled === 1).length,
@@ -194,6 +305,18 @@ export default function XuiPage() {
     () => instances.find((instance) => instance.id === selectedInstanceId) || null,
     [instances, selectedInstanceId]
   );
+
+  const selectedLayerSummary = useMemo(() => {
+    if (!selectedInstance) {
+      return null;
+    }
+    return {
+      serverIdentity: liveServerStatus?.publicIpv4 || selectedInstance.hostLabel || '-',
+      protocolCount: protocolSummaries.length,
+      onlineClients: protocolSummaries.reduce((sum, item) => sum + (item.onlineClientCount || 0), 0),
+      dominantProtocol: protocolSummaries[0]?.protocol || '-',
+    };
+  }, [selectedInstance, liveServerStatus, protocolSummaries]);
 
   const selectedCallbackUrl = useMemo(() => {
     if (!selectedInstance) {
@@ -684,12 +807,187 @@ export default function XuiPage() {
                     </div>
                   </div>
 
+                  <div className="grid gap-4 xl:grid-cols-3">
+                    <div className="rounded-3xl border border-divider/80 bg-content1 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">服务器层</p>
+                      <div className="mt-3 space-y-2 text-sm">
+                        <p><span className="text-default-500">资产标识：</span>{selectedInstance.hostLabel || '-'}</p>
+                        <p><span className="text-default-500">公网 IPv4：</span>{liveServerStatus?.publicIpv4 || '-'}</p>
+                        <p><span className="text-default-500">Xray：</span>{liveServerStatus?.xrayState || '-'}{liveServerStatus?.xrayVersion ? ` · ${liveServerStatus.xrayVersion}` : ''}</p>
+                        <p><span className="text-default-500">运行时长：</span>{formatUptime(liveServerStatus?.uptime)}</p>
+                      </div>
+                      <p className="mt-3 text-xs text-default-500">
+                        这一层后续用于绑定 VPS、探针、转发服务和 x-ui 实例，形成统一资产面。
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-divider/80 bg-content1 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">面板层</p>
+                      <div className="mt-3 space-y-2 text-sm">
+                        <p><span className="text-default-500">实例地址：</span><span className="break-all">{buildInstanceAddress(selectedInstance)}</span></p>
+                        <p><span className="text-default-500">同步模式：</span>{selectedInstance.syncEnabled === 1 ? '自动轮询' : '手动同步'}</p>
+                        <p><span className="text-default-500">最近同步：</span>{formatDate(selectedInstance.lastSyncAt)}</p>
+                        <p><span className="text-default-500">最近测试：</span>{formatDate(selectedInstance.lastTestAt)}</p>
+                      </div>
+                      <p className="mt-3 text-xs text-default-500">
+                        这一层保存接入凭据、同步策略、上报地址和写回模式，是统一纳管的控制面。
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-divider/80 bg-content1 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">协议层</p>
+                      <div className="mt-3 space-y-2 text-sm">
+                        <p><span className="text-default-500">协议数量：</span>{selectedLayerSummary?.protocolCount || 0}</p>
+                        <p><span className="text-default-500">主协议：</span>{selectedLayerSummary?.dominantProtocol || '-'}</p>
+                        <p><span className="text-default-500">入站总数：</span>{selectedInstance.inboundCount || 0}</p>
+                        <p><span className="text-default-500">在线客户端：</span>{selectedLayerSummary?.onlineClients || 0}</p>
+                      </div>
+                      <p className="mt-3 text-xs text-default-500">
+                        这一层按协议收敛端口、流量、在线数和传输方式，方便后续和套餐、分类、探针告警联动。
+                      </p>
+                    </div>
+                  </div>
+
                   {(selectedInstance.lastSyncError || selectedInstance.lastTestError) ? (
                     <div className="rounded-3xl border border-warning/20 bg-warning-50/70 p-4 text-sm text-warning-700">
                       <p className="font-medium">最近错误</p>
                       <p className="mt-2 break-all">{selectedInstance.lastSyncError || selectedInstance.lastTestError}</p>
                     </div>
                   ) : null}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card className="border border-divider/80">
+            <CardHeader className="flex flex-col items-start gap-2">
+              <h2 className="text-lg font-semibold">节点监控</h2>
+              <p className="text-sm text-default-500">
+                直接读取远端 x-ui 面板的 server/status，展示 VPS 与 Xray 运行态。这里是后续和探针层合并的起点。
+              </p>
+            </CardHeader>
+            <CardBody>
+              {!selectedInstance ? (
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                  请选择一个 x-ui 实例查看节点监控。
+                </div>
+              ) : detail?.serverStatus ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">网络身份</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">IPv4：</span>{detail.serverStatus.publicIpv4 || '-'}</p>
+                      <p><span className="text-default-500">IPv6：</span>{detail.serverStatus.publicIpv6 || '-'}</p>
+                      <p><span className="text-default-500">TCP / UDP：</span>{detail.serverStatus.tcpCount ?? '-'} / {detail.serverStatus.udpCount ?? '-'}</p>
+                      <p><span className="text-default-500">Xray：</span>{detail.serverStatus.xrayState || '-'}{detail.serverStatus.xrayVersion ? ` · ${detail.serverStatus.xrayVersion}` : ''}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">CPU 与负载</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">CPU 占用：</span>{formatPercent(detail.serverStatus.cpuUsage)}</p>
+                      <p><span className="text-default-500">核心 / 线程：</span>{detail.serverStatus.cpuCores ?? '-'} / {detail.serverStatus.logicalProcessors ?? '-'}</p>
+                      <p><span className="text-default-500">主频：</span>{detail.serverStatus.cpuSpeedMhz ? `${detail.serverStatus.cpuSpeedMhz} MHz` : '-'}</p>
+                      <p><span className="text-default-500">负载：</span>{formatLoadAverage(detail.serverStatus.loads)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">内存与磁盘</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">内存：</span>{formatUsage(detail.serverStatus.memoryUsed, detail.serverStatus.memoryTotal)}</p>
+                      <p><span className="text-default-500">Swap：</span>{formatUsage(detail.serverStatus.swapUsed, detail.serverStatus.swapTotal)}</p>
+                      <p><span className="text-default-500">磁盘：</span>{formatUsage(detail.serverStatus.diskUsed, detail.serverStatus.diskTotal)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">网络速率与累计</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">实时上 / 下：</span>{formatFlow(detail.serverStatus.netIoUp)} / {formatFlow(detail.serverStatus.netIoDown)}</p>
+                      <p><span className="text-default-500">累计发 / 收：</span>{formatFlow(detail.serverStatus.netTrafficSent)} / {formatFlow(detail.serverStatus.netTrafficReceived)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">运行时长</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">系统：</span>{formatUptime(detail.serverStatus.uptime)}</p>
+                      <p><span className="text-default-500">面板进程：</span>{formatUptime(detail.serverStatus.appUptime)}</p>
+                      <p><span className="text-default-500">线程：</span>{detail.serverStatus.appThreads ?? '-'}</p>
+                      <p><span className="text-default-500">面板内存：</span>{formatFlow(detail.serverStatus.appMemory)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">关联视角</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">服务器标识：</span>{selectedInstance.hostLabel || '-'}</p>
+                      <p><span className="text-default-500">当前协议数：</span>{selectedLayerSummary?.protocolCount || 0}</p>
+                      <p><span className="text-default-500">在线客户端：</span>{selectedLayerSummary?.onlineClients || 0}</p>
+                      <p><span className="text-default-500">主协议：</span>{selectedLayerSummary?.dominantProtocol || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                  {detail?.serverStatusError ? `远端节点监控暂时不可用：${detail.serverStatusError}` : '当前还没有可用的节点监控数据。'}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card className="border border-divider/80">
+            <CardHeader className="flex flex-col items-start gap-2">
+              <h2 className="text-lg font-semibold">协议汇总</h2>
+              <p className="text-sm text-default-500">
+                按协议聚合入站数、在线数、流量与端口。后续你要做“服务器 / 面板 / 协议”的整体管理，这一层就是协议目录。
+              </p>
+            </CardHeader>
+            <CardBody>
+              {!selectedInstance ? (
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                  请选择一个 x-ui 实例查看协议汇总。
+                </div>
+              ) : protocolSummaries.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
+                  当前实例还没有同步到协议级快照。
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {protocolSummaries.map((item) => (
+                    <div key={item.protocol} className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-base font-semibold uppercase">{item.protocol}</p>
+                          <p className="mt-1 text-xs text-default-500">{item.transportSummary || '-'}</p>
+                        </div>
+                        <Chip size="sm" color="primary" variant="flat">
+                          {item.inboundCount} 入站
+                        </Chip>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-content1 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">客户端</p>
+                          <p className="mt-1 text-lg font-semibold">{item.clientCount || 0}</p>
+                          <p className="text-xs text-default-500">在线 {item.onlineClientCount || 0}</p>
+                        </div>
+                        <div className="rounded-2xl bg-content1 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-default-400">累计流量</p>
+                          <p className="mt-1 text-lg font-semibold">{formatFlow(item.allTime)}</p>
+                          <p className="text-xs text-default-500">{formatFlow(item.up)} / {formatFlow(item.down)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2 text-sm">
+                        <p><span className="text-default-500">启用 / 停用：</span>{item.enabledInboundCount || 0} / {item.disabledInboundCount || 0}</p>
+                        <p><span className="text-default-500">远端已删：</span>{item.deletedInboundCount || 0}</p>
+                        <p><span className="text-default-500">端口摘要：</span>{item.portSummary || '-'}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardBody>

@@ -67,6 +67,51 @@ export interface XuiInstance {
   clientCount: number;
 }
 
+export interface XuiServerStatus {
+  cpuUsage?: number | null;
+  cpuCores?: number | null;
+  logicalProcessors?: number | null;
+  cpuSpeedMhz?: number | null;
+  memoryUsed?: number | null;
+  memoryTotal?: number | null;
+  swapUsed?: number | null;
+  swapTotal?: number | null;
+  diskUsed?: number | null;
+  diskTotal?: number | null;
+  xrayState?: string | null;
+  xrayErrorMessage?: string | null;
+  xrayVersion?: string | null;
+  uptime?: number | null;
+  loads?: number[] | null;
+  tcpCount?: number | null;
+  udpCount?: number | null;
+  netIoUp?: number | null;
+  netIoDown?: number | null;
+  netTrafficSent?: number | null;
+  netTrafficReceived?: number | null;
+  publicIpv4?: string | null;
+  publicIpv6?: string | null;
+  appThreads?: number | null;
+  appMemory?: number | null;
+  appUptime?: number | null;
+}
+
+export interface XuiProtocolSummary {
+  protocol: string;
+  inboundCount: number;
+  activeInboundCount: number;
+  enabledInboundCount: number;
+  disabledInboundCount: number;
+  deletedInboundCount: number;
+  clientCount: number;
+  onlineClientCount: number;
+  up?: number | null;
+  down?: number | null;
+  allTime?: number | null;
+  portSummary?: string | null;
+  transportSummary?: string | null;
+}
+
 export interface XuiInboundSnapshot {
   id: number;
   instanceId: number;
@@ -114,6 +159,9 @@ export interface XuiClientSnapshot {
 
 export interface XuiInstanceDetail {
   instance: XuiInstance;
+  serverStatus?: XuiServerStatus | null;
+  serverStatusError?: string | null;
+  protocolSummaries?: XuiProtocolSummary[] | null;
   inbounds: XuiInboundSnapshot[];
   clients: XuiClientSnapshot[];
 }

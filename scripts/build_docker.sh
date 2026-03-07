@@ -14,7 +14,7 @@ CRITICAL_SPACE_MB="${CRITICAL_SPACE_MB:-3072}"
 MIN_REQUIRED_SPACE_MB="${MIN_REQUIRED_SPACE_MB:-2048}"
 
 cleanup_on_exit() {
-    bash ./scripts/cleanup_local_artifacts.sh post-build || true
+    bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" post-build || true
 }
 
 read_free_mb() {
@@ -29,14 +29,14 @@ ensure_local_free_space() {
 
     if [ "$free_mb" -lt "$LOW_SPACE_MB" ]; then
         echo "⚠️ 可用空间低于 ${LOW_SPACE_MB}MB，先执行预清理..."
-        bash ./scripts/cleanup_local_artifacts.sh pre-build || true
+        bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" pre-build || true
         free_mb="$(read_free_mb)"
         echo "💽 预清理后可用空间: ${free_mb}MB"
     fi
 
     if [ "$free_mb" -lt "$CRITICAL_SPACE_MB" ]; then
         echo "⚠️ 可用空间仍低于 ${CRITICAL_SPACE_MB}MB，执行深度清理..."
-        bash ./scripts/cleanup_local_artifacts.sh deep-host || true
+        bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" deep-host || true
         free_mb="$(read_free_mb)"
         echo "💽 深度清理后可用空间: ${free_mb}MB"
     fi

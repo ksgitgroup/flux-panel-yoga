@@ -11,7 +11,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 cleanup_on_exit() {
-    bash ./scripts/cleanup_local_artifacts.sh post-ship || true
+    bash "$ROOT_DIR/scripts/cleanup_local_artifacts.sh" post-ship || true
 }
 
 trap cleanup_on_exit EXIT

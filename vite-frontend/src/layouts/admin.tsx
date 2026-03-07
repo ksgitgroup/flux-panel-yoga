@@ -58,6 +58,20 @@ export default function AdminLayout({
       )
     },
     {
+      path: '/xui',
+      label: 'X-UI管理',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 7h16"></path>
+          <path d="M4 12h10"></path>
+          <path d="M4 17h7"></path>
+          <path d="M17 10l3 3-3 3"></path>
+        </svg>
+      ),
+      adminOnly: true
+    },
+    {
       path: '/forward',
       label: '转发管理',
       icon: (
@@ -300,7 +314,7 @@ export default function AdminLayout({
     !item.adminOnly || isAdmin
   );
 
-  const primaryMenuOrder = ['/dashboard', '/portal', '/monitor', '/forward', '/tunnel', '/node'];
+  const primaryMenuOrder = ['/dashboard', '/portal', '/monitor', '/xui', '/forward', '/tunnel', '/node'];
   const primaryMenuItems = primaryMenuOrder
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));

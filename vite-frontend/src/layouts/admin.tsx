@@ -192,6 +192,18 @@ export default function AdminLayout({
       adminOnly: true
     },
     {
+      path: '/probe',
+      label: '探针管理',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 6v6l4 2" />
+        </svg>
+      ),
+      adminOnly: true
+    },
+    {
       path: '/monitor',
       label: '诊断看板',
       icon: (
@@ -328,7 +340,7 @@ export default function AdminLayout({
     !item.adminOnly || isAdmin
   );
 
-  const primaryMenuOrder = ['/dashboard', '/assets', '/xui', '/forward', '/portal', '/monitor', '/tunnel', '/node'];
+  const primaryMenuOrder = ['/dashboard', '/assets', '/xui', '/forward', '/probe', '/portal', '/monitor', '/tunnel', '/node'];
   const primaryMenuItems = primaryMenuOrder
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));

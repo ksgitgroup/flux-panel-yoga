@@ -19,6 +19,7 @@ import XuiPage from "@/pages/xui";
 import AssetsPage from "@/pages/assets";
 import PortalPage from "@/pages/portal";
 import PortalConfigPage from "@/pages/portal-config";
+import ProbePage from "@/pages/probe";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
@@ -363,6 +364,16 @@ function App() {
           <ProtectedRoute>
             <SystemWorkspace>
               <ConfigPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/probe"
+        element={
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <ProbePage />
             </SystemWorkspace>
           </ProtectedRoute>
         }

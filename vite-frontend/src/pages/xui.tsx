@@ -694,7 +694,7 @@ export default function XuiPage() {
               />
               <Input
                 label="Web Base Path"
-                placeholder="/"
+                placeholder="/ 或 /random-path/"
                 value={form.webBasePath}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, webBasePath: value }))}
               />
@@ -771,6 +771,9 @@ export default function XuiPage() {
               <p className="font-medium">安全提示</p>
               <p className="mt-1">
                 Flux 只在服务端保存加密后的 x-ui 登录密码，实例列表和详情接口不会返回明文密码。建议为每台 x-ui 使用专门的同步账号，并关闭该账号的交互式 2FA。
+              </p>
+              <p className="mt-2">
+                路径提示：如果你的面板登录地址是 <code>http://host/panel/</code>，这里的 <code>Web Base Path</code> 应填 <code>/</code>；如果登录地址是 <code>http://host/random/panel/</code>，则应填 <code>/random/</code>，不要填 <code>/panel/</code>。
               </p>
             </div>
           </ModalBody>

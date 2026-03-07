@@ -713,10 +713,13 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             String body = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
             int statusCode = response.getStatusLine().getStatusCode();
             if (statusCode >= 400) {
-                throw new IllegalStateException("远端接口返回 HTTP " + statusCode);
+                String hint = statusCode == 404
+                        ? "，请检查实例地址与 Web Base Path 是否正确"
+                        : "";
+                throw new IllegalStateException("远端接口 " + request.getURI() + " 返回 HTTP " + statusCode + hint);
             }
             if (!StringUtils.hasText(body)) {
-                throw new IllegalStateException("远端接口返回空响应");
+                throw new IllegalStateException("远端接口 " + request.getURI() + " 返回空响应");
             }
             return JSON.parseObject(body);
         }

@@ -117,3 +117,15 @@
 3. 梳理稳定边界：目录、脚本入口、版本同步位置、Dev/Prod 部署入口标签，作为父工作区整合时暂时不可破坏的基线。
 4. 新增 `AI_HANDOFF.md`，专门面向下一个 AI / 进程，写明必须阅读的文档顺序、当前最核心事实、工程约束、数据边界与沟通原则。
 5. 将“必读顺序”和“不要伪造超出当前数据能力的图表”同步写入 `.cursorrules`，让规则层也能提醒后续协作者。
+
+## 2026-03-07 X-UI Integration Phase 1 Walkthrough
+
+1. 审查当前 `Flux Panel Yoga` 的结构与最新文档，确认它应继续作为独立控制面存在，而不是把 `3x-ui` 节点塞进原有 `node / tunnel / forward` 语义。
+2. 设计第一阶段 `x-ui integration` 范围：只做实例管理、只读快照、连接测试、自动/手动同步和流量上报接收，不在首轮引入反向写回。
+3. 在后端新增 `xui_instance`、`xui_inbound_snapshot`、`xui_client_snapshot`、`xui_sync_log`、`xui_traffic_delta_event` 五张表，并通过 `DatabaseInitService` 以 `CREATE TABLE IF NOT EXISTS` 方式自动迁移，避免破坏 A / B / C 环境的既有表结构。
+4. 新增 `XuiCredentialCryptoService`，使用现有 AES-GCM 能力基于 `jwt-secret` 派生专用密钥，对 x-ui 登录密码做服务端加密存储。
+5. 新增 `XuiServiceImpl`，实现 x-ui 实例 CRUD、管理员专用接口、远端登录、`/panel/api/inbounds/list` 拉取、快照 diff、软删除标记、自动同步调度和 `3x-ui` 外部流量上报接收。
+6. 在同步逻辑中只落盘脱敏元数据：入站基础信息、客户端计数、在线状态、流量统计、配置摘要 hash，不把远端客户端 UUID / 密码和完整敏感配置 JSON 暴露给前端。
+7. 在前端新增 `X-UI 管理` 页面并接入系统工作台导航，提供实例配置、测试连接、立即同步、同步状态、上报地址和快照表格。
+8. 执行 `./scripts/verify_build.sh`，先修正 Java 端计数字段类型问题，再修正前端未使用类型导入，最终确认后端打包和前端 `tsc + vite build` 全部通过。
+9. 执行 `./scripts/build_docker.sh`，确认前后端镜像都能基于当前代码构建成功，新增 `x-ui` 模块不会破坏现有 Docker 交付链路。

@@ -32,6 +32,99 @@ export interface TwoFactorSetupResponse extends TwoFactorStatusResponse {
   otpauthUri: string;
 }
 
+export interface XuiInstance {
+  id: number;
+  name: string;
+  baseUrl: string;
+  webBasePath: string;
+  username: string;
+  hostLabel?: string | null;
+  managementMode: 'observe' | 'flux_managed' | string;
+  syncEnabled: number;
+  syncIntervalMinutes: number;
+  allowInsecureTls: number;
+  remark?: string | null;
+  passwordConfigured: boolean;
+  trafficCallbackPath: string;
+  lastSyncAt?: number | null;
+  lastSyncStatus?: string | null;
+  lastSyncTrigger?: string | null;
+  lastSyncError?: string | null;
+  lastTestAt?: number | null;
+  lastTestStatus?: string | null;
+  lastTestError?: string | null;
+  lastTrafficPushAt?: number | null;
+  inboundCount: number;
+  clientCount: number;
+}
+
+export interface XuiInboundSnapshot {
+  id: number;
+  instanceId: number;
+  remoteInboundId: number;
+  remark?: string | null;
+  tag?: string | null;
+  protocol?: string | null;
+  listen?: string | null;
+  port?: number | null;
+  enable: number;
+  expiryTime?: number | null;
+  total?: number | null;
+  up?: number | null;
+  down?: number | null;
+  allTime?: number | null;
+  clientCount: number;
+  onlineClientCount: number;
+  transportSummary?: string | null;
+  lastSyncAt?: number | null;
+  status: number;
+}
+
+export interface XuiClientSnapshot {
+  id: number;
+  instanceId: number;
+  remoteInboundId: number;
+  remoteClientId?: number | null;
+  remoteClientKey: string;
+  email?: string | null;
+  enable: number;
+  expiryTime?: number | null;
+  total?: number | null;
+  up?: number | null;
+  down?: number | null;
+  allTime?: number | null;
+  online: number;
+  lastOnlineAt?: number | null;
+  comment?: string | null;
+  subId?: string | null;
+  limitIp?: number | null;
+  resetDays?: number | null;
+  lastSyncAt?: number | null;
+  status: number;
+}
+
+export interface XuiInstanceDetail {
+  instance: XuiInstance;
+  inbounds: XuiInboundSnapshot[];
+  clients: XuiClientSnapshot[];
+}
+
+export interface XuiSyncResult {
+  instanceId: number;
+  instanceName: string;
+  trigger: string;
+  remoteInboundCount: number;
+  remoteClientCount: number;
+  createdInboundCount?: number;
+  updatedInboundCount?: number;
+  deletedInboundCount?: number;
+  createdClientCount?: number;
+  updatedClientCount?: number;
+  deletedClientCount?: number;
+  finishedAt: number;
+  message: string;
+}
+
 export const login = (data: LoginData) => Network.post<LoginResponse>("/user/login", data);
 
 // 用户CRUD操作 - 全部使用POST请求
@@ -137,3 +230,12 @@ export const createTag = (data: any) => Network.post("/tag/create", data);
 export const getTagList = () => Network.post("/tag/list");
 export const updateTag = (data: any) => Network.post("/tag/update", data);
 export const deleteTag = (id: number) => Network.post("/tag/delete", { id });
+
+// X-UI 集成
+export const getXuiList = () => Network.post<XuiInstance[]>("/xui/list");
+export const getXuiDetail = (id: number) => Network.post<XuiInstanceDetail>("/xui/detail", { id });
+export const createXuiInstance = (data: any) => Network.post<XuiInstance>("/xui/create", data);
+export const updateXuiInstance = (data: any) => Network.post<XuiInstance>("/xui/update", data);
+export const deleteXuiInstance = (id: number) => Network.post("/xui/delete", { id });
+export const testXuiInstance = (id: number) => Network.post<{ instanceId: number; instanceName: string; remoteInboundCount: number; remoteClientCount: number; message: string }>("/xui/test", { id });
+export const syncXuiInstance = (id: number) => Network.post<XuiSyncResult>("/xui/sync", { id });

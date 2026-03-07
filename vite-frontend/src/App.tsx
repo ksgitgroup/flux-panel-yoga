@@ -15,6 +15,7 @@ import { SettingsPage } from "@/pages/settings";
 import MonitorPage from "@/pages/monitor";
 import ProtocolPage from "@/pages/protocol";
 import TagPage from "@/pages/tag";
+import XuiPage from "@/pages/xui";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
@@ -293,6 +294,16 @@ function App() {
           <ProtectedRoute>
             <SystemWorkspace>
               <TagPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/xui"
+        element={
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <XuiPage />
             </SystemWorkspace>
           </ProtectedRoute>
         }

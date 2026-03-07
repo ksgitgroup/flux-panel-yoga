@@ -133,6 +133,137 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.warn("[DatabaseInit] 尝试初始化诊断配置项时发生异常: {}", e.getMessage());
         }
+
+        // 5. Create X-UI integration tables
+        try {
+            String createXuiInstanceTable = "CREATE TABLE IF NOT EXISTS `xui_instance` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(120) NOT NULL COMMENT '实例名称'," +
+                    "`base_url` varchar(255) NOT NULL COMMENT 'x-ui 面板地址'," +
+                    "`web_base_path` varchar(120) DEFAULT '/' COMMENT 'x-ui Web Base Path'," +
+                    "`username` varchar(120) NOT NULL COMMENT '登录用户名'," +
+                    "`encrypted_password` text NOT NULL COMMENT '加密后的登录密码'," +
+                    "`host_label` varchar(120) DEFAULT NULL COMMENT '资产主机标识'," +
+                    "`management_mode` varchar(20) DEFAULT 'observe' COMMENT 'observe 或 flux_managed'," +
+                    "`sync_enabled` tinyint(1) DEFAULT 1 COMMENT '是否自动同步'," +
+                    "`sync_interval_minutes` int(10) DEFAULT 10 COMMENT '自动同步间隔（分钟）'," +
+                    "`allow_insecure_tls` tinyint(1) DEFAULT 0 COMMENT '是否允许跳过 TLS 校验'," +
+                    "`remark` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`traffic_token` varchar(64) NOT NULL COMMENT 'x-ui 外部流量上报 token'," +
+                    "`last_sync_at` bigint(20) DEFAULT NULL COMMENT '最后一次同步时间'," +
+                    "`last_sync_status` varchar(20) DEFAULT 'never' COMMENT '最后同步状态'," +
+                    "`last_sync_trigger` varchar(20) DEFAULT NULL COMMENT 'manual / auto'," +
+                    "`last_sync_error` text DEFAULT NULL COMMENT '最后同步错误'," +
+                    "`last_test_at` bigint(20) DEFAULT NULL COMMENT '最后一次测试时间'," +
+                    "`last_test_status` varchar(20) DEFAULT 'never' COMMENT '最后测试状态'," +
+                    "`last_test_error` text DEFAULT NULL COMMENT '最后测试错误'," +
+                    "`last_traffic_push_at` bigint(20) DEFAULT NULL COMMENT '最后一次流量上报时间'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_xui_instance_name` (`name`)," +
+                    "UNIQUE KEY `uk_xui_instance_traffic_token` (`traffic_token`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui 实例管理表'";
+            jdbcTemplate.execute(createXuiInstanceTable);
+
+            String createXuiInboundSnapshotTable = "CREATE TABLE IF NOT EXISTS `xui_inbound_snapshot` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '所属 x-ui 实例'," +
+                    "`remote_inbound_id` int(10) NOT NULL COMMENT '远端 inbound ID'," +
+                    "`remark` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`tag` varchar(255) DEFAULT NULL COMMENT 'xray tag'," +
+                    "`protocol` varchar(40) DEFAULT NULL COMMENT '协议'," +
+                    "`listen` varchar(120) DEFAULT NULL COMMENT '监听地址'," +
+                    "`port` int(10) DEFAULT NULL COMMENT '监听端口'," +
+                    "`enable` tinyint(1) DEFAULT 1 COMMENT '是否启用'," +
+                    "`expiry_time` bigint(20) DEFAULT NULL COMMENT '到期时间'," +
+                    "`total` bigint(20) DEFAULT NULL COMMENT '总流量上限'," +
+                    "`up` bigint(20) DEFAULT NULL COMMENT '累计上传'," +
+                    "`down` bigint(20) DEFAULT NULL COMMENT '累计下载'," +
+                    "`all_time` bigint(20) DEFAULT NULL COMMENT '累计总流量'," +
+                    "`client_count` int(10) DEFAULT 0 COMMENT '客户端数量'," +
+                    "`online_client_count` int(10) DEFAULT 0 COMMENT '在线客户端数量'," +
+                    "`transport_summary` varchar(255) DEFAULT NULL COMMENT '传输摘要'," +
+                    "`settings_digest` varchar(64) DEFAULT NULL COMMENT 'settings 摘要'," +
+                    "`stream_settings_digest` varchar(64) DEFAULT NULL COMMENT 'streamSettings 摘要'," +
+                    "`sniffing_digest` varchar(64) DEFAULT NULL COMMENT 'sniffing 摘要'," +
+                    "`last_sync_at` bigint(20) DEFAULT NULL COMMENT '最后同步时间'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：远端已删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_xui_inbound_instance_remote` (`instance_id`, `remote_inbound_id`)," +
+                    "KEY `idx_xui_inbound_instance_status` (`instance_id`, `status`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui inbound 快照表'";
+            jdbcTemplate.execute(createXuiInboundSnapshotTable);
+
+            String createXuiClientSnapshotTable = "CREATE TABLE IF NOT EXISTS `xui_client_snapshot` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '所属 x-ui 实例'," +
+                    "`remote_inbound_id` int(10) NOT NULL COMMENT '所属 remote inbound ID'," +
+                    "`remote_client_id` int(10) DEFAULT NULL COMMENT '远端 client 记录 ID'," +
+                    "`remote_client_key` varchar(191) NOT NULL COMMENT '远端 client 稳定键'," +
+                    "`email` varchar(191) DEFAULT NULL COMMENT '客户端 email'," +
+                    "`enable` tinyint(1) DEFAULT 1 COMMENT '是否启用'," +
+                    "`expiry_time` bigint(20) DEFAULT NULL COMMENT '到期时间'," +
+                    "`total` bigint(20) DEFAULT NULL COMMENT '总流量上限'," +
+                    "`up` bigint(20) DEFAULT NULL COMMENT '累计上传'," +
+                    "`down` bigint(20) DEFAULT NULL COMMENT '累计下载'," +
+                    "`all_time` bigint(20) DEFAULT NULL COMMENT '累计总流量'," +
+                    "`online` tinyint(1) DEFAULT 0 COMMENT '是否在线'," +
+                    "`last_online_at` bigint(20) DEFAULT NULL COMMENT '最后在线时间'," +
+                    "`comment` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`sub_id` varchar(191) DEFAULT NULL COMMENT '订阅 ID'," +
+                    "`limit_ip` int(10) DEFAULT NULL COMMENT '限制 IP 数'," +
+                    "`reset_days` int(10) DEFAULT NULL COMMENT '重置周期天数'," +
+                    "`last_sync_at` bigint(20) DEFAULT NULL COMMENT '最后同步时间'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：远端已删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_xui_client_instance_key` (`instance_id`, `remote_client_key`)," +
+                    "KEY `idx_xui_client_instance_status` (`instance_id`, `status`)," +
+                    "KEY `idx_xui_client_instance_inbound` (`instance_id`, `remote_inbound_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui client 快照表'";
+            jdbcTemplate.execute(createXuiClientSnapshotTable);
+
+            String createXuiSyncLogTable = "CREATE TABLE IF NOT EXISTS `xui_sync_log` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '所属 x-ui 实例'," +
+                    "`sync_type` varchar(20) NOT NULL COMMENT 'test / manual / auto'," +
+                    "`success` tinyint(1) DEFAULT 0 COMMENT '是否成功'," +
+                    "`message` varchar(255) DEFAULT NULL COMMENT '摘要消息'," +
+                    "`detail_text` text DEFAULT NULL COMMENT '详细内容'," +
+                    "`started_at` bigint(20) DEFAULT NULL COMMENT '开始时间'," +
+                    "`finished_at` bigint(20) DEFAULT NULL COMMENT '结束时间'," +
+                    "`duration_ms` bigint(20) DEFAULT NULL COMMENT '耗时（毫秒）'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_xui_sync_log_instance` (`instance_id`, `created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui 同步日志表'";
+            jdbcTemplate.execute(createXuiSyncLogTable);
+
+            String createXuiTrafficDeltaEventTable = "CREATE TABLE IF NOT EXISTS `xui_traffic_delta_event` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '所属 x-ui 实例'," +
+                    "`source_token` varchar(64) NOT NULL COMMENT '上报 token'," +
+                    "`request_body` longtext DEFAULT NULL COMMENT '原始上报体'," +
+                    "`received_ip` varchar(128) DEFAULT NULL COMMENT '来源 IP'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_xui_traffic_event_instance` (`instance_id`, `created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui 流量增量事件表'";
+            jdbcTemplate.execute(createXuiTrafficDeltaEventTable);
+
+            log.info("[DatabaseInit] X-UI 集成表校验成功");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] X-UI 集成表创建失败: {}", e.getMessage());
+        }
         
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }

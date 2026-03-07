@@ -98,3 +98,13 @@
 - 已新增 `WORKSPACE_INTEGRATION_GUIDE.md`，给出父工作区接入方案、稳定边界、推荐目录、分阶段整合建议和禁止先动项。
 - 已新增 `AI_HANDOFF.md`，明确新 AI / 新进程的必读文档顺序、工程约束、数据边界、安全逻辑、磁盘约束和沟通逻辑。
 - 已将必读顺序和关键边界同步写入 `README.md` 与 `.cursorrules`，降低后续整合和交接时的上下文丢失风险。
+
+## 2026-03-07 X-UI Integration Phase 1 Result
+
+- 已在后端新增独立的 `x-ui integration` 子域，未复用原有 `node / tunnel / forward` 语义。
+- 已通过 `DatabaseInitService` 增量创建 `xui_instance`、`xui_inbound_snapshot`、`xui_client_snapshot`、`xui_sync_log`、`xui_traffic_delta_event` 五张表，确保 A / B / C 环境升级时自动生效。
+- 已新增管理员专用的 `XuiController` 与 `XuiService`，支持实例 CRUD、连接测试、手动同步、自动轮询同步和 `3x-ui` 外部流量上报接收。
+- 已为 x-ui 登录密码增加服务端 AES 加密存储，前端和列表接口均不会回显明文密码；当前快照也只保存脱敏元数据，不落盘远端客户端 UUID / 密码等业务凭据。
+- 已新增前端 `X-UI 管理` 页面，并接入系统工作台导航，支持实例管理、状态查看、测试连接、立即同步和已同步入站/客户端快照展示。
+- 已执行 `./scripts/verify_build.sh`，确认后端打包、前端 `tsc + vite build` 和 CI YAML 校验全部通过。
+- 已执行 `./scripts/build_docker.sh`，确认前后端 Docker 镜像均可构建成功，新增模块可进入现有本地容器运行链路。

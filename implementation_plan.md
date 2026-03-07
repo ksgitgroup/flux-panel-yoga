@@ -71,3 +71,11 @@
 1. 补充专门的父工作区集成指南，明确当前项目应先作为独立子系统接入，不应一开始拆散目录与脚本。
 2. 补充 AI 交接清单，写明新进程必须阅读的文档顺序、工程约束、产品边界和沟通逻辑。
 3. 将“下一个 AI 必读顺序”和“集成时禁止先动的项目”同步写入 README 与 `.cursorrules`。
+
+## 2026-03-07 X-UI Integration Phase 1 Addendum
+
+1. 在 Flux Panel 中新增独立的 `x-ui integration` 子域，不复用现有 `node / tunnel / forward` 语义。
+2. 通过 `DatabaseInitService` 以增量方式创建 `xui_instance`、`xui_inbound_snapshot`、`xui_client_snapshot`、`xui_sync_log`、`xui_traffic_delta_event`，确保 A / B / C 环境升级兼容。
+3. 为 `x-ui` 实例提供管理员专用的配置、测试连接、手动同步和自动同步能力，读取远端 `3x-ui` 节点与客户端快照。
+4. 对 `x-ui` 账户密码执行服务端加密存储，前端永不回显明文，只返回脱敏状态和必要的同步结果。
+5. 在系统工作台新增 `X-UI 管理` 页面，先完成实例管理和只读快照展示，再为后续流量汇总、探针联动和反向写回预留接口。

@@ -11,7 +11,7 @@
 - **Release Visibility**: `dev -> main` 不再依赖手工填写 MR 模板。CI 应在 `build:prod` / `build:dev` 日志中自动打印本次提交摘要，让发布范围可读，但不要因为 MR 标题或描述缺失而阻塞合并。
 - **Diagnosis Compatibility**: When reading historical diagnosis data, frontends must tolerate both legacy payloads (`results_json` as full report object) and newer array-style payloads. Never assume `JSON.parse(resultsJson)` is directly iterable.
 - **Import Management**: Ensure all DTOs and entities are properly imported and field names are matched correctly (e.g., `remoteAddr`).
-- **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.4). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
+- **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.6). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
 
 ## Methodology
 1. **Plan**: Update `implementation_plan.md` for non-trivial changes.

@@ -1,50 +1,48 @@
-# Vite & HeroUI Template
+# Flux Panel Yoga Frontend
 
-This is a template for creating applications using Vite and HeroUI (v2).
+这个目录不是通用 Vite 模板，而是 Flux Panel Yoga 的前端管理应用。
 
-[Try it on CodeSandbox](https://githubbox.com/frontio-ai/vite-template)
+## 当前职责
 
-## Technologies Used
+- 登录与验证码
+- 首页摘要
+- 诊断看板
+- 转发管理
+- 隧道管理
+- 节点监控
+- 系统工作台
+- 用户 / 协议 / 标签 / 限速管理
+- 个人中心与 2FA 绑定
 
-- [Vite](https://vitejs.dev/guide/)
-- [HeroUI](https://heroui.com)
-- [Tailwind CSS](https://tailwindcss.com)
-- [Tailwind Variants](https://tailwind-variants.org)
-- [TypeScript](https://www.typescriptlang.org)
-- [Framer Motion](https://www.framer.com/motion)
+## 技术栈
 
-## How to Use
+- Vite
+- React
+- TypeScript
+- HeroUI
+- Tailwind CSS
+- Recharts
 
-To clone the project, run the following command:
+## 本地开发
 
-```bash
-git clone https://github.com/frontio-ai/vite-template.git
-```
-
-### Install dependencies
-
-You can use one of them `npm`, `yarn`, `pnpm`, `bun`, Example using `npm`:
-
-```bash
-npm install
-```
-
-### Run the development server
+如果只跑前端开发服务器：
 
 ```bash
+npm install --legacy-peer-deps
 npm run dev
 ```
 
-### Setup pnpm (optional)
-
-If you are using `pnpm`, you need to add the following code to your `.npmrc` file:
+生产构建：
 
 ```bash
-public-hoist-pattern[]=*@heroui/*
+npm run build
 ```
 
-After modifying the `.npmrc` file, you need to run `pnpm install` again to ensure that the dependencies are installed correctly.
+## 重要说明
 
-## License
-
-Licensed under the [MIT license](https://github.com/frontio-ai/vite-template/blob/main/LICENSE).
+1. 这个前端依赖根仓库的版本与构建元数据注入
+2. 站点配置来自后端 `vite_config` 和本地缓存
+3. 更完整的项目说明请先看根目录：
+   - [README.md](../README.md)
+   - [PROJECT_ANALYSIS.md](../PROJECT_ANALYSIS.md)
+   - [LOCAL_MACOS_SETUP.md](../LOCAL_MACOS_SETUP.md)

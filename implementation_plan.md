@@ -58,3 +58,10 @@
 1. 撤掉 `dev -> main` MR 的强制标题/描述校验，避免发布流程依赖手工维护 MR 内容。
 2. 为 `build:dev` / `build:prod` 增加自动提交摘要输出，让合并到 `main` 时的 CI 日志直接展示本次发布范围。
 3. 保留可选的 MR 模板和生成脚本，但不再作为合并门禁。
+
+## 2026-03-07 Documentation Consolidation Addendum
+
+1. 将根目录 `README.md` 重写为项目主入口，覆盖项目定位、模块地图、观测边界、本地开发、部署链路和脚本索引。
+2. 将 `CICD_ARCHITECTURE.md` 更新为当前实际生效的 GitLab -> GitHub -> Docker Hub -> Dev/Prod 链路，而不是历史设想版本。
+3. 将 `PROJECT_ANALYSIS.md` 更新为长期维护视角下的模块、数据能力、边界与技术债分析，便于后续并入更大的工作区。
+4. 将 `LOCAL_MACOS_SETUP.md` 与 `vite-frontend/README.md` 同步到当前本机真实开发方式与子模块职责说明。

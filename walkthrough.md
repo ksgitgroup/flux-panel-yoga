@@ -97,3 +97,15 @@
 2. 根据“不要手工维护 MR 文案”的新要求，删除 `.gitlab-ci.yml` 中的 `verify:release-mr` 门禁 job。
 3. 新增 `scripts/print_ci_commit_summary.sh`，在 `build:dev` / `build:prod` 阶段自动输出版本号、当前短 SHA 和本次提交摘要。
 4. 保留 MR 模板与 `prepare_release_mr.sh` 作为人工发布说明的可选工具，但从“必填门禁”降级为“辅助工具”。
+
+## 2026-03-07 Documentation Consolidation Walkthrough
+
+1. 先盘点根目录现有 Markdown，确认 `README.md`、`CICD_ARCHITECTURE.md`、`PROJECT_ANALYSIS.md`、`LOCAL_MACOS_SETUP.md` 和 `vite-frontend/README.md` 中存在大量历史内容、模板内容或与当前实现不一致的说明。
+2. 结合当前代码、脚本、CI 配置和最近几轮改造结果，重新划分文档边界：
+   - `README.md` 负责“第一次进入仓库时需要知道的一切”
+   - `CICD_ARCHITECTURE.md` 只负责当前实际发布链路
+   - `PROJECT_ANALYSIS.md` 只负责长期维护和并入更大工作区时的结构理解
+   - `LOCAL_MACOS_SETUP.md` 只负责这台 Mac 的真实开发方式
+3. 审查 `scripts/ship_dev.sh`、`verify_build.sh`、`build_docker.sh`、`reload_local_stack.sh`、`cleanup_local_artifacts.sh`、`.gitlab-ci.yml`、GitHub Actions 和前后端模块目录，确保文档按当前真实行为编写，而不是按旧方案或记忆编写。
+4. 重写根 README，补齐首页/诊断看板/系统工作台重构后的功能模块、流量与诊断边界、版本语义、脚本索引和 Dev/Prod 部署逻辑。
+5. 重写前端子目录 README，去掉原 HeroUI 模板说明，改成当前子项目职责和根文档入口说明。

@@ -1,14 +1,38 @@
-# Flux Panel 本地迁移与测试流程 (macOS)
+# Flux Panel Yoga Local macOS Setup
 
-本文档用于把新的本地开发机 D/A（当前 MacBook Air）接入现有的云端开发 B 和生产 C 流程。
+当前文档对应版本：`v1.4.6`
 
-## 1. 目标流程
+本文档只描述当前这台 MacBook Air 的真实开发方式，不再保留旧机器路径和旧假设。
 
-- 本地 D/A: 写代码、编译验证、Docker 本地联调
-- 云端 B: 推送 `dev` 后由 GitLab CI 同步到 GitHub，再由 GitHub Actions 构建 Docker Hub `dev-latest` 镜像并自动部署
-- 云端 C: 推送 `main` 后由 GitLab CI 同步到 GitHub，构建 `latest` 镜像，GitLab 手动确认后部署
+## 1. 当前本机的真实状态
 
-## 2. 这台 Mac 需要的工具
+- 真实工作副本：`/Users/mac/Developer/flux-panel-yoga`
+- `~/Documents/KS_Work/flux-panel-yoga`：软链接入口
+- 本地容器运行时：Colima
+- 本地 compose 文件：`docker-compose-v4.local.yml`
+
+如果你以后把这个项目并到更大的工作区，优先保留真实工作副本，不要再把 iCloud / Documents 路径当成主运行目录。
+
+## 2. 为什么这台 Mac 要用 Colima
+
+在 macOS 上：
+
+- `docker` 只是客户端
+- 真正运行 Linux 容器需要底层 Linux VM
+- Colima 就是这个 VM/运行时
+
+### 2.1 Colima 的作用
+
+- 提供 Linux 容器运行环境
+- 让 `docker build` / `docker compose up` 能在 macOS 上工作
+- 替代 Docker Desktop 这类更重的方案
+
+### 2.2 如果不用 Colima 会怎样
+
+- 当前仓库这套本地 Docker 联调流程无法直接跑
+- 除非换成 Docker Desktop / OrbStack / Rancher Desktop 等等价方案
+
+## 3. 本机需要的工具链
 
 - Homebrew
 - Java 21
@@ -18,15 +42,19 @@
 - Docker Compose
 - Colima
 
-项目内置脚本会尽量帮你准备这些工具：
+初始化入口：
 
 ```bash
 ./scripts/setup_dev.sh
 ```
 
-在 macOS 上，这个脚本会自动转到 `scripts/setup_dev_macos.sh`。
+在 macOS 上，它会自动分发到：
 
-## 3. 一次性初始化
+```bash
+./scripts/setup_dev_macos.sh
+```
+
+## 4. 一次性初始化
 
 ```bash
 git switch dev
@@ -34,14 +62,18 @@ git pull origin dev
 ./scripts/setup_dev.sh
 ```
 
-如果当前 shell 仍识别不到 Java 21 或 Node 20，执行：
+如果 shell 没识别 Java 21 / Node 20，手动执行：
 
 ```bash
 export JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
 export PATH="$JAVA_HOME/bin:$(brew --prefix node@20)/bin:$PATH"
 ```
 
-初始化完成后，项目根目录会生成本地 `.env`，默认值如下：
+## 5. 本地 `.env`
+
+初始化后根目录会生成 `.env`。
+
+当前本地默认值通常是：
 
 - `IMAGE_REGISTRY=flux-panel`
 - `IMAGE_TAG=local`
@@ -52,143 +84,166 @@ export PATH="$JAVA_HOME/bin:$(brew --prefix node@20)/bin:$PATH"
 - `BACKEND_PORT=6365`
 - `FRONTEND_PORT=8080`
 
-## 4. 本地测试流程
+## 6. 日常开发流程
 
-### 4.1 代码级校验
+### 6.1 只验证源码
 
 ```bash
 ./scripts/verify_build.sh
 ```
 
-这一步会：
+它会做：
 
-- 执行后端 `mvn clean package -DskipTests`
-- 执行前端 `npm run build`
-- 校验 `.gitlab-ci.yml` 与 `.github/workflows/*.yml` 的 YAML 语法
-- 检查版本号是否同步
+1. 版本一致性检查
+2. CI YAML 语法检查
+3. 后端 `mvn clean package -DskipTests`
+4. 前端 `npm run build`
 
-### 4.2 Docker 本地联调
+### 6.2 本地 Docker 联调
 
 ```bash
 ./scripts/build_docker.sh
 ./scripts/reload_local_stack.sh
 ```
 
-联调入口：
+访问入口：
 
-- 前端: `http://localhost:8080`
-- 后端: `http://localhost:6365`
-- phpMyAdmin: `http://localhost:8066`
-
-查看日志：
-
-```bash
-docker logs -f springboot-backend
-docker logs -f vite-frontend
-```
-
-停止本地环境：
-
-```bash
-docker-compose -f docker-compose-v4.local.yml down
-```
+- 前端：`http://localhost:8080`
+- 后端：`http://localhost:6365`
+- phpMyAdmin：`http://localhost:8066`
 
 说明：
 
-- `./scripts/build_docker.sh` 只负责生成最新 `local` 镜像
-- 如果本地容器已经在运行，必须执行 `./scripts/reload_local_stack.sh`
-- 否则 `http://localhost:8080` / `http://localhost:6365` 仍可能是旧容器
-- 以上两个脚本现在会自动调用 `./scripts/cleanup_local_artifacts.sh`，回收构建产物、npm 缓存和无用 Docker 镜像
-- 这台 Mac 可用空间紧张时，优先执行：
+- `build_docker.sh` 只负责产出最新 `local` 镜像
+- `reload_local_stack.sh` 才会让正在运行的容器切到新镜像
+- 不执行第二步，就可能看到旧页面或旧后端逻辑
+
+### 6.3 标准开发出口
 
 ```bash
-./scripts/cleanup_local_artifacts.sh post-reload
+./scripts/ship_dev.sh "feat: your change"
 ```
 
-如果宿主机磁盘已经逼近极限（例如低于 `5 GiB`），再执行一次深度清理：
+这是当前唯一推荐的 dev 提交流程。
 
-```bash
-./scripts/cleanup_local_artifacts.sh deep-host
-```
+它会固定执行：
 
-这会额外清理：
+1. `verify_build.sh`
+2. `git add -A`
+3. `git commit`
+4. `build_docker.sh`
+5. `reload_local_stack.sh`
+6. `git push origin dev`
+7. `cleanup_local_artifacts.sh post-ship`
 
-- Homebrew 下载缓存
-- npm 全局缓存
-- Maven 失效元数据
-- 未使用的 Docker 容器、网络和 volume
-
-说明：
-
-- `deep-host` 不会删除当前正在运行的容器和 volume
-- 但它会让后续某些依赖重新下载，因此只在磁盘紧张时使用
-
-## 5. 前端本地开发模式
-
-如果你不想走前端 Docker 容器，也可以直接在主机上运行 Vite：
-
-```bash
-cd vite-frontend
-npm install
-npm run dev
-```
-
-仓库中的 `vite-frontend/.env.development` 已改为：
-
-```bash
-VITE_API_BASE=http://localhost:6365
-```
-
-这表示 Vite 开发服务器默认请求本机后端，而不是旧机器的局域网 IP。
-
-## 6. 推送到云端
-
-本地验证通过后，推送到开发环境 B：
-
-```bash
-git switch dev
-./scripts/ship_dev.sh "feat: describe your change"
-```
-
-如果你已经提前完成本地提交，只需要推送现有提交，也可以继续使用：
+### 6.4 只推送已有 commit
 
 ```bash
 ./scripts/sync_dev.sh
 ```
 
-说明：
+只在“本地 commit 已经存在”的情况下使用。
 
-- `./scripts/ship_dev.sh` 会先执行 `./scripts/verify_build.sh`
-- 验证通过后才会创建本地 commit
-- 然后按这个新 commit 重建本地 Docker 镜像并重载容器
-- 最后再推送到 `origin/dev`
-- 因此本地页面中的“提交标识”会和刚推送的 commit 保持一致
+## 7. 磁盘空间治理
 
-当需要发布到生产环境 C 时：
+这台 Mac 的真正风险不是源码，而是容器运行时和缓存。
+
+### 7.1 大头占用通常来自
+
+- `~/.colima`
+- Docker 镜像
+- Docker builder cache
+- npm / Homebrew 缓存
+
+### 7.2 自动清理
+
+以下脚本会自动清理：
+
+- `build_docker.sh`
+- `reload_local_stack.sh`
+- `ship_dev.sh`
+
+### 7.3 手动深度清理
+
+当磁盘低于约 `5 GiB` 时执行：
 
 ```bash
-git switch main
-git pull origin main
-git merge dev
-git push origin main
+./scripts/cleanup_local_artifacts.sh deep-host
 ```
 
-之后在 GitLab 中手动确认生产部署任务。
+它会额外清理：
 
-如果是通过 Merge Request 从 `dev` 合入 `main`，先在本地生成建议标题与描述：
+- Homebrew 下载缓存
+- npm 全局缓存
+- Maven 失效元数据
+- 未使用的 Docker 容器 / 网络 / volume
+- 镜像与 builder cache
+
+### 7.4 如果还不够
+
+如果你明确不再需要本地 Docker 联调，删除或重建 Colima 才是最大回收项。
+
+## 8. 本地运行排障
+
+### 8.1 后端能通，前端看不到新页面
+
+先执行：
 
 ```bash
-./scripts/prepare_release_mr.sh
+./scripts/reload_local_stack.sh
 ```
 
-仓库已提供默认 MR 模板 `.gitlab/merge_request_templates/Default.md`，并在 GitLab CI 中校验：
+然后浏览器强刷。
 
-- 标题不能只写 `dev`
-- 必须填写“发布摘要 / 本次变更 / 本地验证 / 风险与回滚”
+### 8.2 `verify_build.sh` 报依赖问题
 
-## 7. 当前项目对这台 Mac 的关键注意点
+先确认：
 
-- 后端必须使用 Java 21
-- CI 和 Docker 构建使用 Node 20，本地也建议对齐 Node 20
-- `scripts/setup_dev.sh` 原先只适用于 Ubuntu，现在已可在 macOS 上调用专用脚本
-- 本地只负责验证和推送，B/C 的部署逻辑已经在 GitLab CI 和 GitHub Actions 中存在
+- `mvn -v`
+- `node -v`
+- `npm -v`
+
+如果仍有问题，重新执行：
+
+```bash
+./scripts/setup_dev.sh
+```
+
+### 8.3 Docker 命令失败
+
+先确认：
+
+```bash
+colima status
+docker ps
+```
+
+如果 Colima 没起：
+
+```bash
+colima start
+```
+
+### 8.4 本地路径混乱
+
+始终以这个目录为准：
+
+```bash
+/Users/mac/Developer/flux-panel-yoga
+```
+
+## 9. 版本与显示规则
+
+当前版本显示遵循：
+
+- 发布版本：`v1.4.6`
+- 构建标识：`dev.<short_sha>`
+
+本地页面里看到的 `build_revision`，应该和最新一次 `ship_dev` 推送后的 commit 对应一致。
+
+## 10. 当前建议
+
+1. 保留 Colima，除非你明确不再做本地 Docker 联调
+2. 日常只用 `ship_dev.sh`，不要手工拼接一串 build / compose / push 命令
+3. 只在空间吃紧时再执行 `deep-host`
+4. 保持 `package.json`、`pom.xml`、`application.yml` 版本同步

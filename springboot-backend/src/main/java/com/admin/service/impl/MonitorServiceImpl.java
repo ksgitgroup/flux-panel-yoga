@@ -248,6 +248,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             clients = new JSONArray();
         }
 
+        // 2. Fetch ALL metrics + online status in ONE call via JSON-RPC getNodesLatestStatus
+        // Uses ws.GetLatestReport() (no TTL) + ws.GetAllOnlineUUIDs() - same data source as Komari's own dashboard
+        JSONObject allMetrics = fetchAllMetricsViaRpc(instance);
+
         long now = System.currentTimeMillis();
         Set<String> seenUuids = new HashSet<>();
         int onlineCount = 0;
@@ -268,11 +272,6 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
                     .eq(MonitorNodeSnapshot::getRemoteNodeUuid, uuid));
 
-            boolean isOnline = !client.getBooleanValue("hidden") && isNodeOnline(client);
-            if (isOnline) {
-                onlineCount++;
-            }
-
             boolean isNew = (existing == null);
             if (isNew) {
                 existing = new MonitorNodeSnapshot();
@@ -280,11 +279,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 existing.setRemoteNodeUuid(uuid);
                 existing.setCreatedTime(now);
                 existing.setStatus(0);
+                existing.setOnline(0);
+                monitorNodeSnapshotMapper.insert(existing);
                 newNodes++;
             } else {
                 updatedNodes++;
             }
 
+            // Static client info
             existing.setName(client.getString("name"));
             existing.setIp(client.getString("ipv4"));
             existing.setIpv6(client.getString("ipv6"));
@@ -292,33 +294,58 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setCpuName(client.getString("cpu_name"));
             existing.setCpuCores(client.getInteger("cpu_cores"));
             existing.setMemTotal(client.getLong("mem_total"));
+            existing.setSwapTotal(client.getLong("swap_total"));
             existing.setDiskTotal(client.getLong("disk_total"));
             existing.setRegion(client.getString("region"));
             existing.setVersion(client.getString("version"));
+            existing.setVirtualization(client.getString("virtualization"));
+            existing.setArch(client.getString("arch"));
+            existing.setKernelVersion(client.getString("kernel_version"));
+            existing.setGpuName(client.getString("gpu_name"));
+            existing.setHidden(client.getBooleanValue("hidden") ? 1 : 0);
+            existing.setTags(client.getString("tags"));
+            existing.setNodeGroup(client.getString("group"));
+            existing.setWeight(client.getInteger("weight"));
+            existing.setPrice(client.getDouble("price"));
+            existing.setBillingCycle(client.getInteger("billing_cycle"));
+            existing.setCurrency(client.getString("currency"));
+            existing.setTrafficLimit(client.getLong("traffic_limit"));
+            existing.setTrafficLimitType(client.getString("traffic_limit_type"));
+
+            // Parse expired_at timestamp
+            String expiredAtStr = client.getString("expired_at");
+            if (StringUtils.hasText(expiredAtStr) && !"0001-01-01T00:00:00Z".equals(expiredAtStr)) {
+                try {
+                    existing.setExpiredAt(java.time.Instant.parse(expiredAtStr).toEpochMilli());
+                } catch (Exception ignored) {}
+            }
+
+            // Apply metrics + online status from batch RPC result
+            JSONObject nodeMetric = allMetrics != null ? allMetrics.getJSONObject(uuid) : null;
+            boolean isOnline = nodeMetric != null && nodeMetric.getBooleanValue("online");
+            if (isOnline) onlineCount++;
+
             existing.setOnline(isOnline ? 1 : 0);
-            existing.setLastActiveAt(isOnline ? now : (existing.getLastActiveAt() != null ? existing.getLastActiveAt() : 0L));
+            Long prevActive = existing.getLastActiveAt();
+            existing.setLastActiveAt(isOnline ? now : (prevActive != null ? prevActive : 0L));
             existing.setLastSyncAt(now);
             existing.setUpdatedTime(now);
 
-            if (existing.getId() == null) {
-                monitorNodeSnapshotMapper.insert(existing);
-            } else {
-                monitorNodeSnapshotMapper.updateById(existing);
+            monitorNodeSnapshotMapper.updateById(existing);
+
+            // Upsert latest metrics if data available
+            if (nodeMetric != null) {
+                applyNodeMetric(instance, existing, uuid, nodeMetric, now);
             }
 
-            // 2. Auto-create asset for new nodes
+            // Auto-create asset for new nodes
             if (existing.getAssetId() == null) {
                 boolean created = autoCreateAssetFromNode(existing, instance);
                 if (created) newAssets++;
             }
-
-            // 3. Fetch latest metrics for each online node
-            if (isOnline) {
-                syncKomariNodeMetrics(instance, existing, uuid);
-            }
         }
 
-        // 4. Mark removed nodes
+        // Mark removed nodes
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId()));
@@ -332,11 +359,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // 5. Update instance counters
+        // Update instance counters
         instance.setNodeCount(seenUuids.size());
         instance.setOnlineNodeCount(onlineCount);
 
-        // 6. Build sync summary
+        // Build sync summary
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("total", seenUuids.size());
         summary.put("online", onlineCount);
@@ -348,22 +375,44 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return summary;
     }
 
-    private void syncKomariNodeMetrics(MonitorInstance instance, MonitorNodeSnapshot nodeSnapshot, String uuid) {
+    /**
+     * Fetch all nodes' latest metrics + online status via JSON-RPC getNodesLatestStatus.
+     * This uses ws.GetLatestReport() (no TTL) + ws.GetAllOnlineUUIDs() internally,
+     * the same data source as Komari's own dashboard WebSocket.
+     * Returns: {"uuid1": {cpu, ram, ram_total, online, ...}, "uuid2": {...}}
+     */
+    private JSONObject fetchAllMetricsViaRpc(MonitorInstance instance) {
         try {
-            String recentJson = httpGet(instance, "/api/recent/" + uuid, instance.getAllowInsecureTls());
-            if (recentJson == null) {
-                return;
+            String rpcBody = "{\"jsonrpc\":\"2.0\",\"method\":\"common:getNodesLatestStatus\",\"id\":1}";
+            String rpcJson = httpPost(instance, "/api/rpc2", rpcBody, instance.getAllowInsecureTls());
+            if (rpcJson == null) {
+                return null;
             }
-
-            JSONObject recentResponse = JSON.parseObject(recentJson);
-            JSONObject data = recentResponse.containsKey("data") ? recentResponse.getJSONObject("data") : recentResponse;
-            if (data == null || data.isEmpty()) {
-                return;
+            JSONObject rpcResponse = JSON.parseObject(rpcJson);
+            if (rpcResponse.containsKey("error")) {
+                log.warn("[MonitorSync] RPC getNodesLatestStatus error: {}", rpcResponse.get("error"));
+                return null;
             }
+            JSONObject result = rpcResponse.getJSONObject("result");
+            if (result != null) {
+                log.info("[MonitorSync] RPC getNodesLatestStatus returned {} nodes", result.size());
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Failed to fetch metrics via RPC: {}", e.getMessage());
+            return null;
+        }
+    }
 
-            long now = System.currentTimeMillis();
-
-            // Upsert latest metric
+    /**
+     * Apply flat metric data from getNodesLatestStatus RPC result to a metric record.
+     * Fields: cpu, gpu, ram, ram_total, swap, swap_total, load, load5, load15, temp,
+     * disk, disk_total, net_in, net_out, net_total_up, net_total_down,
+     * process, connections, connections_udp, online, uptime
+     */
+    private void applyNodeMetric(MonitorInstance instance, MonitorNodeSnapshot nodeSnapshot,
+                                  String uuid, JSONObject data, long now) {
+        try {
             MonitorMetricLatest metric = monitorMetricLatestMapper.selectOne(new LambdaQueryWrapper<MonitorMetricLatest>()
                     .eq(MonitorMetricLatest::getInstanceId, instance.getId())
                     .eq(MonitorMetricLatest::getRemoteNodeUuid, uuid));
@@ -377,19 +426,27 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 metric.setStatus(0);
             }
 
+            // Flat fields from getNodesLatestStatus RPC response
             metric.setCpuUsage(data.getDouble("cpu"));
+            metric.setGpuUsage(data.getDouble("gpu"));
             metric.setMemUsed(data.getLong("ram"));
             metric.setMemTotal(data.getLong("ram_total"));
+            metric.setSwapUsed(data.getLong("swap"));
+            metric.setSwapTotal(data.getLong("swap_total"));
+            metric.setLoad1(data.getDouble("load"));
+            metric.setLoad5(data.getDouble("load5"));
+            metric.setLoad15(data.getDouble("load15"));
+            metric.setTemperature(data.getDouble("temp"));
             metric.setDiskUsed(data.getLong("disk"));
             metric.setDiskTotal(data.getLong("disk_total"));
             metric.setNetIn(data.getLong("net_in"));
             metric.setNetOut(data.getLong("net_out"));
             metric.setNetTotalUp(data.getLong("net_total_up"));
             metric.setNetTotalDown(data.getLong("net_total_down"));
-            metric.setLoad1(data.getDouble("load") != null ? data.getDouble("load") : data.getDouble("load1"));
-            metric.setUptime(data.getLong("uptime"));
-            metric.setConnections(data.getInteger("connections"));
             metric.setProcessCount(data.getInteger("process"));
+            metric.setConnections(data.getInteger("connections"));
+            metric.setConnectionsUdp(data.getInteger("connections_udp"));
+            metric.setUptime(data.getLong("uptime"));
             metric.setSampledAt(now);
             metric.setUpdatedTime(now);
 
@@ -399,19 +456,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 monitorMetricLatestMapper.updateById(metric);
             }
         } catch (Exception e) {
-            log.debug("[MonitorSync] Failed to fetch metrics for node {}: {}", uuid, e.getMessage());
+            log.debug("[MonitorSync] Failed to apply metrics for node {}: {}", uuid, e.getMessage());
         }
-    }
-
-    private boolean isNodeOnline(JSONObject client) {
-        if (client.containsKey("online")) {
-            return client.getBooleanValue("online");
-        }
-        String updatedAt = client.getString("updated_at");
-        if (StringUtils.hasText(updatedAt)) {
-            return true;
-        }
-        return false;
     }
 
     // ==================== Provision Agent (Komari Admin API) ====================

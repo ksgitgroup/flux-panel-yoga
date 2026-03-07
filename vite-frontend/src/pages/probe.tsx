@@ -136,6 +136,10 @@ export default function ProbePage() {
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const [deleteTarget, setDeleteTarget] = useState<MonitorInstance | null>(null);
 
+  const { isOpen: isNodeDetailOpen, onOpen: onNodeDetailOpen, onClose: onNodeDetailClose } = useDisclosure();
+  const [selectedNode, setSelectedNode] = useState<MonitorNodeSnapshot | null>(null);
+  const openNodeDetail = (node: MonitorNodeSnapshot) => { setSelectedNode(node); onNodeDetailOpen(); };
+
   const [search, setSearch] = useState('');
 
   // ===================== Data Loading =====================
@@ -423,7 +427,7 @@ export default function ProbePage() {
                               const mp = memPercent(m?.memUsed, m?.memTotal);
                               const dp = memPercent(m?.diskUsed, m?.diskTotal);
                               return (
-                                <TableRow key={node.id}>
+                                <TableRow key={node.id} className="cursor-pointer hover:bg-default-100" onClick={() => openNodeDetail(node)}>
                                   <TableCell>
                                     <Chip size="sm" color={node.online === 1 ? 'success' : 'default'} variant="dot">
                                       {node.online === 1 ? '在线' : '离线'}
@@ -489,7 +493,7 @@ export default function ProbePage() {
                           const m = node.latestMetric;
                           const mp = memPercent(m?.memUsed, m?.memTotal);
                           return (
-                            <Card key={node.id} shadow="none" className="border border-default-200">
+                            <Card key={node.id} shadow="none" className="border border-default-200 cursor-pointer" isPressable onPress={() => openNodeDetail(node)}>
                               <CardBody className="p-3 space-y-2">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
@@ -602,6 +606,179 @@ export default function ProbePage() {
             <Button variant="flat" onPress={onDeleteClose}>取消</Button>
             <Button color="danger" isLoading={actionLoading === 'delete'} onPress={handleDelete}>删除</Button>
           </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Node Detail Modal */}
+      <Modal isOpen={isNodeDetailOpen} onClose={onNodeDetailClose} size="2xl" scrollBehavior="inside">
+        <ModalContent>
+          {selectedNode && (() => {
+            const m = selectedNode.latestMetric;
+            const mp = memPercent(m?.memUsed, m?.memTotal);
+            const sp = memPercent(m?.swapUsed, m?.swapTotal);
+            const dp = memPercent(m?.diskUsed, m?.diskTotal);
+            return (
+              <>
+                <ModalHeader className="flex items-center gap-3">
+                  <span className={`inline-block h-3 w-3 rounded-full ${selectedNode.online === 1 ? 'bg-success' : 'bg-default-300'}`} />
+                  <div>
+                    <p>{selectedNode.name || selectedNode.remoteNodeUuid?.slice(0, 8)}</p>
+                    <p className="text-xs font-normal text-default-400">{selectedNode.online === 1 ? '在线' : '离线'} · {selectedNode.ip || '-'}</p>
+                  </div>
+                </ModalHeader>
+                <ModalBody className="space-y-4 pb-6">
+                  {/* System Info */}
+                  <div>
+                    <p className="text-xs text-default-500 font-medium mb-2">系统信息</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                      <div><p className="text-xs text-default-400">操作系统</p><p className="font-medium">{selectedNode.os || '-'}</p></div>
+                      <div><p className="text-xs text-default-400">内核</p><p className="font-medium text-xs">{selectedNode.kernelVersion || '-'}</p></div>
+                      <div><p className="text-xs text-default-400">架构</p><p className="font-medium">{selectedNode.arch || '-'}</p></div>
+                      <div><p className="text-xs text-default-400">虚拟化</p><p className="font-medium">{selectedNode.virtualization || '-'}</p></div>
+                      <div><p className="text-xs text-default-400">Agent版本</p><p className="font-medium">{selectedNode.version || '-'}</p></div>
+                      <div><p className="text-xs text-default-400">区域</p><p className="font-medium">{selectedNode.region || '-'}</p></div>
+                    </div>
+                  </div>
+
+                  <Divider />
+
+                  {/* Hardware */}
+                  <div>
+                    <p className="text-xs text-default-500 font-medium mb-2">硬件信息</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                      <div className="col-span-2 md:col-span-3"><p className="text-xs text-default-400">CPU</p><p className="font-medium">{selectedNode.cpuName || '-'} ({selectedNode.cpuCores || '-'} 核)</p></div>
+                      {selectedNode.gpuName && <div className="col-span-2 md:col-span-3"><p className="text-xs text-default-400">GPU</p><p className="font-medium">{selectedNode.gpuName}</p></div>}
+                      <div><p className="text-xs text-default-400">内存</p><p className="font-medium">{formatBytes(selectedNode.memTotal)}</p></div>
+                      <div><p className="text-xs text-default-400">Swap</p><p className="font-medium">{formatBytes(selectedNode.swapTotal)}</p></div>
+                      <div><p className="text-xs text-default-400">磁盘</p><p className="font-medium">{formatBytes(selectedNode.diskTotal)}</p></div>
+                    </div>
+                  </div>
+
+                  {/* Network */}
+                  <div>
+                    <p className="text-xs text-default-500 font-medium mb-2">网络</p>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><p className="text-xs text-default-400">IPv4</p><p className="font-medium font-mono text-xs">{selectedNode.ip || '-'}</p></div>
+                      <div><p className="text-xs text-default-400">IPv6</p><p className="font-medium font-mono text-xs truncate">{selectedNode.ipv6 || '-'}</p></div>
+                    </div>
+                  </div>
+
+                  {selectedNode.online === 1 && m && (
+                    <>
+                      <Divider />
+                      {/* Real-time Metrics */}
+                      <div>
+                        <p className="text-xs text-default-500 font-medium mb-3">实时指标</p>
+                        <div className="space-y-3">
+                          {/* CPU */}
+                          <div>
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-default-500">CPU</span>
+                              <span className="font-semibold">{m.cpuUsage?.toFixed(1) || '-'}%</span>
+                            </div>
+                            {m.cpuUsage != null && <Progress value={m.cpuUsage} color={cpuColor(m.cpuUsage)} size="sm" aria-label="CPU" />}
+                          </div>
+                          {/* Memory */}
+                          <div>
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-default-500">内存</span>
+                              <span className="font-semibold">{mp != null ? mp.toFixed(1) + '%' : '-'} <span className="text-xs text-default-400 font-normal">{formatBytes(m.memUsed)} / {formatBytes(m.memTotal)}</span></span>
+                            </div>
+                            {mp != null && <Progress value={mp} color={cpuColor(mp)} size="sm" aria-label="MEM" />}
+                          </div>
+                          {/* Swap */}
+                          {(m.swapTotal ?? 0) > 0 && (
+                            <div>
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="text-default-500">Swap</span>
+                                <span className="font-semibold">{sp != null ? sp.toFixed(1) + '%' : '-'} <span className="text-xs text-default-400 font-normal">{formatBytes(m.swapUsed)} / {formatBytes(m.swapTotal)}</span></span>
+                              </div>
+                              {sp != null && <Progress value={sp} color={cpuColor(sp)} size="sm" aria-label="Swap" />}
+                            </div>
+                          )}
+                          {/* Disk */}
+                          <div>
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-default-500">磁盘</span>
+                              <span className="font-semibold">{dp != null ? dp.toFixed(1) + '%' : '-'} <span className="text-xs text-default-400 font-normal">{formatBytes(m.diskUsed)} / {formatBytes(m.diskTotal)}</span></span>
+                            </div>
+                            {dp != null && <Progress value={dp} color={cpuColor(dp)} size="sm" aria-label="Disk" />}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Detailed metrics grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">上行速率</p>
+                          <p className="text-sm font-semibold mt-1">{formatSpeed(m.netOut)}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">下行速率</p>
+                          <p className="text-sm font-semibold mt-1">{formatSpeed(m.netIn)}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">累计上行</p>
+                          <p className="text-sm font-semibold mt-1">{formatBytes(m.netTotalUp)}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">累计下行</p>
+                          <p className="text-sm font-semibold mt-1">{formatBytes(m.netTotalDown)}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">负载 1/5/15</p>
+                          <p className="text-sm font-semibold mt-1">{m.load1?.toFixed(2) ?? '-'} / {m.load5?.toFixed(2) ?? '-'} / {m.load15?.toFixed(2) ?? '-'}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">运行时间</p>
+                          <p className="text-sm font-semibold mt-1">{formatUptime(m.uptime)}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">TCP / UDP</p>
+                          <p className="text-sm font-semibold mt-1">{m.connections ?? '-'} / {m.connectionsUdp ?? '-'}</p>
+                        </div>
+                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                          <p className="text-[10px] text-default-400 uppercase">进程数</p>
+                          <p className="text-sm font-semibold mt-1">{m.processCount ?? '-'}</p>
+                        </div>
+                        {m.gpuUsage != null && m.gpuUsage > 0 && (
+                          <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                            <p className="text-[10px] text-default-400 uppercase">GPU</p>
+                            <p className="text-sm font-semibold mt-1">{m.gpuUsage.toFixed(1)}%</p>
+                          </div>
+                        )}
+                        {m.temperature != null && m.temperature > 0 && (
+                          <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
+                            <p className="text-[10px] text-default-400 uppercase">温度</p>
+                            <p className="text-sm font-semibold mt-1">{m.temperature.toFixed(1)}°C</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {m.sampledAt && (
+                        <p className="text-xs text-default-400 text-right">数据采样: {formatTime(m.sampledAt)}</p>
+                      )}
+                    </>
+                  )}
+
+                  {/* Billing info if available */}
+                  {(selectedNode.price != null || selectedNode.expiredAt != null || selectedNode.trafficLimit != null) && (
+                    <>
+                      <Divider />
+                      <div>
+                        <p className="text-xs text-default-500 font-medium mb-2">计费信息</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                          {selectedNode.price != null && <div><p className="text-xs text-default-400">价格</p><p className="font-medium">{selectedNode.price} {selectedNode.currency || ''}</p></div>}
+                          {selectedNode.expiredAt != null && <div><p className="text-xs text-default-400">到期</p><p className="font-medium">{formatTime(selectedNode.expiredAt)}</p></div>}
+                          {selectedNode.trafficLimit != null && <div><p className="text-xs text-default-400">流量限制</p><p className="font-medium">{formatBytes(selectedNode.trafficLimit)}</p></div>}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </ModalBody>
+              </>
+            );
+          })()}
         </ModalContent>
       </Modal>
     </div>

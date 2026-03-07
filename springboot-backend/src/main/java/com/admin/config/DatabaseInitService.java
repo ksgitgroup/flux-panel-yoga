@@ -412,6 +412,32 @@ public class DatabaseInitService {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='探针最新指标表'";
             jdbcTemplate.execute(createMonitorMetricLatestTable);
 
+            // Add new columns to monitor_node_snapshot (v2 expansion)
+            updateColumn("monitor_node_snapshot", "virtualization", "varchar(50) DEFAULT NULL COMMENT '虚拟化类型'");
+            updateColumn("monitor_node_snapshot", "arch", "varchar(50) DEFAULT NULL COMMENT 'CPU 架构'");
+            updateColumn("monitor_node_snapshot", "kernel_version", "varchar(100) DEFAULT NULL COMMENT '内核版本'");
+            updateColumn("monitor_node_snapshot", "gpu_name", "varchar(100) DEFAULT NULL COMMENT 'GPU 型号'");
+            updateColumn("monitor_node_snapshot", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");
+            updateColumn("monitor_node_snapshot", "hidden", "tinyint(1) DEFAULT 0 COMMENT '是否隐藏'");
+            updateColumn("monitor_node_snapshot", "tags", "text DEFAULT NULL COMMENT '标签（分号分隔）'");
+            updateColumn("monitor_node_snapshot", "node_group", "varchar(100) DEFAULT NULL COMMENT '分组'");
+            updateColumn("monitor_node_snapshot", "weight", "int(10) DEFAULT NULL COMMENT '排序权重'");
+            updateColumn("monitor_node_snapshot", "price", "double DEFAULT NULL COMMENT '价格'");
+            updateColumn("monitor_node_snapshot", "billing_cycle", "int(10) DEFAULT NULL COMMENT '计费周期'");
+            updateColumn("monitor_node_snapshot", "currency", "varchar(20) DEFAULT NULL COMMENT '货币符号'");
+            updateColumn("monitor_node_snapshot", "expired_at", "bigint(20) DEFAULT NULL COMMENT '到期时间'");
+            updateColumn("monitor_node_snapshot", "traffic_limit", "bigint(20) DEFAULT NULL COMMENT '流量限额 (bytes)'");
+            updateColumn("monitor_node_snapshot", "traffic_limit_type", "varchar(10) DEFAULT NULL COMMENT '流量限额类型'");
+
+            // Add new columns to monitor_metric_latest (v2 expansion)
+            updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");
+            updateColumn("monitor_metric_latest", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");
+            updateColumn("monitor_metric_latest", "gpu_usage", "double DEFAULT NULL COMMENT 'GPU 使用率 (%)'");
+            updateColumn("monitor_metric_latest", "temperature", "double DEFAULT NULL COMMENT '温度 (°C)'");
+            updateColumn("monitor_metric_latest", "load5", "double DEFAULT NULL COMMENT '5 分钟负载'");
+            updateColumn("monitor_metric_latest", "load15", "double DEFAULT NULL COMMENT '15 分钟负载'");
+            updateColumn("monitor_metric_latest", "connections_udp", "int(10) DEFAULT NULL COMMENT 'UDP 连接数'");
+
             log.info("[DatabaseInit] Monitor 探针集成表校验成功");
         } catch (Exception e) {
             log.error("[DatabaseInit] Monitor 探针集成表创建失败: {}", e.getMessage());

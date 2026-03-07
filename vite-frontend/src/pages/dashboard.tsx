@@ -5,7 +5,7 @@ import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Progress } from "@heroui/progress";
-import { getDiagnosisRuntimeStatus, getDiagnosisSummary, getNodeList, getUserPackageInfo } from "@/api";
+import { getDiagnosisRuntimeStatus, getDiagnosisSummary, getMonitorList, getNodeList, getUserPackageInfo, MonitorInstance } from "@/api";
 import { siteConfig } from "@/config/site";
 
 interface UserInfo {
@@ -181,15 +181,22 @@ export default function DashboardPage() {
   const [runtime, setRuntime] = useState<DiagnosisRuntimeStatus | null>(null);
   const [nodeCount, setNodeCount] = useState(0);
   const [onlineNodeCount, setOnlineNodeCount] = useState(0);
+  const [probeInstances, setProbeInstances] = useState<MonitorInstance[]>([]);
+  const probeSummary = useMemo(() => {
+    const total = probeInstances.reduce((s, i) => s + (i.nodeCount || 0), 0);
+    const online = probeInstances.reduce((s, i) => s + (i.onlineNodeCount || 0), 0);
+    return { total, online, instances: probeInstances.length };
+  }, [probeInstances]);
 
   const loadHome = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [packageResp, summaryResp, runtimeResp, nodeResp] = await Promise.all([
+      const [packageResp, summaryResp, runtimeResp, nodeResp, monitorResp] = await Promise.all([
         getUserPackageInfo(),
         getDiagnosisSummary().catch(() => null),
         getDiagnosisRuntimeStatus().catch(() => null),
         admin ? getNodeList().catch(() => null) : Promise.resolve(null),
+        admin ? getMonitorList().catch(() => null) : Promise.resolve(null),
       ]);
 
       if (packageResp.code !== 0) {
@@ -212,6 +219,9 @@ export default function DashboardPage() {
         const nodes: DashboardNode[] = Array.isArray(nodeResp.data) ? nodeResp.data : [];
         setNodeCount(nodes.length);
         setOnlineNodeCount(nodes.filter((node) => node.status === 1).length);
+      }
+      if (admin && monitorResp?.code === 0) {
+        setProbeInstances(Array.isArray(monitorResp.data) ? monitorResp.data : []);
       }
     } catch (error) {
       console.error('load home error', error);
@@ -255,10 +265,14 @@ export default function DashboardPage() {
           tone: 'primary' as const,
         },
         {
-          label: '在线节点',
-          value: `${onlineNodeCount}/${nodeCount}`,
-          subtitle: nodeCount > 0 ? '详细带宽曲线已移到诊断看板' : '当前未检测到节点数据',
-          tone: onlineNodeCount === nodeCount && nodeCount > 0 ? 'success' as const : 'warning' as const,
+          label: '探针节点',
+          value: probeSummary.total > 0 ? `${probeSummary.online}/${probeSummary.total}` : `${onlineNodeCount}/${nodeCount}`,
+          subtitle: probeSummary.total > 0
+            ? `${probeSummary.instances} 个探针实例，${probeSummary.online} 在线`
+            : (nodeCount > 0 ? 'GOST 节点在线状态' : '未检测到节点数据'),
+          tone: (probeSummary.total > 0
+            ? (probeSummary.online === probeSummary.total ? 'success' : 'warning')
+            : (onlineNodeCount === nodeCount && nodeCount > 0 ? 'success' : 'warning')) as 'success' | 'warning',
         },
         {
           label: '纳入诊断资源',
@@ -440,6 +454,9 @@ export default function DashboardPage() {
             </CardHeader>
             <CardBody className="grid gap-3 pt-5 sm:grid-cols-2 xl:grid-cols-1">
               <QuickEntry title="诊断看板" description="查看实时诊断进度、节点流量、隧道/转发流量排行与链路明细。" to="/monitor" tone="primary" />
+              {admin && probeSummary.total > 0 ? (
+                <QuickEntry title="探针管理" description={`${probeSummary.instances} 个探针实例，${probeSummary.online}/${probeSummary.total} 节点在线。查看 CPU、内存、磁盘等实时指标。`} to="/probe" tone="success" />
+              ) : null}
               {admin ? (
                 <QuickEntry title="自定义导航" description="集中打开探针、x-ui、服务器后台等常用外部入口，后续会继续扩展统一运维入口。" to="/portal" tone="warning" />
               ) : null}
@@ -480,7 +497,10 @@ export default function DashboardPage() {
                 <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
                   <p className="text-xs uppercase tracking-[0.18em] text-default-400">节点概览</p>
                   <p className="mt-2 text-sm leading-7 text-default-600">
-                    当前在线 {onlineNodeCount}/{nodeCount} 个节点。实时带宽、节点走势和服务流量排行已集中放到诊断看板，首页不再重复放图。
+                    {probeSummary.total > 0
+                      ? `探针监控 ${probeSummary.online}/${probeSummary.total} 节点在线（${probeSummary.instances} 个实例）。详细监控数据请前往探针管理查看。`
+                      : `当前在线 ${onlineNodeCount}/${nodeCount} 个节点。实时带宽和节点走势已集中放到诊断看板。`
+                    }
                   </p>
                 </div>
               )}

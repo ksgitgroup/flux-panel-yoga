@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from "@heroui/button";
-import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input, Textarea } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
@@ -15,14 +15,7 @@ import {
 import { Spinner } from "@heroui/spinner";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Progress } from "@heroui/progress";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableColumn,
-  TableHeader,
-  TableRow
-} from "@heroui/table";
+// Table imports removed - using native HTML table for better control
 import toast from 'react-hot-toast';
 
 import {
@@ -94,11 +87,6 @@ const CURRENCIES = [
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 
-const formatDate = (timestamp?: number | null) => {
-  if (!timestamp) return '-';
-  return new Date(timestamp).toLocaleString();
-};
-
 const formatDateShort = (timestamp?: number | null) => {
   if (!timestamp) return '-';
   return new Date(timestamp).toLocaleDateString();
@@ -160,13 +148,35 @@ const getRoleChip = (role?: string | null) => {
 const buildInstanceAddress = (instance: Pick<XuiInstance, 'baseUrl' | 'webBasePath'>) =>
   `${instance.baseUrl}${instance.webBasePath || '/'}`;
 
+/* Compact resource bar - inspired by Pika's design */
+const ResourceBar = ({ label, value, color }: { label: string; value: number; color: string }) => (
+  <div className="flex items-center gap-1.5 h-4 text-xs font-mono">
+    <span className="w-7 text-[10px] font-bold tracking-wider opacity-70 flex-shrink-0">{label}</span>
+    <div className="w-[80px] h-1.5 bg-default-200 dark:bg-default-100 relative overflow-hidden rounded-sm flex-shrink-0">
+      <div
+        className={`h-full transition-all duration-500 ease-out rounded-sm ${color}`}
+        style={{ width: `${Math.min(value, 100)}%` }}
+      />
+    </div>
+    <span className={`w-9 text-right text-[11px] font-medium ${
+      value > 90 ? 'text-danger' : value > 75 ? 'text-warning' : 'text-default-600'
+    }`}>{value.toFixed(0)}%</span>
+  </div>
+);
+
+const barColorClass = (v: number) =>
+  v > 90 ? 'bg-danger' : v > 75 ? 'bg-warning' : 'bg-success';
+
+const barColorHero = (v: number): 'danger' | 'warning' | 'success' =>
+  v > 90 ? 'danger' : v > 75 ? 'warning' : 'success';
+
 export default function AssetsPage() {
   const navigate = useNavigate();
   const admin = isAdmin();
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assets, setAssets] = useState<AssetHost[]>([]);
-  const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
+  const [expandedAssetId, setExpandedAssetId] = useState<number | null>(null);
   const [detail, setDetail] = useState<AssetHostDetail | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [form, setForm] = useState<AssetForm>(emptyForm());
@@ -177,58 +187,69 @@ export default function AssetsPage() {
   const [assetToDelete, setAssetToDelete] = useState<AssetHost | null>(null);
   const [unboundNodes, setUnboundNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [importLoading, setImportLoading] = useState(false);
-  // Provision (添加服务器)
   const [monitorInstances, setMonitorInstances] = useState<MonitorInstance[]>([]);
   const [provisionStep, setProvisionStep] = useState<'select' | 'result'>('select');
   const [provisionName, setProvisionName] = useState('');
   const [provisionInstanceId, setProvisionInstanceId] = useState<string>('');
   const [provisionLoading, setProvisionLoading] = useState(false);
   const [provisionResult, setProvisionResult] = useState<MonitorProvisionResult | null>(null);
+  const [filterRole, setFilterRole] = useState<string | null>(null);
 
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
+  const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
 
   useEffect(() => { void loadAssets(); }, []);
   useEffect(() => {
-    if (!selectedAssetId) { setDetail(null); return; }
-    void loadAssetDetail(selectedAssetId);
-  }, [selectedAssetId]);
+    if (!expandedAssetId) { setDetail(null); return; }
+    void loadAssetDetail(expandedAssetId);
+  }, [expandedAssetId]);
 
   const summary = useMemo(() => {
     const online = assets.filter(a => a.monitorOnline === 1).length;
+    const hasMonitor = assets.filter(a => a.monitorNodeUuid).length;
     return {
       totalAssets: assets.length,
       onlineAssets: online,
-      offlineAssets: assets.length - online,
+      offlineAssets: hasMonitor - online,
+      noMonitor: assets.length - hasMonitor,
       totalXuiInstances: assets.reduce((s, i) => s + (i.totalXuiInstances || 0), 0),
       totalForwards: assets.reduce((s, i) => s + (i.totalForwards || 0), 0),
       totalClients: assets.reduce((s, i) => s + (i.totalClients || 0), 0),
     };
   }, [assets]);
 
-  const filteredAssets = useMemo(() => {
-    const kw = normalizeKeyword(searchKeyword);
-    if (!kw) return assets;
-    return assets.filter((item) =>
-      [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark]
-        .some((v) => normalizeKeyword(v).includes(kw))
-    );
-  }, [assets, searchKeyword]);
+  const roleFilters = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => {
+      const role = a.role || 'none';
+      counts[role] = (counts[role] || 0) + 1;
+    });
+    return counts;
+  }, [assets]);
 
-  const selectedAsset = useMemo(
-    () => assets.find((item) => item.id === selectedAssetId) || null,
-    [assets, selectedAssetId]
-  );
+  const filteredAssets = useMemo(() => {
+    let list = assets;
+    if (filterRole) {
+      list = list.filter(a => (filterRole === 'none' ? !a.role : a.role === filterRole));
+    }
+    const kw = normalizeKeyword(searchKeyword);
+    if (kw) {
+      list = list.filter((item) =>
+        [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark, item.tags]
+          .some((v) => normalizeKeyword(v).includes(kw))
+      );
+    }
+    return list;
+  }, [assets, searchKeyword, filterRole]);
 
   const loadAssets = async () => {
     setLoading(true);
     try {
       const response = await getAssetList();
       if (response.code !== 0) { toast.error(response.msg || '操作失败'); return; }
-      const list = response.data || [];
-      setAssets(list);
-      setSelectedAssetId((cur) => (cur && list.some((i) => i.id === cur)) ? cur : (list[0]?.id ?? null));
+      setAssets(response.data || []);
     } catch { toast.error('加载资产失败'); }
     finally { setLoading(false); }
   };
@@ -246,7 +267,6 @@ export default function AssetsPage() {
   const openCreateModal = () => {
     setIsEdit(false); setErrors({}); setForm(emptyForm()); setUnboundNodes([]);
     onFormOpen();
-    // Pre-load unbound nodes for import
     void loadUnboundNodes();
   };
 
@@ -277,7 +297,6 @@ export default function AssetsPage() {
     toast.success(`已导入探针节点: ${node.name || node.ip}`);
   };
 
-  // Provision flow
   const openProvisionModal = async () => {
     setProvisionStep('select');
     setProvisionName('');
@@ -368,8 +387,6 @@ export default function AssetsPage() {
       toast.success(isEdit ? '已更新' : '已创建');
       onFormClose();
       await loadAssets();
-      const targetId = response.data?.id || form.id;
-      if (targetId) setSelectedAssetId(targetId);
     } catch { toast.error('操作失败'); }
     finally { setSubmitLoading(false); }
   };
@@ -383,10 +400,15 @@ export default function AssetsPage() {
       if (response.code !== 0) { toast.error(response.msg || '操作失败'); return; }
       toast.success('已删除');
       onDeleteClose(); setAssetToDelete(null);
-      if (selectedAssetId === assetToDelete.id) setSelectedAssetId(null);
+      if (expandedAssetId === assetToDelete.id) setExpandedAssetId(null);
       await loadAssets();
     } catch { toast.error('操作失败'); }
     finally { setActionLoadingId(null); }
+  };
+
+  const openDetailModal = (assetId: number) => {
+    setExpandedAssetId(assetId);
+    onDetailOpen();
   };
 
   if (!admin) {
@@ -405,520 +427,544 @@ export default function AssetsPage() {
 
   const expiringSoon = assets.filter(a => a.expireDate && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
 
+  const selectedAsset = assets.find(a => a.id === expandedAssetId) || null;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">服务器资产</h1>
-          <p className="mt-1 max-w-3xl text-sm text-default-500">
-            每台服务器作为一个资产，自动关联探针数据、X-UI 实例、协议节点和转发规则。
+          <p className="mt-1 text-sm text-default-500">
+            {assets.length} 台服务器，自动关联探针 / X-UI / 转发
           </p>
         </div>
         <div className="flex gap-2">
-          <Button color="primary" onPress={openProvisionModal}>添加服务器</Button>
-          <Button variant="flat" onPress={openCreateModal}>手动新建</Button>
+          <Button color="primary" size="sm" onPress={openProvisionModal}>添加服务器</Button>
+          <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-[10px] font-bold tracking-widest text-default-400">资产总数</p>
-          <p className="text-3xl font-semibold">{summary.totalAssets}</p>
-        </CardBody></Card>
-        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-[10px] font-bold tracking-widest text-default-400">在线</p>
-          <p className="text-3xl font-semibold text-success">{summary.onlineAssets}</p>
-        </CardBody></Card>
-        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-[10px] font-bold tracking-widest text-default-400">离线</p>
-          <p className={`text-3xl font-semibold ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
-        </CardBody></Card>
-        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-[10px] font-bold tracking-widest text-default-400">X-UI 实例</p>
-          <p className="text-3xl font-semibold">{summary.totalXuiInstances}</p>
-        </CardBody></Card>
-        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-[10px] font-bold tracking-widest text-default-400">转发规则</p>
-          <p className="text-3xl font-semibold">{summary.totalForwards}</p>
-        </CardBody></Card>
-        <Card className="border border-divider/80"><CardBody className="gap-1 p-5">
-          <p className="text-[10px] font-bold tracking-widest text-default-400">客户端</p>
-          <p className="text-3xl font-semibold">{summary.totalClients}</p>
-        </CardBody></Card>
+      {/* Summary Stats - 4 compact cards */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+        <div className="rounded-xl border border-divider/60 bg-content1 p-3">
+          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Total</p>
+          <p className="text-2xl font-bold font-mono">{summary.totalAssets}</p>
+        </div>
+        <div className="rounded-xl border border-success/20 bg-success-50/30 dark:bg-success-50/10 p-3">
+          <p className="text-[10px] font-bold tracking-widest text-success uppercase">Online</p>
+          <p className="text-2xl font-bold font-mono text-success">{summary.onlineAssets}</p>
+        </div>
+        <div className={`rounded-xl border p-3 ${summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`}>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>Offline</p>
+          <p className={`text-2xl font-bold font-mono ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
+        </div>
+        <div className="rounded-xl border border-divider/60 bg-content1 p-3">
+          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Integrations</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-lg font-bold font-mono">{summary.totalXuiInstances}</span>
+            <span className="text-[10px] text-default-400">XUI</span>
+            <span className="text-lg font-bold font-mono">{summary.totalForwards}</span>
+            <span className="text-[10px] text-default-400">FWD</span>
+          </div>
+        </div>
       </div>
 
       {/* Expiry Warnings */}
       {expiringSoon.length > 0 && (
-        <Card className="border border-warning/30 bg-warning-50/60">
-          <CardBody className="p-4">
-            <p className="text-sm font-medium text-warning-700">
-              {expiringSoon.length} 台资产将在 30 天内到期: {expiringSoon.map(a => a.name).join(', ')}
-            </p>
-          </CardBody>
-        </Card>
+        <div className="rounded-xl border border-warning/30 bg-warning-50/60 p-3 text-sm text-warning-700 dark:text-warning-400">
+          {expiringSoon.length} 台资产将在 30 天内到期: {expiringSoon.map(a => a.name).join(', ')}
+        </div>
       )}
 
-      {/* Main 2-column layout */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-        {/* Left: Asset List */}
-        <Card className="border border-divider/80">
-          <CardHeader className="flex flex-col items-start gap-3">
-            <h2 className="text-lg font-semibold">资产列表</h2>
-            <Input value={searchKeyword} onValueChange={setSearchKeyword} placeholder="搜索名称、IP、角色、地区..." />
-          </CardHeader>
-          <CardBody className="space-y-3">
-            {filteredAssets.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                {assets.length === 0 ? '暂无资产，点击「添加服务器」开始' : '没有匹配的结果'}
-              </div>
-            ) : (
-              filteredAssets.map((asset) => {
-                const selected = asset.id === selectedAssetId;
-                const roleChip = getRoleChip(asset.role);
-                const isOnline = asset.monitorOnline === 1;
-                return (
-                  <button type="button" key={asset.id} onClick={() => setSelectedAssetId(asset.id)}
-                    className={`w-full rounded-3xl border p-4 text-left transition-all ${
-                      selected ? 'border-primary bg-primary-50/70 shadow-lg shadow-primary/10'
-                        : 'border-divider/80 bg-content1 hover:border-primary/40 hover:bg-default-50'
-                    }`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-success' : 'bg-default-300'}`} />
-                          <p className="truncate text-base font-semibold">{asset.name}</p>
-                          {asset.label && <Chip size="sm" variant="flat">{asset.label}</Chip>}
-                          {roleChip && <Chip size="sm" color={roleChip.color} variant="flat">{roleChip.text}</Chip>}
-                        </div>
-                        <p className="mt-1 truncate text-xs text-default-500">
-                          {asset.primaryIp || '未设置 IP'}{asset.environment ? ` / ${asset.environment}` : ''}
-                          {asset.provider ? ` / ${asset.provider}` : ''}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Monitor mini metrics - Pika-style progress bars */}
-                    {asset.monitorCpuUsage != null && (() => {
-                      const cpu = asset.monitorCpuUsage || 0;
-                      const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
-                      const barColor = (v: number) => v > 90 ? 'danger' as const : v > 75 ? 'warning' as const : 'success' as const;
-                      return (
-                        <div className="mt-3 space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="w-8 text-[10px] font-medium text-default-400">CPU</span>
-                            <Progress size="sm" value={cpu} color={barColor(cpu)} className="flex-1" aria-label="CPU" />
-                            <span className="w-10 text-right text-xs font-mono font-medium">{cpu.toFixed(1)}%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="w-8 text-[10px] font-medium text-default-400">MEM</span>
-                            <Progress size="sm" value={memPct} color={barColor(memPct)} className="flex-1" aria-label="MEM" />
-                            <span className="w-10 text-right text-xs font-mono font-medium">{memPct.toFixed(0)}%</span>
-                          </div>
-                          <div className="flex items-center justify-between text-[10px] text-default-400">
-                            <span>{formatSpeed(asset.monitorNetIn)} / {formatSpeed(asset.monitorNetOut)}</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="mt-3 grid grid-cols-4 gap-1.5">
-                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
-                        <p className="text-[10px] text-default-400">X-UI</p>
-                        <p className="text-xs font-semibold">{asset.totalXuiInstances || 0}</p>
-                      </div>
-                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
-                        <p className="text-[10px] text-default-400">协议</p>
-                        <p className="text-xs font-semibold">{asset.totalProtocols || 0}</p>
-                      </div>
-                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
-                        <p className="text-[10px] text-default-400">转发</p>
-                        <p className="text-xs font-semibold">{asset.totalForwards || 0}</p>
-                      </div>
-                      <div className="rounded-lg bg-default-100/80 px-1.5 py-1">
-                        <p className="text-[10px] text-default-400">在线</p>
-                        <p className="text-xs font-semibold">{asset.onlineClients || 0}</p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Right: Detail */}
-        <div className="space-y-6">
-          {/* Asset Info */}
-          <Card className="border border-divider/80">
-            <CardHeader className="flex flex-col items-start gap-3">
-              {!selectedAsset ? (
-                <div>
-                  <h2 className="text-lg font-semibold">资产概览</h2>
-                  <p className="text-sm text-default-500">从左侧列表选择一个资产</p>
-                </div>
-              ) : (
-                <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300'}`} />
-                      <h2 className="truncate text-lg font-semibold">{selectedAsset.name}</h2>
-                      {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
-                      {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
-                    </div>
-                    <p className="mt-1 break-all text-sm text-default-500">{selectedAsset.primaryIp || '未设置 IP'}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {detailLoading && <Spinner size="sm" />}
-                    <Button size="sm" variant="flat" onPress={() => openEditModal(selectedAsset)}>编辑</Button>
-                    <Button size="sm" variant="flat" color="danger" onPress={() => openDeleteModal(selectedAsset)}>删除</Button>
-                  </div>
-                </div>
-              )}
-            </CardHeader>
-            <CardBody>
-              {!selectedAsset ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  选择一台服务器资产，查看关联的 X-UI、协议、探针和转发信息
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                    {/* Server Info - from probe sync */}
-                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs tracking-widest text-default-400">服务器</p>
-                        {selectedAsset.monitorNodeUuid && (
-                          <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>探针同步</Chip>
-                        )}
-                      </div>
-                      <div className="mt-3 space-y-1.5 text-sm">
-                        <p><span className="text-default-500">IP:</span> {selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</p>
-                        <p><span className="text-default-500">SSH:</span> {selectedAsset.sshPort || 22}</p>
-                        <p><span className="text-default-500">系统:</span> {selectedAsset.os || '-'}</p>
-                        <p><span className="text-default-500">配置:</span> {selectedAsset.cpuCores || '?'}核 / {selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb}MB` : '?'} / {selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb}GB` : '?'}</p>
-                        <p><span className="text-default-500">带宽:</span> {selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}{selectedAsset.monthlyTrafficGb ? ` / ${selectedAsset.monthlyTrafficGb} GB/月` : ''}</p>
-                      </div>
-                    </div>
-
-                    {/* Provider & Cost - Flux only */}
-                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs tracking-widest text-default-400">供应商与费用</p>
-                        <Chip size="sm" variant="flat" color="default" classNames={{content: "text-[10px]"}}>手动管理</Chip>
-                      </div>
-                      <div className="mt-3 space-y-1.5 text-sm">
-                        <p><span className="text-default-500">厂商:</span> {selectedAsset.provider || '-'}</p>
-                        <p><span className="text-default-500">地区:</span> {selectedAsset.region || '-'}</p>
-                        <p><span className="text-default-500">月费:</span> {selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}` : '-'}/月</p>
-                        <p><span className="text-default-500">购买:</span> {formatDateShort(selectedAsset.purchaseDate)}</p>
-                        <p>
-                          <span className="text-default-500">到期:</span>{' '}
-                          {selectedAsset.expireDate ? (
-                            <span className={selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'font-semibold text-warning' : ''}>
-                              {formatDateShort(selectedAsset.expireDate)}
-                            </span>
-                          ) : '-'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Integration Summary */}
-                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs tracking-widest text-default-400">关联信息</p>
-                        <Chip size="sm" variant="flat" color="default" classNames={{content: "text-[10px]"}}>Flux</Chip>
-                      </div>
-                      <div className="mt-3 space-y-1.5 text-sm">
-                        <p><span className="text-default-500">X-UI:</span> {selectedAsset.totalXuiInstances || 0} 个实例</p>
-                        <p><span className="text-default-500">协议:</span> {selectedAsset.totalProtocols || 0} 种</p>
-                        <p><span className="text-default-500">转发:</span> {selectedAsset.totalForwards || 0} 条</p>
-                        <p><span className="text-default-500">GOST 节点:</span> {selectedAsset.gostNodeName || '-'}</p>
-                        <p><span className="text-default-500">探针 UUID:</span> <span className="font-mono text-xs">{selectedAsset.monitorNodeUuid || '-'}</span></p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedAsset.remark && (
-                    <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4 text-sm text-default-700">
-                      <p className="font-medium">备注</p>
-                      <p className="mt-1">{selectedAsset.remark}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* Monitor Section */}
-          <Card className="border border-divider/80">
-            <CardHeader className="flex flex-row items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold">探针监控</h2>
-                <p className="text-sm text-default-500">来自关联探针节点的实时指标</p>
-              </div>
-              <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/probe')}>
-                管理探针
-              </Button>
-            </CardHeader>
-            <CardBody>
-              {!detail || !detail.monitorNodes || detail.monitorNodes.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500 text-center">
-                  暂无关联探针。通过「添加服务器」一键部署探针，或前往
-                  <span className="text-primary cursor-pointer hover:underline" onClick={() => navigate('/probe')}>
-                    探针管理
-                  </span>
-                  手动同步。
-                </div>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {detail.monitorNodes.map((node: MonitorNodeSnapshot) => {
-                    const m = node.latestMetric;
-                    const memPct = m?.memTotal ? ((m.memUsed || 0) / m.memTotal * 100) : 0;
-                    const diskPct = m?.diskTotal ? ((m.diskUsed || 0) / m.diskTotal * 100) : 0;
-                    const barColor = (v: number) => v > 90 ? 'danger' as const : v > 75 ? 'warning' as const : 'success' as const;
-                    return (
-                      <div key={node.id} className={`rounded-3xl border p-4 transition-all ${
-                        node.online === 1 ? 'border-divider/80 bg-default-50/80' : 'border-default-200 bg-default-100/50 opacity-70'
-                      }`}>
-                        {/* Header */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-block h-2.5 w-2.5 rounded-full ${node.online === 1 ? 'bg-success animate-pulse' : 'bg-default-300'}`} />
-                              <p className="truncate font-semibold">{node.name || node.remoteNodeUuid}</p>
-                            </div>
-                            <p className="mt-1 text-xs text-default-500 font-mono">{node.ip}{node.os ? ` / ${node.os}` : ''}</p>
-                          </div>
-                          <Chip size="sm" variant="flat" color={node.online === 1 ? 'success' : 'default'}>
-                            {node.online === 1 ? '在线' : '离线'}
-                          </Chip>
-                        </div>
-
-                        {/* Metrics - Pika-style compact bars */}
-                        {m ? (
-                          <div className="mt-4 space-y-2.5">
-                            <div className="flex items-center gap-2">
-                              <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">CPU</span>
-                              <Progress size="sm" value={m.cpuUsage || 0} color={barColor(m.cpuUsage || 0)} className="flex-1" aria-label="CPU" />
-                              <span className="w-12 text-right text-xs font-mono font-medium">{m.cpuUsage?.toFixed(1)}%</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">MEM</span>
-                              <Progress size="sm" value={memPct} color={barColor(memPct)} className="flex-1" aria-label="MEM" />
-                              <span className="w-12 text-right text-xs font-mono font-medium">{memPct.toFixed(0)}%</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">DISK</span>
-                              <Progress size="sm" value={diskPct} color={barColor(diskPct)} className="flex-1" aria-label="DISK" />
-                              <span className="w-12 text-right text-xs font-mono font-medium">{diskPct.toFixed(0)}%</span>
-                            </div>
-
-                            {/* Compact stats grid */}
-                            <div className="grid grid-cols-3 gap-1.5 pt-1">
-                              <div className="rounded-lg bg-content1 px-2 py-1.5 text-center">
-                                <p className="text-[9px] font-medium text-default-400">NET IN</p>
-                                <p className="text-xs font-semibold font-mono">{formatSpeed(m.netIn)}</p>
-                              </div>
-                              <div className="rounded-lg bg-content1 px-2 py-1.5 text-center">
-                                <p className="text-[9px] font-medium text-default-400">NET OUT</p>
-                                <p className="text-xs font-semibold font-mono">{formatSpeed(m.netOut)}</p>
-                              </div>
-                              <div className="rounded-lg bg-content1 px-2 py-1.5 text-center">
-                                <p className="text-[9px] font-medium text-default-400">UPTIME</p>
-                                <p className="text-xs font-semibold">{formatUptime(m.uptime)}</p>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-default-400 font-mono">
-                              <span>LOAD {m.load1?.toFixed(2) || '-'}</span>
-                              <span>CONN {m.connections || 0}</span>
-                              <span>PROC {m.processCount || 0}</span>
-                            </div>
-                          </div>
-                        ) : node.online !== 1 ? (
-                          <div className="mt-4 flex items-center gap-2 rounded-lg bg-default-200/50 px-3 py-2 text-xs text-default-400">
-                            <span>CONNECTION_LOST</span>
-                          </div>
-                        ) : null}
-
-                        {/* Hardware footer */}
-                        <div className="mt-2.5 flex items-center justify-between border-t border-divider/50 pt-2 text-[11px] text-default-400">
-                          <span className="truncate">{node.cpuName || '-'} / {node.cpuCores || '?'}C</span>
-                          <span className="flex-shrink-0 ml-2">v{node.version || '?'}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* X-UI Instances */}
-          <Card className="border border-divider/80">
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">X-UI 实例</h2>
-              <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/xui')}>
-                管理 X-UI
-              </Button>
-            </CardHeader>
-            <CardBody>
-              {!detail || detail.xuiInstances.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  暂无关联的 X-UI 实例
-                  <Button size="sm" variant="light" color="primary" className="ml-2" onPress={() => navigate('/xui')}>
-                    前往 X-UI 添加
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {detail.xuiInstances.map((inst) => {
-                    const syncChip = getStatusChip(inst.lastSyncStatus);
-                    return (
-                      <button type="button" key={inst.id} onClick={() => navigate('/xui')}
-                        className="rounded-3xl border border-divider/80 bg-default-50/80 p-4 text-left transition-all hover:border-primary/40 hover:bg-primary-50/40">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold">{inst.name}</p>
-                            <p className="mt-1 break-all text-xs text-default-500">{buildInstanceAddress(inst)}</p>
-                          </div>
-                          <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-3">
-                          <div className="rounded-xl bg-content1 p-2">
-                            <p className="text-[10px] text-default-400">入站</p>
-                            <p className="text-sm font-semibold">{inst.inboundCount || 0}</p>
-                          </div>
-                          <div className="rounded-xl bg-content1 p-2">
-                            <p className="text-[10px] text-default-400">客户端</p>
-                            <p className="text-sm font-semibold">{inst.clientCount || 0}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-xs text-default-500">
-                          <span>User: {inst.username} / Synced: {formatDate(inst.lastSyncAt)}</span>
-                          <span className="text-primary">查看详情 &rarr;</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* Protocol Directory */}
-          <Card className="border border-divider/80">
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">协议目录</h2>
-            </CardHeader>
-            <CardBody>
-              {!detail || detail.protocolSummaries.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">暂无协议数据</div>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {detail.protocolSummaries.map((item) => (
-                    <div key={item.protocol} className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold uppercase">{item.protocol}</p>
-                        <Chip size="sm" color="primary" variant="flat">{item.inboundCount} 入站</Chip>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="rounded-xl bg-content1 p-2">
-                          <p className="text-[10px] text-default-400">客户端</p>
-                          <p className="text-sm font-semibold">{item.clientCount || 0} <span className="text-xs text-default-500">({item.onlineClientCount || 0} 在线)</span></p>
-                        </div>
-                        <div className="rounded-xl bg-content1 p-2">
-                          <p className="text-[10px] text-default-400">流量</p>
-                          <p className="text-sm font-semibold">{formatFlow(item.allTime)}</p>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs text-default-500">端口: {item.portSummary || '-'}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* Forward Links */}
-          <Card className="border border-divider/80">
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">转发链接</h2>
-              <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/forward')}>
-                管理转发
-              </Button>
-            </CardHeader>
-            <CardBody>
-              {!detail || detail.forwards.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-divider/80 p-6 text-sm text-default-500">
-                  暂无关联转发
-                  <Button size="sm" variant="light" color="primary" className="ml-2" onPress={() => navigate('/forward')}>
-                    前往转发管理
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  {/* Mobile: card layout */}
-                  <div className="space-y-3 md:hidden">
-                    {detail.forwards.map((item) => (
-                      <button type="button" key={item.id} onClick={() => navigate('/forward')}
-                        className="w-full rounded-2xl border border-divider/80 bg-default-50/80 p-3 text-left transition-all hover:border-primary/40">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate font-medium">{item.name}</p>
-                          <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
-                            {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
-                          </Chip>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-default-500">
-                          <span>Tunnel: {item.tunnelName || '-'}</span>
-                          <span>Addr: {item.remoteAddr}</span>
-                        </div>
-                        {item.remoteSourceLabel && (
-                          <Chip size="sm" variant="flat" color="secondary" className="mt-2">{item.remoteSourceLabel}</Chip>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                  {/* Desktop: table layout */}
-                  <div className="hidden md:block">
-                    <Table removeWrapper aria-label="转发列表">
-                      <TableHeader>
-                        <TableColumn>转发</TableColumn>
-                        <TableColumn>隧道</TableColumn>
-                        <TableColumn>来源</TableColumn>
-                        <TableColumn>地址</TableColumn>
-                        <TableColumn>状态</TableColumn>
-                      </TableHeader>
-                      <TableBody items={detail.forwards}>
-                        {(item) => (
-                          <TableRow key={item.id} className="cursor-pointer" onClick={() => navigate('/forward')}>
-                            <TableCell><p className="font-medium">{item.name}</p></TableCell>
-                            <TableCell>{item.tunnelName || '-'}</TableCell>
-                            <TableCell>{item.remoteSourceLabel || '-'}</TableCell>
-                            <TableCell className="text-xs">{item.remoteAddr}</TableCell>
-                            <TableCell>
-                              <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
-                                {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
-                              </Chip>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </>
-              )}
-            </CardBody>
-          </Card>
+      {/* Filter + Search bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Input
+          className="sm:max-w-xs"
+          size="sm"
+          value={searchKeyword}
+          onValueChange={setSearchKeyword}
+          placeholder="搜索名称、IP、供应商、地区..."
+          isClearable
+          onClear={() => setSearchKeyword('')}
+        />
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            className={`px-2.5 py-1 rounded-full text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+              !filterRole ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+            }`}
+            onClick={() => setFilterRole(null)}
+          >
+            ALL ({assets.length})
+          </button>
+          {Object.entries(roleFilters).map(([role, count]) => {
+            const roleInfo = getRoleChip(role === 'none' ? null : role);
+            return (
+              <button
+                key={role}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterRole === role ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}
+                onClick={() => setFilterRole(filterRole === role ? null : role)}
+              >
+                {roleInfo?.text || '未分类'} ({count})
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {/* Main Server Table (desktop) / Card Grid (mobile) */}
+      {filteredAssets.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
+          <h3 className="text-base font-semibold text-default-600">{assets.length === 0 ? '暂无资产' : '无匹配结果'}</h3>
+          <p className="mt-2 text-sm text-default-400">
+            {assets.length === 0 ? '点击「添加服务器」开始部署探针' : '尝试调整搜索关键词或筛选条件'}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Desktop Table */}
+          <div className="hidden lg:block">
+            <div className="overflow-x-auto rounded-xl border border-divider/60">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-divider/60 bg-default-50/80">
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[220px]">Server</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[200px]">Telemetry</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">Network</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">Provider</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">Expire</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">Links</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAssets.map((asset) => {
+                    const isOnline = asset.monitorOnline === 1;
+                    const hasMonitor = !!asset.monitorNodeUuid;
+                    const cpu = asset.monitorCpuUsage || 0;
+                    const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
+                    const roleChip = getRoleChip(asset.role);
+                    const isExpiringSoon = asset.expireDate && asset.expireDate < Date.now() + 30 * 86400000;
+
+                    return (
+                      <tr
+                        key={asset.id}
+                        className="border-b border-divider/40 hover:bg-primary-50/40 dark:hover:bg-primary-50/10 transition-colors cursor-pointer group"
+                        onClick={() => openDetailModal(asset.id)}
+                      >
+                        {/* Server identity */}
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${
+                              isOnline ? 'bg-success animate-pulse' : hasMonitor ? 'bg-danger' : 'bg-default-300'
+                            }`} />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate font-semibold text-sm">{asset.name}</span>
+                                {roleChip && (
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    roleChip.color === 'primary' ? 'bg-primary-100 text-primary dark:bg-primary/20' :
+                                    roleChip.color === 'warning' ? 'bg-warning-100 text-warning dark:bg-warning/20' :
+                                    roleChip.color === 'success' ? 'bg-success-100 text-success dark:bg-success/20' :
+                                    'bg-secondary-100 text-secondary dark:bg-secondary/20'
+                                  }`}>{roleChip.text}</span>
+                                )}
+                              </div>
+                              <p className="truncate text-[11px] text-default-400 font-mono">
+                                {asset.primaryIp || '-'}
+                                {asset.os ? <span className="ml-1 opacity-60">/ {asset.os}</span> : null}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Telemetry - CPU/MEM bars */}
+                        <td className="px-3 py-2.5">
+                          {hasMonitor && isOnline ? (
+                            <div className="space-y-0.5">
+                              <ResourceBar label="CPU" value={cpu} color={barColorClass(cpu)} />
+                              <ResourceBar label="MEM" value={memPct} color={barColorClass(memPct)} />
+                            </div>
+                          ) : hasMonitor ? (
+                            <span className="text-[11px] text-danger font-mono">OFFLINE</span>
+                          ) : (
+                            <span className="text-[11px] text-default-300 font-mono">-</span>
+                          )}
+                        </td>
+
+                        {/* Network speed */}
+                        <td className="px-3 py-2.5">
+                          {hasMonitor && isOnline ? (
+                            <div className="space-y-0.5 font-mono text-[11px]">
+                              <div className="flex items-center gap-1">
+                                <span className="text-success">&#x2193;</span>
+                                <span>{formatSpeed(asset.monitorNetIn)}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-primary">&#x2191;</span>
+                                <span>{formatSpeed(asset.monitorNetOut)}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-default-300 font-mono">-</span>
+                          )}
+                        </td>
+
+                        {/* Provider & Cost */}
+                        <td className="px-3 py-2.5">
+                          <p className="truncate text-xs">{asset.provider || '-'}</p>
+                          {asset.monthlyCost && (
+                            <p className="text-[11px] text-default-400 font-mono">{asset.monthlyCost} {asset.currency || ''}/mo</p>
+                          )}
+                        </td>
+
+                        {/* Expire */}
+                        <td className="px-3 py-2.5">
+                          <span className={`text-xs font-mono ${isExpiringSoon ? 'text-warning font-semibold' : 'text-default-500'}`}>
+                            {formatDateShort(asset.expireDate)}
+                          </span>
+                        </td>
+
+                        {/* Integration links */}
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1.5 text-[11px] font-mono text-default-400">
+                            {asset.totalXuiInstances > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10">
+                                {asset.totalXuiInstances} XUI
+                              </span>
+                            )}
+                            {asset.totalForwards > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10">
+                                {asset.totalForwards} FWD
+                              </span>
+                            )}
+                            {!asset.totalXuiInstances && !asset.totalForwards && '-'}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile Card Grid */}
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:hidden">
+            {filteredAssets.map((asset) => {
+              const isOnline = asset.monitorOnline === 1;
+              const hasMonitor = !!asset.monitorNodeUuid;
+              const cpu = asset.monitorCpuUsage || 0;
+              const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
+              const roleChip = getRoleChip(asset.role);
+
+              return (
+                <button
+                  type="button"
+                  key={asset.id}
+                  onClick={() => openDetailModal(asset.id)}
+                  className="rounded-xl border border-divider/60 bg-content1 p-3 text-left transition-all hover:border-primary/40 hover:shadow-sm"
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${
+                          isOnline ? 'bg-success animate-pulse' : hasMonitor ? 'bg-danger' : 'bg-default-300'
+                        }`} />
+                        <span className="truncate font-semibold text-sm">{asset.name}</span>
+                      </div>
+                      <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-3.5">
+                        {asset.primaryIp || '-'}{asset.region ? ` / ${asset.region}` : ''}
+                      </p>
+                    </div>
+                    {roleChip && (
+                      <Chip size="sm" color={roleChip.color} variant="flat" className="flex-shrink-0">{roleChip.text}</Chip>
+                    )}
+                  </div>
+
+                  {/* Metrics */}
+                  {hasMonitor && isOnline && (
+                    <div className="mt-2 space-y-0.5">
+                      <ResourceBar label="CPU" value={cpu} color={barColorClass(cpu)} />
+                      <ResourceBar label="MEM" value={memPct} color={barColorClass(memPct)} />
+                    </div>
+                  )}
+                  {hasMonitor && !isOnline && (
+                    <p className="mt-2 text-[11px] text-danger font-mono">OFFLINE</p>
+                  )}
+
+                  {/* Footer */}
+                  <div className="mt-2 flex items-center justify-between text-[10px] text-default-400 border-t border-divider/40 pt-1.5">
+                    <span>{asset.provider || '-'}{asset.monthlyCost ? ` / ${asset.monthlyCost}${asset.currency || ''}` : ''}</span>
+                    <div className="flex gap-1.5">
+                      {asset.totalXuiInstances > 0 && <span>{asset.totalXuiInstances} XUI</span>}
+                      {asset.totalForwards > 0 && <span>{asset.totalForwards} FWD</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Detail Modal - shows full asset info, probe metrics, XUI, forwards */}
+      <Modal isOpen={isDetailOpen} onOpenChange={(open) => !open && onDetailClose()} size="4xl" scrollBehavior="inside">
+        <ModalContent>
+          {selectedAsset && (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success animate-pulse' : selectedAsset.monitorNodeUuid ? 'bg-danger' : 'bg-default-300'}`} />
+                  <span className="text-lg font-bold">{selectedAsset.name}</span>
+                  {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
+                  {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
+                </div>
+                <p className="text-sm font-normal text-default-500 font-mono">{selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</p>
+              </ModalHeader>
+              <ModalBody className="space-y-4">
+                {detailLoading && <div className="flex justify-center py-4"><Spinner /></div>}
+
+                {/* Info Cards Grid */}
+                <div className="grid gap-3 md:grid-cols-3">
+                  {/* Server Info */}
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Server</p>
+                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Probe</Chip>}
+                    </div>
+                    <div className="space-y-1 text-xs">
+                      <p className="flex justify-between"><span className="text-default-400">OS</span><span className="font-mono">{selectedAsset.os || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedAsset.cpuCores || '?'} cores</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">RAM</span><span className="font-mono">{selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb} MB` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Disk</span><span className="font-mono">{selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb} GB` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">BW</span><span className="font-mono">{selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
+                    </div>
+                  </div>
+
+                  {/* Provider & Cost */}
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Provider</p>
+                    <div className="space-y-1 text-xs">
+                      <p className="flex justify-between"><span className="text-default-400">Vendor</span><span>{selectedAsset.provider || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Region</span><span>{selectedAsset.region || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Cost</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}/mo` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Traffic</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/mo` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Purchase</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
+                      <p className="flex justify-between">
+                        <span className="text-default-400">Expire</span>
+                        <span className={`font-mono ${selectedAsset.expireDate && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
+                          {formatDateShort(selectedAsset.expireDate)}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Integrations */}
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Integrations</p>
+                    <div className="space-y-1 text-xs">
+                      <p className="flex justify-between"><span className="text-default-400">X-UI</span><span className="font-mono">{selectedAsset.totalXuiInstances || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Protocols</span><span className="font-mono">{selectedAsset.totalProtocols || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Inbounds</span><span className="font-mono">{selectedAsset.totalInbounds || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Clients</span><span className="font-mono">{selectedAsset.totalClients || 0} ({selectedAsset.onlineClients || 0} online)</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">Forwards</span><span className="font-mono">{selectedAsset.totalForwards || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName || '-'}</span></p>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedAsset.remark && (
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-xs">
+                    <span className="text-default-400 mr-2">Remark:</span>{selectedAsset.remark}
+                  </div>
+                )}
+
+                {/* Probe Monitor Metrics */}
+                {detail?.monitorNodes && detail.monitorNodes.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Probe Metrics</p>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {detail.monitorNodes.map((node: MonitorNodeSnapshot) => {
+                        const m = node.latestMetric;
+                        const memPct = m?.memTotal ? ((m.memUsed || 0) / m.memTotal * 100) : 0;
+                        const diskPct = m?.diskTotal ? ((m.diskUsed || 0) / m.diskTotal * 100) : 0;
+                        const swapPct = m?.swapTotal ? ((m.swapUsed || 0) / m.swapTotal * 100) : 0;
+                        return (
+                          <div key={node.id} className={`rounded-xl border p-3 ${
+                            node.online === 1 ? 'border-divider/60 bg-content1' : 'border-danger/20 bg-danger-50/20'
+                          }`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`inline-block h-2 w-2 rounded-full ${node.online === 1 ? 'bg-success animate-pulse' : 'bg-danger'}`} />
+                                <span className="truncate font-semibold text-sm">{node.name || node.remoteNodeUuid.slice(0, 8)}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-default-400">v{node.version || '?'}</span>
+                            </div>
+
+                            {m && node.online === 1 ? (
+                              <div className="space-y-1">
+                                {/* Resource bars */}
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">CPU</span>
+                                  <Progress size="sm" value={m.cpuUsage || 0} color={barColorHero(m.cpuUsage || 0)} className="flex-1" aria-label="CPU" />
+                                  <span className="w-10 text-right text-[11px] font-mono">{(m.cpuUsage || 0).toFixed(1)}%</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">MEM</span>
+                                  <Progress size="sm" value={memPct} color={barColorHero(memPct)} className="flex-1" aria-label="MEM" />
+                                  <span className="w-10 text-right text-[11px] font-mono">{memPct.toFixed(0)}%</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">DISK</span>
+                                  <Progress size="sm" value={diskPct} color={barColorHero(diskPct)} className="flex-1" aria-label="DISK" />
+                                  <span className="w-10 text-right text-[11px] font-mono">{diskPct.toFixed(0)}%</span>
+                                </div>
+                                {m.swapTotal && m.swapTotal > 0 && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">SWAP</span>
+                                    <Progress size="sm" value={swapPct} color={barColorHero(swapPct)} className="flex-1" aria-label="SWAP" />
+                                    <span className="w-10 text-right text-[11px] font-mono">{swapPct.toFixed(0)}%</span>
+                                  </div>
+                                )}
+
+                                {/* Compact stats */}
+                                <div className="grid grid-cols-3 gap-1.5 pt-1">
+                                  <div className="rounded-lg bg-default-100/60 px-2 py-1 text-center">
+                                    <p className="text-[9px] text-default-400">NET IN</p>
+                                    <p className="text-[11px] font-semibold font-mono">{formatSpeed(m.netIn)}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-100/60 px-2 py-1 text-center">
+                                    <p className="text-[9px] text-default-400">NET OUT</p>
+                                    <p className="text-[11px] font-semibold font-mono">{formatSpeed(m.netOut)}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-100/60 px-2 py-1 text-center">
+                                    <p className="text-[9px] text-default-400">UPTIME</p>
+                                    <p className="text-[11px] font-semibold font-mono">{formatUptime(m.uptime)}</p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 text-[10px] text-default-400 font-mono">
+                                  <span>LOAD {m.load1?.toFixed(2) || '-'} / {m.load5?.toFixed(2) || '-'} / {m.load15?.toFixed(2) || '-'}</span>
+                                  <span>TCP {m.connections || 0}{m.connectionsUdp ? ` UDP ${m.connectionsUdp}` : ''}</span>
+                                  <span>PROC {m.processCount || 0}</span>
+                                  {m.gpuUsage != null && m.gpuUsage > 0 && <span>GPU {m.gpuUsage.toFixed(1)}%</span>}
+                                </div>
+                                {/* Traffic totals */}
+                                <div className="flex gap-3 text-[10px] text-default-400 font-mono">
+                                  <span>&#x2193; {formatFlow(m.netTotalDown)}</span>
+                                  <span>&#x2191; {formatFlow(m.netTotalUp)}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-danger font-mono py-2">CONNECTION_LOST</div>
+                            )}
+
+                            {/* Hardware info */}
+                            <div className="mt-1.5 pt-1.5 border-t border-divider/40 text-[10px] text-default-400 font-mono space-y-0.5">
+                              <p className="truncate">{node.cpuName || '-'} / {node.cpuCores || '?'}C{node.arch ? ` / ${node.arch}` : ''}</p>
+                              {node.virtualization && <p>VIRT: {node.virtualization}</p>}
+                              {node.kernelVersion && <p className="truncate">Kernel: {node.kernelVersion}</p>}
+                              {node.gpuName && <p className="truncate">GPU: {node.gpuName}</p>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* X-UI Instances */}
+                {detail?.xuiInstances && detail.xuiInstances.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">X-UI Instances</p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {detail.xuiInstances.map((inst) => {
+                        const syncChip = getStatusChip(inst.lastSyncStatus);
+                        return (
+                          <button type="button" key={inst.id} onClick={() => navigate('/xui')}
+                            className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-left transition-all hover:border-primary/40">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold text-sm">{inst.name}</p>
+                                <p className="truncate text-[11px] text-default-400 font-mono">{buildInstanceAddress(inst)}</p>
+                              </div>
+                              <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
+                            </div>
+                            <div className="mt-2 flex gap-3 text-[11px] text-default-500 font-mono">
+                              <span>{inst.inboundCount || 0} inbounds</span>
+                              <span>{inst.clientCount || 0} clients</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Protocol Summary */}
+                {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Protocols</p>
+                    <div className="flex flex-wrap gap-2">
+                      {detail.protocolSummaries.map((p) => (
+                        <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
+                          <span className="font-bold uppercase">{p.protocol}</span>
+                          <span className="ml-2 text-default-400 font-mono">
+                            {p.inboundCount} in / {p.clientCount} clients ({p.onlineClientCount} online)
+                          </span>
+                          {p.allTime ? <span className="ml-2 text-default-400 font-mono">{formatFlow(p.allTime)}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Forwards */}
+                {detail?.forwards && detail.forwards.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Forwards</p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {detail.forwards.map((item) => (
+                        <button type="button" key={item.id} onClick={() => navigate('/forward')}
+                          className="rounded-xl border border-divider/60 bg-default-50/60 p-2.5 text-left transition-all hover:border-primary/40 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-medium">{item.name}</span>
+                            <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
+                              {item.status === 1 ? 'Running' : item.status === 0 ? 'Paused' : 'Error'}
+                            </Chip>
+                          </div>
+                          <p className="mt-1 text-[11px] text-default-400 font-mono truncate">
+                            {item.tunnelName ? `${item.tunnelName} -> ` : ''}{item.remoteAddr}
+                          </p>
+                          {item.remoteSourceLabel && (
+                            <Chip size="sm" variant="flat" color="secondary" className="mt-1">{item.remoteSourceLabel}</Chip>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </ModalBody>
+              <ModalFooter>
+                <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>Edit</Button>
+                <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>Delete</Button>
+                <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>Probe</Button>
+                <Button size="sm" variant="flat" onPress={() => navigate('/xui')}>X-UI</Button>
+                <Button size="sm" color="primary" onPress={onDetailClose}>Close</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
 
       {/* Create/Edit Modal */}
       <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="3xl" scrollBehavior="inside">
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑资产' : '新建资产'}</ModalHeader>
           <ModalBody>
-            {/* Import from probe - only show for new assets */}
             {!isEdit && unboundNodes.length > 0 && (
               <div className="rounded-lg border border-primary-200 bg-primary-50 p-3 dark:border-primary-800 dark:bg-primary-950">
                 <p className="mb-2 text-xs font-medium text-primary-600 dark:text-primary-400">从探针导入（自动填充服务器信息）</p>
@@ -939,7 +985,6 @@ export default function AssetsPage() {
               </div>
             )}
 
-            {/* Essential fields */}
             <div className="grid gap-4 md:grid-cols-3">
               <Input label="名称" placeholder="HK-VPS-01" value={form.name}
                 onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
@@ -963,7 +1008,6 @@ export default function AssetsPage() {
             <Textarea label="备注" value={form.remark}
               onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} minRows={2} />
 
-            {/* Advanced fields in collapsible section */}
             <Accordion variant="light" className="-mx-1">
               <AccordionItem key="advanced" title="更多配置" classNames={{ title: "text-xs text-default-400" }}>
                 <div className="space-y-4">
@@ -1043,7 +1087,7 @@ export default function AssetsPage() {
         </ModalContent>
       </Modal>
 
-      {/* Provision Modal - 添加服务器 */}
+      {/* Provision Modal */}
       <Modal isOpen={isProvisionOpen} onOpenChange={(open) => !open && onProvisionClose()} size="2xl">
         <ModalContent>
           <ModalHeader>添加服务器</ModalHeader>
@@ -1051,8 +1095,7 @@ export default function AssetsPage() {
             {provisionStep === 'select' ? (
               <div className="space-y-4">
                 <p className="text-sm text-default-500">
-                  选择一个已配置的探针实例，系统将在 Komari 上创建客户端并生成安装命令。
-                  将命令粘贴到 VPS 执行后，探针会自动上报数据，同步后自动创建服务器资产。
+                  选择探针实例，系统将在 Komari 上创建客户端并生成安装命令。
                 </p>
                 <Select
                   label="探针实例"

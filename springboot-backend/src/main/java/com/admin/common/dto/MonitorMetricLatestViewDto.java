@@ -23,11 +23,25 @@ public class MonitorMetricLatestViewDto {
 
     private Long netTotalDown;
 
+    private Long swapUsed;
+
+    private Long swapTotal;
+
+    private Double gpuUsage;
+
+    private Double temperature;
+
     private Double load1;
+
+    private Double load5;
+
+    private Double load15;
 
     private Long uptime;
 
     private Integer connections;
+
+    private Integer connectionsUdp;
 
     private Integer processCount;
 

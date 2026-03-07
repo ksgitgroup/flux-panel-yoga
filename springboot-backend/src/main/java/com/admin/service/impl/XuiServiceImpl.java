@@ -21,18 +21,20 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.http.NameValuePair;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.ssl.TrustStrategy;
 import org.apache.http.util.EntityUtils;
@@ -67,6 +69,9 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     private static final int FLAG_TRUE = 1;
     private static final int FLAG_FALSE = 0;
     private static final Pattern BASE_PATH_PATTERN = Pattern.compile("basePath\\s*=\\s*['\"]([^'\"]+)['\"]");
+    private static final String AJAX_HEADER = "X-Requested-With";
+    private static final String AJAX_HEADER_VALUE = "XMLHttpRequest";
+    private static final String AJAX_ACCEPT = "application/json, text/plain, */*";
 
     private final Set<Long> runningSyncInstanceIds = ConcurrentHashMap.newKeySet();
 
@@ -332,7 +337,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
 
             if (StringUtils.hasText(apiProbe.getProfile().getOnlinesPath())) {
                 try {
-                    JSONObject onlineResponse = executeJson(session.getHttpClient(), buildPost(session, apiProbe.getProfile().getOnlinesPath(), "{}"));
+                    JSONObject onlineResponse = executeJson(session.getHttpClient(),
+                            buildFormPost(session, apiProbe.getProfile().getOnlinesPath(), Collections.emptyMap()));
                     onlineEmails = ensureSuccessArray(onlineResponse, "读取在线客户端失败")
                             .toJavaList(String.class)
                             .stream()
@@ -346,7 +352,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
 
             if (StringUtils.hasText(apiProbe.getProfile().getLastOnlinePath())) {
                 try {
-                    JSONObject lastOnlineResponse = executeJson(session.getHttpClient(), buildPost(session, apiProbe.getProfile().getLastOnlinePath(), "{}"));
+                    JSONObject lastOnlineResponse = executeJson(session.getHttpClient(),
+                            buildFormPost(session, apiProbe.getProfile().getLastOnlinePath(), Collections.emptyMap()));
                     JSONObject lastOnlineObject = ensureSuccessObject(lastOnlineResponse, "读取最后在线时间失败");
                     Map<String, Long> lastOnlineTemp = new HashMap<>();
                     for (String key : lastOnlineObject.keySet()) {
@@ -381,26 +388,27 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         ResolvedRemoteBootstrap bootstrap = resolveRemoteBootstrap(instance, httpClient);
 
         Boolean remoteTwoFactorEnabled = probeFlagEndpoint(httpClient,
-                buildPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/getTwoFactorEnable", "{}"));
+                buildFormPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/getTwoFactorEnable", Collections.emptyMap()));
         if (Boolean.TRUE.equals(remoteTwoFactorEnabled)) {
             httpClient.close();
             throw new IllegalStateException("远端 x-ui 登录启用了 2FA，请为 Flux 使用未启用 2FA 的专用同步账号");
         }
 
         Boolean remoteSecretRequired = probeFlagEndpoint(httpClient,
-                buildPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/getSecretStatus", "{}"));
+                buildFormPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/getSecretStatus", Collections.emptyMap()));
         if (Boolean.TRUE.equals(remoteSecretRequired) && !StringUtils.hasText(instance.getEncryptedLoginSecret())) {
             httpClient.close();
             throw new IllegalStateException("远端 x-ui 启用了 Secret Token，请在 Flux 中补充 Secret Token 后再测试连接");
         }
 
-        HttpPost loginRequest = buildPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/login", JSON.toJSONString(buildLoginPayload(instance)));
+        HttpPost loginRequest = buildFormPost(instance.getBaseUrl(), bootstrap.getResolvedBasePath(), "/login", buildLoginPayload(instance));
         JSONObject loginResponse = executeJson(httpClient, loginRequest);
         boolean success = Boolean.TRUE.equals(loginResponse.getBoolean("success"));
         if (!success) {
             httpClient.close();
             throw new IllegalStateException(extractRemoteError(loginResponse, "登录 x-ui 失败"));
         }
+        verifyRemoteSession(httpClient, instance.getBaseUrl(), bootstrap.getResolvedBasePath());
         return new XuiRemoteSession(httpClient,
                 instance.getBaseUrl(),
                 bootstrap.getResolvedBasePath(),
@@ -427,8 +435,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
                 .build();
     }
 
-    private JSONObject buildLoginPayload(XuiInstance instance) {
-        JSONObject payload = new JSONObject();
+    private Map<String, String> buildLoginPayload(XuiInstance instance) {
+        Map<String, String> payload = new LinkedHashMap<>();
         payload.put("username", instance.getUsername());
         payload.put("password", xuiCredentialCryptoService.decrypt(instance.getEncryptedPassword()));
         if (StringUtils.hasText(instance.getEncryptedLoginSecret())) {
@@ -839,11 +847,11 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     private RemoteJsonProbe executeJsonProbe(CloseableHttpClient httpClient, HttpUriRequest request) throws Exception {
-        request.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
+        applyAjaxHeaders(request);
         RemoteHttpResponse response = executeRequest(httpClient, request);
         if (response.getStatusCode() >= 400) {
             String hint = response.getStatusCode() == 404
-                    ? "，请检查实例地址、Web Base Path 或远端面板兼容模式"
+                    ? "，新版 3x-ui 在未登录或会话失效时也可能返回 404，请同时检查用户名、密码、Secret Token、2FA 与反代会话"
                     : "";
             return RemoteJsonProbe.failure(response.getRequestUri(),
                     "远端接口 " + response.getRequestUri() + " 返回 HTTP " + response.getStatusCode() + hint);
@@ -854,7 +862,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         }
         if (looksLikeHtml(response)) {
             return RemoteJsonProbe.failure(response.getRequestUri(),
-                    "远端接口 " + response.getRequestUri() + " 返回 HTML 登录页，可能是凭据失效、接口路径不兼容，或该实例需要旧版 x-ui 兼容模式");
+                    "远端接口 " + response.getRequestUri() + " 返回 HTML 登录页，说明当前会话未建立，或该实例需要不同兼容路径");
         }
         try {
             JSONObject json = JSON.parseObject(response.getBody());
@@ -892,6 +900,19 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
                 || body.startsWith("<html");
     }
 
+    private boolean looksLikeLoginPage(RemoteHttpResponse response) {
+        if (!looksLikeHtml(response)) {
+            return false;
+        }
+        String body = response.getBody() == null ? "" : response.getBody().toLowerCase(Locale.ROOT);
+        return (body.contains("id=\"login\"") || body.contains("id='login'"))
+                && body.contains("/login")
+                && (body.contains("placeholder='username'")
+                || body.contains("placeholder=\"username\"")
+                || body.contains("getsecretstatus")
+                || body.contains("gettwofactorenable"));
+    }
+
     private JSONArray ensureSuccessArray(JSONObject response, String defaultMessage) {
         boolean success = Boolean.TRUE.equals(response.getBoolean("success"));
         if (!success) {
@@ -911,28 +932,46 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     private HttpGet buildGet(XuiInstance instance, String path) {
-        return new HttpGet(buildRemoteUrl(instance.getBaseUrl(), instance.getWebBasePath(), path));
+        return buildGet(instance.getBaseUrl(), instance.getWebBasePath(), path);
     }
 
     private HttpGet buildGet(XuiRemoteSession session, String path) {
-        return new HttpGet(buildRemoteUrl(session.getBaseUrl(), session.getResolvedBasePath(), path));
+        return buildGet(session.getBaseUrl(), session.getResolvedBasePath(), path);
     }
 
-    private HttpPost buildPost(XuiInstance instance, String path, String body) {
-        return buildPost(instance.getBaseUrl(), instance.getWebBasePath(), path, body);
+    private HttpGet buildGet(String baseUrl, String basePath, String path) {
+        HttpGet request = new HttpGet(buildRemoteUrl(baseUrl, basePath, path));
+        applyAjaxHeaders(request);
+        return request;
     }
 
-    private HttpPost buildPost(XuiRemoteSession session, String path, String body) {
-        return buildPost(session.getBaseUrl(), session.getResolvedBasePath(), path, body);
+    private HttpPost buildFormPost(XuiInstance instance, String path, Map<String, String> formData) {
+        return buildFormPost(instance.getBaseUrl(), instance.getWebBasePath(), path, formData);
     }
 
-    private HttpPost buildPost(String baseUrl, String basePath, String path, String body) {
+    private HttpPost buildFormPost(XuiRemoteSession session, String path, Map<String, String> formData) {
+        return buildFormPost(session.getBaseUrl(), session.getResolvedBasePath(), path, formData);
+    }
+
+    private HttpPost buildFormPost(String baseUrl, String basePath, String path, Map<String, String> formData) {
         HttpPost post = new HttpPost(buildRemoteUrl(baseUrl, basePath, path));
-        post.setHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.getMimeType());
-        if (body != null) {
-            post.setEntity(new StringEntity(body, ContentType.APPLICATION_JSON));
+        applyAjaxHeaders(post);
+        List<NameValuePair> parameters = new ArrayList<>();
+        if (formData != null) {
+            for (Map.Entry<String, String> entry : formData.entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
+                parameters.add(new BasicNameValuePair(entry.getKey(), entry.getValue()));
+            }
         }
+        post.setEntity(new UrlEncodedFormEntity(parameters, StandardCharsets.UTF_8));
         return post;
+    }
+
+    private void applyAjaxHeaders(HttpUriRequest request) {
+        request.setHeader(HttpHeaders.ACCEPT, AJAX_ACCEPT);
+        request.setHeader(AJAX_HEADER, AJAX_HEADER_VALUE);
     }
 
     private String buildRemoteUrl(XuiInstance instance, String path) {
@@ -1191,6 +1230,16 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     private String extractRemoteError(JSONObject response, String defaultMessage) {
         String remoteMessage = trimToNull(response.getString("msg"));
         return remoteMessage != null ? remoteMessage : defaultMessage;
+    }
+
+    private void verifyRemoteSession(CloseableHttpClient httpClient, String baseUrl, String basePath) throws Exception {
+        RemoteHttpResponse response = executeRequest(httpClient, buildGet(baseUrl, basePath, "/panel/"));
+        if (response.getStatusCode() >= 400) {
+            throw new IllegalStateException("登录后访问远端面板失败: HTTP " + response.getStatusCode());
+        }
+        if (looksLikeLoginPage(response)) {
+            throw new IllegalStateException("远端仍返回登录页，说明登录会话未建立。请检查用户名、密码、Secret Token、2FA 或远端反代配置");
+        }
     }
 
     private String sha256Hex(String value) {

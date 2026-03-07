@@ -19,6 +19,7 @@ cd "$ROOT_DIR"
 MODE="${1:-post-build}"
 LOW_SPACE_MB="${LOW_SPACE_MB:-6144}"
 CRITICAL_SPACE_MB="${CRITICAL_SPACE_MB:-3072}"
+KEEP_BUILD_OUTPUT="${KEEP_BUILD_OUTPUT:-0}"
 
 read_free_mb() {
   df -Pm "$ROOT_DIR" | awk 'NR==2 {print $4}'
@@ -56,8 +57,12 @@ run_logged_cleanup() {
 }
 
 cleanup_project_artifacts() {
-  run_logged_cleanup "清理后端 target" rm -rf springboot-backend/target
-  run_logged_cleanup "清理前端 dist" rm -rf vite-frontend/dist
+  if [ "$KEEP_BUILD_OUTPUT" = "1" ]; then
+    echo "🧽 保留当前构建产物 (springboot-backend/target, vite-frontend/dist)"
+  else
+    run_logged_cleanup "清理后端 target" rm -rf springboot-backend/target
+    run_logged_cleanup "清理前端 dist" rm -rf vite-frontend/dist
+  fi
   run_logged_cleanup "清理项目 npm 缓存" rm -rf .cache/npm
   run_logged_cleanup "清理 Finder 元数据" find "$ROOT_DIR" -name '.DS_Store' -delete
 }

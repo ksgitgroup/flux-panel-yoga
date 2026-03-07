@@ -50,7 +50,7 @@ export default function AdminLayout({
   const menuItems: MenuItem[] = [
     {
       path: '/dashboard',
-      label: '仪表板',
+      label: '首页',
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
@@ -366,7 +366,11 @@ export default function AdminLayout({
             )}
 
             <div className="min-w-0 flex-shrink-0 xl:w-[240px]">
-              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleMenuClick('/dashboard')}
+                className="flex w-full items-center gap-2 rounded-2xl text-left transition-colors hover:bg-default-100/60 p-1.5 -m-1.5"
+              >
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner">
                   <Logo size={20} />
                 </div>
@@ -382,7 +386,7 @@ export default function AdminLayout({
                     <span>{siteConfig.build_revision}</span>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             {!isMobile && (

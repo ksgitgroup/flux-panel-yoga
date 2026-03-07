@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -49,6 +50,42 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    private final AtomicBoolean diagnosisRunning = new AtomicBoolean(false);
+    private final Object runtimeLock = new Object();
+    private DiagnosisRuntimeSnapshot runtimeSnapshot = DiagnosisRuntimeSnapshot.idle();
+
+    private static class DiagnosisRuntimeSnapshot {
+        private boolean running;
+        private String triggerSource;
+        private long startedAt;
+        private long finishedAt;
+        private int totalCount;
+        private int completedCount;
+        private int successCount;
+        private int failCount;
+        private String currentTargetType;
+        private Integer currentTargetId;
+        private String currentTargetName;
+        private List<Map<String, Object>> recentItems = new ArrayList<>();
+
+        static DiagnosisRuntimeSnapshot idle() {
+            DiagnosisRuntimeSnapshot snapshot = new DiagnosisRuntimeSnapshot();
+            snapshot.running = false;
+            snapshot.triggerSource = "idle";
+            snapshot.startedAt = 0L;
+            snapshot.finishedAt = 0L;
+            snapshot.totalCount = 0;
+            snapshot.completedCount = 0;
+            snapshot.successCount = 0;
+            snapshot.failCount = 0;
+            snapshot.currentTargetType = null;
+            snapshot.currentTargetId = null;
+            snapshot.currentTargetName = null;
+            snapshot.recentItems = new ArrayList<>();
+            return snapshot;
+        }
+    }
+
     @javax.annotation.PostConstruct
     public void initDatabaseSchema() {
         try {
@@ -71,6 +108,15 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
     @Override
     public void runAllDiagnosis() {
+        runAllDiagnosisInternal("auto", false);
+    }
+
+    private void runAllDiagnosisInternal(String triggerSource, boolean lockAlreadyHeld) {
+        if (!lockAlreadyHeld && !diagnosisRunning.compareAndSet(false, true)) {
+            log.info("[自动诊断] 当前已有任务执行中，本次 {} 触发跳过", triggerSource);
+            return;
+        }
+
         log.info("[自动诊断] 开始全量诊断 ...");
 
         // 读取企业微信配置
@@ -83,63 +129,87 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         boolean recoveryEnabled = getBooleanConfig("wechat_notify_recovery_enabled", true);
 
         List<String> failureMessages = new ArrayList<>();
+        List<Tunnel> tunnels = Collections.emptyList();
+        List<Forward> forwards = Collections.emptyList();
 
-        // 1. 诊断所有活跃隧道（排除已禁用的）
-        List<Tunnel> tunnels = tunnelService.list().stream()
-                .filter(t -> t.getStatus() != null && t.getStatus() == 1)
-                .collect(Collectors.toList());
-        for (Tunnel tunnel : tunnels) {
-            try {
-                R result = tunnelService.diagnoseTunnel(tunnel.getId());
-                boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
-                double[] metrics = extractMetrics(result.getData());
-                saveRecord("tunnel", tunnel.getId().intValue(), tunnel.getName(), success, result.getData(), metrics[0], metrics[1]);
+        try {
+            // 1. 诊断所有活跃隧道（排除已禁用的）
+            tunnels = tunnelService.list().stream()
+                    .filter(t -> t.getStatus() != null && t.getStatus() == 1)
+                    .collect(Collectors.toList());
 
-                if (!success) {
+            // 2. 诊断所有活跃转发（排除已暂停的）
+            forwards = forwardService.list().stream()
+                    .filter(f -> f.getStatus() != null && f.getStatus() == 1)
+                    .collect(Collectors.toList());
+
+            beginRuntimeSnapshot(triggerSource, tunnels.size() + forwards.size());
+
+            int stepIndex = 0;
+            for (Tunnel tunnel : tunnels) {
+                stepIndex++;
+                markRuntimeStep(stepIndex, "tunnel", tunnel.getId().intValue(), tunnel.getName());
+                try {
+                    R result = tunnelService.diagnoseTunnel(tunnel.getId());
+                    boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
+                    double[] metrics = extractMetrics(result.getData());
+                    saveRecord("tunnel", tunnel.getId().intValue(), tunnel.getName(), success, result.getData(), metrics[0], metrics[1]);
+                    completeRuntimeStep("tunnel", tunnel.getId().intValue(), tunnel.getName(), success, metrics[0], metrics[1], null);
+
+                    if (!success) {
+                        failureMessages.add(String.format("🔴 **隧道异常**：%s（ID:%d）%n> %s",
+                                tunnel.getName(), tunnel.getId(), extractFailureReason(result.getData())));
+                    }
+                } catch (Exception e) {
+                    completeRuntimeStep("tunnel", tunnel.getId().intValue(), tunnel.getName(), false, -1, -1, e.getMessage());
                     failureMessages.add(String.format("🔴 **隧道异常**：%s（ID:%d）%n> %s",
-                            tunnel.getName(), tunnel.getId(), extractFailureReason(result.getData())));
+                            tunnel.getName(), tunnel.getId(), e.getMessage()));
+                    log.error("[自动诊断] 诊断隧道 {} 时异常: {}", tunnel.getId(), e.getMessage());
                 }
-            } catch (Exception e) {
-                log.error("[自动诊断] 诊断隧道 {} 时异常: {}", tunnel.getId(), e.getMessage());
             }
-        }
 
-        // 2. 诊断所有活跃转发（排除已暂停的）
-        List<Forward> forwards = forwardService.list().stream()
-                .filter(f -> f.getStatus() != null && f.getStatus() == 1)
-                .collect(Collectors.toList());
-        for (Forward forward : forwards) {
-            try {
-                R result = forwardService.diagnoseForward(forward.getId().longValue(), true);
-                boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
-                double[] metrics = extractMetrics(result.getData());
-                saveRecord("forward", forward.getId().intValue(), forward.getName(), success, result.getData(), metrics[0], metrics[1]);
+            for (Forward forward : forwards) {
+                stepIndex++;
+                markRuntimeStep(stepIndex, "forward", forward.getId().intValue(), forward.getName());
+                try {
+                    R result = forwardService.diagnoseForward(forward.getId().longValue(), true);
+                    boolean success = (result.getCode() == 0) && isAllSuccess(result.getData());
+                    double[] metrics = extractMetrics(result.getData());
+                    saveRecord("forward", forward.getId().intValue(), forward.getName(), success, result.getData(), metrics[0], metrics[1]);
+                    completeRuntimeStep("forward", forward.getId().intValue(), forward.getName(), success, metrics[0], metrics[1], null);
 
-                if (!success) {
+                    if (!success) {
+                        failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）%n> %s",
+                                forward.getName(), forward.getId(), extractFailureReason(result.getData())));
+                    }
+                } catch (Exception e) {
+                    completeRuntimeStep("forward", forward.getId().intValue(), forward.getName(), false, -1, -1, e.getMessage());
                     failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）%n> %s",
-                            forward.getName(), forward.getId(), extractFailureReason(result.getData())));
+                            forward.getName(), forward.getId(), e.getMessage()));
+                    log.error("[自动诊断] 诊断转发 {} 时异常: {}", forward.getId(), e.getMessage());
                 }
-            } catch (Exception e) {
-                log.error("[自动诊断] 诊断转发 {} 时异常: {}", forward.getId(), e.getMessage());
             }
-        }
 
-        if (wechatEnabled) {
-            processWebhookNotifications(
-                    webhookUrl,
-                    appName,
-                    environment,
-                    cooldownMinutes,
-                    maxFailures,
-                    recoveryEnabled,
-                    failureMessages,
-                    tunnels.size(),
-                    forwards.size()
-            );
-        }
+            if (wechatEnabled) {
+                processWebhookNotifications(
+                        webhookUrl,
+                        appName,
+                        environment,
+                        cooldownMinutes,
+                        maxFailures,
+                        recoveryEnabled,
+                        failureMessages,
+                        tunnels.size(),
+                        forwards.size()
+                );
+            }
 
-        log.info("[自动诊断] 全量诊断完成，处理资源合计: {} 个隧道，{} 个转发，异常数: {}",
-                tunnels.size(), forwards.size(), failureMessages.size());
+            log.info("[自动诊断] 全量诊断完成，处理资源合计: {} 个隧道，{} 个转发，异常数: {}",
+                    tunnels.size(), forwards.size(), failureMessages.size());
+        } finally {
+            finishRuntimeSnapshot();
+            diagnosisRunning.set(false);
+        }
     }
 
     // ────────────────────────────────────────────────
@@ -230,17 +300,42 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
     @Override
     public R triggerNow() {
         try {
+            if (diagnosisRunning.get()) {
+                R response = R.ok(buildRuntimePayload());
+                response.setMsg("诊断任务已在执行中");
+                return response;
+            }
+            if (!diagnosisRunning.compareAndSet(false, true)) {
+                R response = R.ok(buildRuntimePayload());
+                response.setMsg("诊断任务已在执行中");
+                return response;
+            }
+            synchronized (runtimeLock) {
+                DiagnosisRuntimeSnapshot snapshot = DiagnosisRuntimeSnapshot.idle();
+                snapshot.running = true;
+                snapshot.triggerSource = "manual";
+                snapshot.startedAt = System.currentTimeMillis();
+                snapshot.currentTargetName = "准备诊断队列";
+                runtimeSnapshot = snapshot;
+            }
             // 使用守护线程异步执行，避免接口超时
             // 注意：runAllDiagnosis 内部使用 isSystemTask=true 跳过 JWT 认证
-            Thread diagnosisThread = new Thread(this::runAllDiagnosis);
+            Thread diagnosisThread = new Thread(() -> runAllDiagnosisInternal("manual", true));
             diagnosisThread.setDaemon(true);
             diagnosisThread.setName("diagnosis-manual-" + System.currentTimeMillis());
             diagnosisThread.start();
-            return R.ok("诊断任务已启动，请稍后查看看板");
+            R response = R.ok(buildRuntimePayload());
+            response.setMsg("诊断任务已启动");
+            return response;
         } catch (Exception e) {
             log.error("[手动诊断] 触发失败: {}", e.getMessage());
             return R.err("诊断任务启动失败: " + e.getMessage());
         }
+    }
+
+    @Override
+    public R getRuntimeStatus() {
+        return R.ok(buildRuntimePayload());
     }
 
     @Override
@@ -460,6 +555,83 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
     /** 持久化诊断结果 (内部调用版本) */
     private void saveRecord(String type, Integer targetId, String name, boolean success, Object data, double averageTime, double packetLoss) {
         saveRecord(type, targetId, name, data);
+    }
+
+    private void beginRuntimeSnapshot(String triggerSource, int totalCount) {
+        synchronized (runtimeLock) {
+            DiagnosisRuntimeSnapshot snapshot = DiagnosisRuntimeSnapshot.idle();
+            snapshot.running = true;
+            snapshot.triggerSource = triggerSource;
+            snapshot.startedAt = System.currentTimeMillis();
+            snapshot.totalCount = totalCount;
+            runtimeSnapshot = snapshot;
+        }
+    }
+
+    private void markRuntimeStep(int stepIndex, String targetType, Integer targetId, String targetName) {
+        synchronized (runtimeLock) {
+            runtimeSnapshot.currentTargetType = targetType;
+            runtimeSnapshot.currentTargetId = targetId;
+            runtimeSnapshot.currentTargetName = targetName;
+            runtimeSnapshot.totalCount = Math.max(runtimeSnapshot.totalCount, stepIndex);
+        }
+    }
+
+    private void completeRuntimeStep(String targetType, Integer targetId, String targetName, boolean success, double averageTime, double packetLoss, String errorMessage) {
+        synchronized (runtimeLock) {
+            runtimeSnapshot.completedCount += 1;
+            if (success) {
+                runtimeSnapshot.successCount += 1;
+            } else {
+                runtimeSnapshot.failCount += 1;
+            }
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("targetType", targetType);
+            item.put("targetId", targetId);
+            item.put("targetName", targetName);
+            item.put("success", success);
+            item.put("averageTime", averageTime >= 0 ? Math.round(averageTime * 10.0) / 10.0 : null);
+            item.put("packetLoss", packetLoss >= 0 ? Math.round(packetLoss * 10.0) / 10.0 : null);
+            item.put("errorMessage", errorMessage);
+            item.put("finishedAt", System.currentTimeMillis());
+            runtimeSnapshot.recentItems.add(0, item);
+            if (runtimeSnapshot.recentItems.size() > 8) {
+                runtimeSnapshot.recentItems = new ArrayList<>(runtimeSnapshot.recentItems.subList(0, 8));
+            }
+        }
+    }
+
+    private void finishRuntimeSnapshot() {
+        synchronized (runtimeLock) {
+            runtimeSnapshot.running = false;
+            runtimeSnapshot.finishedAt = System.currentTimeMillis();
+            runtimeSnapshot.currentTargetType = null;
+            runtimeSnapshot.currentTargetId = null;
+            runtimeSnapshot.currentTargetName = null;
+        }
+    }
+
+    private Map<String, Object> buildRuntimePayload() {
+        synchronized (runtimeLock) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("running", runtimeSnapshot.running);
+            payload.put("triggerSource", runtimeSnapshot.triggerSource);
+            payload.put("startedAt", runtimeSnapshot.startedAt);
+            payload.put("finishedAt", runtimeSnapshot.finishedAt);
+            payload.put("totalCount", runtimeSnapshot.totalCount);
+            payload.put("completedCount", runtimeSnapshot.completedCount);
+            payload.put("successCount", runtimeSnapshot.successCount);
+            payload.put("failCount", runtimeSnapshot.failCount);
+            payload.put("currentTargetType", runtimeSnapshot.currentTargetType);
+            payload.put("currentTargetId", runtimeSnapshot.currentTargetId);
+            payload.put("currentTargetName", runtimeSnapshot.currentTargetName);
+            payload.put("progressPercent", runtimeSnapshot.totalCount > 0
+                    ? Math.min(100, Math.round((runtimeSnapshot.completedCount * 100.0f) / runtimeSnapshot.totalCount))
+                    : runtimeSnapshot.running ? 0 : 100);
+            payload.put("recentItems", new ArrayList<>(runtimeSnapshot.recentItems));
+            return payload;
+        }
     }
 
     /** 读取 vite_config 配置 */

@@ -23,6 +23,7 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.NameValuePair;
 import org.apache.http.HttpHeaders;
+import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -30,6 +31,7 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.cookie.Cookie;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -385,6 +387,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
                 .setConnectTimeout(10_000)
                 .setConnectionRequestTimeout(10_000)
                 .setSocketTimeout(10_000)
+                .setCookieSpec(CookieSpecs.STANDARD)
                 .build();
 
         CloseableHttpClient httpClient = buildHttpClient(instance, cookieStore, requestConfig);
@@ -411,7 +414,12 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             httpClient.close();
             throw new IllegalStateException(extractRemoteError(loginResponse, "登录 x-ui 失败"));
         }
-        verifyRemoteSession(httpClient, instance.getBaseUrl(), bootstrap.getResolvedBasePath());
+        log.info("[XuiDebug] 实例 {} 远端登录成功，baseUrl={}, basePath={}, cookies={}",
+                instance.getName(),
+                instance.getBaseUrl(),
+                bootstrap.getResolvedBasePath(),
+                summarizeCookies(cookieStore));
+        verifyRemoteSession(instance, httpClient, cookieStore, bootstrap.getResolvedBasePath());
         return new XuiRemoteSession(httpClient,
                 instance.getBaseUrl(),
                 bootstrap.getResolvedBasePath(),
@@ -1334,14 +1342,45 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         return remoteMessage != null ? remoteMessage : defaultMessage;
     }
 
-    private void verifyRemoteSession(CloseableHttpClient httpClient, String baseUrl, String basePath) throws Exception {
+    private void verifyRemoteSession(XuiInstance instance,
+                                     CloseableHttpClient httpClient,
+                                     BasicCookieStore cookieStore,
+                                     String basePath) throws Exception {
+        String baseUrl = instance.getBaseUrl();
         RemoteHttpResponse response = executeRequest(httpClient, buildGet(baseUrl, basePath, "/panel/"));
+        log.info("[XuiDebug] 实例 {} 远端面板验证，status={}, contentType={}, cookies={}",
+                instance.getName(),
+                response.getStatusCode(),
+                response.getContentType(),
+                summarizeCookies(cookieStore));
         if (response.getStatusCode() >= 400) {
-            throw new IllegalStateException("登录后访问远端面板失败: HTTP " + response.getStatusCode());
+            throw new IllegalStateException("登录后访问远端面板失败: HTTP " + response.getStatusCode()
+                    + "；Cookie摘要=" + summarizeCookies(cookieStore));
         }
         if (looksLikeLoginPage(response)) {
-            throw new IllegalStateException("远端仍返回登录页，说明登录会话未建立。请检查用户名、密码、Secret Token、2FA 或远端反代配置");
+            throw new IllegalStateException("远端仍返回登录页，说明登录会话未建立。Cookie摘要="
+                    + summarizeCookies(cookieStore)
+                    + "；请检查用户名、密码、Secret Token、2FA 或远端反代配置");
         }
+    }
+
+    private String summarizeCookies(BasicCookieStore cookieStore) {
+        if (cookieStore == null || cookieStore.getCookies() == null || cookieStore.getCookies().isEmpty()) {
+            return "[]";
+        }
+        return cookieStore.getCookies().stream()
+                .map(this::summarizeCookie)
+                .collect(Collectors.joining(", ", "[", "]"));
+    }
+
+    private String summarizeCookie(Cookie cookie) {
+        if (cookie == null) {
+            return "unknown";
+        }
+        return String.format("%s@%s%s",
+                cookie.getName(),
+                cookie.getDomain() == null ? "host-only" : cookie.getDomain(),
+                cookie.getPath() == null ? "/" : cookie.getPath());
     }
 
     private String sha256Hex(String value) {

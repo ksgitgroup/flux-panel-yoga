@@ -79,6 +79,15 @@
 - 已确认主要占用来自 Docker/Colima 运行时与缓存：`.colima` 约 `7.8G`、Docker 本地镜像约 `2.2G`、Homebrew 缓存约 `610M`、npm 全局缓存约 `654M`、Maven 仓库约 `203M`。
 - 已扩展 `scripts/cleanup_local_artifacts.sh`，新增 `deep-host` 模式，用于在空间极低时进一步回收宿主机缓存与未使用的 Docker 资源。
 
+## 2026-03-07 Staged 2FA and Cleanup Hardening Result
+
+- 已将登录流程改为分布式两段验证：首屏只提交用户名、密码和验证码；若账号启用 2FA，后端只返回短时 challenge，不再直接签发登录 token。
+- 已新增 `/api/v1/user/login/2fa` 二次验证接口，只有 challenge 和 6 位 TOTP 同时通过后才允许真正登录。
+- 已修复日志泄露风险：`LogAspect` 现在会统一脱敏 `password`、`token`、`twoFactorCode`、`secret`、`otpauthUri`、`encryptedPassword`、`challengeToken` 等敏感字段，避免登录、2FA 绑定和 x-ui 管理接口把明文敏感值写入日志。
+- 已确认 x-ui 凭据仍为服务端 AES 加密存库，前端列表接口只返回 `passwordConfigured` 状态，不回显明文或密文密码。
+- 已将低空间预检接入 `verify_build.sh` 与 `build_docker.sh`，当可用空间不足时会先触发 `pre-build` 清理，仍不足再升级到 `deep-host` 清理，并在低于安全阈值时提前失败而不是在构建中途爆盘。
+- 已将清理收口调整为可见日志，并通过 `EXIT` trap 接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`、`sync_dev.sh`，确保成功或失败后都会尝试回收本地垃圾和多余 Docker 资源。
+
 ## 2026-03-07 CI Release Visibility Result
 
 - 已移除 `.gitlab-ci.yml` 中对 `dev -> main` MR 标题和描述的强制校验，不再因为 MR 文案缺失阻塞合并。
@@ -98,3 +107,13 @@
 - 已新增 `WORKSPACE_INTEGRATION_GUIDE.md`，给出父工作区接入方案、稳定边界、推荐目录、分阶段整合建议和禁止先动项。
 - 已新增 `AI_HANDOFF.md`，明确新 AI / 新进程的必读文档顺序、工程约束、数据边界、安全逻辑、磁盘约束和沟通逻辑。
 - 已将必读顺序和关键边界同步写入 `README.md` 与 `.cursorrules`，降低后续整合和交接时的上下文丢失风险。
+
+## 2026-03-07 X-UI Integration Phase 1 Result
+
+- 已在后端新增独立的 `x-ui integration` 子域，未复用原有 `node / tunnel / forward` 语义。
+- 已通过 `DatabaseInitService` 增量创建 `xui_instance`、`xui_inbound_snapshot`、`xui_client_snapshot`、`xui_sync_log`、`xui_traffic_delta_event` 五张表，确保 A / B / C 环境升级时自动生效。
+- 已新增管理员专用的 `XuiController` 与 `XuiService`，支持实例 CRUD、连接测试、手动同步、自动轮询同步和 `3x-ui` 外部流量上报接收。
+- 已为 x-ui 登录密码增加服务端 AES 加密存储，前端和列表接口均不会回显明文密码；当前快照也只保存脱敏元数据，不落盘远端客户端 UUID / 密码等业务凭据。
+- 已新增前端 `X-UI 管理` 页面，并接入系统工作台导航，支持实例管理、状态查看、测试连接、立即同步和已同步入站/客户端快照展示。
+- 已执行 `./scripts/verify_build.sh`，确认后端打包、前端 `tsc + vite build` 和 CI YAML 校验全部通过。
+- 已执行 `./scripts/build_docker.sh`，确认前后端 Docker 镜像均可构建成功，新增模块可进入现有本地容器运行链路。

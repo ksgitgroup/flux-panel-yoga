@@ -17,6 +17,8 @@ public interface UserService extends IService<User> {
 
     R login(LoginDto loginDto);
 
+    R completeTwoFactorLogin(TwoFactorLoginDto twoFactorLoginDto);
+
     R createUser(UserDto userDto);
 
     R getAllUsers();

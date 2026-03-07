@@ -4,6 +4,8 @@ package com.admin.common.aop;
 import cn.hutool.core.util.ArrayUtil;
 import com.admin.common.utils.JwtUtil;
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.admin.common.utils.HttpContextUtils;
 import com.admin.common.utils.IpUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -15,14 +17,49 @@ import org.springframework.stereotype.Component;
 
 import javax.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @Aspect
 @Slf4j
 public class LogAspect {
+
+    private static final String REDACTED = "******";
+    private static final Set<String> SENSITIVE_FIELD_NAMES = new HashSet<>(Arrays.asList(
+            "password",
+            "pwd",
+            "loginpassword",
+            "loginsecret",
+            "currentpassword",
+            "newpassword",
+            "confirmpassword",
+            "token",
+            "authorization",
+            "accesstoken",
+            "refreshtoken",
+            "secret",
+            "secrettoken",
+            "twofactorsecret",
+            "twofactorcode",
+            "onetimecode",
+            "twofactorchallengetoken",
+            "captchahid",
+            "captchaid",
+            "challengetoken",
+            "encryptedpassword",
+            "encryptedloginsecret",
+            "otpauthuri",
+            "traffictoken",
+            "trafficcallbackpath",
+            "sourcetoken",
+            "cookie",
+            "session"
+    ));
 
     @Pointcut("@annotation(com.admin.common.aop.LogAnnotation)")
     public void pt() {
@@ -74,7 +111,7 @@ public class LogAspect {
         String requestParams = getRequestParams(joinPoint);
         
         // 获取返回参数
-        String responseParams = returnValue != null ? JSON.toJSONString(returnValue) : "无返回值";
+        String responseParams = serializeForLog(returnValue);
         
         // 合并为一条完整的日志信息
         String logMessage = String.format(
@@ -151,43 +188,66 @@ public class LogAspect {
             Object[] args = joinPoint.getArgs();
             if (args.length == 0) {
                 return "无参数";
-            } else if (args[0] != null && args[0].toString().contains("SecurityContextHolderAwareRequestWrapper")) {
-                return JSON.toJSONString(Arrays.toString(ArrayUtil.remove(args, 0)));
-            } else {
-                // 检查是否只有一个参数且已经是JSON字符串格式
-                if (args.length == 1 && args[0] != null) {
-                    // 如果参数本身就是字符串且是JSON格式，直接返回
-                    if (args[0] instanceof String && ((String) args[0]).startsWith("{") && ((String) args[0]).endsWith("}")) {
-                        return (String) args[0];
-                    }
-                    
-                    // 如果参数是普通对象，直接序列化
-                    try {
-                        return JSON.toJSONString(args[0]);
-                    } catch (Exception e) {
-                        // 如果序列化失败，再尝试使用参数名映射
-                        Map<String, Object> map = new HashMap<>();
-                        String[] names = ((CodeSignature) joinPoint.getSignature()).getParameterNames();
-                        if (names != null) {
-                            map.put(names[0], args[0]);
-                            return JSON.toJSONString(map);
-                        }
-                        return JSON.toJSONString(args[0]);
-                    }
-                } else {
-                    // 多个参数时，使用参数名映射
-                    Map<String, Object> map = new HashMap<>();
-                    String[] names = ((CodeSignature) joinPoint.getSignature()).getParameterNames();
-                    if (names != null) {
-                        for (int i = 0; i < names.length; i++) {
-                            map.put(names[i], args[i]);
-                        }
-                    }
-                    return JSON.toJSONString(map);
+            }
+            if (args[0] != null && args[0].toString().contains("SecurityContextHolderAwareRequestWrapper")) {
+                return serializeForLog(new ArrayList<>(Arrays.asList(ArrayUtil.remove(args, 0))));
+            }
+            if (args.length == 1) {
+                return serializeForLog(args[0]);
+            }
+            Map<String, Object> map = new HashMap<>();
+            String[] names = ((CodeSignature) joinPoint.getSignature()).getParameterNames();
+            if (names != null) {
+                for (int i = 0; i < names.length; i++) {
+                    map.put(names[i], args[i]);
                 }
             }
+            return serializeForLog(map);
         } catch (Exception e) {
             return "获取参数失败: " + e.getMessage();
         }
+    }
+
+    private String serializeForLog(Object value) {
+        if (value == null) {
+            return "无返回值";
+        }
+        try {
+            if (value instanceof String) {
+                String stringValue = (String) value;
+                if (stringValue.startsWith("{") && stringValue.endsWith("}")) {
+                    return JSON.toJSONString(sanitizeJsonValue(JSON.parse(stringValue), null));
+                }
+                return stringValue;
+            }
+            return JSON.toJSONString(sanitizeJsonValue(JSON.toJSON(value), null));
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
+    }
+
+    private Object sanitizeJsonValue(Object value, String fieldName) {
+        if (fieldName != null && isSensitiveField(fieldName)) {
+            return REDACTED;
+        }
+        if (value instanceof JSONObject) {
+            JSONObject jsonObject = (JSONObject) value;
+            for (Map.Entry<String, Object> entry : jsonObject.entrySet()) {
+                entry.setValue(sanitizeJsonValue(entry.getValue(), entry.getKey()));
+            }
+            return jsonObject;
+        }
+        if (value instanceof JSONArray) {
+            JSONArray jsonArray = (JSONArray) value;
+            for (int i = 0; i < jsonArray.size(); i++) {
+                jsonArray.set(i, sanitizeJsonValue(jsonArray.get(i), fieldName));
+            }
+            return jsonArray;
+        }
+        return value;
+    }
+
+    private boolean isSensitiveField(String fieldName) {
+        return SENSITIVE_FIELD_NAMES.contains(fieldName.replace("_", "").toLowerCase());
     }
 }

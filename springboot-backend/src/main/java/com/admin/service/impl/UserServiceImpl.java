@@ -30,6 +30,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -86,6 +88,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private static final String ERROR_TWO_FACTOR_SETUP_REQUIRED = "请先生成二步验证密钥，再完成绑定";
     private static final String ERROR_TWO_FACTOR_ALREADY_ENABLED = "当前账号已启用二步验证，如需重新绑定请先关闭";
     private static final String ERROR_TWO_FACTOR_POLICY_REQUIRES_ENABLED = "当前安全策略要求该账号必须启用二步验证，如需关闭请先调整网站配置";
+    private static final String ERROR_TWO_FACTOR_CHALLENGE_EXPIRED = "二步验证会话已失效，请重新输入账号密码";
+    private static final String ERROR_TWO_FACTOR_CHALLENGE_INVALID = "无效的二步验证会话，请重新登录";
+    private static final String ERROR_TWO_FACTOR_CHALLENGE_REQUIRED = "当前账号已启用二步验证，请先完成二步验证";
+    private static final String ERROR_TWO_FACTOR_CHALLENGE_ATTEMPTS_EXCEEDED = "二步验证尝试次数过多，请重新登录";
 
     /** 默认账号密码 */
     private static final String DEFAULT_USERNAME = "admin_user";
@@ -98,12 +104,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private static final String LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD = "requirePasswordChange";
     private static final String LOGIN_REQUIRE_TWO_FACTOR_SETUP_FIELD = "requireTwoFactorSetup";
     private static final String LOGIN_TWO_FACTOR_REQUIRED_FIELD = "twoFactorRequired";
+    private static final String LOGIN_REQUIRE_TWO_FACTOR_VERIFICATION_FIELD = "requireTwoFactorVerification";
+    private static final String LOGIN_TWO_FACTOR_CHALLENGE_TOKEN_FIELD = "twoFactorChallengeToken";
+    private static final String LOGIN_TWO_FACTOR_CHALLENGE_EXPIRES_AT_FIELD = "twoFactorChallengeExpiresAt";
 
     /** 2FA 策略配置 */
     private static final String CONFIG_TWO_FACTOR_ENFORCEMENT_SCOPE = "two_factor_enforcement_scope";
     private static final String TWO_FACTOR_SCOPE_DISABLED = "disabled";
     private static final String TWO_FACTOR_SCOPE_ADMIN = "admin";
     private static final String TWO_FACTOR_SCOPE_ALL = "all";
+    private static final long TWO_FACTOR_CHALLENGE_TTL_MS = 5 * 60 * 1000L;
+    private static final int TWO_FACTOR_CHALLENGE_MAX_ATTEMPTS = 5;
 
     // ========== 依赖注入 ==========
     
@@ -137,6 +148,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Resource
     private ImageCaptchaApplication application;
 
+    private final ConcurrentHashMap<String, PendingTwoFactorChallenge> pendingTwoFactorChallenges = new ConcurrentHashMap<>();
+
     // ========== 公共接口实现 ==========
 
     /**
@@ -148,6 +161,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public R login(LoginDto loginDto) {
+        cleanupExpiredTwoFactorChallenges();
 
         // 1. 验证验证码
         ViteConfig viteConfig = viteConfigService.getOne(new QueryWrapper<ViteConfig>().eq("name", "captcha_enabled"));
@@ -170,31 +184,55 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         boolean twoFactorEnabled = isTwoFactorEnabled(user);
         boolean twoFactorRequired = isTwoFactorRequired(user);
         if (twoFactorEnabled) {
-            String code = loginDto.getTwoFactorCode();
-            if (StringUtils.isBlank(code)) {
-                return R.err(ERROR_TWO_FACTOR_CODE_REQUIRED);
-            }
-            if (!TotpUtil.verifyCode(user.getTwoFactorSecret(), code.trim())) {
-                return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
-            }
+            return buildTwoFactorChallengeResponse(user, twoFactorRequired);
         }
 
-        // 4. 生成令牌并返回用户信息
-        String token = JwtUtil.generateToken(user);
-        
-        // 5. 检查是否仍在使用默认凭据
-        boolean requirePasswordChange = requiresCredentialReset(user);
-        boolean requireTwoFactorSetup = twoFactorRequired && !twoFactorEnabled;
-        
-        return R.ok(MapUtil.builder()
-                .put(LOGIN_TOKEN_FIELD, token)
-                .put(LOGIN_NAME_FIELD, user.getUser())
-                .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
-                .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
-                .put(LOGIN_REQUIRE_TWO_FACTOR_SETUP_FIELD, requireTwoFactorSetup)
-                .put(LOGIN_TWO_FACTOR_REQUIRED_FIELD, twoFactorRequired)
-                .put("twoFactorEnabled", twoFactorEnabled)
-                .build());
+        return buildLoginSuccessResponse(user, twoFactorRequired, twoFactorEnabled);
+    }
+
+    @Override
+    public R completeTwoFactorLogin(TwoFactorLoginDto twoFactorLoginDto) {
+        cleanupExpiredTwoFactorChallenges();
+
+        PendingTwoFactorChallenge challenge = pendingTwoFactorChallenges.get(twoFactorLoginDto.getChallengeToken());
+        if (challenge == null) {
+            return R.err(ERROR_TWO_FACTOR_CHALLENGE_INVALID);
+        }
+        if (challenge.getExpiresAt() < System.currentTimeMillis()) {
+            pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+            return R.err(ERROR_TWO_FACTOR_CHALLENGE_EXPIRED);
+        }
+        if (challenge.getAttemptCount() >= TWO_FACTOR_CHALLENGE_MAX_ATTEMPTS) {
+            pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+            return R.err(ERROR_TWO_FACTOR_CHALLENGE_ATTEMPTS_EXCEEDED);
+        }
+
+        User user = this.getById(challenge.getUserId());
+        if (user == null) {
+            pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+            return R.err(ERROR_USER_NOT_FOUND);
+        }
+        if (user.getStatus() == USER_STATUS_DISABLED) {
+            pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+            return R.err(ERROR_ACCOUNT_DISABLED);
+        }
+        if (!isTwoFactorEnabled(user)) {
+            pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+            return R.err(ERROR_TWO_FACTOR_NOT_ENABLED);
+        }
+
+        challenge.setAttemptCount(challenge.getAttemptCount() + 1);
+        if (!TotpUtil.verifyCode(user.getTwoFactorSecret(), twoFactorLoginDto.getTwoFactorCode().trim())) {
+            if (challenge.getAttemptCount() >= TWO_FACTOR_CHALLENGE_MAX_ATTEMPTS) {
+                pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+                return R.err(ERROR_TWO_FACTOR_CHALLENGE_ATTEMPTS_EXCEEDED);
+            }
+            pendingTwoFactorChallenges.put(twoFactorLoginDto.getChallengeToken(), challenge);
+            return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
+        }
+
+        pendingTwoFactorChallenges.remove(twoFactorLoginDto.getChallengeToken());
+        return buildLoginSuccessResponse(user, isTwoFactorRequired(user), true);
     }
 
     /**
@@ -574,6 +612,49 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return TWO_FACTOR_SCOPE_DISABLED;
     }
 
+    private R buildTwoFactorChallengeResponse(User user, boolean twoFactorRequired) {
+        String challengeToken = UUID.randomUUID().toString().replace("-", "");
+        long expiresAt = System.currentTimeMillis() + TWO_FACTOR_CHALLENGE_TTL_MS;
+        pendingTwoFactorChallenges.entrySet().removeIf(entry -> Objects.equals(entry.getValue().getUserId(), user.getId()));
+        PendingTwoFactorChallenge challenge = new PendingTwoFactorChallenge();
+        challenge.setUserId(user.getId());
+        challenge.setUsername(user.getUser());
+        challenge.setExpiresAt(expiresAt);
+        challenge.setAttemptCount(0);
+        pendingTwoFactorChallenges.put(challengeToken, challenge);
+
+        return R.ok(MapUtil.builder()
+                .put(LOGIN_REQUIRE_TWO_FACTOR_VERIFICATION_FIELD, true)
+                .put(LOGIN_TWO_FACTOR_CHALLENGE_TOKEN_FIELD, challengeToken)
+                .put(LOGIN_TWO_FACTOR_CHALLENGE_EXPIRES_AT_FIELD, expiresAt)
+                .put(LOGIN_TWO_FACTOR_REQUIRED_FIELD, twoFactorRequired)
+                .put("twoFactorEnabled", true)
+                .put(LOGIN_NAME_FIELD, user.getUser())
+                .build());
+    }
+
+    private R buildLoginSuccessResponse(User user, boolean twoFactorRequired, boolean twoFactorEnabled) {
+        String token = JwtUtil.generateToken(user);
+        boolean requirePasswordChange = requiresCredentialReset(user);
+        boolean requireTwoFactorSetup = twoFactorRequired && !twoFactorEnabled;
+
+        return R.ok(MapUtil.builder()
+                .put(LOGIN_TOKEN_FIELD, token)
+                .put(LOGIN_NAME_FIELD, user.getUser())
+                .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
+                .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
+                .put(LOGIN_REQUIRE_TWO_FACTOR_SETUP_FIELD, requireTwoFactorSetup)
+                .put(LOGIN_TWO_FACTOR_REQUIRED_FIELD, twoFactorRequired)
+                .put(LOGIN_REQUIRE_TWO_FACTOR_VERIFICATION_FIELD, false)
+                .put("twoFactorEnabled", twoFactorEnabled)
+                .build());
+    }
+
+    private void cleanupExpiredTwoFactorChallenges() {
+        long now = System.currentTimeMillis();
+        pendingTwoFactorChallenges.entrySet().removeIf(entry -> entry.getValue().getExpiresAt() < now);
+    }
+
     private String buildTwoFactorIssuer() {
         String appName = getConfigValue("app_name", "flux-panel");
         String environment = getConfigValue("site_environment_name", "DEFAULT");
@@ -586,6 +667,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return defaultValue;
         }
         return viteConfig.getValue().trim();
+    }
+
+    @Data
+    private static class PendingTwoFactorChallenge {
+        private Long userId;
+        private String username;
+        private long expiresAt;
+        private int attemptCount;
     }
 
     /**

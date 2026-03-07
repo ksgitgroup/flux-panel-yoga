@@ -10,6 +10,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+cleanup_on_exit() {
+    bash ./scripts/cleanup_local_artifacts.sh post-ship || true
+}
+
+trap cleanup_on_exit EXIT
+
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$CURRENT_BRANCH" != "dev" ]; then
     echo "错误: 当前分支是 $CURRENT_BRANCH，ship_dev 仅允许在 dev 分支执行。"
@@ -53,7 +59,6 @@ fi
 
 echo "📤 正在推送到 origin/dev ..."
 git push origin HEAD:dev
-bash ./scripts/cleanup_local_artifacts.sh post-ship || true
 
 echo "================================================================="
 echo "🎉 dev 同步完成。"

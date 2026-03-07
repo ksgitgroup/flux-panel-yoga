@@ -105,6 +105,17 @@ const navItems: WorkspaceItem[] = [
       </svg>
     ),
   },
+  {
+    key: 'xui',
+    label: 'X-UI 管理',
+    path: '/xui',
+    group: '外部集成',
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M7 12h10M10 17h4" />
+      </svg>
+    ),
+  },
 ];
 
 export function SystemWorkspace({ children }: { children: ReactNode }) {

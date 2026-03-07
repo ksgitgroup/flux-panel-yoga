@@ -117,3 +117,28 @@
 3. 梳理稳定边界：目录、脚本入口、版本同步位置、Dev/Prod 部署入口标签，作为父工作区整合时暂时不可破坏的基线。
 4. 新增 `AI_HANDOFF.md`，专门面向下一个 AI / 进程，写明必须阅读的文档顺序、当前最核心事实、工程约束、数据边界与沟通原则。
 5. 将“必读顺序”和“不要伪造超出当前数据能力的图表”同步写入 `.cursorrules`，让规则层也能提醒后续协作者。
+
+## 2026-03-07 X-UI Integration Phase 1 Walkthrough
+
+1. 审查当前 `Flux Panel Yoga` 的结构与最新文档，确认它应继续作为独立控制面存在，而不是把 `3x-ui` 节点塞进原有 `node / tunnel / forward` 语义。
+2. 设计第一阶段 `x-ui integration` 范围：只做实例管理、只读快照、连接测试、自动/手动同步和流量上报接收，不在首轮引入反向写回。
+3. 在后端新增 `xui_instance`、`xui_inbound_snapshot`、`xui_client_snapshot`、`xui_sync_log`、`xui_traffic_delta_event` 五张表，并通过 `DatabaseInitService` 以 `CREATE TABLE IF NOT EXISTS` 方式自动迁移，避免破坏 A / B / C 环境的既有表结构。
+4. 新增 `XuiCredentialCryptoService`，使用现有 AES-GCM 能力基于 `jwt-secret` 派生专用密钥，对 x-ui 登录密码做服务端加密存储。
+5. 新增 `XuiServiceImpl`，实现 x-ui 实例 CRUD、管理员专用接口、远端登录、`/panel/api/inbounds/list` 拉取、快照 diff、软删除标记、自动同步调度和 `3x-ui` 外部流量上报接收。
+6. 在同步逻辑中只落盘脱敏元数据：入站基础信息、客户端计数、在线状态、流量统计、配置摘要 hash，不把远端客户端 UUID / 密码和完整敏感配置 JSON 暴露给前端。
+7. 在前端新增 `X-UI 管理` 页面并接入系统工作台导航，提供实例配置、测试连接、立即同步、同步状态、上报地址和快照表格。
+8. 执行 `./scripts/verify_build.sh`，先修正 Java 端计数字段类型问题，再修正前端未使用类型导入，最终确认后端打包和前端 `tsc + vite build` 全部通过。
+9. 执行 `./scripts/build_docker.sh`，确认前后端镜像都能基于当前代码构建成功，新增 `x-ui` 模块不会破坏现有 Docker 交付链路。
+
+## 2026-03-07 Staged 2FA and Cleanup Hardening Walkthrough
+
+1. 复盘当前登录页，确认 2FA 仍和用户名、密码、验证码同屏提交，不符合“先校验账号密码，再弹独立 2FA 交互”的新要求。
+2. 在后端新增 `TwoFactorLoginDto` 与 `/api/v1/user/login/2fa`，把已启用 2FA 账号的首轮登录改为只签发 5 分钟短时 challenge，不再允许 `/user/login` 直接返回 token。
+3. 在 `UserServiceImpl` 中为 challenge 增加过期时间、尝试次数和同账号旧 challenge 清理，确保二次验证失败时不会继续放行。
+4. 重构前端登录页：首屏保留用户名、密码和原验证码逻辑；当首轮通过后弹出独立 2FA Modal，用户只有完成第二步验证才会真正写入 token 并进入后台。
+5. 复查安全面，确认 `LogAspect` 会把登录、2FA 绑定和 x-ui 管理接口的请求/响应完整写日志；这会泄露密码、JWT、TOTP、`otpauth://` 和 x-ui 密码相关字段。
+6. 为 `LogAspect` 增加统一脱敏，按字段名递归屏蔽 `password`、`token`、`twoFactorCode`、`secret`、`otpauthUri`、`encryptedPassword`、`challengeToken` 等敏感值，保留排障所需结构但去掉可复用凭据。
+7. 复盘此前“越清越小”的根因，确认问题不在清理动作本身，而在于构建链路原来只在构建成功后清理，磁盘告急时会先死在 `verify/build` 过程中。
+8. 将低空间预检前移到 `verify_build.sh` 和 `build_docker.sh`，不足时先做 `pre-build` 清理，仍不足再做 `deep-host` 清理，并在低于安全阈值时提前失败。
+9. 将清理脚本改为输出真实 Docker 回收结果，不再把 `docker image prune`、`builder prune` 等输出全部吞掉，同时通过 `EXIT` trap 接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`、`sync_dev.sh`。
+10. 执行 `./scripts/verify_build.sh` 与 `./scripts/build_docker.sh`，确认后端打包、前端 `tsc + vite build`、Docker 镜像构建与清理链路全部通过，且本地磁盘余量在构建后仍能回收到约 `10GiB`。

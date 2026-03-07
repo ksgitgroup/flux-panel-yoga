@@ -65,3 +65,9 @@
 2. 将 `CICD_ARCHITECTURE.md` 更新为当前实际生效的 GitLab -> GitHub -> Docker Hub -> Dev/Prod 链路，而不是历史设想版本。
 3. 将 `PROJECT_ANALYSIS.md` 更新为长期维护视角下的模块、数据能力、边界与技术债分析，便于后续并入更大的工作区。
 4. 将 `LOCAL_MACOS_SETUP.md` 与 `vite-frontend/README.md` 同步到当前本机真实开发方式与子模块职责说明。
+
+## 2026-03-07 Workspace Integration Addendum
+
+1. 补充专门的父工作区集成指南，明确当前项目应先作为独立子系统接入，不应一开始拆散目录与脚本。
+2. 补充 AI 交接清单，写明新进程必须阅读的文档顺序、工程约束、产品边界和沟通逻辑。
+3. 将“下一个 AI 必读顺序”和“集成时禁止先动的项目”同步写入 README 与 `.cursorrules`。

@@ -400,8 +400,22 @@ git pull origin dev
 2. [PROJECT_ANALYSIS.md](PROJECT_ANALYSIS.md)
 3. [CICD_ARCHITECTURE.md](CICD_ARCHITECTURE.md)
 4. [LOCAL_MACOS_SETUP.md](LOCAL_MACOS_SETUP.md)
-5. [walkthrough.md](walkthrough.md)
+5. [WORKSPACE_INTEGRATION_GUIDE.md](WORKSPACE_INTEGRATION_GUIDE.md)
+6. [AI_HANDOFF.md](AI_HANDOFF.md)
+7. [walkthrough.md](walkthrough.md)
 
-## 14. 免责声明
+## 14. 接手前必读
+
+如果后续由新的 AI 工具 / 新进程 / 新协作者继续处理本项目，开始前至少按这个顺序阅读：
+
+1. `README.md`
+2. `PROJECT_ANALYSIS.md`
+3. `CICD_ARCHITECTURE.md`
+4. `LOCAL_MACOS_SETUP.md`
+5. `WORKSPACE_INTEGRATION_GUIDE.md`
+6. `AI_HANDOFF.md`
+7. `.cursorrules`
+
+## 15. 免责声明
 
 本项目仅用于合法、合规的学习、研究与授权场景。使用者需要自行承担部署、配置、运维和合规风险。

@@ -12,6 +12,9 @@
 - **Diagnosis Compatibility**: When reading historical diagnosis data, frontends must tolerate both legacy payloads (`results_json` as full report object) and newer array-style payloads. Never assume `JSON.parse(resultsJson)` is directly iterable.
 - **Import Management**: Ensure all DTOs and entities are properly imported and field names are matched correctly (e.g., `remoteAddr`).
 - **Package Sync**: Keep `pom.xml`, `package.json`, and `application.yml` version numbers synced (current: v1.4.6). Frontend build metadata may expose the current git short SHA, but Dev/Prod deployment entry tags must remain backward-compatible unless deployment scripts change in the same turn.
+- **Mandatory Reading for New AI Sessions**: Before making structural, deployment, or integration changes, read `README.md`, `PROJECT_ANALYSIS.md`, `CICD_ARCHITECTURE.md`, `LOCAL_MACOS_SETUP.md`, `WORKSPACE_INTEGRATION_GUIDE.md`, `AI_HANDOFF.md`, `task.md`, and `walkthrough.md`.
+- **Parent Workspace Boundary**: Treat Flux Panel Yoga as an independent subsystem first. Do not start by拆散 `springboot-backend/`, `vite-frontend/`, `go-gost/`, `scripts/`, or replacing `ship_dev` / `verify_build` / deploy entry tags.
+- **Communication Logic**: Be explicit about whether a request affects product UI, data capability, engineering workflow, or deployment. If a requested chart or feature lacks real data support, say so directly and document the boundary instead of faking it.
 
 ## Methodology
 1. **Plan**: Update `implementation_plan.md` for non-trivial changes.

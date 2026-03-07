@@ -92,3 +92,9 @@
 - 已重写 `PROJECT_ANALYSIS.md`，从前端页面、后端控制器、关键实体、观测能力、2FA、告警与工作区整合建议等维度做长期维护说明。
 - 已重写 `LOCAL_MACOS_SETUP.md`，明确这台 Mac 的真实工作副本、Colima 角色、标准开发流程和磁盘清理策略。
 - 已更新 `vite-frontend/README.md`，移除默认模板内容，改为当前前端子模块的职责说明并链接回根文档。
+
+## 2026-03-07 Workspace Integration Result
+
+- 已新增 `WORKSPACE_INTEGRATION_GUIDE.md`，给出父工作区接入方案、稳定边界、推荐目录、分阶段整合建议和禁止先动项。
+- 已新增 `AI_HANDOFF.md`，明确新 AI / 新进程的必读文档顺序、工程约束、数据边界、安全逻辑、磁盘约束和沟通逻辑。
+- 已将必读顺序和关键边界同步写入 `README.md` 与 `.cursorrules`，降低后续整合和交接时的上下文丢失风险。

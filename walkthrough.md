@@ -109,3 +109,11 @@
 3. 审查 `scripts/ship_dev.sh`、`verify_build.sh`、`build_docker.sh`、`reload_local_stack.sh`、`cleanup_local_artifacts.sh`、`.gitlab-ci.yml`、GitHub Actions 和前后端模块目录，确保文档按当前真实行为编写，而不是按旧方案或记忆编写。
 4. 重写根 README，补齐首页/诊断看板/系统工作台重构后的功能模块、流量与诊断边界、版本语义、脚本索引和 Dev/Prod 部署逻辑。
 5. 重写前端子目录 README，去掉原 HeroUI 模板说明，改成当前子项目职责和根文档入口说明。
+
+## 2026-03-07 Workspace Integration Walkthrough
+
+1. 在总文档之外新增 `WORKSPACE_INTEGRATION_GUIDE.md`，把“父工作区如何接入本项目”单独拆出来，避免后续集成时只能从 README 大段内容里反复翻找。
+2. 明确给出推荐方案：先作为独立子系统接入，再逐步抽公共能力，而不是一开始就拆散 `springboot-backend`、`vite-frontend`、`go-gost` 和 `scripts`。
+3. 梳理稳定边界：目录、脚本入口、版本同步位置、Dev/Prod 部署入口标签，作为父工作区整合时暂时不可破坏的基线。
+4. 新增 `AI_HANDOFF.md`，专门面向下一个 AI / 进程，写明必须阅读的文档顺序、当前最核心事实、工程约束、数据边界与沟通原则。
+5. 将“必读顺序”和“不要伪造超出当前数据能力的图表”同步写入 `.cursorrules`，让规则层也能提醒后续协作者。

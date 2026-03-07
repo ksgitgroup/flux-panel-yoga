@@ -89,6 +89,32 @@ interface DiagnosisResult {
   }>;
 }
 
+const formatDiagnosisTime = (timestamp?: number) => {
+  if (!timestamp) return '暂无诊断记录';
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const parseDiagnosisSteps = (resultsJson?: string): DiagnosisResult['results'] => {
+  if (!resultsJson) return [];
+  try {
+    const parsed = JSON.parse(resultsJson);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    if (Array.isArray(parsed?.results)) {
+      return parsed.results;
+    }
+  } catch {
+    return [];
+  }
+  return [];
+};
+
 export default function TunnelPage() {
   const [loading, setLoading] = useState(true);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
@@ -341,15 +367,32 @@ export default function TunnelPage() {
     }
   };
 
-  // 诊断隧道
-  const handleDiagnose = async (tunnel: Tunnel) => {
+  const buildDiagnosisResultFromRecord = (tunnel: Tunnel, record?: { resultsJson?: string; createdTime?: number } | null): DiagnosisResult | null => {
+    if (!record?.resultsJson) return null;
+    const results = parseDiagnosisSteps(record.resultsJson);
+    if (results.length === 0) return null;
+
+    return {
+      tunnelName: tunnel.name,
+      tunnelType: tunnel.type === 1 ? '端口转发' : '隧道转发',
+      timestamp: record.createdTime || Date.now(),
+      results
+    };
+  };
+
+  const openDiagnosisPanel = (tunnel: Tunnel, record?: { resultsJson?: string; createdTime?: number } | null) => {
     setCurrentDiagnosisTunnel(tunnel);
     setDiagnosisModalOpen(true);
-    setDiagnosisLoading(true);
-    setDiagnosisResult(null);
+    setDiagnosisLoading(false);
+    setDiagnosisResult(buildDiagnosisResultFromRecord(tunnel, record));
     setDiagnosisHistory([]);
+    void loadDiagnosisHistory(tunnel.id);
+  };
 
-    loadDiagnosisHistory(tunnel.id);
+  // 诊断隧道
+  const handleDiagnose = async (tunnel: Tunnel) => {
+    openDiagnosisPanel(tunnel, diagnosisMap[tunnel.id]?.history?.[0]);
+    setDiagnosisLoading(true);
 
     try {
       const response = await diagnoseTunnel(tunnel.id);
@@ -393,6 +436,10 @@ export default function TunnelPage() {
     } finally {
       setDiagnosisLoading(false);
     }
+  };
+
+  const handleOpenDiagnosisDetails = (tunnel: Tunnel, record?: { resultsJson?: string; createdTime?: number } | null) => {
+    openDiagnosisPanel(tunnel, record || diagnosisMap[tunnel.id]?.history?.[0]);
   };
 
   // 获取显示的IP（处理多IP）
@@ -502,6 +549,12 @@ export default function TunnelPage() {
           {tunnels.map((tunnel) => {
             const statusDisplay = getStatusDisplay(tunnel.status);
             const typeDisplay = getTypeDisplay(tunnel.type);
+            const diag = diagnosisMap[tunnel.id];
+            const diagnosisHistoryPreview = Array.isArray(diag?.history) ? diag.history.slice(0, 5) : [];
+            const latestDiagnosis = diagnosisHistoryPreview[0];
+            const latestAverageTime = latestDiagnosis?.averageTime ?? diag?.averageTime;
+            const latestPacketLoss = latestDiagnosis?.packetLoss ?? diag?.packetLoss;
+            const latestOverallSuccess = latestDiagnosis?.overallSuccess ?? diag?.overallSuccess;
 
             return (
               <Card key={tunnel.id} className="shadow-sm border border-divider hover:shadow-md transition-shadow duration-200">
@@ -530,18 +583,13 @@ export default function TunnelPage() {
                     </div>
                     {/* 测速徽章 */}
                     <div className="flex-shrink-0">
-                      {(() => {
-                        const diag = diagnosisMap[tunnel.id];
-                        return (
-                          <SpeedBadge
-                            averageTime={diag?.averageTime}
-                            packetLoss={diag?.packetLoss}
-                            overallSuccess={diag?.overallSuccess}
-                            history={diag?.history}
-                            compact
-                          />
-                        );
-                      })()}
+                      <SpeedBadge
+                        averageTime={diag?.averageTime}
+                        packetLoss={diag?.packetLoss}
+                        overallSuccess={diag?.overallSuccess}
+                        history={diag?.history}
+                        compact
+                      />
                     </div>
                   </div>
                 </CardHeader>
@@ -594,6 +642,77 @@ export default function TunnelPage() {
                         <div className="text-xs font-medium text-foreground">
                           {tunnel.trafficRatio}x
                         </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-divider bg-default-50/75 p-3 dark:bg-default-100/10">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold text-default-700">延时看板</p>
+                          <p className="mt-1 text-[11px] text-default-500">
+                            {latestDiagnosis ? `最近诊断：${formatDiagnosisTime(latestDiagnosis.createdTime)}` : '还没有可展示的延时历史'}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="light"
+                          color="primary"
+                          className="min-h-7 px-2 text-xs"
+                          onPress={() => handleOpenDiagnosisDetails(tunnel, latestDiagnosis)}
+                        >
+                          详情
+                        </Button>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-divider bg-white/85 px-2.5 py-2 dark:bg-black/20">
+                          <div className="text-[10px] text-default-400">平均延时</div>
+                          <div className="mt-1 text-sm font-semibold text-foreground">
+                            {latestAverageTime !== undefined && latestAverageTime !== null ? `${latestAverageTime.toFixed(1)}ms` : '--'}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-divider bg-white/85 px-2.5 py-2 dark:bg-black/20">
+                          <div className="text-[10px] text-default-400">丢包率</div>
+                          <div className="mt-1 text-sm font-semibold text-foreground">
+                            {latestPacketLoss !== undefined && latestPacketLoss !== null ? `${latestPacketLoss.toFixed(1)}%` : '--'}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-divider bg-white/85 px-2.5 py-2 dark:bg-black/20">
+                          <div className="text-[10px] text-default-400">诊断结论</div>
+                          <div className={`mt-1 text-sm font-semibold ${latestOverallSuccess === false ? 'text-danger' : latestOverallSuccess ? 'text-success' : 'text-default-500'}`}>
+                            {latestOverallSuccess === false ? '异常' : latestOverallSuccess ? '正常' : '未诊断'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-[11px] text-default-500">
+                          <span>最近 5 次</span>
+                          {diagnosisHistoryPreview.length > 0 && <span>点击可看详情</span>}
+                        </div>
+                        {diagnosisHistoryPreview.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {diagnosisHistoryPreview.map((item: DiagnosisHistoryItem) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => handleOpenDiagnosisDetails(tunnel, item)}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all hover:scale-[1.03] ${
+                                  item.overallSuccess
+                                    ? 'border-success-200 bg-success-50 text-success-700 dark:border-success-700/50 dark:bg-success-900/20 dark:text-success-300'
+                                    : 'border-danger-200 bg-danger-50 text-danger-700 dark:border-danger-700/50 dark:bg-danger-900/20 dark:text-danger-300'
+                                }`}
+                                title={`${formatDiagnosisTime(item.createdTime)}${item.averageTime !== undefined ? ` · ${item.averageTime.toFixed(1)}ms` : ''}`}
+                              >
+                                {item.averageTime !== undefined && item.averageTime !== null && item.averageTime > 0
+                                  ? `${Math.round(item.averageTime)}ms`
+                                  : item.overallSuccess ? '正常' : '异常'}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-default-400">暂无历史测速结果，先执行一次诊断即可在这里形成趋势。</p>
+                        )}
                       </div>
                     </div>
 
@@ -1131,10 +1250,7 @@ export default function TunnelPage() {
                         </div>
                         <Accordion variant="splitted">
                           {diagnosisHistory.map((item) => {
-                            let parsedResults: any[] = [];
-                            try {
-                              parsedResults = JSON.parse(item.resultsJson);
-                            } catch (e) { }
+                            const parsedResults = parseDiagnosisSteps(item.resultsJson);
 
                             return (
                               <AccordionItem

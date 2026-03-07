@@ -281,8 +281,11 @@ export default function AdminLayout({
     !item.adminOnly || isAdmin
   );
 
-  const primaryPaths = new Set(['/dashboard', '/forward', '/tunnel', '/node', '/monitor']);
-  const primaryMenuItems = filteredMenuItems.filter((item) => primaryPaths.has(item.path));
+  const primaryMenuOrder = ['/dashboard', '/monitor', '/forward', '/tunnel', '/node'];
+  const primaryMenuItems = primaryMenuOrder
+    .map((path) => filteredMenuItems.find((item) => item.path === path))
+    .filter((item): item is MenuItem => Boolean(item));
+  const primaryPaths = new Set(primaryMenuItems.map((item) => item.path));
   const managementMenuItems = filteredMenuItems.filter((item) => !primaryPaths.has(item.path));
   const isManagementRoute = managementMenuItems.some((item) => item.path === location.pathname);
   const currentTime = now.toLocaleTimeString('en-US', {
@@ -364,7 +367,7 @@ export default function AdminLayout({
       )}
 
       <div className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-30 border-b border-white/70 bg-white/85 shadow-sm backdrop-blur-xl dark:border-default-100/10 dark:bg-black/80">
+        <header className="sticky top-0 z-30 border-b border-white/70 bg-white/88 shadow-sm backdrop-blur-xl dark:border-default-100/10 dark:bg-black/84">
           <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 lg:px-6">
             {isMobile && (
               <Button
@@ -380,9 +383,9 @@ export default function AdminLayout({
               </Button>
             )}
 
-            <div className="min-w-0 flex-shrink-0">
+            <div className="min-w-0 flex-shrink-0 xl:w-[330px]">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner">
+                <div className="flex h-11 w-11 items-center justify-center rounded-[20px] bg-primary/10 text-primary shadow-inner">
                   <Logo size={24} />
                 </div>
                 <div className="min-w-0">
@@ -402,9 +405,9 @@ export default function AdminLayout({
             </div>
 
             {!isMobile && (
-              <nav className="mx-auto min-w-0 flex-1 px-2">
-                <div className="flex items-center justify-center overflow-x-auto [scrollbar-width:none]">
-                  <div className="inline-flex min-w-max items-center gap-1 rounded-full border border-divider bg-default-50/80 p-1 shadow-inner dark:bg-default-100/10">
+              <nav className="min-w-0 flex-1 px-1">
+                <div className="flex items-center overflow-x-auto [scrollbar-width:none]">
+                  <div className="inline-flex min-w-max items-center gap-1.5 rounded-[28px] border border-divider bg-white/82 p-1.5 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.45)] dark:bg-default-100/10">
                     {primaryMenuItems.map((item) => {
                       const isActive = location.pathname === item.path;
                       return (
@@ -412,7 +415,7 @@ export default function AdminLayout({
                           key={item.path}
                           onClick={() => handleMenuClick(item.path)}
                           className={`
-                            inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-all
+                            inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-all
                             ${isActive
                               ? 'bg-primary text-white shadow-lg shadow-primary/25'
                               : 'text-default-500 hover:bg-white hover:text-foreground dark:hover:bg-default-100/10 dark:hover:text-default-100'}
@@ -429,7 +432,7 @@ export default function AdminLayout({
             )}
 
             <div className="ml-auto flex items-center gap-2 lg:gap-3">
-              <div className="hidden xl:flex items-center gap-3 rounded-2xl border border-divider bg-default-50/80 px-3 py-2 text-right shadow-sm dark:bg-default-100/10">
+              <div className="hidden 2xl:flex items-center gap-3 rounded-[22px] border border-divider bg-default-50/80 px-3 py-2 text-right shadow-sm dark:bg-default-100/10">
                 <div>
                   <div className="text-lg font-bold leading-none text-foreground">{currentTime}</div>
                   <div className="mt-1 text-[11px] tracking-[0.2em] text-default-500">{currentDate}</div>
@@ -443,7 +446,7 @@ export default function AdminLayout({
                       size="sm"
                       variant={isManagementRoute ? "solid" : "flat"}
                       color={isManagementRoute ? "primary" : "default"}
-                      className="font-semibold"
+                      className="h-11 rounded-[18px] border border-divider bg-white/80 px-4 font-semibold shadow-sm dark:bg-default-100/10"
                       startContent={
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
@@ -478,15 +481,15 @@ export default function AdminLayout({
                   <Button
                     size="sm"
                     variant="flat"
-                    className="gap-2 rounded-full border border-divider bg-white/80 px-3 font-semibold shadow-sm dark:bg-default-100/10"
+                    className="h-11 min-w-[176px] justify-between gap-3 rounded-[22px] border border-divider bg-white/85 px-2 pr-3 font-semibold shadow-sm dark:bg-default-100/10"
                   >
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       {username?.slice(0, 1).toUpperCase() || 'U'}
                     </span>
                     {!isMobile && (
-                      <div className="text-left">
-                        <div className="text-sm text-foreground">{username}</div>
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-default-400">
+                      <div className="min-w-0 flex-1 text-left leading-tight">
+                        <div className="truncate text-sm font-semibold text-foreground">{username}</div>
+                        <div className="truncate pt-0.5 text-[10px] uppercase tracking-[0.18em] text-default-400">
                           {isAdmin ? 'Admin' : 'Member'}
                         </div>
                       </div>
@@ -515,20 +518,6 @@ export default function AdminLayout({
               </Dropdown>
             </div>
           </div>
-
-          {!isMobile && (
-            <div className="border-t border-divider/60 px-6 py-2 text-xs text-default-500">
-              <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-3">
-                <div className="min-w-0 truncate">
-                  运维面板统一采用横向导航，主要业务入口集中在顶部，中后台配置收敛到右上角系统菜单。
-                </div>
-                <div className="hidden lg:flex items-center gap-4">
-                  <span>发布版本 {siteConfig.release_version}</span>
-                  <span>提交标识 {siteConfig.build_revision}</span>
-                </div>
-              </div>
-            </div>
-          )}
 
           {isMobile && (
             <div className="overflow-x-auto border-t border-divider/60 px-3 py-2 [scrollbar-width:none]">

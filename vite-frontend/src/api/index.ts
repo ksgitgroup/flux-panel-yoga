@@ -136,6 +136,19 @@ export interface XuiSyncResult {
   message: string;
 }
 
+export interface PortalLink {
+  id: string;
+  groupName: string;
+  title: string;
+  href: string;
+  description?: string | null;
+  abbr?: string | null;
+  environment?: string | null;
+  target: 'new_tab' | 'same_tab' | string;
+  sortOrder?: number | null;
+  enabled: boolean;
+}
+
 export const login = (data: LoginData) => Network.post<LoginResponse>("/user/login", data);
 export const completeTwoFactorLogin = (data: TwoFactorLoginData) => Network.post<LoginResponse>("/user/login/2fa", data);
 
@@ -259,3 +272,5 @@ export const testXuiInstance = (id: number) => Network.post<{
   message: string;
 }>("/xui/test", { id });
 export const syncXuiInstance = (id: number) => Network.post<XuiSyncResult>("/xui/sync", { id });
+export const getPortalLinks = () => Network.post<PortalLink[]>("/portal/list");
+export const savePortalLinks = (items: PortalLink[]) => Network.post<PortalLink[]>("/portal/save", { items });

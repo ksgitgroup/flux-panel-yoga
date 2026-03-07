@@ -116,6 +116,17 @@ const navItems: WorkspaceItem[] = [
       </svg>
     ),
   },
+  {
+    key: 'portal-config',
+    label: '导航配置',
+    path: '/portal/config',
+    group: '外部集成',
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+      </svg>
+    ),
+  },
 ];
 
 export function SystemWorkspace({ children }: { children: ReactNode }) {

@@ -440,6 +440,9 @@ export default function DashboardPage() {
             </CardHeader>
             <CardBody className="grid gap-3 pt-5 sm:grid-cols-2 xl:grid-cols-1">
               <QuickEntry title="诊断看板" description="查看实时诊断进度、节点流量、隧道/转发流量排行与链路明细。" to="/monitor" tone="primary" />
+              {admin ? (
+                <QuickEntry title="自定义导航" description="集中打开探针、x-ui、服务器后台等常用外部入口，后续会继续扩展统一运维入口。" to="/portal" tone="warning" />
+              ) : null}
               <QuickEntry title="转发管理" description="集中处理筛选、列表/卡片视图、批量操作和单条诊断。" to="/forward" tone="success" />
               <QuickEntry title={admin ? '节点监控' : '隧道管理'} description={admin ? '查看节点在线状态和节点侧信息。' : '查看隧道资源和最近诊断结果。'} to={admin ? '/node' : '/tunnel'} tone="warning" />
               <QuickEntry title={admin ? '系统工作台' : '个人中心'} description={admin ? '网站配置、安全登录、诊断配置与告警通知都在系统工作台左侧导航内。' : '查看个人资料、密码与二步验证。'} to={admin ? '/config?section=basic' : '/profile'} tone="default" />

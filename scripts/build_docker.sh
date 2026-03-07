@@ -106,7 +106,7 @@ if [ "$TAG" = "local" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "---------------------------------------------------"
     echo "正在构建前端 dist..."
     echo "---------------------------------------------------"
-    ensure_local_free_space "前端 dist 构建"
+    ensure_local_free_space "前端 dist 构建" 1
     (
         cd vite-frontend
         if [ ! -d node_modules ]; then

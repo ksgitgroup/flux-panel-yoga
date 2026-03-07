@@ -117,6 +117,7 @@ export PATH="$JAVA_HOME/bin:$(brew --prefix node@20)/bin:$PATH"
 - `build_docker.sh` 只负责产出最新 `local` 镜像
 - `reload_local_stack.sh` 才会让正在运行的容器切到新镜像
 - 不执行第二步，就可能看到旧页面或旧后端逻辑
+- 当本机可用空间不足时，`verify_build.sh` / `build_docker.sh` 会先触发 `pre-build` 清理，必要时再升级到 `deep-host` 清理，避免构建到一半爆盘
 
 ### 6.3 标准开发出口
 
@@ -159,9 +160,11 @@ export PATH="$JAVA_HOME/bin:$(brew --prefix node@20)/bin:$PATH"
 
 以下脚本会自动清理：
 
+- `verify_build.sh` 会在低空间时先执行预清理
 - `build_docker.sh`
 - `reload_local_stack.sh`
 - `ship_dev.sh`
+- `sync_dev.sh`
 
 ### 7.3 手动深度清理
 

@@ -9,6 +9,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+cleanup_on_exit() {
+    bash ./scripts/cleanup_local_artifacts.sh post-ship || true
+}
+
+trap cleanup_on_exit EXIT
+
 echo "🚀 开始自动化同步流程 (Local A -> Remote B)..."
 
 # 1. 执行本地构建校验

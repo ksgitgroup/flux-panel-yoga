@@ -79,6 +79,15 @@
 - 已确认主要占用来自 Docker/Colima 运行时与缓存：`.colima` 约 `7.8G`、Docker 本地镜像约 `2.2G`、Homebrew 缓存约 `610M`、npm 全局缓存约 `654M`、Maven 仓库约 `203M`。
 - 已扩展 `scripts/cleanup_local_artifacts.sh`，新增 `deep-host` 模式，用于在空间极低时进一步回收宿主机缓存与未使用的 Docker 资源。
 
+## 2026-03-07 Staged 2FA and Cleanup Hardening Result
+
+- 已将登录流程改为分布式两段验证：首屏只提交用户名、密码和验证码；若账号启用 2FA，后端只返回短时 challenge，不再直接签发登录 token。
+- 已新增 `/api/v1/user/login/2fa` 二次验证接口，只有 challenge 和 6 位 TOTP 同时通过后才允许真正登录。
+- 已修复日志泄露风险：`LogAspect` 现在会统一脱敏 `password`、`token`、`twoFactorCode`、`secret`、`otpauthUri`、`encryptedPassword`、`challengeToken` 等敏感字段，避免登录、2FA 绑定和 x-ui 管理接口把明文敏感值写入日志。
+- 已确认 x-ui 凭据仍为服务端 AES 加密存库，前端列表接口只返回 `passwordConfigured` 状态，不回显明文或密文密码。
+- 已将低空间预检接入 `verify_build.sh` 与 `build_docker.sh`，当可用空间不足时会先触发 `pre-build` 清理，仍不足再升级到 `deep-host` 清理，并在低于安全阈值时提前失败而不是在构建中途爆盘。
+- 已将清理收口调整为可见日志，并通过 `EXIT` trap 接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`、`sync_dev.sh`，确保成功或失败后都会尝试回收本地垃圾和多余 Docker 资源。
+
 ## 2026-03-07 CI Release Visibility Result
 
 - 已移除 `.gitlab-ci.yml` 中对 `dev -> main` MR 标题和描述的强制校验，不再因为 MR 文案缺失阻塞合并。

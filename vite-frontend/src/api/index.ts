@@ -9,13 +9,21 @@ export interface LoginData {
 }
 
 export interface LoginResponse {
-  token: string;
-  role_id: number;
-  name: string;
+  token?: string;
+  role_id?: number;
+  name?: string;
   requirePasswordChange?: boolean;
   requireTwoFactorSetup?: boolean;
   twoFactorRequired?: boolean;
   twoFactorEnabled?: boolean;
+  requireTwoFactorVerification?: boolean;
+  twoFactorChallengeToken?: string;
+  twoFactorChallengeExpiresAt?: number;
+}
+
+export interface TwoFactorLoginData {
+  challengeToken: string;
+  twoFactorCode: string;
 }
 
 export interface TwoFactorStatusResponse {
@@ -126,6 +134,7 @@ export interface XuiSyncResult {
 }
 
 export const login = (data: LoginData) => Network.post<LoginResponse>("/user/login", data);
+export const completeTwoFactorLogin = (data: TwoFactorLoginData) => Network.post<LoginResponse>("/user/login/2fa", data);
 
 // 用户CRUD操作 - 全部使用POST请求
 export const createUser = (data: any) => Network.post("/user/create", data);

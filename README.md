@@ -206,9 +206,11 @@ GitHub Actions
 
 - 默认凭据修改逻辑补齐前后端校验
 - 增加 TOTP 2FA
+- 登录改为“两段式 2FA”：首屏先验账号密码和验证码，通过后再弹独立 2FA 验证
 - 增加 2FA 二维码展示
 - 增加 `disabled / admin / all` 强制策略
 - 页面刷新后会重新同步强制 2FA 状态
+- 登录、2FA 和 x-ui 凭据相关接口日志已统一脱敏，避免明文密码、JWT、TOTP 和密钥写入运行日志
 
 ### 6.3 诊断与告警
 
@@ -224,7 +226,7 @@ GitHub Actions
 - 本地脚本统一走 Java 21 / Node 20 / Docker / Colima
 - `verify_build.sh` 成为推送前硬门槛
 - `ship_dev.sh` 成为标准开发出口
-- 本地构建、容器重载和推送会自动清理构建垃圾
+- 本地构建、容器重载和推送会自动清理构建垃圾；低空间时会先做预清理再继续
 - 版本展示统一为：`release version + build revision`
 
 ## 7. 版本语义
@@ -336,9 +338,11 @@ git pull origin dev
 
 以下脚本会自动调用清理：
 
+- `verify_build.sh` 会在低空间时先执行预清理
 - `build_docker.sh`
 - `reload_local_stack.sh`
 - `ship_dev.sh`
+- `sync_dev.sh`
 
 ### 10.2 深度清理
 

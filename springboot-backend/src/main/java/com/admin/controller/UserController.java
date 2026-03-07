@@ -30,6 +30,12 @@ public class UserController extends BaseController {
     }
 
     @LogAnnotation
+    @PostMapping("/login/2fa")
+    public R completeTwoFactorLogin(@Validated @RequestBody TwoFactorLoginDto twoFactorLoginDto) {
+        return userService.completeTwoFactorLogin(twoFactorLoginDto);
+    }
+
+    @LogAnnotation
     @RequireRole
     @PostMapping("/create")
     public R create(@Validated @RequestBody UserDto userDto) {

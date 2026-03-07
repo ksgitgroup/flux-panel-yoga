@@ -129,3 +129,16 @@
 7. 在前端新增 `X-UI 管理` 页面并接入系统工作台导航，提供实例配置、测试连接、立即同步、同步状态、上报地址和快照表格。
 8. 执行 `./scripts/verify_build.sh`，先修正 Java 端计数字段类型问题，再修正前端未使用类型导入，最终确认后端打包和前端 `tsc + vite build` 全部通过。
 9. 执行 `./scripts/build_docker.sh`，确认前后端镜像都能基于当前代码构建成功，新增 `x-ui` 模块不会破坏现有 Docker 交付链路。
+
+## 2026-03-07 Staged 2FA and Cleanup Hardening Walkthrough
+
+1. 复盘当前登录页，确认 2FA 仍和用户名、密码、验证码同屏提交，不符合“先校验账号密码，再弹独立 2FA 交互”的新要求。
+2. 在后端新增 `TwoFactorLoginDto` 与 `/api/v1/user/login/2fa`，把已启用 2FA 账号的首轮登录改为只签发 5 分钟短时 challenge，不再允许 `/user/login` 直接返回 token。
+3. 在 `UserServiceImpl` 中为 challenge 增加过期时间、尝试次数和同账号旧 challenge 清理，确保二次验证失败时不会继续放行。
+4. 重构前端登录页：首屏保留用户名、密码和原验证码逻辑；当首轮通过后弹出独立 2FA Modal，用户只有完成第二步验证才会真正写入 token 并进入后台。
+5. 复查安全面，确认 `LogAspect` 会把登录、2FA 绑定和 x-ui 管理接口的请求/响应完整写日志；这会泄露密码、JWT、TOTP、`otpauth://` 和 x-ui 密码相关字段。
+6. 为 `LogAspect` 增加统一脱敏，按字段名递归屏蔽 `password`、`token`、`twoFactorCode`、`secret`、`otpauthUri`、`encryptedPassword`、`challengeToken` 等敏感值，保留排障所需结构但去掉可复用凭据。
+7. 复盘此前“越清越小”的根因，确认问题不在清理动作本身，而在于构建链路原来只在构建成功后清理，磁盘告急时会先死在 `verify/build` 过程中。
+8. 将低空间预检前移到 `verify_build.sh` 和 `build_docker.sh`，不足时先做 `pre-build` 清理，仍不足再做 `deep-host` 清理，并在低于安全阈值时提前失败。
+9. 将清理脚本改为输出真实 Docker 回收结果，不再把 `docker image prune`、`builder prune` 等输出全部吞掉，同时通过 `EXIT` trap 接入 `build_docker.sh`、`reload_local_stack.sh`、`ship_dev.sh`、`sync_dev.sh`。
+10. 执行 `./scripts/verify_build.sh` 与 `./scripts/build_docker.sh`，确认后端打包、前端 `tsc + vite build`、Docker 镜像构建与清理链路全部通过，且本地磁盘余量在构建后仍能回收到约 `10GiB`。

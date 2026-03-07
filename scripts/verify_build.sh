@@ -6,6 +6,43 @@
 
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+LOW_SPACE_MB="${LOW_SPACE_MB:-6144}"
+CRITICAL_SPACE_MB="${CRITICAL_SPACE_MB:-3072}"
+MIN_REQUIRED_SPACE_MB="${MIN_REQUIRED_SPACE_MB:-2048}"
+
+read_free_mb() {
+    df -Pm "$ROOT_DIR" | awk 'NR==2 {print $4}'
+}
+
+ensure_local_free_space() {
+    local phase="$1"
+    local free_mb
+    free_mb="$(read_free_mb)"
+    echo "💽 ${phase}前可用空间: ${free_mb}MB"
+
+    if [ "$free_mb" -lt "$LOW_SPACE_MB" ]; then
+        echo "⚠️ 可用空间低于 ${LOW_SPACE_MB}MB，先执行预清理..."
+        bash ./scripts/cleanup_local_artifacts.sh pre-build || true
+        free_mb="$(read_free_mb)"
+        echo "💽 预清理后可用空间: ${free_mb}MB"
+    fi
+
+    if [ "$free_mb" -lt "$CRITICAL_SPACE_MB" ]; then
+        echo "⚠️ 可用空间仍低于 ${CRITICAL_SPACE_MB}MB，执行深度清理..."
+        bash ./scripts/cleanup_local_artifacts.sh deep-host || true
+        free_mb="$(read_free_mb)"
+        echo "💽 深度清理后可用空间: ${free_mb}MB"
+    fi
+
+    if [ "$free_mb" -lt "$MIN_REQUIRED_SPACE_MB" ]; then
+        echo "❌ 可用空间仅剩 ${free_mb}MB，低于安全构建阈值 ${MIN_REQUIRED_SPACE_MB}MB。请先清理宿主机后再执行。"
+        exit 1
+    fi
+}
+
 configure_macos_toolchain() {
     if [ "$(uname -s)" != "Darwin" ] || ! command -v brew >/dev/null 2>&1; then
         return
@@ -42,6 +79,7 @@ read_config_version() {
 }
 
 echo "🚀 开始后端自动化构建校验..."
+ensure_local_free_space "构建校验"
 
 # 1. 检查环境变量
 if [ ! -f ".env" ]; then
@@ -92,6 +130,7 @@ fi
 # 2. 运行 Maven 编译
 echo "📦 正在执行 mvn package..."
 cd springboot-backend
+ensure_local_free_space "后端编译"
 if mvn clean package -DskipTests; then
     echo "✅ 后端项目构建成功！"
 else
@@ -109,6 +148,7 @@ else
     echo "⏳ 正在安装前端依赖..."
     npm install --legacy-peer-deps --quiet
 fi
+ensure_local_free_space "前端构建"
 if NODE_OPTIONS="--max-old-space-size=4096" npm run build; then
     echo "✅ 前端项目构建成功！"
 else

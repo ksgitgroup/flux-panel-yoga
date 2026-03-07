@@ -69,6 +69,9 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     private static final int FLAG_TRUE = 1;
     private static final int FLAG_FALSE = 0;
     private static final Pattern BASE_PATH_PATTERN = Pattern.compile("basePath\\s*=\\s*['\"]([^'\"]+)['\"]");
+    private static final Pattern INBOUNDS_LIST_PATH_PATTERN = Pattern.compile("['\"`]([^'\"`]*(?:/panel/api/inbounds/list|/panel/api/inbounds/|/xui/API/inbounds(?:/list)?))['\"`]");
+    private static final Pattern INBOUNDS_ONLINES_PATH_PATTERN = Pattern.compile("['\"`]([^'\"`]*(?:/panel/api/inbounds/onlines|/xui/API/inbounds/onlines))['\"`]");
+    private static final Pattern INBOUNDS_LAST_ONLINE_PATH_PATTERN = Pattern.compile("['\"`]([^'\"`]*(?:/panel/api/inbounds/lastOnline|/xui/API/inbounds/lastOnline))['\"`]");
     private static final String AJAX_HEADER = "X-Requested-With";
     private static final String AJAX_HEADER_VALUE = "XMLHttpRequest";
     private static final String AJAX_ACCEPT = "application/json, text/plain, */*";
@@ -811,23 +814,25 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     private RemoteApiProbe resolveRemoteApiProfile(XuiRemoteSession session) throws Exception {
-        List<RemoteApiProfile> candidateProfiles = new ArrayList<>();
-        if (session.getSecretStatusSupported() && !session.getTwoFactorSupported()) {
-            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_PANEL_API, "/panel/api/inbounds/", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
-            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_XUI_API, "/xui/API/inbounds/", "/xui/API/inbounds/onlines", null));
-            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_3XUI, "/panel/api/inbounds/list", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
-        } else {
-            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_3XUI, "/panel/api/inbounds/list", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
-            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_PANEL_API, "/panel/api/inbounds/", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
-            candidateProfiles.add(new RemoteApiProfile(API_FLAVOR_XUI_API, "/xui/API/inbounds/", "/xui/API/inbounds/onlines", null));
+        LinkedHashMap<String, RemoteApiProfile> candidateProfiles = new LinkedHashMap<>();
+        List<String> failures = new ArrayList<>();
+
+        RemoteApiProfile discoveredProfile = discoverApiProfileFromPanelPage(session, failures);
+        if (discoveredProfile != null) {
+            candidateProfiles.put(discoveredProfile.getListPath(), discoveredProfile);
         }
 
-        List<String> failures = new ArrayList<>();
-        Set<String> deduplicatedPaths = new LinkedHashSet<>();
-        for (RemoteApiProfile profile : candidateProfiles) {
-            if (!deduplicatedPaths.add(profile.getListPath())) {
-                continue;
-            }
+        if (session.getSecretStatusSupported() && !session.getTwoFactorSupported()) {
+            addCandidateProfile(candidateProfiles, new RemoteApiProfile(API_FLAVOR_3XUI, "/panel/api/inbounds/list", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            addCandidateProfile(candidateProfiles, new RemoteApiProfile(API_FLAVOR_PANEL_API, "/panel/api/inbounds/", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            addCandidateProfile(candidateProfiles, new RemoteApiProfile(API_FLAVOR_XUI_API, "/xui/API/inbounds/", "/xui/API/inbounds/onlines", null));
+        } else {
+            addCandidateProfile(candidateProfiles, new RemoteApiProfile(API_FLAVOR_3XUI, "/panel/api/inbounds/list", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            addCandidateProfile(candidateProfiles, new RemoteApiProfile(API_FLAVOR_PANEL_API, "/panel/api/inbounds/", "/panel/api/inbounds/onlines", "/panel/api/inbounds/lastOnline"));
+            addCandidateProfile(candidateProfiles, new RemoteApiProfile(API_FLAVOR_XUI_API, "/xui/API/inbounds/", "/xui/API/inbounds/onlines", null));
+        }
+
+        for (RemoteApiProfile profile : candidateProfiles.values()) {
             RemoteJsonProbe probe = executeJsonProbe(session.getHttpClient(), buildGet(session, profile.getListPath()));
             if (probe.isSuccess() && Boolean.TRUE.equals(probe.getJson().getBoolean("success"))) {
                 return new RemoteApiProbe(profile, probe.getJson());
@@ -836,6 +841,103 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         }
 
         throw new IllegalStateException("无法识别远端 x-ui API 风格，已尝试: " + String.join("；", failures));
+    }
+
+    private void addCandidateProfile(Map<String, RemoteApiProfile> profiles, RemoteApiProfile profile) {
+        if (profile == null || !StringUtils.hasText(profile.getListPath())) {
+            return;
+        }
+        profiles.putIfAbsent(profile.getListPath(), profile);
+    }
+
+    private RemoteApiProfile discoverApiProfileFromPanelPage(XuiRemoteSession session, List<String> failures) {
+        List<String> candidatePages = Arrays.asList("/panel/inbounds", "/xui/inbounds", "/panel/");
+        for (String pagePath : candidatePages) {
+            try {
+                RemoteHttpResponse response = executeRequest(session.getHttpClient(), buildGet(session, pagePath));
+                if (response.getStatusCode() >= 400) {
+                    failures.add("page-probe(" + pagePath + ") -> 远端页面返回 HTTP " + response.getStatusCode());
+                    continue;
+                }
+                if (!looksLikeHtml(response)) {
+                    failures.add("page-probe(" + pagePath + ") -> 远端返回的不是 HTML 页面");
+                    continue;
+                }
+                if (looksLikeLoginPage(response)) {
+                    failures.add("page-probe(" + pagePath + ") -> 页面仍是登录页，说明会话未建立");
+                    continue;
+                }
+                RemoteApiProfile profile = extractApiProfileFromHtml(response.getBody(), session.getResolvedBasePath());
+                if (profile != null) {
+                    return profile;
+                }
+                failures.add("page-probe(" + pagePath + ") -> 未在页面脚本中发现可识别的 inbounds API 路径");
+            } catch (Exception e) {
+                failures.add("page-probe(" + pagePath + ") -> " + shortenError(e.getMessage()));
+            }
+        }
+        return null;
+    }
+
+    private RemoteApiProfile extractApiProfileFromHtml(String html, String resolvedBasePath) {
+        String listPath = extractPathFromHtml(html, INBOUNDS_LIST_PATH_PATTERN, resolvedBasePath);
+        if (!StringUtils.hasText(listPath)) {
+            return null;
+        }
+        String onlinesPath = extractPathFromHtml(html, INBOUNDS_ONLINES_PATH_PATTERN, resolvedBasePath);
+        String lastOnlinePath = extractPathFromHtml(html, INBOUNDS_LAST_ONLINE_PATH_PATTERN, resolvedBasePath);
+        return new RemoteApiProfile(detectApiFlavorFromPath(listPath), listPath, onlinesPath, lastOnlinePath);
+    }
+
+    private String extractPathFromHtml(String html, Pattern pattern, String resolvedBasePath) {
+        if (!StringUtils.hasText(html)) {
+            return null;
+        }
+        Matcher matcher = pattern.matcher(html);
+        if (!matcher.find()) {
+            return null;
+        }
+        return normalizeDiscoveredPath(matcher.group(1), resolvedBasePath);
+    }
+
+    private String normalizeDiscoveredPath(String rawPath, String resolvedBasePath) {
+        if (!StringUtils.hasText(rawPath)) {
+            return null;
+        }
+        String value = rawPath.trim().replace("\\/", "/");
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            try {
+                value = new URI(value).getPath();
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        String basePath = normalizeBasePath(resolvedBasePath);
+        if (!"/".equals(basePath)) {
+            String prefix = basePath.substring(0, basePath.length() - 1);
+            if (value.startsWith(basePath)) {
+                value = value.substring(basePath.length() - 1);
+            } else if (value.startsWith(prefix + "/")) {
+                value = value.substring(prefix.length());
+            }
+        }
+        if (!value.startsWith("/")) {
+            value = "/" + value;
+        }
+        return value.replaceAll("/{2,}", "/");
+    }
+
+    private String detectApiFlavorFromPath(String listPath) {
+        if (!StringUtils.hasText(listPath)) {
+            return API_FLAVOR_3XUI;
+        }
+        if (listPath.contains("/xui/API/")) {
+            return API_FLAVOR_XUI_API;
+        }
+        if (listPath.endsWith("/list")) {
+            return API_FLAVOR_3XUI;
+        }
+        return API_FLAVOR_PANEL_API;
     }
 
     private JSONObject executeJson(CloseableHttpClient httpClient, HttpUriRequest request) throws Exception {

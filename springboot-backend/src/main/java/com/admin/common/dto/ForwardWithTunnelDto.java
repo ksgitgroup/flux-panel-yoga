@@ -93,4 +93,16 @@ public class ForwardWithTunnelDto {
     private Integer protocolId;
 
     private String tagIds;
+
+    private String remoteSourceType;
+
+    private Long remoteSourceAssetId;
+
+    private Long remoteSourceInstanceId;
+
+    private Long remoteSourceInboundId;
+
+    private String remoteSourceLabel;
+
+    private String remoteSourceProtocol;
 }

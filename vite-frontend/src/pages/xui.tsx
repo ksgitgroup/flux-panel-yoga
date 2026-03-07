@@ -25,6 +25,7 @@ import { Spinner } from "@heroui/spinner";
 import toast from 'react-hot-toast';
 
 import {
+  AssetHost,
   XuiInboundSnapshot,
   XuiInstance,
   XuiInstanceDetail,
@@ -32,6 +33,7 @@ import {
   XuiServerStatus,
   createXuiInstance,
   deleteXuiInstance,
+  getAssetList,
   getXuiDetail,
   getXuiList,
   syncXuiInstance,
@@ -48,6 +50,7 @@ interface XuiInstanceForm {
   username: string;
   password: string;
   loginSecret: string;
+  assetId: number | null;
   hostLabel: string;
   managementMode: string;
   syncEnabled: boolean;
@@ -68,6 +71,7 @@ const emptyForm = (): XuiInstanceForm => ({
   username: '',
   password: '',
   loginSecret: '',
+  assetId: null,
   hostLabel: '',
   managementMode: 'observe',
   syncEnabled: true,
@@ -226,6 +230,7 @@ export default function XuiPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [instances, setInstances] = useState<XuiInstance[]>([]);
+  const [assets, setAssets] = useState<AssetHost[]>([]);
   const [selectedInstanceId, setSelectedInstanceId] = useState<number | null>(null);
   const [detail, setDetail] = useState<XuiInstanceDetail | null>(null);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -251,7 +256,7 @@ export default function XuiPage() {
   const admin = isAdmin();
 
   useEffect(() => {
-    void loadInstances();
+    void Promise.all([loadInstances(), loadAssets()]);
   }, []);
 
   useEffect(() => {
@@ -277,6 +282,7 @@ export default function XuiPage() {
   const liveServerStatus: XuiServerStatus | null = detail?.serverStatus || null;
 
   const summary = useMemo(() => ({
+    totalAssets: new Set(instances.map((item) => item.assetId).filter(Boolean)).size,
     totalInstances: instances.length,
     autoSyncInstances: instances.filter((item) => item.syncEnabled === 1).length,
     totalInbounds: instances.reduce((sum, item) => sum + (item.inboundCount || 0), 0),
@@ -291,6 +297,7 @@ export default function XuiPage() {
     return instances.filter((instance) => {
       const haystacks = [
         instance.name,
+        instance.assetName,
         instance.hostLabel,
         instance.baseUrl,
         instance.webBasePath,
@@ -311,7 +318,7 @@ export default function XuiPage() {
       return null;
     }
     return {
-      serverIdentity: liveServerStatus?.publicIpv4 || selectedInstance.hostLabel || '-',
+      serverIdentity: liveServerStatus?.publicIpv4 || selectedInstance.assetName || selectedInstance.hostLabel || '-',
       protocolCount: protocolSummaries.length,
       onlineClients: protocolSummaries.reduce((sum, item) => sum + (item.onlineClientCount || 0), 0),
       dominantProtocol: protocolSummaries[0]?.protocol || '-',
@@ -324,6 +331,22 @@ export default function XuiPage() {
     }
     return `${window.location.origin}${selectedInstance.trafficCallbackPath}`;
   }, [selectedInstance]);
+
+  const assetOptions = useMemo(
+    () => [
+      {
+        key: '__none__',
+        label: '暂不绑定资产',
+        description: '保留旧 hostLabel 兼容，暂不纳入资产层聚合'
+      },
+      ...assets.map((asset) => ({
+        key: String(asset.id),
+        label: asset.name,
+        description: `${asset.primaryIp || '未记录主 IP'}${asset.environment ? ` · ${asset.environment}` : ''}`
+      }))
+    ],
+    [assets]
+  );
 
   const loadInstances = async () => {
     setLoading(true);
@@ -345,6 +368,17 @@ export default function XuiPage() {
       toast.error('加载 x-ui 实例失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAssets = async () => {
+    try {
+      const response = await getAssetList();
+      if (response.code === 0) {
+        setAssets(response.data || []);
+      }
+    } catch (error) {
+      console.warn('加载资产选项失败:', error);
     }
   };
 
@@ -382,6 +416,7 @@ export default function XuiPage() {
       username: instance.username,
       password: '',
       loginSecret: '',
+      assetId: instance.assetId || null,
       hostLabel: instance.hostLabel || '',
       managementMode: instance.managementMode || 'observe',
       syncEnabled: instance.syncEnabled === 1,
@@ -416,6 +451,7 @@ export default function XuiPage() {
         baseUrl: form.baseUrl.trim(),
         webBasePath: form.webBasePath.trim(),
         username: form.username.trim(),
+        assetId: form.assetId,
         hostLabel: form.hostLabel.trim(),
         managementMode: form.managementMode,
         syncEnabled: form.syncEnabled ? 1 : 0,
@@ -448,7 +484,7 @@ export default function XuiPage() {
       }
       toast.success(isEdit ? 'x-ui 实例已更新' : 'x-ui 实例已创建');
       onFormClose();
-      await loadInstances();
+      await Promise.all([loadInstances(), loadAssets()]);
       const targetId = response.data?.id || form.id;
       if (targetId) {
         setSelectedInstanceId(targetId);
@@ -475,7 +511,7 @@ export default function XuiPage() {
         setSelectedInstanceId(null);
       }
       setInstanceToDelete(null);
-      await loadInstances();
+      await Promise.all([loadInstances(), loadAssets()]);
     } catch (error) {
       toast.error('删除 x-ui 实例失败');
     } finally {
@@ -494,7 +530,7 @@ export default function XuiPage() {
       const flavor = response.data?.apiFlavor || 'auto';
       const basePath = response.data?.resolvedBasePath || instance.webBasePath || '/';
       toast.success(`${instance.name} 连接成功，识别为 ${flavor}，Base Path ${basePath}`);
-      await loadInstances();
+      await Promise.all([loadInstances(), loadAssets()]);
       if (selectedInstanceId === instance.id) {
         await loadDetail(instance.id);
       }
@@ -515,7 +551,7 @@ export default function XuiPage() {
       }
       const flavor = response.data?.apiFlavor ? ` · ${response.data.apiFlavor}` : '';
       toast.success(`${response.data?.message || '同步完成'}${flavor}`);
-      await loadInstances();
+      await Promise.all([loadInstances(), loadAssets()]);
       if (selectedInstanceId === instance.id) {
         await loadDetail(instance.id);
       }
@@ -576,7 +612,14 @@ export default function XuiPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Card className="border border-divider/80">
+          <CardBody className="gap-2 p-5">
+            <p className="text-xs uppercase tracking-[0.18em] text-default-400">Assets</p>
+            <p className="text-3xl font-semibold">{summary.totalAssets}</p>
+            <p className="text-sm text-default-500">当前已绑定资产的服务器数</p>
+          </CardBody>
+        </Card>
         <Card className="border border-divider/80">
           <CardBody className="gap-2 p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-default-400">Instances</p>
@@ -619,7 +662,7 @@ export default function XuiPage() {
             <Input
               value={searchKeyword}
               onValueChange={setSearchKeyword}
-              placeholder="按名称、主机标识、域名或账号筛选"
+              placeholder="按名称、资产、主机标识、域名或账号筛选"
             />
           </CardHeader>
           <CardBody className="space-y-3">
@@ -649,7 +692,10 @@ export default function XuiPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-base font-semibold">{instance.name}</p>
-                          {instance.hostLabel ? (
+                          {instance.assetName ? (
+                            <Chip size="sm" color="primary" variant="flat">{instance.assetName}</Chip>
+                          ) : null}
+                          {!instance.assetName && instance.hostLabel ? (
                             <Chip size="sm" variant="flat">{instance.hostLabel}</Chip>
                           ) : null}
                         </div>
@@ -711,6 +757,9 @@ export default function XuiPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="truncate text-lg font-semibold">{selectedInstance.name}</h2>
+                      {selectedInstance.assetName ? (
+                        <Chip size="sm" color="primary" variant="flat">{selectedInstance.assetName}</Chip>
+                      ) : null}
                       <Chip size="sm" variant="flat">{getManagementModeMeta(selectedInstance.managementMode).label}</Chip>
                       <Chip size="sm" color={selectedInstance.syncEnabled === 1 ? 'success' : 'default'} variant="flat">
                         {selectedInstance.syncEnabled === 1 ? '自动同步' : '手动同步'}
@@ -778,7 +827,8 @@ export default function XuiPage() {
                       <div className="mt-3 space-y-2 text-sm">
                         <p><span className="text-default-500">面板入口：</span><span className="break-all">{buildInstanceAddress(selectedInstance)}</span></p>
                         <p><span className="text-default-500">登录账号：</span>{selectedInstance.username}</p>
-                        <p><span className="text-default-500">主机标识：</span>{selectedInstance.hostLabel || '-'}</p>
+                        <p><span className="text-default-500">绑定资产：</span>{selectedInstance.assetName || '-'}</p>
+                        <p><span className="text-default-500">兼容主机标签：</span>{selectedInstance.hostLabel || '-'}</p>
                         <p><span className="text-default-500">同步策略：</span>{selectedInstance.syncIntervalMinutes} 分钟 / {selectedInstance.syncEnabled === 1 ? '自动' : '手动'}</p>
                       </div>
                     </div>
@@ -811,7 +861,8 @@ export default function XuiPage() {
                     <div className="rounded-3xl border border-divider/80 bg-content1 p-4">
                       <p className="text-xs uppercase tracking-[0.16em] text-default-400">服务器层</p>
                       <div className="mt-3 space-y-2 text-sm">
-                        <p><span className="text-default-500">资产标识：</span>{selectedInstance.hostLabel || '-'}</p>
+                        <p><span className="text-default-500">资产：</span>{selectedInstance.assetName || '-'}</p>
+                        <p><span className="text-default-500">兼容主机标签：</span>{selectedInstance.hostLabel || '-'}</p>
                         <p><span className="text-default-500">公网 IPv4：</span>{liveServerStatus?.publicIpv4 || '-'}</p>
                         <p><span className="text-default-500">Xray：</span>{liveServerStatus?.xrayState || '-'}{liveServerStatus?.xrayVersion ? ` · ${liveServerStatus.xrayVersion}` : ''}</p>
                         <p><span className="text-default-500">运行时长：</span>{formatUptime(liveServerStatus?.uptime)}</p>
@@ -921,8 +972,9 @@ export default function XuiPage() {
                   </div>
 
                   <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-default-400">关联视角</p>
-                    <div className="mt-3 space-y-2 text-sm">
+                      <p className="text-xs uppercase tracking-[0.16em] text-default-400">关联视角</p>
+                      <div className="mt-3 space-y-2 text-sm">
+                      <p><span className="text-default-500">资产：</span>{selectedInstance.assetName || '-'}</p>
                       <p><span className="text-default-500">服务器标识：</span>{selectedInstance.hostLabel || '-'}</p>
                       <p><span className="text-default-500">当前协议数：</span>{selectedLayerSummary?.protocolCount || 0}</p>
                       <p><span className="text-default-500">在线客户端：</span>{selectedLayerSummary?.onlineClients || 0}</p>
@@ -1183,11 +1235,31 @@ export default function XuiPage() {
                 value={form.loginSecret}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, loginSecret: value }))}
               />
+              <Select
+                label="绑定资产"
+                items={assetOptions}
+                selectedKeys={[form.assetId ? form.assetId.toString() : '__none__']}
+                onSelectionChange={(keys) => {
+                  const selectedKey = Array.from(keys)[0] as string;
+                  setForm((prev) => ({
+                    ...prev,
+                    assetId: selectedKey && selectedKey !== '__none__' ? Number(selectedKey) : null
+                  }));
+                }}
+                description="建议优先绑定到服务器资产层，这样资产页才能统一汇总这台 VPS 的 X-UI、协议和转发关系。"
+              >
+                {(item) => (
+                  <SelectItem key={item.key} description={item.description}>
+                    {item.label}
+                  </SelectItem>
+                )}
+              </Select>
               <Input
-                label="主机标识"
+                label="兼容主机标签"
                 placeholder="例如 HK-VPS-01"
                 value={form.hostLabel}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, hostLabel: value }))}
+                description="保留给旧数据兼容或未绑定资产的场景。新接入实例优先使用“绑定资产”。"
               />
               <Input
                 label="同步间隔（分钟）"

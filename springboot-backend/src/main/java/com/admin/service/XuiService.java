@@ -23,6 +23,8 @@ public interface XuiService extends IService<XuiInstance> {
 
     R syncInstance(XuiInstanceIdDto dto);
 
+    R getForwardTargets();
+
     R receiveTraffic(String token, String requestBody, String remoteIp);
 
     void autoSyncEligibleInstances();

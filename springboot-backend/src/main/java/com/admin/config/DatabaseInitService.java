@@ -92,6 +92,12 @@ public class DatabaseInitService {
             // Robustly add columns only if they don't exist
             updateColumn("forward", "protocol_id", "int(10) DEFAULT NULL COMMENT '关联的协议ID'");
             updateColumn("forward", "tag_ids", "varchar(255) DEFAULT NULL COMMENT '关联的标签ID列表(逗号分隔)'");
+            updateColumn("forward", "remote_source_type", "varchar(20) DEFAULT 'manual' COMMENT '目标来源类型：manual / xui'");
+            updateColumn("forward", "remote_source_asset_id", "bigint(20) DEFAULT NULL COMMENT '关联的资产ID'");
+            updateColumn("forward", "remote_source_instance_id", "bigint(20) DEFAULT NULL COMMENT '关联的 x-ui 实例ID'");
+            updateColumn("forward", "remote_source_inbound_id", "bigint(20) DEFAULT NULL COMMENT '关联的 x-ui inbound 快照ID'");
+            updateColumn("forward", "remote_source_label", "varchar(255) DEFAULT NULL COMMENT '远端来源标签'");
+            updateColumn("forward", "remote_source_protocol", "varchar(40) DEFAULT NULL COMMENT '远端来源协议'");
             log.info("[DatabaseInit] Forward 表字段增量升级检测完成");
         } catch (Exception e) {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());
@@ -135,7 +141,31 @@ public class DatabaseInitService {
             log.warn("[DatabaseInit] 尝试初始化诊断配置项时发生异常: {}", e.getMessage());
         }
 
-        // 5. Create X-UI integration tables
+        // 5. Create Asset Host table
+        try {
+            String createAssetHostTable = "CREATE TABLE IF NOT EXISTS `asset_host` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(120) NOT NULL COMMENT '资产名称'," +
+                    "`label` varchar(120) DEFAULT NULL COMMENT '资产标识'," +
+                    "`primary_ip` varchar(128) DEFAULT NULL COMMENT '主公网 IP 或域名'," +
+                    "`environment` varchar(40) DEFAULT NULL COMMENT '所属环境'," +
+                    "`provider` varchar(80) DEFAULT NULL COMMENT '服务提供商'," +
+                    "`region` varchar(80) DEFAULT NULL COMMENT '区域'," +
+                    "`remark` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_asset_host_name` (`name`)," +
+                    "UNIQUE KEY `uk_asset_host_label` (`label`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服务器资产表'";
+            jdbcTemplate.execute(createAssetHostTable);
+            log.info("[DatabaseInit] AssetHost 表校验成功");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] AssetHost 表创建失败: {}", e.getMessage());
+        }
+
+        // 6. Create X-UI integration tables
         try {
             String createXuiInstanceTable = "CREATE TABLE IF NOT EXISTS `xui_instance` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
@@ -145,6 +175,7 @@ public class DatabaseInitService {
                     "`username` varchar(120) NOT NULL COMMENT '登录用户名'," +
                     "`encrypted_password` text NOT NULL COMMENT '加密后的登录密码'," +
                     "`encrypted_login_secret` text DEFAULT NULL COMMENT '加密后的 Secret Token'," +
+                    "`asset_id` bigint(20) DEFAULT NULL COMMENT '关联资产 ID'," +
                     "`host_label` varchar(120) DEFAULT NULL COMMENT '资产主机标识'," +
                     "`management_mode` varchar(20) DEFAULT 'observe' COMMENT 'observe 或 flux_managed'," +
                     "`sync_enabled` tinyint(1) DEFAULT 1 COMMENT '是否自动同步'," +
@@ -169,6 +200,7 @@ public class DatabaseInitService {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui 实例管理表'";
             jdbcTemplate.execute(createXuiInstanceTable);
             updateColumn("xui_instance", "encrypted_login_secret", "text DEFAULT NULL COMMENT '加密后的 Secret Token'");
+            updateColumn("xui_instance", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
 
             String createXuiInboundSnapshotTable = "CREATE TABLE IF NOT EXISTS `xui_inbound_snapshot` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
@@ -267,6 +299,14 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.error("[DatabaseInit] X-UI 集成表创建失败: {}", e.getMessage());
         }
+
+        // 7. Backfill Asset Host bindings from X-UI hostLabel
+        try {
+            bootstrapAssetHostsFromXuiInstances();
+            log.info("[DatabaseInit] AssetHost 与 X-UI 历史数据回填完成");
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 回填 AssetHost 与 X-UI 关联时发生异常: {}", e.getMessage());
+        }
         
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }
@@ -319,5 +359,23 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.warn("[DatabaseInit] 初始化配置 {} 时发生非关键性异常: {}", name, e.getMessage());
         }
+    }
+
+    private void bootstrapAssetHostsFromXuiInstances() {
+        jdbcTemplate.execute(
+                "INSERT INTO `asset_host` (`name`, `label`, `created_time`, `updated_time`, `status`) " +
+                        "SELECT DISTINCT TRIM(`host_label`), TRIM(`host_label`), UNIX_TIMESTAMP() * 1000, UNIX_TIMESTAMP() * 1000, 0 " +
+                        "FROM `xui_instance` " +
+                        "WHERE `host_label` IS NOT NULL AND TRIM(`host_label`) <> '' " +
+                        "AND TRIM(`host_label`) NOT IN (SELECT `name` FROM `asset_host`)"
+        );
+
+        jdbcTemplate.execute(
+                "UPDATE `xui_instance` xi " +
+                        "JOIN `asset_host` ah ON ah.`name` = TRIM(xi.`host_label`) " +
+                        "SET xi.`asset_id` = ah.`id` " +
+                        "WHERE (xi.`asset_id` IS NULL OR xi.`asset_id` = 0) " +
+                        "AND xi.`host_label` IS NOT NULL AND TRIM(xi.`host_label`) <> ''"
+        );
     }
 }

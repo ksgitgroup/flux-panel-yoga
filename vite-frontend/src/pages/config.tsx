@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -257,6 +257,7 @@ const SaveIcon = ({ className }: { className?: string }) => (
 
 export default function ConfigPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialConfigs = getInitialConfigs();
   const [configs, setConfigs] = useState<Record<string, string>>(initialConfigs);
   const [loading, setLoading] = useState(Object.keys(initialConfigs).length === 0);
@@ -271,6 +272,8 @@ export default function ConfigPage() {
       navigate('/dashboard', { replace: true });
     }
   }, [navigate]);
+
+  const activeSection = (searchParams.get('section') as ConfigSectionKey) || 'basic';
 
   const loadConfigs = async (currentConfigs?: Record<string, string>) => {
     const configsToCompare = currentConfigs || configs;
@@ -376,6 +379,8 @@ export default function ConfigPage() {
       items: CONFIG_ITEMS.filter((item) => item.section === sectionKey && shouldShowItem(item)),
     }));
   }, [configs]);
+
+  const activeSectionItems = groupedItems.find(({ sectionKey }) => sectionKey === activeSection)?.items || [];
 
   const renderConfigItem = (item: ConfigItem) => {
     const isChanged = hasChanges && (configs[item.key] || '') !== (originalConfigs[item.key] || '');
@@ -500,7 +505,7 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="space-y-6 p-1 lg:p-2">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3">
           <div className="rounded-2xl bg-primary/10 p-3 text-primary">
@@ -509,7 +514,7 @@ export default function ConfigPage() {
           <div>
             <h1 className="text-2xl font-bold">网站配置</h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              站点识别、自动诊断和告警策略集中在同一个控制台里。对外展示和运维通知都从这里统一收口。
+              系统工作台左侧负责导航，当前页面只呈现一个配置分区，减少整页堆叠和来回滚动。
             </p>
           </div>
         </div>
@@ -557,12 +562,29 @@ export default function ConfigPage() {
         </CardBody>
       </Card>
 
-      {groupedItems.map(({ sectionKey, items }) => {
-        if (items.length === 0) return null;
-        const section = CONFIG_SECTIONS[sectionKey];
+      <div className="flex flex-wrap gap-2 xl:hidden">
+        {(Object.keys(CONFIG_SECTIONS) as ConfigSectionKey[]).map((sectionKey) => {
+          const section = CONFIG_SECTIONS[sectionKey];
+          const isActive = activeSection === sectionKey;
+          return (
+            <Button
+              key={sectionKey}
+              size="sm"
+              variant={isActive ? 'solid' : 'flat'}
+              color={isActive ? 'primary' : 'default'}
+              onPress={() => setSearchParams({ section: sectionKey })}
+            >
+              {section.title}
+            </Button>
+          );
+        })}
+      </div>
+
+      {activeSectionItems.length > 0 && (() => {
+        const section = CONFIG_SECTIONS[activeSection];
 
         return (
-          <Card key={sectionKey} className="border border-default-200 shadow-sm">
+          <Card key={activeSection} className="border border-default-200 shadow-sm">
             <CardHeader className="flex flex-col items-start gap-3 pb-0">
               <div className="flex flex-wrap items-center gap-3">
                 <h2 className="text-xl font-semibold">{section.title}</h2>
@@ -571,7 +593,7 @@ export default function ConfigPage() {
               <p className="text-sm text-default-500">{section.description}</p>
             </CardHeader>
             <CardBody className="space-y-5 pt-5">
-              {items.map((item, index) => (
+              {activeSectionItems.map((item, index) => (
                 <div key={item.key} className="space-y-3">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="max-w-3xl">
@@ -585,11 +607,11 @@ export default function ConfigPage() {
 
                   {renderConfigItem(item)}
 
-                  {index !== items.length - 1 && <Divider className="pt-2" />}
+                  {index !== activeSectionItems.length - 1 && <Divider className="pt-2" />}
                 </div>
               ))}
 
-              {sectionKey === 'alerting' && (
+              {activeSection === 'alerting' && (
                 <div className="rounded-2xl border border-dashed border-default-300 bg-default-50/70 px-4 py-4 text-sm text-default-600 dark:bg-default-100/20">
                   <p className="font-semibold text-foreground">模板占位符</p>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -605,7 +627,7 @@ export default function ConfigPage() {
             </CardBody>
           </Card>
         );
-      })}
+      })()}
 
       {hasChanges && (
         <Card className="border-warning-200 bg-warning-50 dark:bg-warning-900/20 dark:border-warning-800">

@@ -84,3 +84,17 @@
 - 已移除 `.gitlab-ci.yml` 中对 `dev -> main` MR 标题和描述的强制校验，不再因为 MR 文案缺失阻塞合并。
 - 已新增 `scripts/print_ci_commit_summary.sh`，让 `build:dev` 和 `build:prod` 自动在 CI 日志中打印本次版本号、当前提交和提交摘要。
 - 已保留 `scripts/prepare_release_mr.sh` 与 `.gitlab/merge_request_templates/Default.md` 作为可选工具，但不再要求每次发布手工填写。
+
+## 2026-03-07 Documentation Consolidation Result
+
+- 已重写根目录 `README.md`，将其升级为项目主入口，完整覆盖项目定位、架构、功能模块、流量与诊断能力边界、本地开发、版本语义、部署链路和脚本索引。
+- 已重写 `CICD_ARCHITECTURE.md`，同步到当前实际生效的 GitLab / GitHub Actions / Docker Hub / Dev B / Prod C 链路。
+- 已重写 `PROJECT_ANALYSIS.md`，从前端页面、后端控制器、关键实体、观测能力、2FA、告警与工作区整合建议等维度做长期维护说明。
+- 已重写 `LOCAL_MACOS_SETUP.md`，明确这台 Mac 的真实工作副本、Colima 角色、标准开发流程和磁盘清理策略。
+- 已更新 `vite-frontend/README.md`，移除默认模板内容，改为当前前端子模块的职责说明并链接回根文档。
+
+## 2026-03-07 Workspace Integration Result
+
+- 已新增 `WORKSPACE_INTEGRATION_GUIDE.md`，给出父工作区接入方案、稳定边界、推荐目录、分阶段整合建议和禁止先动项。
+- 已新增 `AI_HANDOFF.md`，明确新 AI / 新进程的必读文档顺序、工程约束、数据边界、安全逻辑、磁盘约束和沟通逻辑。
+- 已将必读顺序和关键边界同步写入 `README.md` 与 `.cursorrules`，降低后续整合和交接时的上下文丢失风险。

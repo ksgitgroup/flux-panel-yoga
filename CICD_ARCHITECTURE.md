@@ -1,77 +1,244 @@
-# CI/CD 架构闭环设计：从开发到生产
+# Flux Panel Yoga CI/CD Architecture
 
-根据您的需求，实现 **本机A (开发) -> 内部 GitLab B (主存/CI) -> GitHub (分发) -> 服务器C (生产集群)** 的完美闭环，这是一种非常经典且安全的企业级高可用架构。
+当前文档对应版本：`v1.4.6`
 
-在这种架构下：
-- **内部 GitLab B** 承担全公司的代码把控和 CI/CD 测试打包工作，保证核心资产私有安全。
-- **外部 GitHub** 作为一个无情的“全球静态文件 CDN 兼分发通道”。由于 GitHub 在全球各地的服务器上拉取速度远比公司内网机器快，所以非常适合做终端节点的分发。
-- **生产服务器 C** 只认 GitHub 的代码，不和公司内网直接联通，提高了生产环境的隔离安全性。
+本文档只描述“当前仓库真实生效的链路”，不再保留历史设想版本。
 
-以下是如何将这个流程彻底闭环的详细配置指南：
+## 1. 总体链路
 
----
-
-## 第一环：本机A 到 GitLab B（日常开发）
-
-这一步没有任何变化，你在本机 A 上完成代码修改后，正常执行：
-```bash
-git add .
-git commit -m "update features"
-git push origin main
+```text
+Local Mac (A / D)
+  -> GitLab (主仓库)
+  -> GitHub (代码镜像 + GitHub Actions 构建入口)
+  -> Docker Hub (镜像仓库)
+  -> Dev B / Prod C (目标运行环境)
 ```
-代码会被推送到你们内部的 `gitlab.kingsungsz.com` 仓库中。
 
----
+角色拆分：
 
-## 第二环：GitLab B 自动同步代码到 GitHub（镜像推送）
+- GitLab
+  - 代码主仓库
+  - 流水线编排入口
+  - Dev/Prod 部署动作发起者
+- GitHub
+  - 接收 GitLab 推送
+  - 运行 GitHub Actions 构建镜像
+- Docker Hub
+  - 存放前后端运行镜像
+- Runner B / Runner C
+  - 直接位于目标机器侧，负责拉镜像和启动容器
 
-你不必（也不应该）让 GitLab 的 Runner 跑一段脚本去强推 GitHub，GitLab 本身内置了一个非常强大的功能叫做 **Repository Mirroring（仓库镜像）**。
+## 2. 分支语义
 
-**操作步骤**：
-1. **在 GitHub 准备仓库**：如果你还没建，先在 GitHub 上建一个同名的空仓库（如 `ksgitgroup/flux-panel-yoga`），设为 Public 或 Private 均可。
-2. **在 GitHub 获取 Token**：前往 GitHub -> Settings -> Developer settings -> Personal access tokens (Classic) -> 生成一个拥有 `repo` 权限的新 Token 并复制。
-3. **在 GitLab 配置镜像**：
-   - 登录你的 GitLab `Yoga-Panel` 项目。
-   - 左下角进入 **Settings (设置)** -> **Repository (仓库)**。
-   - 展开 **Mirroring repositories (镜像仓库)**。
-   - **Git repository URL**: 填入你要推送到哪里的 GitHub 地址，**注意格式必须带上用户名**。例如：`https://github.com/ksgitgroup/flux-panel-yoga.git`
-   - **Mirror direction**: 选择 `Push`（推送端）。
-   - **Authentication method**: 选择 `Password`。
-   - **Password**: 粘贴你刚才在 GitHub 生成的 Token。
-   - 勾选 `Keep divergent refs` 和 `Only mirror protected branches`（按需）。
-   - 点击 **Mirror repository** 保存。
-   - *(保存后可以点击旁边的刷新按钮立刻手动触发一次测试)*。
+- `dev`
+  - 开发分支
+  - 推送后自动进入开发环境 B
+- `main`
+  - 生产分支
+  - 推送后进入生产构建流程，部署需要手动确认
 
-**效果**：从此以后，你只要在 A 机器 `push` 任何代码到 GitLab，GitLab 就会在后台**自动且实时地**将这些变动推送到 GitHub 的目标仓库里！
+## 3. 本地到 GitLab 的入口
 
----
+标准开发出口：
 
-## 第三环：GitLab Runner 自动打包（CI/CD）
-
-仅仅推代码还不够，由于节点端（`go-gost`）需要二进制可执行文件，你需要配置 `.gitlab-ci.yml` 让 GitLab 在代码变动时自动帮你“编译程序”。
-
-1. 在项目根目录新建 `.gitlab-ci.yml`。
-2. 配置当 `go-gost` 目录有变动时，触发 Go 编译，并将编译出的二进制运行文件也通过 GitLab CI 推送到 GitHub 的 Release 或特定分支。
-
----
-
-## 第四环：服务器 C（生产环境）从 GitHub 安装与更新
-
-既然我们的终结点分发通道定在了 GitHub，那么我们在生产环境 C 上执行的脚本，其内部的拉取链接**必须全量指回 GitHub**。
-
-**注意**：之前我们已经把脚本全改成了 GitLab 的地址，为了适配这个新的闭环架构，我会把当前代码库中的配置文件重新修改，把下载地址指回你新公开的 `https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga`。
-
-**服务器 C 的使用方法**：
-当 GitLab 同步完代码到 GitHub 后（通常只要几秒钟）：
-1. 登录服务器 C。
-2. 执行面向 GitHub 的安装或更新指令（如果 GitHub 也是私有的，需要加上 Token，如果是公有的直接跑即可）：
 ```bash
-curl -L https://raw.githubusercontent.com/ksgitgroup/flux-panel-yoga/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+./scripts/ship_dev.sh "feat: your change"
 ```
-3. 在脚本弹出的菜单中选择 **“更新面板”**。脚本就又会去最新的 GitHub 仓库里把更新下来的 `docker-compose.yml` 等拖下来，重新编排启动 Docker。
 
+这个脚本不是简单 `git push`，而是固定做下面几步：
 
-### 🎉 整个闭环总结：
-1. **开发者(你)**：写完代码只管向 GitLab 提交（`git push`）。
-2. **GitLab**：收到代码后，触发内置 Mirror 机制，瞬间将源码 1:1 复制到 GitHub。
-3. **生产服务器 C**：需要升级时，直接跑指向 GitHub 的一行更新脚本，通过 GitHub 高速且稳定的全球网络完成部署。
+1. `./scripts/verify_build.sh`
+2. `git add -A`
+3. `git commit --no-gpg-sign`
+4. `./scripts/build_docker.sh`
+5. `./scripts/reload_local_stack.sh`
+6. `git push origin dev`
+7. `./scripts/cleanup_local_artifacts.sh post-ship`
+
+设计目标：
+
+- 本地源码必须先真实构建通过
+- 本地容器必须切到最新 commit
+- 成功后才允许进入 GitLab `dev`
+
+## 4. GitLab CI 当前实际行为
+
+核心文件：
+
+- [`.gitlab-ci.yml`](.gitlab-ci.yml)
+- [`scripts/print_ci_commit_summary.sh`](scripts/print_ci_commit_summary.sh)
+- [`scripts/remote_deploy.sh`](scripts/remote_deploy.sh)
+
+### 4.1 `build:dev`
+
+触发条件：`CI_COMMIT_BRANCH == dev`
+
+职责：
+
+1. 打印版本号、短 SHA 和提交摘要
+2. 将 `dev` 分支强制推送到 GitHub `dev`
+3. 交由 GitHub Actions 构建镜像
+
+说明：
+
+- GitLab Runner 不再本地编译镜像
+- 这么做是为了避开服务器 B 的内存瓶颈
+- shell runner 中不引入 `node`、`jq` 等额外依赖
+
+### 4.2 `deploy:dev`
+
+触发条件：`build:dev` 成功后自动执行
+
+职责：
+
+1. 拷贝 `docker-compose-v6.yml`、`gost.sql`、`remote_deploy.sh`
+2. 等待 Docker Hub 上的 `dev-latest` 可拉取
+3. 在开发环境 B 执行部署脚本
+
+镜像入口：
+
+- `amerluya/flux-panel-yoga-frontend:dev-latest`
+- `amerluya/flux-panel-yoga-backend:dev-latest`
+
+### 4.3 `build:prod`
+
+触发条件：`CI_COMMIT_BRANCH == main`
+
+职责：
+
+1. 打印版本号、短 SHA 和提交摘要
+2. 将 `main` 强制推送到 GitHub `main`
+3. 触发 GitHub Actions 构建生产镜像
+
+### 4.4 `deploy:prod`
+
+触发条件：`build:prod` 成功后，且手动确认
+
+职责：
+
+1. 等待 Docker Hub 上的 `latest` 可拉取
+2. 在生产环境 C 执行部署脚本
+
+### 4.5 `sync:github`
+
+当前仍保留一个 `main` 分支的同步 job，用于把 GitLab `main` 再次同步到 GitHub。它更偏向兜底同步，不是镜像构建的唯一入口。
+
+## 5. GitHub Actions 当前实际行为
+
+核心文件：
+
+- [`.github/workflows/docker-build-push.yml`](.github/workflows/docker-build-push.yml)
+
+职责：
+
+1. 检出 GitHub 上的 `dev` 或 `main`
+2. 登录 Docker Hub
+3. 读取版本号和短 SHA
+4. 为前后端生成标签
+5. 使用 Buildx 构建并推送镜像
+
+### 5.1 标签策略
+
+#### `dev`
+
+- `amerluya/flux-panel-yoga-frontend:dev-latest`
+- `amerluya/flux-panel-yoga-frontend:dev-<version>-<sha>`
+- `amerluya/flux-panel-yoga-backend:dev-latest`
+- `amerluya/flux-panel-yoga-backend:dev-<version>-<sha>`
+
+#### `main`
+
+- `amerluya/flux-panel-yoga-frontend:latest`
+- `amerluya/flux-panel-yoga-frontend:<version>`
+- `amerluya/flux-panel-yoga-frontend:<version>-<sha>`
+- `amerluya/flux-panel-yoga-backend:latest`
+- `amerluya/flux-panel-yoga-backend:<version>`
+- `amerluya/flux-panel-yoga-backend:<version>-<sha>`
+
+## 6. 版本语义与部署原则
+
+项目当前统一遵守两层版本：
+
+- 发布版本：例如 `v1.4.6`
+- 构建标识：例如 `dev.089fca6`
+
+### 6.1 为什么 Dev/Prod 仍保留 `dev-latest` / `latest`
+
+因为开发环境 B 和生产环境 C 已经跑通，现阶段不能为了追踪性破坏已有部署入口。
+
+所以当前策略是：
+
+- 部署入口标签保持兼容
+- 额外的版本化标签只用于追踪和审计
+
+## 7. 服务器侧部署逻辑
+
+核心文件：
+
+- [`scripts/remote_deploy.sh`](scripts/remote_deploy.sh)
+
+它会在目标机器上做这些事：
+
+1. 生成或更新 `.env`
+2. 写入镜像仓库和镜像标签
+3. 拷贝 `docker-compose-v6.yml` 为 `docker-compose.yml`
+4. `docker compose pull`
+5. `docker compose up -d`
+6. 等待 MySQL 健康
+7. 检查业务表是否已初始化
+8. 如需要则导入 `gost.sql`
+
+这意味着：
+
+- 镜像更新不会覆盖已有业务数据
+- 数据持久化主要依赖 MySQL volume
+- 只有涉及数据库结构变更时，才需要额外关注迁移逻辑
+
+## 8. 本地验证与 CI 门禁
+
+CI 之外，本地也有硬门槛。
+
+核心文件：
+
+- [`scripts/verify_build.sh`](scripts/verify_build.sh)
+
+它当前会校验：
+
+1. `.env` 是否存在
+2. Maven / npm 是否可用
+3. 前后端版本号是否一致
+4. `.gitlab-ci.yml` 和 `.github/workflows/*.yml` YAML 语法是否正确
+5. 后端 `mvn clean package -DskipTests`
+6. 前端 `npm run build`
+
+只有这一步通过，才应该继续 `ship_dev`。
+
+## 9. 这套 CI/CD 当前的工程要求
+
+1. 不要在 `.gitlab-ci.yml` 中引入 runner 不保证存在的工具依赖
+2. CI 日志要能直接看出：
+   - 当前版本
+   - 当前提交
+   - 本次提交摘要
+3. Dev/Prod 的部署入口标签不要随意改
+4. 版本号必须同步：
+   - `vite-frontend/package.json`
+   - `springboot-backend/pom.xml`
+   - `springboot-backend/src/main/resources/application.yml`
+
+## 10. 当前已知限制
+
+1. Dev 环境部署依赖 GitHub Actions 先完成构建，因此 GitLab 部署 job 会等待镜像可拉取
+2. GitLab 和 GitHub 之间当前使用 push 同步，不是 GitLab 内置镜像仓库方案
+3. 本地 `ship_dev` 先构建、后提交、再以新 commit 重建容器，因此第一次本地 verify 显示的短 SHA 总是“提交前的当前 HEAD”，这是正常现象
+
+## 11. 运维排查顺序
+
+如果 `dev` 或 `main` 的部署出问题，建议按这个顺序查：
+
+1. GitLab CI 是否成功执行 `build:*`
+2. GitHub Actions 是否成功构建并推送镜像
+3. Docker Hub 目标 tag 是否存在
+4. `deploy:*` 是否成功等待到镜像
+5. 目标机器上的 `remote_deploy.sh` 是否执行成功
+6. MySQL / 后端容器健康状态是否正常

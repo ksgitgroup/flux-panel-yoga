@@ -9,7 +9,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@herou
 import { ScrollShadow } from "@heroui/scroll-shadow";
 import { Tabs, Tab } from "@heroui/tabs";
 import toast from 'react-hot-toast';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar, Line, ReferenceArea } from 'recharts';
 import { getDiagnosisSummary, getDiagnosisHistory, getDiagnosisTrend, runDiagnosisNow } from '@/api';
 import { isAdmin } from '@/utils/auth';
 
@@ -357,29 +357,58 @@ const RecordRow = ({ record }: { record: DiagnosisRecord }) => {
 const TrendChart = ({ data }: { data: TrendPoint[] }) => {
     if (!data || data.length === 0) return null;
 
+    const chartData = data.map(item => ({
+        ...item,
+        healthRate: item.total > 0 ? Number(((item.success / item.total) * 100).toFixed(1)) : null
+    }));
+    const alertHours = chartData.filter(item => item.fail > 0).length;
+    const healthSamples = chartData.filter(item => item.healthRate !== null);
+    const avgHealthRate = healthSamples.reduce((sum, item) => sum + Number(item.healthRate || 0), 0) / Math.max(healthSamples.length, 1);
+    const worstWindow = [...chartData].sort((a, b) => {
+        const scoreA = a.fail * 1000 + Number(a.avgLatency || 0);
+        const scoreB = b.fail * 1000 + Number(b.avgLatency || 0);
+        return scoreB - scoreA;
+    })[0];
+
     return (
         <Card className="border border-gray-200 dark:border-default-200 shadow-md">
             <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
-                        <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
-                    </svg>
-                    <h2 className="text-base font-semibold">24 小时健康趋势</h2>
-                    <div className="flex items-center gap-3 ml-auto text-xs">
-                        <span className="flex items-center gap-1">
-                            <span className="w-3 h-3 rounded-sm bg-emerald-400/80"></span> 成功
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <span className="w-3 h-3 rounded-sm bg-red-400/80"></span> 失败
-                        </span>
+                <div className="w-full space-y-3">
+                    <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
+                            <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
+                        </svg>
+                        <h2 className="text-base font-semibold">24 小时诊断健康轨迹</h2>
+                        <div className="ml-auto flex items-center gap-3 text-xs">
+                            <span className="flex items-center gap-1">
+                                <span className="h-3 w-3 rounded-sm bg-red-400/80"></span> 失败数
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="h-3 w-3 rounded-sm bg-blue-500/80"></span> 健康率
+                            </span>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="rounded-xl border border-divider bg-default-50/70 px-3 py-2">
+                            <div className="text-default-400">告警时段</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{alertHours} 个</div>
+                        </div>
+                        <div className="rounded-xl border border-divider bg-default-50/70 px-3 py-2">
+                            <div className="text-default-400">平均健康率</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{Number.isFinite(avgHealthRate) ? `${avgHealthRate.toFixed(1)}%` : '--'}</div>
+                        </div>
+                        <div className="rounded-xl border border-divider bg-default-50/70 px-3 py-2">
+                            <div className="text-default-400">最差时段</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{worstWindow ? worstWindow.hour : '--'}</div>
+                        </div>
                     </div>
                 </div>
             </CardHeader>
             <CardBody className="pt-0">
                 <div className="h-48 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data} barGap={0} barCategoryGap="20%">
+                        <ComposedChart data={chartData} barGap={0} barCategoryGap="20%">
                             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                             <XAxis
                                 dataKey="hour"
@@ -394,25 +423,39 @@ const TrendChart = ({ data }: { data: TrendPoint[] }) => {
                                 axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
                                 allowDecimals={false}
                             />
+                            <YAxis
+                                yAxisId="rate"
+                                orientation="right"
+                                domain={[0, 100]}
+                                tickFormatter={(value) => `${value}%`}
+                                tick={{ fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={false}
+                                width={40}
+                            />
                             <Tooltip
                                 content={({ active, payload, label }) => {
                                     if (active && payload && payload.length) {
-                                        const successVal = payload.find(p => p.dataKey === 'success')?.value || 0;
                                         const failVal = payload.find(p => p.dataKey === 'fail')?.value || 0;
+                                        const totalVal = payload.find(p => p.dataKey === 'total')?.value || 0;
+                                        const healthVal = payload.find(p => p.dataKey === 'healthRate')?.value || 0;
+                                        const latencyVal = payload.find(p => p.dataKey === 'avgLatency')?.value || 0;
                                         return (
                                             <div className="bg-white dark:bg-default-100 border border-default-200 rounded-lg shadow-lg p-3 text-sm">
                                                 <p className="font-medium mb-1">{label}</p>
-                                                <p className="text-emerald-600">✓ 成功: {String(successVal)}</p>
                                                 <p className="text-red-500">✗ 失败: {String(failVal)}</p>
+                                                <p className="text-default-600">总诊断: {String(totalVal)}</p>
+                                                <p className="text-blue-500">健康率: {Number(healthVal).toFixed(1)}%</p>
+                                                <p className="text-default-500">平均延时: {latencyVal ? `${Number(latencyVal).toFixed(1)}ms` : '--'}</p>
                                             </div>
                                         );
                                     }
                                     return null;
                                 }}
                             />
-                            <Bar dataKey="success" fill="#34d399" radius={[2, 2, 0, 0]} opacity={0.85} />
                             <Bar dataKey="fail" fill="#f87171" radius={[2, 2, 0, 0]} opacity={0.85} />
-                        </BarChart>
+                            <Line yAxisId="rate" type="monotone" dataKey="healthRate" stroke="#3b82f6" strokeWidth={2.5} dot={false} />
+                        </ComposedChart>
                     </ResponsiveContainer>
                 </div>
             </CardBody>
@@ -425,20 +468,43 @@ const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
     const filteredData = data.filter(d => d.avgLatency !== undefined && d.avgLatency !== null);
     if (filteredData.length === 0) return null;
 
+    const peakLatency = filteredData.reduce((peak, current) => (Number(current.avgLatency || 0) > Number(peak.avgLatency || 0) ? current : peak), filteredData[0]);
+    const averageLatency = filteredData.reduce((sum, current) => sum + Number(current.avgLatency || 0), 0) / filteredData.length;
+    const spikeHours = filteredData.filter(item => Number(item.avgLatency || 0) >= 150).length;
+
     return (
         <Card className="border border-gray-200 dark:border-default-200 shadow-md">
             <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    <h2 className="text-base font-semibold">平均延迟趋势</h2>
+                <div className="w-full space-y-3">
+                    <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        <h2 className="text-base font-semibold">平均延时波峰图</h2>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="rounded-xl border border-divider bg-default-50/70 px-3 py-2">
+                            <div className="text-default-400">平均延时</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{averageLatency.toFixed(1)}ms</div>
+                        </div>
+                        <div className="rounded-xl border border-divider bg-default-50/70 px-3 py-2">
+                            <div className="text-default-400">最高时段</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{peakLatency.hour}</div>
+                        </div>
+                        <div className="rounded-xl border border-divider bg-default-50/70 px-3 py-2">
+                            <div className="text-default-400">高延时时段</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{spikeHours} 个</div>
+                        </div>
+                    </div>
                 </div>
             </CardHeader>
             <CardBody className="pt-0">
                 <div className="h-40 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data}>
+                        <AreaChart data={filteredData}>
+                            <ReferenceArea y1={0} y2={80} fill="#dcfce7" fillOpacity={0.55} />
+                            <ReferenceArea y1={80} y2={150} fill="#fef3c7" fillOpacity={0.45} />
+                            <ReferenceArea y1={150} y2={1000} fill="#fee2e2" fillOpacity={0.4} />
                             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                             <XAxis
                                 dataKey="hour"
@@ -460,6 +526,9 @@ const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
                                             <div className="bg-white dark:bg-default-100 border border-default-200 rounded-lg shadow-lg p-3 text-sm">
                                                 <p className="font-medium">{label}</p>
                                                 <p className="text-blue-500">延迟: {Number(payload[0].value).toFixed(1)}ms</p>
+                                                <p className="text-default-500 mt-1">
+                                                    {Number(payload[0].value) >= 150 ? '属于高延时窗口，建议联动故障资源一起看。' : '延时仍处于可控范围。'}
+                                                </p>
                                             </div>
                                         );
                                     }
@@ -482,6 +551,7 @@ const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
                                 activeDot={{ r: 4, stroke: '#3b82f6', strokeWidth: 2, fill: '#fff' }}
                                 connectNulls
                             />
+                            <Line type="monotone" dataKey="avgLatency" stroke="#1d4ed8" strokeWidth={1.5} dot={false} connectNulls />
                         </AreaChart>
                     </ResponsiveContainer>
                 </div>

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from 'react-hot-toast';
+import axios from 'axios';
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -17,7 +18,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getDiagnosisSummary, getDiagnosisTrend, getUserPackageInfo } from "@/api";
+import { getDiagnosisSummary, getDiagnosisTrend, getNodeList, getUserPackageInfo } from "@/api";
 import { siteConfig } from "@/config/site";
 
 interface UserInfo {
@@ -102,6 +103,24 @@ interface TrendPoint {
   avgLatency?: number;
 }
 
+interface NodeRuntimeInfo {
+  cpuUsage: number;
+  memoryUsage: number;
+  uploadTraffic: number;
+  downloadTraffic: number;
+  uploadSpeed: number;
+  downloadSpeed: number;
+  uptime: number;
+}
+
+interface DashboardNode {
+  id: number;
+  name: string;
+  status: number;
+  connectionStatus: 'online' | 'offline';
+  systemInfo?: NodeRuntimeInfo | null;
+}
+
 const formatFlow = (value: number, unit: string = 'bytes'): string => {
   if (value === 99999) return '无限制';
   if (unit === 'gb') return `${value || 0} GB`;
@@ -119,6 +138,8 @@ const formatFlowAxis = (value: number) => {
   if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)}M`;
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)}G`;
 };
+
+const formatSpeed = (value: number) => `${formatFlow(value)}/s`;
 
 const formatNumber = (value: number): string => {
   if (value === 99999) return '无限制';
@@ -242,6 +263,11 @@ export default function DashboardPage() {
   const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | null>(null);
   const [diagnosisTrend, setDiagnosisTrend] = useState<TrendPoint[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [nodes, setNodes] = useState<DashboardNode[]>([]);
+
+  const websocketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressModalTitle, setAddressModalTitle] = useState('');
@@ -301,6 +327,165 @@ export default function DashboardPage() {
     localStorage.setItem('e', '/dashboard');
     void loadDashboard();
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setNodes([]);
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (websocketRef.current) {
+        websocketRef.current.close();
+        websocketRef.current = null;
+      }
+      return;
+    }
+
+    let unmounted = false;
+
+    const loadNodes = async () => {
+      try {
+        const response = await getNodeList();
+        if (unmounted || response.code !== 0) return;
+        setNodes((response.data || []).map((node: any) => ({
+          ...node,
+          connectionStatus: node.status === 1 ? 'online' : 'offline',
+          systemInfo: null,
+        })));
+      } catch {
+        /* silent */
+      }
+    };
+
+    const closeSocket = () => {
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (websocketRef.current) {
+        websocketRef.current.onopen = null;
+        websocketRef.current.onmessage = null;
+        websocketRef.current.onerror = null;
+        websocketRef.current.onclose = null;
+        websocketRef.current.close();
+        websocketRef.current = null;
+      }
+    };
+
+    const attemptReconnect = () => {
+      if (unmounted || reconnectAttemptsRef.current >= 4) return;
+      reconnectAttemptsRef.current += 1;
+      reconnectTimerRef.current = window.setTimeout(() => {
+        initSocket();
+      }, reconnectAttemptsRef.current * 2500);
+    };
+
+    const handleSocketMessage = (payload: any) => {
+      const { id, type, data } = payload || {};
+
+      if (type === 'status') {
+        setNodes((prev) => prev.map((node) => (
+          node.id == id
+            ? {
+                ...node,
+                connectionStatus: data === 1 ? 'online' : 'offline',
+                systemInfo: data === 0 ? null : node.systemInfo,
+              }
+            : node
+        )));
+        return;
+      }
+
+      if (type === 'info') {
+        setNodes((prev) => prev.map((node) => {
+          if (node.id != id) return node;
+
+          try {
+            const systemInfo = typeof data === 'string' ? JSON.parse(data) : data;
+            const currentUpload = parseInt(systemInfo.bytes_transmitted, 10) || 0;
+            const currentDownload = parseInt(systemInfo.bytes_received, 10) || 0;
+            const currentUptime = parseInt(systemInfo.uptime, 10) || 0;
+
+            let uploadSpeed = 0;
+            let downloadSpeed = 0;
+
+            if (node.systemInfo?.uptime) {
+              const diff = currentUptime - node.systemInfo.uptime;
+              if (diff > 0 && diff <= 10) {
+                const uploadDiff = currentUpload - (node.systemInfo.uploadTraffic || 0);
+                const downloadDiff = currentDownload - (node.systemInfo.downloadTraffic || 0);
+                if (uploadDiff >= 0) uploadSpeed = uploadDiff / diff;
+                if (downloadDiff >= 0) downloadSpeed = downloadDiff / diff;
+              }
+            }
+
+            return {
+              ...node,
+              connectionStatus: 'online',
+              systemInfo: {
+                cpuUsage: parseFloat(systemInfo.cpu_usage) || 0,
+                memoryUsage: parseFloat(systemInfo.memory_usage) || 0,
+                uploadTraffic: currentUpload,
+                downloadTraffic: currentDownload,
+                uploadSpeed,
+                downloadSpeed,
+                uptime: currentUptime,
+              }
+            };
+          } catch {
+            return node;
+          }
+        }));
+      }
+    };
+
+    const initSocket = () => {
+      if (unmounted) return;
+      if (websocketRef.current && (
+        websocketRef.current.readyState === WebSocket.OPEN ||
+        websocketRef.current.readyState === WebSocket.CONNECTING
+      )) {
+        return;
+      }
+
+      closeSocket();
+
+      const baseUrl = axios.defaults.baseURL || (import.meta.env.VITE_API_BASE ? `${import.meta.env.VITE_API_BASE}/api/v1/` : '/api/v1/');
+      const wsUrl = baseUrl.replace(/^http/, 'ws').replace(/\/api\/v1\/$/, '') + `/system-info?type=0&secret=${localStorage.getItem('token')}`;
+
+      try {
+        websocketRef.current = new WebSocket(wsUrl);
+        websocketRef.current.onopen = () => {
+          reconnectAttemptsRef.current = 0;
+        };
+        websocketRef.current.onmessage = (event) => {
+          try {
+            handleSocketMessage(JSON.parse(event.data));
+          } catch {
+            /* silent */
+          }
+        };
+        websocketRef.current.onerror = () => {
+          /* silent */
+        };
+        websocketRef.current.onclose = () => {
+          websocketRef.current = null;
+          attemptReconnect();
+        };
+      } catch {
+        attemptReconnect();
+      }
+    };
+
+    void loadNodes();
+    initSocket();
+
+    return () => {
+      unmounted = true;
+      closeSocket();
+    };
+  }, [isAdmin]);
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -462,9 +647,53 @@ export default function DashboardPage() {
     return { label: '整体保持平稳', tone: 'primary' as const };
   }, [latestFlowPoint, previousFlowPoint]);
 
+  const diagnosisTrendData = useMemo(() => (
+    diagnosisTrend.map((item) => ({
+      ...item,
+      healthRate: item.total > 0 ? Number(((item.success / item.total) * 100).toFixed(1)) : null,
+    }))
+  ), [diagnosisTrend]);
+
+  const diagnosisHotspots = useMemo(() => (
+    [...diagnosisTrendData]
+      .filter((item) => item.fail > 0 || (item.avgLatency ?? 0) > 0)
+      .sort((a, b) => {
+        const scoreA = a.fail * 1000 + Number(a.avgLatency || 0);
+        const scoreB = b.fail * 1000 + Number(b.avgLatency || 0);
+        return scoreB - scoreA;
+      })
+      .slice(0, 3)
+  ), [diagnosisTrendData]);
+
+  const liveNodeSummary = useMemo(() => {
+    const onlineNodes = nodes.filter((node) => node.connectionStatus === 'online');
+    const nodesWithInfo = onlineNodes.filter((node) => node.systemInfo);
+    const totals = nodesWithInfo.reduce((acc, node) => {
+      acc.uploadTraffic += node.systemInfo?.uploadTraffic || 0;
+      acc.downloadTraffic += node.systemInfo?.downloadTraffic || 0;
+      acc.uploadSpeed += node.systemInfo?.uploadSpeed || 0;
+      acc.downloadSpeed += node.systemInfo?.downloadSpeed || 0;
+      return acc;
+    }, { uploadTraffic: 0, downloadTraffic: 0, uploadSpeed: 0, downloadSpeed: 0 });
+
+    const busiestNode = nodesWithInfo.reduce<DashboardNode | null>((current, node) => {
+      const currentScore = (current?.systemInfo?.uploadSpeed || 0) + (current?.systemInfo?.downloadSpeed || 0);
+      const nextScore = (node.systemInfo?.uploadSpeed || 0) + (node.systemInfo?.downloadSpeed || 0);
+      return nextScore > currentScore ? node : current;
+    }, null);
+
+    return {
+      total: nodes.length,
+      online: onlineNodes.length,
+      withRealtime: nodesWithInfo.length,
+      busiestNode,
+      ...totals,
+    };
+  }, [nodes]);
+
   const healthRate = diagnosisSummary?.healthRate ?? 100;
   const healthTone = getHealthTone(healthRate);
-  const trafficScopeLabel = isAdmin ? '全站' : '当前账号';
+  const trafficScopeLabel = isAdmin ? '全站计费流量' : '当前账号计费流量';
 
   const forwardLeaders = useMemo(
     () => [...forwardList].sort((a, b) => calculateForwardBillingFlow(b) - calculateForwardBillingFlow(a)).slice(0, 5),
@@ -574,13 +803,13 @@ export default function DashboardPage() {
               </div>
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">仪表盘</h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-default-600">
-                这里汇总 {trafficScopeLabel} 的 24 小时流量态势、自动诊断健康脉冲、异常焦点和资源使用情况。重点不再是堆信息，而是让你快速判断“现在稳不稳、哪里要处理、下一步去哪里”。
+                这里汇总 {trafficScopeLabel} 的 24 小时采样、节点实时出口态势、自动诊断健康脉冲、异常焦点和资源使用情况。目标不是堆指标，而是先回答三个问题：流量是否真实在波动、异常是否集中、下一步该去哪里处理。
               </p>
               <div className="mt-5 flex flex-wrap gap-3">
                 <Button as={Link} to="/monitor" color="primary">进入诊断看板</Button>
                 <Button as={Link} to="/forward" variant="flat" color="primary">查看转发管理</Button>
-                <Button as={Link} to={isAdmin ? '/config' : '/tunnel'} variant="light">
-                  {isAdmin ? '调整告警配置' : '查看隧道资源'}
+                <Button as={Link} to={isAdmin ? '/node' : '/tunnel'} variant="light">
+                  {isAdmin ? '查看节点监控' : '查看隧道资源'}
                 </Button>
               </div>
             </div>
@@ -619,18 +848,23 @@ export default function DashboardPage() {
         <Card className="border border-default-200 shadow-sm">
           <CardHeader className="flex items-center justify-between gap-4 pb-0">
             <div>
-              <p className="text-sm font-semibold text-foreground">24 小时 {trafficScopeLabel} 流量驾驶舱</p>
-              <p className="text-xs text-default-500">柱状图表现整点流量增量，线条用于观察短周期均值变化。</p>
+              <p className="text-sm font-semibold text-foreground">24 小时 {trafficScopeLabel} 采样</p>
+              <p className="text-xs text-default-500">这里是账户级整点计费流量；节点出口实时带宽会单独展示，避免把两类口径混成一张假图。</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Chip size="sm" variant="flat" color="primary">24H 累计 {formatFlow(totalFlow24h)}</Chip>
               <Chip size="sm" variant="flat" color={hasTrafficData ? 'success' : 'default'}>
                 {hasTrafficData ? `活跃 ${activeFlowHours} / 24 个时段` : '本周期暂无流量'}
               </Chip>
+              {isAdmin && (
+                <Chip size="sm" variant="flat" color={liveNodeSummary.online > 0 ? 'secondary' : 'default'}>
+                  在线节点 {liveNodeSummary.online}/{liveNodeSummary.total}
+                </Chip>
+              )}
             </div>
           </CardHeader>
           <CardBody className="space-y-4 pt-5">
-            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
                 <p className="text-xs text-default-400">小时均值</p>
                 <p className="mt-2 text-lg font-semibold text-foreground">{formatFlow(averageFlow24h)}</p>
@@ -643,7 +877,19 @@ export default function DashboardPage() {
                 <p className="text-xs text-default-400">峰值时段</p>
                 <p className="mt-2 text-lg font-semibold text-foreground">{peakFlowPoint?.time || '--'}</p>
               </div>
-              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3 sm:col-span-3 xl:col-span-1">
+              {isAdmin && (
+                <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                  <p className="text-xs text-default-400">实时上行</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{formatSpeed(liveNodeSummary.uploadSpeed)}</p>
+                </div>
+              )}
+              {isAdmin && (
+                <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                  <p className="text-xs text-default-400">实时下行</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{formatSpeed(liveNodeSummary.downloadSpeed)}</p>
+                </div>
+              )}
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3 sm:col-span-2 xl:col-span-1">
                 <p className="text-xs text-default-400">策略建议</p>
                 <p className="mt-2 text-sm font-semibold text-foreground">{hasTrafficData ? '对照峰值时段排查异常资源' : '等待小时采样或检查流量统计任务'}</p>
               </div>
@@ -698,6 +944,34 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-default-400">数据口径</p>
+                <p className="mt-2 text-sm leading-6 text-default-600">
+                  当前 24H 图表来自 `statistics_flow` 的整点快照，反映账号维度的计费流量增量。系统会累计保存每条隧道和转发的总流量，但还没有为它们持久化“逐小时历史”，所以现在不能可靠画出每条隧道/转发的 24H 细分曲线。
+                </p>
+              </div>
+              <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-default-400">节点实时出口</p>
+                {isAdmin ? (
+                  <>
+                    <p className="mt-2 text-sm leading-6 text-default-600">
+                      在线 {liveNodeSummary.online}/{liveNodeSummary.total} 个节点，当前总上行 {formatSpeed(liveNodeSummary.uploadSpeed)}，总下行 {formatSpeed(liveNodeSummary.downloadSpeed)}。
+                    </p>
+                    <p className="mt-2 text-xs text-default-500">
+                      {liveNodeSummary.busiestNode
+                        ? `当前最忙节点：${liveNodeSummary.busiestNode.name} · ${(liveNodeSummary.busiestNode.systemInfo?.uploadSpeed || 0) + (liveNodeSummary.busiestNode.systemInfo?.downloadSpeed || 0) > 0
+                          ? `${formatSpeed((liveNodeSummary.busiestNode.systemInfo?.uploadSpeed || 0) + (liveNodeSummary.busiestNode.systemInfo?.downloadSpeed || 0))} 总吞吐`
+                          : '等待实时数据'}`
+                        : '节点实时带宽来自 WebSocket 上报，适合判断 VPS 出口瞬时负载。'}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm leading-6 text-default-600">当前账号仪表盘不显示全站节点出口，如需核对节点带宽，请让管理员在节点监控页面查看。</p>
+                )}
+              </div>
+            </div>
           </CardBody>
         </Card>
 
@@ -749,37 +1023,51 @@ export default function DashboardPage() {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-foreground">24H 诊断趋势</p>
-                  <p className="text-xs text-default-500">柱状图是失败数，折线是总诊断量。</p>
+                  <p className="text-xs text-default-500">柱状图聚焦失败资源，折线直接给健康率，避免“总量高但其实没出事”的误读。</p>
                 </div>
                 <Button as={Link} to="/monitor" size="sm" variant="flat" color="primary">查看明细</Button>
               </div>
+              {diagnosisHotspots.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {diagnosisHotspots.map((item) => (
+                    <Chip key={`${item.hour}-${item.time}`} size="sm" variant="flat" color={item.fail > 0 ? 'danger' : 'warning'}>
+                      {item.hour} · {item.fail > 0 ? `${item.fail} 个异常` : `${Math.round(item.avgLatency || 0)}ms`}
+                    </Chip>
+                  ))}
+                </div>
+              )}
               {diagnosisTrend.length === 0 ? (
                 <div className="py-8 text-center text-sm text-default-500">暂无诊断趋势数据</div>
               ) : (
                 <div className="h-48 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={diagnosisTrend} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                    <ComposedChart data={diagnosisTrendData} margin={{ top: 10, right: 18, left: -18, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-20" />
                       <XAxis dataKey="hour" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={20} />
                       <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+                      <YAxis yAxisId="rate" orientation="right" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={36} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
                       <Tooltip
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null;
                           const fail = Number(payload.find((item) => item.dataKey === 'fail')?.value || 0);
                           const total = Number(payload.find((item) => item.dataKey === 'total')?.value || 0);
+                          const rate = Number(payload.find((item) => item.dataKey === 'healthRate')?.value || 0);
+                          const latency = Number(payload.find((item) => item.dataKey === 'avgLatency')?.value || 0);
                           return (
                             <div className="rounded-2xl border border-default-200 bg-white/95 p-3 shadow-lg dark:bg-default-100/95">
                               <p className="text-sm font-semibold text-foreground">{label}</p>
                               <p className="mt-2 text-xs text-default-500">失败资源</p>
                               <p className="text-base font-bold text-danger">{fail}</p>
-                              <p className="mt-2 text-xs text-default-500">总诊断数</p>
-                              <p className="text-sm font-semibold text-foreground">{total}</p>
+                              <p className="mt-2 text-xs text-default-500">健康率 / 总诊断数</p>
+                              <p className="text-sm font-semibold text-foreground">{rate ? `${rate.toFixed(1)}%` : '--'} · {total}</p>
+                              <p className="mt-2 text-xs text-default-500">平均延时</p>
+                              <p className="text-sm font-semibold text-foreground">{latency ? `${latency.toFixed(1)} ms` : '--'}</p>
                             </div>
                           );
                         }}
                       />
                       <Bar dataKey="fail" fill="#fca5a5" radius={[6, 6, 0, 0]} barSize={14} />
-                      <Line dataKey="total" stroke="#2563eb" strokeWidth={2} dot={false} />
+                      <Line yAxisId="rate" dataKey="healthRate" stroke="#2563eb" strokeWidth={2.5} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>

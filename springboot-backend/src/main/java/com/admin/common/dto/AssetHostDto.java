@@ -26,6 +26,8 @@ public class AssetHostDto {
 
     private String os;
 
+    private String osCategory;
+
     private Integer cpuCores;
 
     private Integer memTotalMb;

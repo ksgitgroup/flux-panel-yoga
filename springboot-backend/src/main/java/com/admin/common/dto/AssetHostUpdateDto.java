@@ -30,6 +30,8 @@ public class AssetHostUpdateDto {
 
     private String os;
 
+    private String osCategory;
+
     private Integer cpuCores;
 
     private Integer memTotalMb;

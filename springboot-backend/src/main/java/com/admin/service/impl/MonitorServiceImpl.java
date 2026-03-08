@@ -1367,6 +1367,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         asset.setPrimaryIp(node.getIp());
         asset.setIpv6(node.getIpv6());
         asset.setOs(node.getOs());
+        asset.setOsCategory(deriveOsCategory(node.getOs()));
         asset.setCpuCores(node.getCpuCores());
         asset.setRegion(node.getRegion());
         asset.setCpuName(node.getCpuName());
@@ -1510,6 +1511,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             // Label: sync from probe name if asset label is empty
             if (!StringUtils.hasText(asset.getLabel()) && StringUtils.hasText(node.getName())) {
                 asset.setLabel(node.getName());
+                changed = true;
+            }
+
+            // OS + osCategory: keep in sync
+            if (StringUtils.hasText(node.getOs()) && !node.getOs().equals(asset.getOs())) {
+                asset.setOs(node.getOs());
+                asset.setOsCategory(deriveOsCategory(node.getOs()));
+                changed = true;
+            } else if (StringUtils.hasText(asset.getOs()) && !StringUtils.hasText(asset.getOsCategory())) {
+                asset.setOsCategory(deriveOsCategory(asset.getOs()));
                 changed = true;
             }
 
@@ -1790,5 +1801,26 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     private String truncate(String value, int maxLen) {
         if (value == null) return null;
         return value.length() > maxLen ? value.substring(0, maxLen) + "..." : value;
+    }
+
+    /**
+     * Derive OS category from raw OS string.
+     * Maps detailed OS versions to broad categories for filtering.
+     */
+    private String deriveOsCategory(String os) {
+        if (os == null || os.isBlank()) return null;
+        String lower = os.toLowerCase();
+        if (lower.contains("ubuntu")) return "Ubuntu";
+        if (lower.contains("debian")) return "Debian";
+        if (lower.contains("centos")) return "CentOS";
+        if (lower.contains("alma")) return "AlmaLinux";
+        if (lower.contains("rocky")) return "Rocky";
+        if (lower.contains("fedora")) return "Fedora";
+        if (lower.contains("alpine")) return "Alpine";
+        if (lower.contains("arch")) return "Arch";
+        if (lower.contains("windows")) return "Windows";
+        if (lower.contains("macos") || lower.contains("darwin")) return "MacOS";
+        if (lower.contains("freebsd")) return "FreeBSD";
+        return "Other";
     }
 }

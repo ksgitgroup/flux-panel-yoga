@@ -197,6 +197,7 @@ export interface AssetHost {
   region?: string | null;
   role?: string | null;
   os?: string | null;
+  osCategory?: string | null;
   cpuCores?: number | null;
   memTotalMb?: number | null;
   diskTotalGb?: number | null;

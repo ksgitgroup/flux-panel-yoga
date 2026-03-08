@@ -179,7 +179,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         Set<String> allowedFields = Set.of(
                 "tags", "region", "environment", "provider", "role",
                 "monthlyCost", "currency", "billingCycle", "bandwidthMbps",
-                "monthlyTrafficGb", "sshPort", "os", "remark"
+                "monthlyTrafficGb", "sshPort", "os", "osCategory", "remark"
         );
         if (!allowedFields.contains(field)) {
             return R.err("不支持批量修改字段: " + field);
@@ -237,6 +237,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                     asset.setSshPort(strVal != null ? Integer.valueOf(strVal) : null);
                     break;
                 case "os": asset.setOs(strVal); break;
+                case "osCategory": asset.setOsCategory(strVal); break;
                 case "remark": asset.setRemark(strVal); break;
                 default: break;
             }

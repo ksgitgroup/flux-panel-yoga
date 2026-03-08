@@ -55,6 +55,7 @@ interface AssetForm {
   region: string;
   role: string;
   os: string;
+  osCategory: string;
   cpuCores: string;
   memTotalMb: string;
   diskTotalGb: string;
@@ -81,7 +82,7 @@ interface AssetForm {
 
 const emptyForm = (): AssetForm => ({
   name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
-  role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
+  role: '', os: '', osCategory: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
   currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
   kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '',
@@ -101,6 +102,22 @@ const CURRENCIES = [
   { key: 'EUR', label: 'EUR' },
   { key: 'JPY', label: 'JPY' },
   { key: '$', label: '$' },
+];
+
+const OS_CATEGORIES = [
+  { key: '', label: '未指定' },
+  { key: 'Ubuntu', label: 'Ubuntu' },
+  { key: 'Debian', label: 'Debian' },
+  { key: 'CentOS', label: 'CentOS' },
+  { key: 'AlmaLinux', label: 'AlmaLinux' },
+  { key: 'Rocky', label: 'Rocky' },
+  { key: 'Fedora', label: 'Fedora' },
+  { key: 'Alpine', label: 'Alpine' },
+  { key: 'Arch', label: 'Arch' },
+  { key: 'Windows', label: 'Windows' },
+  { key: 'MacOS', label: 'MacOS' },
+  { key: 'FreeBSD', label: 'FreeBSD' },
+  { key: 'Other', label: 'Other' },
 ];
 
 const REGIONS = [
@@ -395,6 +412,16 @@ export default function AssetsPage() {
     void loadAssetDetail(expandedAssetId);
   }, [expandedAssetId]);
 
+  // ESC to exit batch mode
+  useEffect(() => {
+    if (!batchMode) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setBatchMode(false); setSelectedIds(new Set()); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [batchMode]);
+
   const summary = useMemo(() => {
     const online = assets.filter(a => a.monitorOnline === 1).length;
     const hasMonitor = assets.filter(a => a.monitorNodeUuid || a.pikaNodeId).length;
@@ -640,7 +667,7 @@ export default function AssetsPage() {
     setForm({
       id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
       ipv6: asset.ipv6 || '', environment: asset.environment || '', provider: asset.provider || '',
-      region: asset.region || '', role: asset.role || '', os: asset.os || '',
+      region: asset.region || '', role: asset.role || '', os: asset.os || '', osCategory: asset.osCategory || '',
       cpuCores: asset.cpuCores?.toString() || '', memTotalMb: asset.memTotalMb?.toString() || '',
       diskTotalGb: asset.diskTotalGb?.toString() || '', bandwidthMbps: asset.bandwidthMbps?.toString() || '',
       monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
@@ -678,6 +705,7 @@ export default function AssetsPage() {
         region: form.region.trim() || null,
         role: form.role || null,
         os: form.os.trim() || null,
+        osCategory: form.osCategory || null,
         cpuCores: form.cpuCores ? parseInt(form.cpuCores) : null,
         memTotalMb: form.memTotalMb ? parseInt(form.memTotalMb) : null,
         diskTotalGb: form.diskTotalGb ? parseInt(form.diskTotalGb) : null,
@@ -750,8 +778,8 @@ export default function AssetsPage() {
 
   const handleBatchGeolocate = async () => {
     if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
-    const targets = filteredAssets.filter(a => selectedIds.has(a.id) && a.primaryIp && !a.region);
-    if (targets.length === 0) { toast('所选资产都已有地区或缺少 IP', { icon: '📍' }); return; }
+    const targets = filteredAssets.filter(a => selectedIds.has(a.id) && a.primaryIp);
+    if (targets.length === 0) { toast('所选资产都缺少 IP，无法匹配地区', { icon: '📍' }); return; }
     setBatchLoading(true);
     let matched = 0; let failed = 0;
     try {
@@ -1063,7 +1091,7 @@ export default function AssetsPage() {
                               </div>
                               <p className="truncate text-xs text-default-400 font-mono mt-0.5">
                                 {asset.primaryIp || '-'}
-                                {asset.os ? <span className="ml-1.5 opacity-60">/ {asset.os}</span> : null}
+                                {(asset.osCategory || asset.os) ? <span className="ml-1.5 opacity-60">/ {asset.osCategory || asset.os}</span> : null}
                               </p>
                             </div>
                           </div>
@@ -1127,7 +1155,7 @@ export default function AssetsPage() {
                               const isSoon = days >= 0 && days <= 30;
                               return (
                                 <p className={`text-xs font-mono ${isExpired ? 'text-danger font-semibold' : isSoon ? 'text-warning font-semibold' : 'text-default-500'}`}>
-                                  {new Date(expiry).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                                  {new Date(expiry).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}
                                   {isExpired ? ' 已过期' : ` ${days}天`}
                                 </p>
                               );
@@ -1159,33 +1187,45 @@ export default function AssetsPage() {
                         </td>
 
                         {/* Integration links */}
-                        <td className="px-3 py-3">
-                          <div className="flex items-center gap-1.5 text-xs font-mono text-default-400">
+                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap items-center gap-1 text-xs">
                             {asset.totalXuiInstances > 0 && (
-                              <span className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[11px] font-semibold">
+                              <button type="button" onClick={() => navigate('/xui')}
+                                className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[11px] font-semibold hover:bg-primary-100 transition-colors cursor-pointer">
                                 {asset.totalXuiInstances} XUI
-                              </span>
+                              </button>
+                            )}
+                            {asset.panelUrl && (
+                              <a href={asset.panelUrl} target="_blank" rel="noopener noreferrer"
+                                className="px-1.5 py-0.5 rounded bg-success-50 text-success dark:bg-success/10 text-[11px] font-semibold hover:bg-success-100 transition-colors no-underline">
+                                1Panel
+                              </a>
                             )}
                             {asset.totalForwards > 0 && (
-                              <span className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[11px] font-semibold">
+                              <button type="button" onClick={() => navigate('/forward')}
+                                className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[11px] font-semibold hover:bg-secondary-100 transition-colors cursor-pointer">
                                 {asset.totalForwards} 转发
-                              </span>
+                              </button>
                             )}
-                            {!asset.totalXuiInstances && !asset.totalForwards && '-'}
+                            {!asset.totalXuiInstances && !asset.panelUrl && !asset.totalForwards && (
+                              <span className="text-default-300 font-mono">-</span>
+                            )}
                           </div>
                         </td>
 
                         {/* Actions */}
                         <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button type="button"
-                              className="px-2 py-1 rounded text-[11px] text-default-500 hover:bg-default-100 hover:text-default-700 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-default-200 text-[11px] font-medium text-default-600 hover:bg-default-100 hover:border-default-300 transition-all cursor-pointer"
                               onClick={() => openDetailModal(asset.id)}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                               查看
                             </button>
                             <button type="button"
-                              className="px-2 py-1 rounded text-[11px] text-primary hover:bg-primary-50 hover:text-primary-600 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-primary-200 text-[11px] font-medium text-primary hover:bg-primary-50 hover:border-primary-300 transition-all cursor-pointer"
                               onClick={() => openEditModal(asset)}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                               编辑
                             </button>
                           </div>
@@ -1689,10 +1729,18 @@ export default function AssetsPage() {
                           📍
                         </Button>
                       </div>
-                      <Input label="环境" placeholder="生产 / 测试" value={form.environment}
-                        onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+                      <Select label="操作系统" selectedKeys={form.osCategory ? [form.osCategory] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, osCategory: Array.from(keys)[0]?.toString() || '' }))}
+                        description={hasBoundProbe ? '探针自动分类' : undefined}>
+                        {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                      </Select>
                       <Input label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
                         onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <Input label="环境" placeholder="生产 / 测试" value={form.environment}
+                        onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
                     </div>
 
                     <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
@@ -2232,7 +2280,7 @@ export default function AssetsPage() {
                             onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
                           >
                             {filteredInstances.map(inst => (
-                              <SelectItem key={inst.id.toString()}>
+                              <SelectItem key={inst.id.toString()} textValue={`${inst.name} (${inst.baseUrl})`}>
                                 <span className="flex items-center gap-2">
                                   <span className={`inline-block w-2 h-2 rounded-full ${inst.type === 'komari' ? 'bg-primary' : 'bg-secondary'}`} />
                                   {inst.name} ({inst.baseUrl})
@@ -2458,7 +2506,7 @@ export default function AssetsPage() {
               <SelectItem key="environment">环境</SelectItem>
               <SelectItem key="provider">供应商</SelectItem>
               <SelectItem key="role">角色</SelectItem>
-              <SelectItem key="os">操作系统</SelectItem>
+              <SelectItem key="osCategory">操作系统类别</SelectItem>
               <SelectItem key="monthlyCost">费用</SelectItem>
               <SelectItem key="currency">货币</SelectItem>
               <SelectItem key="billingCycle">付费周期</SelectItem>
@@ -2477,6 +2525,11 @@ export default function AssetsPage() {
               <Select label="角色" selectedKeys={batchValue ? [batchValue] : []}
                 onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
                 {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'osCategory' ? (
+              <Select label="操作系统类别" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
               </Select>
             ) : batchField === 'currency' ? (
               <Select label="货币" selectedKeys={batchValue ? [batchValue] : []}

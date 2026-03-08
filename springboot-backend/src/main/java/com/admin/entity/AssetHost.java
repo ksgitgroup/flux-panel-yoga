@@ -29,6 +29,9 @@ public class AssetHost extends BaseEntity {
 
     private String os;
 
+    /** 操作系统类别: Windows/Ubuntu/Debian/CentOS/Alpine/Fedora/Arch/MacOS/Other */
+    private String osCategory;
+
     private Integer cpuCores;
 
     private Integer memTotalMb;

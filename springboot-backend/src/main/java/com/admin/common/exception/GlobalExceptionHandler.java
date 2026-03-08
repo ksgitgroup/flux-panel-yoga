@@ -32,10 +32,22 @@ public class GlobalExceptionHandler {
         return R.err(401, e.getMessage());
     }
 
+    @ExceptionHandler(value = IllegalArgumentException.class)
+    public R handleIllegalArgument(IllegalArgumentException e) {
+        log.warn("参数异常: {}", e.getMessage());
+        return R.err(400, e.getMessage());
+    }
+
+    @ExceptionHandler(value = ClientAbortException.class)
+    public R handleClientAbort(ClientAbortException e) {
+        // 客户端断开连接，无需返回
+        return null;
+    }
+
     @ExceptionHandler(value = Exception.class)
-    public R Exception(Exception e){
-        log.info("异常：----------------{}", e.getMessage());
-        return R.err(-2, e.getMessage());
+    public R handleException(Exception e) {
+        log.error("未处理异常", e);
+        return R.err(-2, "服务器内部错误，请联系管理员");
     }
 
 }

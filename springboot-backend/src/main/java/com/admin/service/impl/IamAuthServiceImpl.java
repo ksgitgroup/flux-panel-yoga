@@ -5,15 +5,12 @@ import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.dto.IamDingtalkLoginDto;
 import com.admin.common.lang.R;
 import com.admin.common.utils.JwtUtil;
-import com.admin.common.utils.Md5Util;
 import com.admin.entity.*;
 import com.admin.mapper.*;
 import com.admin.service.IamAuthService;
-import com.admin.service.ViteConfigService;
-import com.alibaba.fastjson2.JSONArray;
+import com.admin.service.RuntimeConfigService;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -42,7 +39,7 @@ public class IamAuthServiceImpl implements IamAuthService {
     ));
 
     @Resource
-    private ViteConfigService viteConfigService;
+    private RuntimeConfigService runtimeConfigService;
 
     @Resource
     private RestTemplate restTemplate;
@@ -515,8 +512,7 @@ public class IamAuthServiceImpl implements IamAuthService {
     }
 
     private String getConfigValue(String key, String defaultValue) {
-        ViteConfig config = viteConfigService.getOne(new QueryWrapper<ViteConfig>().eq("name", key));
-        return config == null || !StringUtils.hasText(config.getValue()) ? defaultValue : config.getValue().trim();
+        return runtimeConfigService.getValue(key, defaultValue);
     }
 
     private boolean isEmailDomainAllowed(String email) {

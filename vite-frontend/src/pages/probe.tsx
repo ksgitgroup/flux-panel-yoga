@@ -19,7 +19,10 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 
 import {
+  MonitorInstanceDetail,
+  MonitorProviderHighlight,
   MonitorInstance,
+  getMonitorDetail,
   getMonitorList,
   createMonitorInstance,
   updateMonitorInstance,
@@ -62,6 +65,29 @@ const SYNC_STATUS_MAP: Record<string, { label: string; color: "success" | "dange
   never: { label: '未同步', color: 'default' },
 };
 
+const highlightColor = (severity?: string | null): "default" | "primary" | "success" | "warning" | "danger" | "secondary" => {
+  switch ((severity || '').toLowerCase()) {
+    case 'success':
+      return 'success';
+    case 'danger':
+    case 'error':
+    case 'critical':
+    case 'high':
+      return 'danger';
+    case 'warning':
+    case 'warn':
+    case 'medium':
+      return 'warning';
+    case 'secondary':
+      return 'secondary';
+    case 'primary':
+    case 'info':
+      return 'primary';
+    default:
+      return 'default';
+  }
+};
+
 // ===================== Component =====================
 
 export default function ProbePage() {
@@ -71,6 +97,9 @@ export default function ProbePage() {
   const [instances, setInstances] = useState<MonitorInstance[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detail, setDetail] = useState<MonitorInstanceDetail | null>(null);
+  const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [form, setForm] = useState<InstanceForm>({ ...defaultForm });
@@ -87,6 +116,22 @@ export default function ProbePage() {
       const res = await getMonitorList();
       if (res.code === 0) setInstances(res.data || []);
     } catch { /* ignore */ } finally { setLoading(false); }
+  };
+
+  const loadDetail = async (id: number) => {
+    setDetailLoading(true);
+    try {
+      const res = await getMonitorDetail(id);
+      if (res.code === 0) {
+        setDetail(res.data || null);
+      } else {
+        toast.error(res.msg || '加载实例详情失败');
+      }
+    } catch {
+      toast.error('加载实例详情失败');
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   useEffect(() => { loadInstances(); }, []);
@@ -202,6 +247,12 @@ export default function ProbePage() {
     }
     setDeleteTarget(inst);
     onDeleteOpen();
+  };
+
+  const openDetailModal = (inst: MonitorInstance) => {
+    setDetail(null);
+    onDetailOpen();
+    void loadDetail(inst.id);
   };
 
   // ===================== Computed =====================
@@ -327,20 +378,253 @@ export default function ProbePage() {
                   )}
 
                   {/* Actions */}
-                  {canManageProbe && (
-                    <div className="flex gap-1.5 pt-1 border-t border-divider">
-                      <Button size="sm" variant="light" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
-                      <Button size="sm" variant="light" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>
-                      <Button size="sm" variant="light" onPress={() => openEditModal(inst)}>编辑</Button>
-                      <Button size="sm" variant="light" color="danger" className="ml-auto" onPress={() => confirmDelete(inst)}>删除</Button>
-                    </div>
-                  )}
+                  <div className="flex gap-1.5 pt-1 border-t border-divider">
+                    <Button size="sm" variant="light" onPress={() => openDetailModal(inst)}>
+                      详情
+                    </Button>
+                    {canManageProbe && (
+                      <>
+                        <Button size="sm" variant="light" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
+                        <Button size="sm" variant="light" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>
+                        <Button size="sm" variant="light" onPress={() => openEditModal(inst)}>编辑</Button>
+                        <Button size="sm" variant="light" color="danger" className="ml-auto" onPress={() => confirmDelete(inst)}>删除</Button>
+                      </>
+                    )}
+                  </div>
                 </CardBody>
               </Card>
             );
           })}
         </div>
       )}
+
+      <Modal isOpen={isDetailOpen} onClose={() => { setDetail(null); onDetailClose(); }} size="5xl" scrollBehavior="inside">
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            {detail?.instance?.name || '探针实例详情'}
+            {detail?.instance && (
+              <p className="text-xs font-normal text-default-500">
+                {(detail.instance.type || 'komari').toUpperCase()} · {detail.instance.baseUrl}
+              </p>
+            )}
+          </ModalHeader>
+          <ModalBody className="space-y-5">
+            {detailLoading && !detail ? (
+              <div className="flex justify-center py-10"><Spinner size="lg" /></div>
+            ) : detail ? (
+              <>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <Card shadow="none" className="border border-divider">
+                    <CardBody className="gap-2 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">节点总数</p>
+                      <p className="text-2xl font-semibold">{detail.providerSummary?.totalNodes ?? detail.nodes?.length ?? 0}</p>
+                    </CardBody>
+                  </Card>
+                  <Card shadow="none" className="border border-divider">
+                    <CardBody className="gap-2 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">在线节点</p>
+                      <p className="text-2xl font-semibold">{detail.providerSummary?.onlineNodes ?? detail.instance.onlineNodeCount ?? 0}</p>
+                    </CardBody>
+                  </Card>
+                  <Card shadow="none" className="border border-divider">
+                    <CardBody className="gap-2 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">同步状态</p>
+                      <Chip size="sm" variant="flat" color={(SYNC_STATUS_MAP[detail.instance.lastSyncStatus || 'never'] || SYNC_STATUS_MAP.never).color}>
+                        {(SYNC_STATUS_MAP[detail.instance.lastSyncStatus || 'never'] || SYNC_STATUS_MAP.never).label}
+                      </Chip>
+                    </CardBody>
+                  </Card>
+                  <Card shadow="none" className="border border-divider">
+                    <CardBody className="gap-2 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">最近同步</p>
+                      <p className="text-sm font-medium">{formatTime(detail.instance.lastSyncAt)}</p>
+                    </CardBody>
+                  </Card>
+                </div>
+
+                {detail.providerSummaryError && (
+                  <div className="rounded-2xl border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-700">
+                    远端深度摘要获取失败：{detail.providerSummaryError}
+                  </div>
+                )}
+
+                {detail.providerSummary?.type === 'pika' && detail.providerSummary.pikaSecurity && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Pika 安全中心摘要</p>
+                      <p className="text-xs text-default-500">这里聚合服务监控、告警记录、防篡改配置和最近一次安全审计的可见结果。</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">服务监控</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.pikaSecurity.totalMonitors ?? 0}</p>
+                          <p className="text-xs text-default-500">启用 {detail.providerSummary.pikaSecurity.enabledMonitors ?? 0} / 公开 {detail.providerSummary.pikaSecurity.publicMonitors ?? 0}</p>
+                        </CardBody>
+                      </Card>
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">告警记录</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.pikaSecurity.alertRecordCount ?? 0}</p>
+                          <p className="text-xs text-default-500">最近一轮聚合告警总量</p>
+                        </CardBody>
+                      </Card>
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">防篡改</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.pikaSecurity.tamperProtectedNodes ?? 0}</p>
+                          <p className="text-xs text-default-500">事件 {detail.providerSummary.pikaSecurity.tamperEventCount ?? 0} / 告警 {detail.providerSummary.pikaSecurity.tamperAlertCount ?? 0}</p>
+                        </CardBody>
+                      </Card>
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">安全审计</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.pikaSecurity.auditCoverageNodes ?? 0}</p>
+                          <p className="text-xs text-default-500">公开端口 {detail.providerSummary.pikaSecurity.publicListeningPortCount ?? 0} / 可疑进程 {detail.providerSummary.pikaSecurity.suspiciousProcessCount ?? 0}</p>
+                        </CardBody>
+                      </Card>
+                    </div>
+
+                    <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-foreground">重点事件</p>
+                        <Chip size="sm" variant="flat" color="secondary">Pika</Chip>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(detail.providerSummary.pikaSecurity.highlights || []).length > 0 ? (
+                          (detail.providerSummary.pikaSecurity.highlights || []).map((item: MonitorProviderHighlight, idx: number) => (
+                            <div key={`${item.category}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium text-foreground">{item.title}</p>
+                                <Chip size="sm" variant="flat" color={highlightColor(item.severity)}>{item.category || 'event'}</Chip>
+                                {item.count !== undefined && item.count !== null ? <Chip size="sm" variant="flat">{item.count}</Chip> : null}
+                              </div>
+                              {item.detail && <p className="mt-2 text-xs text-default-600">{item.detail}</p>}
+                              {item.timestamp ? <p className="mt-1 text-[11px] text-default-400">{formatTime(item.timestamp)}</p> : null}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-divider px-3 py-5 text-sm text-default-500">
+                            当前没有可展示的安全摘要项。
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {detail.providerSummary?.type === 'komari' && detail.providerSummary.komariOperations && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Komari 任务与通知摘要</p>
+                      <p className="text-xs text-default-500">这里聚合公开节点、Ping 任务、负载通知和离线通知，便于从 Flux 看到 Komari 的运维侧配置。</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">公开节点</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.komariOperations.publicNodeCount ?? 0}</p>
+                          <p className="text-xs text-default-500">已关联 {detail.providerSummary.komariOperations.publicBoundNodeCount ?? 0} / 隐藏 {detail.providerSummary.komariOperations.hiddenBoundNodeCount ?? 0}</p>
+                        </CardBody>
+                      </Card>
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">Ping 任务</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.komariOperations.pingTaskCount ?? 0}</p>
+                          <p className="text-xs text-default-500">仅统计命中本实例节点的任务</p>
+                        </CardBody>
+                      </Card>
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">负载通知</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.komariOperations.loadNotificationCount ?? 0}</p>
+                          <p className="text-xs text-default-500">CPU / RAM / Load 规则</p>
+                        </CardBody>
+                      </Card>
+                      <Card shadow="none" className="border border-divider">
+                        <CardBody className="gap-2 p-4">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">离线通知</p>
+                          <p className="text-2xl font-semibold">{detail.providerSummary.komariOperations.offlineNotificationCount ?? 0}</p>
+                          <p className="text-xs text-default-500">与当前节点绑定的离线监控</p>
+                        </CardBody>
+                      </Card>
+                    </div>
+
+                    <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-foreground">公开节点与任务摘录</p>
+                        <Chip size="sm" variant="flat" color="primary">Komari</Chip>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(detail.providerSummary.komariOperations.highlights || []).length > 0 ? (
+                          (detail.providerSummary.komariOperations.highlights || []).map((item: MonitorProviderHighlight, idx: number) => (
+                            <div key={`${item.category}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium text-foreground">{item.title}</p>
+                                <Chip size="sm" variant="flat" color={highlightColor(item.severity)}>{item.category || 'item'}</Chip>
+                                {item.count !== undefined && item.count !== null ? <Chip size="sm" variant="flat">{item.count}</Chip> : null}
+                              </div>
+                              {item.detail && <p className="mt-2 text-xs text-default-600">{item.detail}</p>}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-divider px-3 py-5 text-sm text-default-500">
+                            当前没有可展示的公开节点或任务摘要。
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-foreground">节点快照</p>
+                    <Chip size="sm" variant="flat">{detail.nodes?.length || 0} 个节点</Chip>
+                  </div>
+                  {(detail.nodes || []).length > 0 ? (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {(detail.nodes || []).slice(0, 12).map((node) => (
+                        <div key={node.id} className="rounded-xl border border-divider bg-content1 px-3 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">{node.name || node.remoteNodeUuid}</p>
+                              <p className="mt-1 truncate text-xs text-default-500">{node.ip || node.ipv6 || node.remoteNodeUuid}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Chip size="sm" variant="flat" color={node.online === 1 ? 'success' : 'default'}>{node.online === 1 ? '在线' : '离线'}</Chip>
+                              <Chip size="sm" variant="flat">{node.instanceType || detail.instance.type}</Chip>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-default-500">
+                            {node.region ? <span>{node.region}</span> : null}
+                            {node.os ? <span>{node.os}</span> : null}
+                            {node.assetName ? <span>资产: {node.assetName}</span> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-divider px-3 py-5 text-sm text-default-500">
+                      当前实例还没有同步到节点快照。
+                    </div>
+                  )}
+                  {(detail.nodes || []).length > 12 && (
+                    <p className="text-xs text-default-400">已截取前 12 个节点显示，完整节点列表仍以服务器看板和资产页为主。</p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-divider px-4 py-8 text-center text-sm text-default-500">
+                暂无实例详情。
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={() => { setDetail(null); onDetailClose(); }}>关闭</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* Create/Edit Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside">

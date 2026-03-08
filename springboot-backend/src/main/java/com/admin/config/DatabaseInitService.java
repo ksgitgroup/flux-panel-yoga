@@ -170,6 +170,7 @@ public class DatabaseInitService {
             String createXuiInstanceTable = "CREATE TABLE IF NOT EXISTS `xui_instance` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
                     "`name` varchar(120) NOT NULL COMMENT '实例名称'," +
+                    "`provider` varchar(20) DEFAULT 'x-ui' COMMENT '提供方: x-ui / 3x-ui'," +
                     "`base_url` varchar(255) NOT NULL COMMENT 'x-ui 面板地址'," +
                     "`web_base_path` varchar(120) DEFAULT '/' COMMENT 'x-ui Web Base Path'," +
                     "`username` varchar(120) NOT NULL COMMENT '登录用户名'," +
@@ -191,6 +192,8 @@ public class DatabaseInitService {
                     "`last_test_status` varchar(20) DEFAULT 'never' COMMENT '最后测试状态'," +
                     "`last_test_error` text DEFAULT NULL COMMENT '最后测试错误'," +
                     "`last_traffic_push_at` bigint(20) DEFAULT NULL COMMENT '最后一次流量上报时间'," +
+                    "`last_api_flavor` varchar(40) DEFAULT NULL COMMENT '最近一次识别的 API 风格'," +
+                    "`last_resolved_base_path` varchar(120) DEFAULT NULL COMMENT '最近一次识别的 Base Path'," +
                     "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
                     "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
                     "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
@@ -199,8 +202,11 @@ public class DatabaseInitService {
                     "UNIQUE KEY `uk_xui_instance_traffic_token` (`traffic_token`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='x-ui 实例管理表'";
             jdbcTemplate.execute(createXuiInstanceTable);
+            updateColumn("xui_instance", "provider", "varchar(20) DEFAULT 'x-ui' COMMENT '提供方: x-ui / 3x-ui'");
             updateColumn("xui_instance", "encrypted_login_secret", "text DEFAULT NULL COMMENT '加密后的 Secret Token'");
             updateColumn("xui_instance", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
+            updateColumn("xui_instance", "last_api_flavor", "varchar(40) DEFAULT NULL COMMENT '最近一次识别的 API 风格'");
+            updateColumn("xui_instance", "last_resolved_base_path", "varchar(120) DEFAULT NULL COMMENT '最近一次识别的 Base Path'");
 
             String createXuiInboundSnapshotTable = "CREATE TABLE IF NOT EXISTS `xui_inbound_snapshot` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
@@ -652,12 +658,12 @@ public class DatabaseInitService {
             ensureConfig("iam_auth_mode", "hybrid", "企业IAM认证模式：local_only/dingtalk_only/hybrid");
             ensureConfig("iam_local_admin_enabled", "true", "是否保留本地超级管理员登录入口");
             ensureConfig("dingtalk_oauth_enabled", "false", "是否启用钉钉OAuth登录");
-            ensureConfig("dingtalk_client_id", "", "钉钉OAuth Client ID");
-            ensureConfig("dingtalk_client_secret", "", "钉钉OAuth Client Secret");
-            ensureConfig("dingtalk_corp_id", "", "钉钉企业CorpId");
-            ensureConfig("dingtalk_redirect_uri", "", "钉钉OAuth回调地址");
-            ensureConfig("dingtalk_allowed_org_ids", "[]", "允许登录的钉钉组织ID列表(JSON)");
-            ensureConfig("dingtalk_required_email_domain", "", "钉钉登录用户必须满足的企业邮箱域名");
+            ensureConfig("dingtalk_client_id", "", "钉钉OAuth Client ID（支持环境变量 DINGTALK_CLIENT_ID 覆盖）");
+            ensureConfig("dingtalk_client_secret", "", "钉钉OAuth Client Secret（生产建议使用环境变量 DINGTALK_CLIENT_SECRET）");
+            ensureConfig("dingtalk_corp_id", "", "钉钉企业CorpId（支持环境变量 DINGTALK_CORP_ID 覆盖）");
+            ensureConfig("dingtalk_redirect_uri", "", "钉钉OAuth回调地址（支持环境变量 DINGTALK_REDIRECT_URI 覆盖）");
+            ensureConfig("dingtalk_allowed_org_ids", "[]", "允许登录的钉钉组织ID列表(JSON)，支持环境变量 DINGTALK_ALLOWED_ORG_IDS 覆盖");
+            ensureConfig("dingtalk_required_email_domain", "", "钉钉登录用户必须满足的企业邮箱域名，支持环境变量 DINGTALK_REQUIRED_EMAIL_DOMAIN 覆盖");
 
             ensureIamRole("SUPER_ADMIN", "超级管理员", "企业平台最高权限角色", "system", 1, 0, 1);
             ensureIamRole("DEV_ADMIN", "开发管理员", "开发与运维管理角色", "system", 1, 10, 1);

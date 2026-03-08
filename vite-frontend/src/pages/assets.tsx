@@ -1061,30 +1061,33 @@ export default function AssetsPage() {
           isClearable
           onClear={() => setSearchKeyword('')}
         />
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            className={`px-2.5 py-1 rounded-full text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-              !filterRole ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-            }`}
-            onClick={() => setFilterRole(null)}
-          >
-            全部 ({assets.length})
-          </button>
-          {Object.entries(roleFilters).map(([role, count]) => {
-            const roleInfo = getRoleChip(role === 'none' ? null : role);
-            return (
-              <button
-                key={role}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                  filterRole === role ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-                }`}
-                onClick={() => setFilterRole(filterRole === role ? null : role)}
-              >
-                {roleInfo?.text || '未分类'} ({count})
-              </button>
-            );
-          })}
-        </div>
+        {/* Role filter - only show when there are multiple distinct roles */}
+        {Object.keys(roleFilters).length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterRole ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}
+              onClick={() => setFilterRole(null)}
+            >
+              全部 ({assets.length})
+            </button>
+            {Object.entries(roleFilters).map(([role, count]) => {
+              const roleInfo = getRoleChip(role === 'none' ? null : role);
+              return (
+                <button
+                  key={role}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                    filterRole === role ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                  }`}
+                  onClick={() => setFilterRole(filterRole === role ? null : role)}
+                >
+                  {roleInfo?.text || '未分类'} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
         {/* Probe type filters */}
         <div className="flex gap-1 ml-auto">
           {[{ v: '', l: '全部探针' }, { v: 'komari', l: 'Komari' }, { v: 'pika', l: 'Pika' }, { v: 'dual', l: '双探针' }, { v: 'local', l: '本地' }].map(({ v, l }) => (
@@ -1898,9 +1901,15 @@ export default function AssetsPage() {
                 <Tabs
                   selectedKey={isEdit ? editTab : 'basic'}
                   onSelectionChange={(key) => setEditTab(key as string)}
-                  variant="underlined"
+                  variant="solid"
                   size="sm"
-                  classNames={{ tabList: "gap-4 px-0", panel: "pt-3 px-0" }}
+                  color="primary"
+                  classNames={{
+                    tabList: "gap-1 px-1 py-1 bg-default-100 dark:bg-default-50/20 rounded-xl",
+                    tab: "rounded-lg px-4 py-1.5 text-xs font-semibold data-[selected=true]:shadow-sm",
+                    cursor: "rounded-lg",
+                    panel: "pt-4 px-0",
+                  }}
                 >
                   {/* ===== Tab 1: Basic Info ===== */}
                   <Tab key="basic" title="基本信息">
@@ -2075,68 +2084,72 @@ export default function AssetsPage() {
                       )}
                     </div>
                   }>
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {/* Probe Status */}
-                      <div className="rounded-xl border border-divider/60 bg-content1 p-4 space-y-3">
+                      <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-default-700">探针监控</span>
-                          <div className="flex items-center gap-1.5">
-                            {hasKomari ? (
-                              <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Komari</Chip>
-                            ) : (
-                              <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">Komari</Chip>
-                            )}
-                            {hasPika ? (
-                              <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Pika</Chip>
-                            ) : (
-                              <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">Pika</Chip>
-                            )}
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-default-700">探针监控</span>
+                            <div className="flex items-center gap-1">
+                              {hasKomari ? (
+                                <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Komari</Chip>
+                              ) : (
+                                <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">Komari</Chip>
+                              )}
+                              {hasPika ? (
+                                <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Pika</Chip>
+                              ) : (
+                                <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">Pika</Chip>
+                              )}
+                            </div>
                           </div>
+                          {canManageAssets && (!hasKomari || !hasPika) && editingAsset && (
+                            <Button size="sm" variant="flat" color="primary" className="h-7 text-[11px] min-w-0 px-3"
+                              onPress={() => {
+                                const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
+                                onFormClose();
+                                openProvisionModal({ assetId: editingAsset.id, assetName: editingAsset.name, missingType });
+                              }}>
+                              部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
+                            </Button>
+                          )}
                         </div>
-                        {canManageAssets && (!hasKomari || !hasPika) && editingAsset && (
-                          <Button size="sm" variant="flat" color="primary"
-                            onPress={() => {
-                              const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
-                              onFormClose();
-                              openProvisionModal({ assetId: editingAsset.id, assetName: editingAsset.name, missingType });
-                            }}>
-                            部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
-                          </Button>
-                        )}
                         {hasBoundProbe && editingAsset && (
-                          <div className="grid gap-2 md:grid-cols-3 text-xs">
-                            {editingAsset.probeSource && (
-                              <div className="flex justify-between"><span className="text-default-400">数据来源</span><span className="font-mono">{editingAsset.probeSource === 'dual' ? 'Komari + Pika' : editingAsset.probeSource}</span></div>
-                            )}
-                            {editingAsset.monitorLastSyncAt && (
-                              <div className="flex justify-between"><span className="text-default-400">上次同步</span><span className="font-mono">{new Date(editingAsset.monitorLastSyncAt).toLocaleString('zh-CN', { hour12: false })}</span></div>
-                            )}
-                            {editingAsset.probeTrafficLimit && editingAsset.probeTrafficLimit > 0 && (
-                              <div className="flex justify-between"><span className="text-default-400">流量配额</span><span className="font-mono">{formatFlow(editingAsset.probeTrafficUsed)} / {formatFlow(editingAsset.probeTrafficLimit)}</span></div>
-                            )}
-                            {editingAsset.probeExpiredAt && editingAsset.probeExpiredAt > 0 && (
-                              <div className="flex justify-between">
-                                <span className="text-default-400">探针到期</span>
-                                <span className={`font-mono ${editingAsset.probeExpiredAt < Date.now() ? 'text-danger' : ''}`}>
-                                  {new Date(editingAsset.probeExpiredAt).toLocaleDateString('zh-CN')}
-                                  {editingAsset.probeExpiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((editingAsset.probeExpiredAt - Date.now()) / 86400000)}天)`}
-                                </span>
-                              </div>
-                            )}
+                          <>
+                            <div className="grid gap-x-6 gap-y-1.5 grid-cols-2 text-xs">
+                              {editingAsset.probeSource && (
+                                <div className="flex items-center gap-2"><span className="text-default-400 flex-shrink-0">数据来源</span><span className="font-mono font-medium">{editingAsset.probeSource === 'dual' ? 'Komari + Pika' : editingAsset.probeSource}</span></div>
+                              )}
+                              {editingAsset.monitorLastSyncAt && (
+                                <div className="flex items-center gap-2"><span className="text-default-400 flex-shrink-0">上次同步</span><span className="font-mono">{new Date(editingAsset.monitorLastSyncAt).toLocaleString('zh-CN', { hour12: false })}</span></div>
+                              )}
+                              {editingAsset.probeTrafficLimit && editingAsset.probeTrafficLimit > 0 && (
+                                <div className="flex items-center gap-2"><span className="text-default-400 flex-shrink-0">流量配额</span><span className="font-mono">{formatFlow(editingAsset.probeTrafficUsed)} / {formatFlow(editingAsset.probeTrafficLimit)}</span></div>
+                              )}
+                              {editingAsset.probeExpiredAt && editingAsset.probeExpiredAt > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-default-400 flex-shrink-0">探针到期</span>
+                                  <span className={`font-mono ${editingAsset.probeExpiredAt < Date.now() ? 'text-danger' : ''}`}>
+                                    {new Date(editingAsset.probeExpiredAt).toLocaleDateString('zh-CN')}
+                                    {editingAsset.probeExpiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((editingAsset.probeExpiredAt - Date.now()) / 86400000)}天)`}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                             {editingAsset.probeTags && (
-                              <div className="col-span-full flex items-center gap-2">
-                                <span className="text-default-400">探针标签</span>
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-default-400 flex-shrink-0">探针标签</span>
                                 <div className="flex flex-wrap gap-1">
                                   {(() => { try { return JSON.parse(editingAsset.probeTags).map((t: string) => (<Chip key={t} size="sm" variant="flat" className="h-4 text-[9px]">{t}</Chip>)); } catch { return <span className="font-mono">{editingAsset.probeTags}</span>; } })()}
                                 </div>
                               </div>
                             )}
-                          </div>
+                          </>
                         )}
                       </div>
 
                       {/* X-UI Status */}
-                      <div className="rounded-xl border border-divider/60 bg-content1 p-4 space-y-3">
+                      <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-semibold text-default-700">X-UI 代理</span>
                           {hasXui ? (
@@ -2212,7 +2225,7 @@ export default function AssetsPage() {
                       </div>
 
                       {/* 1Panel Status */}
-                      <div className="rounded-xl border border-divider/60 bg-content1 p-4 space-y-3">
+                      <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-semibold text-default-700">1Panel 面板</span>
                           {hasPanel ? (
@@ -2290,8 +2303,8 @@ export default function AssetsPage() {
                           {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                         </Select>
                         {hasBoundProbe && (
-                          <Chip size="sm" variant="flat" color="secondary" className="text-[10px]">
-                            已绑定{form.monitorNodeUuid && form.pikaNodeId ? '双探针' : form.monitorNodeUuid ? 'Komari' : 'Pika'}，同步时自动覆盖
+                          <Chip size="sm" variant="flat" color="success" className="text-[10px]">
+                            已绑定{form.monitorNodeUuid && form.pikaNodeId ? '双探针' : form.monitorNodeUuid ? 'Komari' : 'Pika'}，探针同步时自动更新
                           </Chip>
                         )}
                       </div>

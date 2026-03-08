@@ -24,47 +24,10 @@ import {
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
-
-// ===================== Helpers =====================
-
-function formatBytes(bytes?: number | null): string {
-  if (bytes == null || bytes === 0) return '-';
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-}
-
-function formatSpeed(bytesPerSec?: number | null): string {
-  if (bytesPerSec == null || bytesPerSec === 0) return '-';
-  const bits = bytesPerSec * 8;
-  if (bits < 1000) return bits.toFixed(0) + ' bps';
-  if (bits < 1_000_000) return (bits / 1000).toFixed(1) + ' Kbps';
-  if (bits < 1_000_000_000) return (bits / 1_000_000).toFixed(1) + ' Mbps';
-  return (bits / 1_000_000_000).toFixed(2) + ' Gbps';
-}
-
-function formatUptime(seconds?: number | null): string {
-  if (seconds == null || seconds === 0) return '-';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d}天 ${h}时`;
-  const m = Math.floor((seconds % 3600) / 60);
-  return h > 0 ? `${h}时 ${m}分` : `${m}分`;
-}
-
-function barColor(v: number): 'success' | 'warning' | 'danger' {
-  return v > 90 ? 'danger' : v > 75 ? 'warning' : 'success';
-}
-
-function barColorClass(v: number): string {
-  return v > 90 ? 'bg-danger' : v > 75 ? 'bg-warning' : 'bg-success';
-}
-
-function memPercent(used?: number | null, total?: number | null): number {
-  if (!used || !total || total === 0) return 0;
-  return (used / total) * 100;
-}
+import {
+  formatFlow as formatBytes, formatSpeedBits as formatSpeed, formatUptime,
+  barColor, barColorClass, memPercent, getRegionFlag,
+} from '@/utils/formatters';
 
 // ===================== Chart Helpers =====================
 
@@ -536,7 +499,7 @@ export default function ServerDashboardPage() {
               <button key={region} onClick={() => setRegionFilter(regionFilter === region ? '' : region)}
                 className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
                   regionFilter === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-                }`}>{region} ({count})</button>
+                }`}>{getRegionFlag(region)}{region} ({count})</button>
             ))}
           </div>
         )}
@@ -623,7 +586,7 @@ export default function ServerDashboardPage() {
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-4">
                       {node.ip || '-'}
-                      {node.region ? ` / ${node.region}` : ''}
+                      {node.region ? ` / ${getRegionFlag(node.region)}${node.region}` : ''}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
@@ -731,7 +694,7 @@ export default function ServerDashboardPage() {
                     <p className="text-xs font-normal text-default-400 font-mono">
                       {selectedNode.ip || '-'}
                       {selectedNode.ipv6 ? ` / ${selectedNode.ipv6}` : ''}
-                      {selectedNode.region ? ` / ${selectedNode.region}` : ''}
+                      {selectedNode.region ? ` / ${getRegionFlag(selectedNode.region)}${selectedNode.region}` : ''}
                     </p>
                     <p className="text-[10px] font-normal text-default-400 font-mono mt-0.5">
                       同步: {selectedNode.lastSyncAt ? new Date(selectedNode.lastSyncAt).toLocaleString('zh-CN', { hour12: false }) : '-'}

@@ -13,6 +13,8 @@ public class XuiInstance extends BaseEntity {
 
     private String name;
 
+    private String provider;
+
     private String baseUrl;
 
     private String webBasePath;
@@ -54,4 +56,8 @@ public class XuiInstance extends BaseEntity {
     private String lastTestError;
 
     private Long lastTrafficPushAt;
+
+    private String lastApiFlavor;
+
+    private String lastResolvedBasePath;
 }

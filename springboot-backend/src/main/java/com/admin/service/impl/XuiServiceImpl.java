@@ -69,6 +69,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     private static final String STATUS_FAILED = "failed";
     private static final String MODE_OBSERVE = "observe";
     private static final String MODE_FLUX_MANAGED = "flux_managed";
+    private static final String PROVIDER_XUI = "x-ui";
+    private static final String PROVIDER_3XUI = "3x-ui";
     private static final String API_FLAVOR_3XUI = "3x-ui";
     private static final String API_FLAVOR_PANEL_API = "panel-api";
     private static final String API_FLAVOR_XUI_API = "xui-api";
@@ -155,6 +157,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         NormalizedInstanceEndpoint endpoint = normalizeEndpointInput(dto.getBaseUrl(), dto.getWebBasePath());
         XuiInstance instance = new XuiInstance();
         instance.setName(dto.getName().trim());
+        instance.setProvider(normalizeProvider(dto.getProvider()));
         instance.setBaseUrl(endpoint.getBaseUrl());
         instance.setWebBasePath(endpoint.getWebBasePath());
         instance.setUsername(dto.getUsername().trim());
@@ -189,6 +192,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
 
         NormalizedInstanceEndpoint endpoint = normalizeEndpointInput(dto.getBaseUrl(), dto.getWebBasePath());
         existing.setName(dto.getName().trim());
+        existing.setProvider(normalizeProvider(dto.getProvider()));
         existing.setBaseUrl(endpoint.getBaseUrl());
         existing.setWebBasePath(endpoint.getWebBasePath());
         existing.setUsername(dto.getUsername().trim());
@@ -234,6 +238,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             XuiRemoteSnapshot remoteSnapshot = fetchRemoteSnapshot(instance);
             long finishedAt = System.currentTimeMillis();
 
+            updateRemoteDetectionState(instance, remoteSnapshot.getApiFlavor(), remoteSnapshot.getResolvedBasePath(), finishedAt);
             updateTestState(instance, STATUS_SUCCESS, null, finishedAt);
             saveSyncLog(instance.getId(), "test", true,
                     "连接测试成功",
@@ -674,6 +679,8 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
             }
         }
 
+        instance.setLastApiFlavor(trimToNull(remoteSnapshot.getApiFlavor()));
+        instance.setLastResolvedBasePath(trimToNull(normalizeBasePath(remoteSnapshot.getResolvedBasePath())));
         updateSyncState(instance, STATUS_SUCCESS, trigger, null, now);
 
         result.setFinishedAt(now);
@@ -859,6 +866,13 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         instance.setLastTestAt(timestamp);
         instance.setLastTestStatus(status);
         instance.setLastTestError(trimToNull(errorMessage));
+        instance.setUpdatedTime(timestamp);
+        xuiInstanceMapper.updateById(instance);
+    }
+
+    private void updateRemoteDetectionState(XuiInstance instance, String apiFlavor, String resolvedBasePath, long timestamp) {
+        instance.setLastApiFlavor(trimToNull(apiFlavor));
+        instance.setLastResolvedBasePath(trimToNull(normalizeBasePath(resolvedBasePath)));
         instance.setUpdatedTime(timestamp);
         xuiInstanceMapper.updateById(instance);
     }
@@ -1215,6 +1229,17 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
         return baseUrl + basePath.substring(0, basePath.length() - 1) + normalizedPath;
     }
 
+    private String normalizeProvider(String provider) {
+        if (!StringUtils.hasText(provider)) {
+            return PROVIDER_XUI;
+        }
+        String normalized = provider.trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("3x")) {
+            return PROVIDER_3XUI;
+        }
+        return PROVIDER_XUI;
+    }
+
     private XuiInstanceViewDto toInstanceView(XuiInstance instance) {
         return toInstanceView(instance, loadAssetHostMap(Collections.singleton(instance.getAssetId())));
     }
@@ -1222,6 +1247,7 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     private XuiInstanceViewDto toInstanceView(XuiInstance instance, Map<Long, AssetHost> assetMap) {
         XuiInstanceViewDto dto = new XuiInstanceViewDto();
         BeanUtils.copyProperties(instance, dto);
+        dto.setProvider(normalizeProvider(instance.getProvider()));
         AssetHost asset = assetMap.get(instance.getAssetId());
         dto.setAssetName(asset == null ? null : asset.getName());
         dto.setPasswordConfigured(StringUtils.hasText(instance.getEncryptedPassword()));

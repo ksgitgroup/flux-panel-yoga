@@ -23,6 +23,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
@@ -324,6 +325,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @return 删除结果响应
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public R deleteUser(Long id) {
         // 1. 验证删除条件
         R deleteValidationResult = validateUserDeletion(id);
@@ -338,10 +340,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             // 3. 删除用户
             boolean result = this.removeById(id);
             return result ? R.ok(SUCCESS_DELETE_MSG) : R.err(ERROR_DELETE_FAILED);
-            
+
         } catch (Exception e) {
-            e.printStackTrace();
-            return R.err("删除用户时发生错误：" + e.getMessage());
+            log.error("删除用户 {} 失败", id, e);
+            throw new RuntimeException("删除用户失败", e);
         }
     }
 

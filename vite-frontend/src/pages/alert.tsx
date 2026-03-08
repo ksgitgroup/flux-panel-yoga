@@ -243,6 +243,7 @@ export default function AlertPage() {
                       {rule.scopeValue ? ` (${rule.scopeValue})` : ''}
                       {' · '}通知: {NOTIFY_TYPES.find(n => n.value === rule.notifyType)?.label || rule.notifyType}
                       {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
+                      {rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
                       {' · '}冷却: {rule.cooldownMinutes}分钟
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
@@ -349,6 +350,13 @@ export default function AlertPage() {
                       onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 0 })} />
                   </div>
                 ) : null}
+
+                {editRule.metric && editRule.metric !== 'offline' && editRule.metric !== 'expiry' && (
+                  <Input label="持续时间 (秒)" size="sm" type="number" placeholder="0"
+                    description="指标持续超过阈值多少秒后触发告警，0 表示立即触发"
+                    value={String(editRule.durationSeconds ?? 0)}
+                    onValueChange={v => setEditRule({ ...editRule, durationSeconds: parseInt(v) || 0 })} />
+                )}
 
                 <Divider />
 

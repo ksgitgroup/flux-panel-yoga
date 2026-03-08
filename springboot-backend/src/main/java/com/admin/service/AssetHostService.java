@@ -17,4 +17,6 @@ public interface AssetHostService extends IService<AssetHost> {
     R updateAsset(AssetHostUpdateDto dto);
 
     R deleteAsset(Long id);
+
+    R batchUpdateField(java.util.Map<String, Object> params);
 }

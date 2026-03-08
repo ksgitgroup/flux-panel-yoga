@@ -152,6 +152,101 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         return R.ok();
     }
 
+    @Override
+    public R batchUpdateField(Map<String, Object> params) {
+        Object idsObj = params.get("ids");
+        String field = (String) params.get("field");
+        Object value = params.get("value");
+
+        if (idsObj == null || field == null) {
+            return R.err("参数不完整");
+        }
+
+        List<Long> ids;
+        if (idsObj instanceof List) {
+            ids = ((List<?>) idsObj).stream()
+                    .map(o -> Long.valueOf(o.toString()))
+                    .collect(Collectors.toList());
+        } else {
+            return R.err("ids 必须是数组");
+        }
+
+        if (ids.isEmpty()) {
+            return R.err("请选择至少一个资产");
+        }
+
+        // Whitelist of allowed batch-update fields
+        Set<String> allowedFields = Set.of(
+                "tags", "region", "environment", "provider", "role",
+                "monthlyCost", "currency", "billingCycle", "bandwidthMbps",
+                "monthlyTrafficGb", "sshPort", "os", "osCategory", "remark"
+        );
+        if (!allowedFields.contains(field)) {
+            return R.err("不支持批量修改字段: " + field);
+        }
+
+        List<AssetHost> assets = this.listByIds(ids);
+        if (assets.isEmpty()) {
+            return R.err("未找到指定资产");
+        }
+
+        long now = System.currentTimeMillis();
+        String strVal = value == null ? null : value.toString().trim();
+        if (strVal != null && strVal.isEmpty()) strVal = null;
+
+        for (AssetHost asset : assets) {
+            switch (field) {
+                case "tags":
+                    // For tags: merge mode — append new tags to existing
+                    if (strVal != null) {
+                        String mode = params.get("mode") != null ? params.get("mode").toString() : "replace";
+                        if ("merge".equals(mode) && StringUtils.hasText(asset.getTags())) {
+                            LinkedHashSet<String> merged = new LinkedHashSet<>();
+                            for (String t : asset.getTags().split(",")) {
+                                String trimmed = t.trim();
+                                if (!trimmed.isEmpty()) merged.add(trimmed);
+                            }
+                            for (String t : strVal.split(",")) {
+                                String trimmed = t.trim();
+                                if (!trimmed.isEmpty()) merged.add(trimmed);
+                            }
+                            asset.setTags(String.join(",", merged));
+                        } else {
+                            asset.setTags(strVal);
+                        }
+                    } else {
+                        asset.setTags(null);
+                    }
+                    break;
+                case "region": asset.setRegion(strVal); break;
+                case "environment": asset.setEnvironment(strVal); break;
+                case "provider": asset.setProvider(strVal); break;
+                case "role": asset.setRole(strVal); break;
+                case "monthlyCost": asset.setMonthlyCost(strVal); break;
+                case "currency": asset.setCurrency(strVal); break;
+                case "billingCycle":
+                    asset.setBillingCycle(strVal != null ? Integer.valueOf(strVal) : null);
+                    break;
+                case "bandwidthMbps":
+                    asset.setBandwidthMbps(strVal != null ? Integer.valueOf(strVal) : null);
+                    break;
+                case "monthlyTrafficGb":
+                    asset.setMonthlyTrafficGb(strVal != null ? Integer.valueOf(strVal) : null);
+                    break;
+                case "sshPort":
+                    asset.setSshPort(strVal != null ? Integer.valueOf(strVal) : null);
+                    break;
+                case "os": asset.setOs(strVal); break;
+                case "osCategory": asset.setOsCategory(strVal); break;
+                case "remark": asset.setRemark(strVal); break;
+                default: break;
+            }
+            asset.setUpdatedTime(now);
+        }
+        this.updateBatchById(assets);
+        return R.ok("已批量更新 " + assets.size() + " 个资产");
+    }
+
     // ==================== Private Helpers ====================
 
     private AssetHost getRequiredAsset(Long id) {

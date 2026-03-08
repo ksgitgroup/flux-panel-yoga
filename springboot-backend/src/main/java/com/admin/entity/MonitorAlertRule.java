@@ -38,4 +38,7 @@ public class MonitorAlertRule extends BaseEntity {
     private Integer cooldownMinutes;
 
     private Long lastTriggeredAt;
+
+    /** 探针条件: any, komari, pika, both */
+    private String probeCondition;
 }

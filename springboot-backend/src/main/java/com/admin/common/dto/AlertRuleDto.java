@@ -34,4 +34,6 @@ public class AlertRuleDto {
     private Integer cooldownMinutes;
 
     private Integer enabled;
+
+    private String probeCondition;
 }

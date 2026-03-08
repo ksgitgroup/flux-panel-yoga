@@ -197,6 +197,7 @@ export interface AssetHost {
   region?: string | null;
   role?: string | null;
   os?: string | null;
+  osCategory?: string | null;
   cpuCores?: number | null;
   memTotalMb?: number | null;
   diskTotalGb?: number | null;
@@ -512,6 +513,8 @@ export const getAssetDetail = (id: number) => Network.post<AssetHostDetail>("/as
 export const createAsset = (data: any) => Network.post<AssetHost>("/asset/create", data);
 export const updateAsset = (data: any) => Network.post<AssetHost>("/asset/update", data);
 export const deleteAsset = (id: number) => Network.post("/asset/delete", { id });
+export const batchUpdateAsset = (data: { ids: number[]; field: string; value: string; mode?: string }) => Network.post("/asset/batch-update", data);
+export const geolocateIp = (ip: string) => Network.post<{ country?: string; countryCode?: string; regionName?: string; city?: string; isp?: string }>("/asset/geolocate", { ip });
 export const getForwardXuiTargets = () => Network.post<XuiForwardTarget[]>("/forward/xui-targets");
 export const getPortalLinks = () => Network.post<PortalLink[]>("/portal/list");
 export const savePortalLinks = (items: PortalLink[]) => Network.post<PortalLink[]>("/portal/save", { items });
@@ -587,6 +590,7 @@ export interface AlertRule {
   notifyTarget?: string | null;
   cooldownMinutes: number;
   lastTriggeredAt?: number | null;
+  probeCondition?: string | null;
   createdTime: number;
   updatedTime: number;
 }

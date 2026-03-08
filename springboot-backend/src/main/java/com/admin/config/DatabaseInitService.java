@@ -313,6 +313,7 @@ public class DatabaseInitService {
             updateColumn("asset_host", "ipv6", "varchar(128) DEFAULT NULL COMMENT 'IPv6 地址'");
             updateColumn("asset_host", "role", "varchar(40) DEFAULT NULL COMMENT '角色：entry / relay / landing / standalone'");
             updateColumn("asset_host", "os", "varchar(80) DEFAULT NULL COMMENT '操作系统'");
+            updateColumn("asset_host", "os_category", "varchar(20) DEFAULT NULL COMMENT '操作系统类别'");
             updateColumn("asset_host", "cpu_cores", "int(10) DEFAULT NULL COMMENT 'CPU 核心数'");
             updateColumn("asset_host", "mem_total_mb", "int(10) DEFAULT NULL COMMENT '总内存 (MB)'");
             updateColumn("asset_host", "disk_total_gb", "int(10) DEFAULT NULL COMMENT '总磁盘 (GB)'");
@@ -507,6 +508,8 @@ public class DatabaseInitService {
                     "KEY `idx_alert_log_time` (`created_time`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警日志表'";
             jdbcTemplate.execute(createAlertLogTable);
+
+            updateColumn("monitor_alert_rule", "probe_condition", "varchar(20) DEFAULT 'any' COMMENT '探针条件: any, komari, pika, both'");
 
             log.info("[DatabaseInit] 告警规则/日志表校验成功");
         } catch (Exception e) {

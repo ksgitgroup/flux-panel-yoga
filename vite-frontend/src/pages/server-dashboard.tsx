@@ -271,12 +271,13 @@ export default function ServerDashboardPage() {
   const navigate = useNavigate();
   const admin = isAdmin();
   const [nodes, setNodes] = useState<MonitorNodeSnapshot[]>([]);
-  const [summary, setSummary] = useState({ total: 0, online: 0, offline: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
+  const [regionFilter, setRegionFilter] = useState<string>('');
+  const [osFilter, setOsFilter] = useState<string>('');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -292,7 +293,6 @@ export default function ServerDashboardPage() {
       if (res.code === 0 && res.data) {
         const data = res.data as any;
         setNodes(data.nodes || []);
-        setSummary({ total: data.total || 0, online: data.online || 0, offline: data.offline || 0 });
         setLastUpdate(new Date());
       }
     } catch { /* ignore */ }
@@ -312,6 +312,25 @@ export default function ServerDashboardPage() {
     setChartRange('1h');
     onDetailOpen();
   };
+
+  // Deduplicate by assetId: group nodes into unique servers
+  // Same server with both Komari + Pika counts as ONE server
+  const serverSummary = useMemo(() => {
+    const byAsset = new Map<number | string, { online: boolean; region?: string; os?: string }>();
+    nodes.forEach(n => {
+      const key = n.assetId ?? `unlinked-${n.instanceId}-${n.id}`;
+      const prev = byAsset.get(key);
+      byAsset.set(key, {
+        online: (prev?.online || false) || n.online === 1,
+        region: prev?.region || n.region || undefined,
+        os: prev?.os || n.os || undefined,
+      });
+    });
+    const total = byAsset.size;
+    let online = 0;
+    byAsset.forEach(v => { if (v.online) online++; });
+    return { total, online, offline: total - online };
+  }, [nodes]);
 
   // Collect all unique tags with counts
   const tagCounts = useMemo(() => {
@@ -334,11 +353,52 @@ export default function ServerDashboardPage() {
     return counts;
   }, [nodes]);
 
+  // Region counts from nodes
+  const regionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    nodes.forEach(n => { const r = n.region || ''; counts[r] = (counts[r] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [nodes]);
+
+  // OS counts from nodes (extract category from full OS string)
+  const osCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    nodes.forEach(n => {
+      let cat = '';
+      const os = (n.os || '').toLowerCase();
+      if (os.includes('ubuntu')) cat = 'Ubuntu';
+      else if (os.includes('debian')) cat = 'Debian';
+      else if (os.includes('centos')) cat = 'CentOS';
+      else if (os.includes('alma')) cat = 'AlmaLinux';
+      else if (os.includes('rocky')) cat = 'Rocky';
+      else if (os.includes('fedora')) cat = 'Fedora';
+      else if (os.includes('alpine')) cat = 'Alpine';
+      else if (os.includes('arch')) cat = 'Arch';
+      else if (os.includes('windows')) cat = 'Windows';
+      else if (os.includes('macos') || os.includes('darwin')) cat = 'MacOS';
+      else if (os) cat = 'Other';
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [nodes]);
+
   const filteredNodes = useMemo(() => {
     let list = nodes;
     if (statusFilter === 'online') list = list.filter(n => n.online === 1);
     else if (statusFilter === 'offline') list = list.filter(n => n.online !== 1);
     if (probeFilter !== 'all') list = list.filter(n => (n.instanceType || 'komari') === probeFilter);
+    if (regionFilter) {
+      list = list.filter(n => regionFilter === '_empty' ? !n.region : n.region === regionFilter);
+    }
+    if (osFilter) {
+      const q = osFilter.toLowerCase();
+      list = list.filter(n => {
+        if (osFilter === '_empty') return !n.os;
+        const os = (n.os || '').toLowerCase();
+        if (q === 'other') return os && !['ubuntu','debian','centos','alma','rocky','fedora','alpine','arch','windows','macos','darwin'].some(k => os.includes(k));
+        return os.includes(q);
+      });
+    }
     if (tagFilter) {
       list = list.filter(n => {
         if (!n.tags) return false;
@@ -351,13 +411,14 @@ export default function ServerDashboardPage() {
         (n.name || '').toLowerCase().includes(q) ||
         (n.ip || '').toLowerCase().includes(q) ||
         (n.region || '').toLowerCase().includes(q) ||
+        (n.os || '').toLowerCase().includes(q) ||
         (n.assetName || '').toLowerCase().includes(q) ||
         (n.instanceName || '').toLowerCase().includes(q) ||
         (n.tags || '').toLowerCase().includes(q)
       );
     }
     return list;
-  }, [nodes, search, statusFilter, probeFilter, tagFilter]);
+  }, [nodes, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter]);
 
   if (!admin) {
     return (
@@ -389,7 +450,7 @@ export default function ServerDashboardPage() {
         </div>
       </div>
 
-      {/* Summary Bar */}
+      {/* Summary Bar - counts deduplicated by server (same server with dual probes = 1) */}
       <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setStatusFilter('all')}
@@ -398,7 +459,7 @@ export default function ServerDashboardPage() {
           }`}
         >
           <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
-          <p className="text-2xl font-bold font-mono">{summary.total}</p>
+          <p className="text-2xl font-bold font-mono">{serverSummary.total}</p>
         </button>
         <button
           onClick={() => setStatusFilter(statusFilter === 'online' ? 'all' : 'online')}
@@ -407,16 +468,16 @@ export default function ServerDashboardPage() {
           }`}
         >
           <p className="text-[10px] font-bold tracking-widest text-success uppercase">在线</p>
-          <p className="text-2xl font-bold font-mono text-success">{summary.online}</p>
+          <p className="text-2xl font-bold font-mono text-success">{serverSummary.online}</p>
         </button>
         <button
           onClick={() => setStatusFilter(statusFilter === 'offline' ? 'all' : 'offline')}
           className={`rounded-xl border px-4 py-2.5 transition-all cursor-pointer ${
-            statusFilter === 'offline' ? 'border-danger bg-danger-50 dark:bg-danger/10' : summary.offline > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40' : 'border-divider/60 bg-content1'
+            statusFilter === 'offline' ? 'border-danger bg-danger-50 dark:bg-danger/10' : serverSummary.offline > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40' : 'border-divider/60 bg-content1'
           }`}
         >
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
-          <p className={`text-2xl font-bold font-mono ${summary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offline}</p>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
+          <p className={`text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
         </button>
 
         {/* Probe type filter */}
@@ -434,15 +495,49 @@ export default function ServerDashboardPage() {
         </div>
 
         <div className="flex-1 min-w-[200px] ml-auto max-w-xs">
-          <Input size="sm" placeholder="搜索服务器..." value={search} onValueChange={setSearch}
+          <Input size="sm" placeholder="搜索服务器、IP、地区、OS..." value={search} onValueChange={setSearch}
             isClearable onClear={() => setSearch('')} className="flex-1" />
         </div>
       </div>
 
-      {/* Tag filter bar - Pika style */}
+      {/* Region / OS quick filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        {regionCounts.filter(([r]) => r).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">地区:</span>
+            <button onClick={() => setRegionFilter('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                !regionFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {regionCounts.filter(([r]) => r).map(([region, count]) => (
+              <button key={region} onClick={() => setRegionFilter(regionFilter === region ? '' : region)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                  regionFilter === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>{region} ({count})</button>
+            ))}
+          </div>
+        )}
+        {osCounts.filter(([o]) => o).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">系统:</span>
+            <button onClick={() => setOsFilter('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !osFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {osCounts.filter(([o]) => o).map(([os, count]) => (
+              <button key={os} onClick={() => setOsFilter(osFilter === os ? '' : os)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  osFilter === os ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>{os} ({count})</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tag filter bar */}
       {tagCounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">FILTERS:</span>
+          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">标签:</span>
           <button
             onClick={() => setTagFilter('')}
             className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
@@ -450,22 +545,6 @@ export default function ServerDashboardPage() {
             }`}>
             ALL ({nodes.length})
           </button>
-          <button
-            onClick={() => setStatusFilter(statusFilter === 'online' ? 'all' : 'online')}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-              statusFilter === 'online' ? 'border-success bg-success-100/60 text-success dark:bg-success/20' : 'border-divider text-default-500 hover:border-success/40'
-            }`}>
-            ONLINE ({summary.online})
-          </button>
-          {summary.offline > 0 && (
-            <button
-              onClick={() => setStatusFilter(statusFilter === 'offline' ? 'all' : 'offline')}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                statusFilter === 'offline' ? 'border-danger bg-danger-100/60 text-danger dark:bg-danger/20' : 'border-divider text-default-500 hover:border-danger/40'
-              }`}>
-              OFFLINE ({summary.offline})
-            </button>
-          )}
           {tagCounts.map(([tag, count]) => (
             <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
               className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${

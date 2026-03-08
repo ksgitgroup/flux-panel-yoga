@@ -36,7 +36,10 @@ import {
   createXuiInstance,
   provisionDualAgent,
   provisionMonitorAgent,
-  updateAsset
+  syncMonitorInstance,
+  updateAsset,
+  batchUpdateAsset,
+  geolocateIp
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -52,6 +55,7 @@ interface AssetForm {
   region: string;
   role: string;
   os: string;
+  osCategory: string;
   cpuCores: string;
   memTotalMb: string;
   diskTotalGb: string;
@@ -78,7 +82,7 @@ interface AssetForm {
 
 const emptyForm = (): AssetForm => ({
   name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
-  role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
+  role: '', os: '', osCategory: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
   currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
   kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '',
@@ -100,8 +104,25 @@ const CURRENCIES = [
   { key: '$', label: '$' },
 ];
 
+const OS_CATEGORIES = [
+  { key: '', label: '未指定' },
+  { key: 'Ubuntu', label: 'Ubuntu' },
+  { key: 'Debian', label: 'Debian' },
+  { key: 'CentOS', label: 'CentOS' },
+  { key: 'AlmaLinux', label: 'AlmaLinux' },
+  { key: 'Rocky', label: 'Rocky' },
+  { key: 'Fedora', label: 'Fedora' },
+  { key: 'Alpine', label: 'Alpine' },
+  { key: 'Arch', label: 'Arch' },
+  { key: 'Windows', label: 'Windows' },
+  { key: 'MacOS', label: 'MacOS' },
+  { key: 'FreeBSD', label: 'FreeBSD' },
+  { key: 'Other', label: 'Other' },
+];
+
 const REGIONS = [
   { key: '', label: '未指定', flag: '' },
+  { key: '中国大陆', label: '中国大陆', flag: '🇨🇳' },
   { key: '香港', label: '香港', flag: '🇭🇰' },
   { key: '台湾', label: '台湾', flag: '🇹🇼' },
   { key: '日本', label: '日本', flag: '🇯🇵' },
@@ -125,7 +146,84 @@ const REGIONS = [
   { key: '印度尼西亚', label: '印度尼西亚', flag: '🇮🇩' },
   { key: '阿根廷', label: '阿根廷', flag: '🇦🇷' },
   { key: '南非', label: '南非', flag: '🇿🇦' },
+  { key: '波兰', label: '波兰', flag: '🇵🇱' },
+  { key: '瑞典', label: '瑞典', flag: '🇸🇪' },
+  { key: '瑞士', label: '瑞士', flag: '🇨🇭' },
+  { key: '爱尔兰', label: '爱尔兰', flag: '🇮🇪' },
+  { key: '意大利', label: '意大利', flag: '🇮🇹' },
+  { key: '西班牙', label: '西班牙', flag: '🇪🇸' },
+  { key: '罗马尼亚', label: '罗马尼亚', flag: '🇷🇴' },
+  { key: '卢森堡', label: '卢森堡', flag: '🇱🇺' },
 ];
+
+/** ip-api.com 返回的国家名 → REGIONS key 映射 */
+const COUNTRY_TO_REGION: Record<string, string> = {
+  '中国': '中国大陆',
+  'China': '中国大陆',
+  '香港': '香港',
+  'Hong Kong': '香港',
+  '台湾': '台湾',
+  'Taiwan': '台湾',
+  '日本': '日本',
+  'Japan': '日本',
+  '新加坡': '新加坡',
+  'Singapore': '新加坡',
+  '韩国': '韩国',
+  'South Korea': '韩国',
+  '美国': '美国',
+  'United States': '美国',
+  '英国': '英国',
+  'United Kingdom': '英国',
+  '德国': '德国',
+  'Germany': '德国',
+  '法国': '法国',
+  'France': '法国',
+  '荷兰': '荷兰',
+  'Netherlands': '荷兰',
+  '加拿大': '加拿大',
+  'Canada': '加拿大',
+  '澳大利亚': '澳大利亚',
+  'Australia': '澳大利亚',
+  '印度': '印度',
+  'India': '印度',
+  '俄罗斯': '俄罗斯',
+  'Russia': '俄罗斯',
+  '土耳其': '土耳其',
+  'Turkey': '土耳其',
+  'Türkiye': '土耳其',
+  '巴西': '巴西',
+  'Brazil': '巴西',
+  '马来西亚': '马来西亚',
+  'Malaysia': '马来西亚',
+  '泰国': '泰国',
+  'Thailand': '泰国',
+  '越南': '越南',
+  'Vietnam': '越南',
+  '菲律宾': '菲律宾',
+  'Philippines': '菲律宾',
+  '印度尼西亚': '印度尼西亚',
+  'Indonesia': '印度尼西亚',
+  '阿根廷': '阿根廷',
+  'Argentina': '阿根廷',
+  '南非': '南非',
+  'South Africa': '南非',
+  '波兰': '波兰',
+  'Poland': '波兰',
+  '瑞典': '瑞典',
+  'Sweden': '瑞典',
+  '瑞士': '瑞士',
+  'Switzerland': '瑞士',
+  '爱尔兰': '爱尔兰',
+  'Ireland': '爱尔兰',
+  '意大利': '意大利',
+  'Italy': '意大利',
+  '西班牙': '西班牙',
+  'Spain': '西班牙',
+  '罗马尼亚': '罗马尼亚',
+  'Romania': '罗马尼亚',
+  '卢森堡': '卢森堡',
+  'Luxembourg': '卢森堡',
+};
 
 const BILLING_CYCLES = [
   { key: '', label: '未知' },
@@ -229,15 +327,15 @@ const buildInstanceAddress = (instance: Pick<XuiInstance, 'baseUrl' | 'webBasePa
 
 /* Compact resource bar - inspired by Pika's design */
 const ResourceBar = ({ label, value, color }: { label: string; value: number; color: string }) => (
-  <div className="flex items-center gap-1.5 h-4 text-xs font-mono">
-    <span className="w-7 text-[10px] font-bold tracking-wider opacity-70 flex-shrink-0">{label}</span>
-    <div className="w-[80px] h-1.5 bg-default-200 dark:bg-default-100 relative overflow-hidden rounded-sm flex-shrink-0">
+  <div className="flex items-center gap-2 h-5 text-xs font-mono">
+    <span className="w-8 text-[11px] font-bold tracking-wider opacity-70 flex-shrink-0">{label}</span>
+    <div className="w-[90px] h-2 bg-default-200 dark:bg-default-100 relative overflow-hidden rounded-sm flex-shrink-0">
       <div
         className={`h-full transition-all duration-500 ease-out rounded-sm ${color}`}
         style={{ width: `${Math.min(value, 100)}%` }}
       />
     </div>
-    <span className={`w-9 text-right text-[11px] font-medium ${
+    <span className={`w-10 text-right text-xs font-medium ${
       value > 90 ? 'text-danger' : value > 75 ? 'text-warning' : 'text-default-600'
     }`}>{value.toFixed(0)}%</span>
   </div>
@@ -275,6 +373,9 @@ export default function AssetsPage() {
   const [provisionDualMode, setProvisionDualMode] = useState(false);
   const [provisionKomariId, setProvisionKomariId] = useState<string>('');
   const [provisionPikaId, setProvisionPikaId] = useState<string>('');
+  // Context when provisioning from an existing asset (single-probe deploy)
+  const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' } | null>(null);
+  const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
   const [dualProvisionResult, setDualProvisionResult] = useState<{
     komari?: MonitorProvisionResult; pika?: MonitorProvisionResult;
     komariError?: string; pikaError?: string; combinedCommand: string;
@@ -282,6 +383,9 @@ export default function AssetsPage() {
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
+  const [filterRegion, setFilterRegion] = useState<string>('');
+  const [filterOs, setFilterOs] = useState<string>('');
+  const [filterProvider, setFilterProvider] = useState<string>('');
 
   // XUI inline binding form
   const [xuiBindOpen, setXuiBindOpen] = useState(false);
@@ -289,8 +393,17 @@ export default function AssetsPage() {
   const [xuiBindLoading, setXuiBindLoading] = useState(false);
   // 1Panel inline binding
   const [panelBindOpen, setPanelBindOpen] = useState(false);
+  const [panelBindInput, setPanelBindInput] = useState('');
   // Tag input
   const [tagInput, setTagInput] = useState('');
+  // Batch selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchMode, setBatchMode] = useState(false);
+  const { isOpen: isBatchOpen, onOpen: onBatchOpen, onClose: onBatchClose } = useDisclosure();
+  const [batchField, setBatchField] = useState<string>('tags');
+  const [batchValue, setBatchValue] = useState<string>('');
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [geoLoading, setGeoLoading] = useState(false);
 
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
@@ -302,6 +415,16 @@ export default function AssetsPage() {
     if (!expandedAssetId) { setDetail(null); return; }
     void loadAssetDetail(expandedAssetId);
   }, [expandedAssetId]);
+
+  // ESC to exit batch mode
+  useEffect(() => {
+    if (!batchMode) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setBatchMode(false); setSelectedIds(new Set()); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [batchMode]);
 
   const summary = useMemo(() => {
     const online = assets.filter(a => a.monitorOnline === 1).length;
@@ -320,12 +443,15 @@ export default function AssetsPage() {
   const assetTagCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     assets.forEach(a => {
-      for (const src of [a.probeTags, a.tags]) {
-        if (!src) continue;
-        try { JSON.parse(src).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch {
-          src.split(/[;,]/).filter(Boolean).forEach(t => { const k = t.trim(); counts[k] = (counts[k] || 0) + 1; });
-        }
+      // Only use asset.tags (already merged from probes), avoid double counting
+      const src = a.tags;
+      if (!src) return;
+      const parsed: string[] = [];
+      try { parsed.push(...JSON.parse(src)); } catch {
+        parsed.push(...src.split(/[;,]/).map(t => t.trim()).filter(Boolean));
       }
+      // Deduplicate per-asset before counting
+      new Set(parsed).forEach(t => { counts[t] = (counts[t] || 0) + 1; });
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [assets]);
@@ -339,6 +465,24 @@ export default function AssetsPage() {
     return counts;
   }, [assets]);
 
+  const regionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => { const r = a.region || ''; counts[r] = (counts[r] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [assets]);
+
+  const osCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => { const o = a.osCategory || ''; counts[o] = (counts[o] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [assets]);
+
+  const providerCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => { const p = a.provider || ''; counts[p] = (counts[p] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [assets]);
+
   const filteredAssets = useMemo(() => {
     let list = assets;
     if (filterRole) {
@@ -347,13 +491,21 @@ export default function AssetsPage() {
     if (filterProbe) {
       list = list.filter(a => (a.probeSource || 'local') === filterProbe || (filterProbe === 'dual' && a.probeSource === 'dual'));
     }
+    if (filterRegion) {
+      list = list.filter(a => filterRegion === '_empty' ? !a.region : a.region === filterRegion);
+    }
+    if (filterOs) {
+      list = list.filter(a => filterOs === '_empty' ? !a.osCategory : a.osCategory === filterOs);
+    }
+    if (filterProvider) {
+      list = list.filter(a => filterProvider === '_empty' ? !a.provider : a.provider === filterProvider);
+    }
     if (filterTag) {
       list = list.filter(a => {
-        for (const src of [a.probeTags, a.tags]) {
-          if (!src) continue;
-          try { if (JSON.parse(src).includes(filterTag)) return true; } catch {
-            if (src.split(/[;,]/).map((t: string) => t.trim()).includes(filterTag)) return true;
-          }
+        const src = a.tags;
+        if (!src) return false;
+        try { if (JSON.parse(src).includes(filterTag)) return true; } catch {
+          if (src.split(/[;,]/).map((t: string) => t.trim()).includes(filterTag)) return true;
         }
         return false;
       });
@@ -361,12 +513,12 @@ export default function AssetsPage() {
     const kw = normalizeKeyword(searchKeyword);
     if (kw) {
       list = list.filter((item) =>
-        [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark, item.tags, item.probeTags]
+        [item.name, item.label, item.primaryIp, item.ipv6, item.environment, item.provider, item.region, item.role, item.os, item.osCategory, item.remark, item.tags, item.probeTags, item.cpuName, item.arch, item.virtualization, item.panelUrl, item.monthlyCost]
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
     return list;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -432,19 +584,40 @@ export default function AssetsPage() {
     toast.success(`已导入${isPika ? 'Pika' : 'Komari'}探针节点: ${node.name || node.ip}`);
   };
 
-  const openProvisionModal = async () => {
+  const openProvisionModal = async (ctx?: { assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' }) => {
     setProvisionStep('select');
-    setProvisionName('');
-    setProvisionInstanceId('');
     setProvisionResult(null);
-    setProvisionDualMode(false);
-    setProvisionKomariId('');
-    setProvisionPikaId('');
     setDualProvisionResult(null);
+    setProvisionSyncLoading(false);
+    setProvisionContext(ctx || null);
+
+    if (ctx) {
+      // Coming from asset context: pre-fill name, auto-select probe type
+      setProvisionName(ctx.assetName);
+      setProvisionDualMode(false);
+      setProvisionKomariId('');
+      setProvisionPikaId('');
+      setProvisionInstanceId('');
+    } else {
+      setProvisionName('');
+      setProvisionInstanceId('');
+      setProvisionDualMode(false);
+      setProvisionKomariId('');
+      setProvisionPikaId('');
+    }
+
     onProvisionOpen();
     try {
       const res = await getMonitorList();
-      if (res.code === 0) setMonitorInstances(res.data || []);
+      if (res.code === 0) {
+        const instances = res.data || [];
+        setMonitorInstances(instances);
+        // Auto-select first matching instance when coming from asset context
+        if (ctx && ctx.missingType !== 'any') {
+          const match = instances.find(i => i.type === ctx.missingType);
+          if (match) setProvisionInstanceId(match.id.toString());
+        }
+      }
     } catch { /* ignore */ }
   };
 
@@ -487,6 +660,33 @@ export default function AssetsPage() {
     }
   };
 
+  // After probe install, sync the instance to discover the new node
+  const handleProvisionSync = async () => {
+    // Determine which instance(s) to sync
+    const idsToSync: number[] = [];
+    if (provisionDualMode && dualProvisionResult) {
+      if (dualProvisionResult.komari) idsToSync.push(dualProvisionResult.komari.instanceId);
+      if (dualProvisionResult.pika) idsToSync.push(dualProvisionResult.pika.instanceId);
+    } else if (provisionResult) {
+      idsToSync.push(provisionResult.instanceId);
+    }
+    if (idsToSync.length === 0) { toast.error('没有可同步的实例'); return; }
+
+    setProvisionSyncLoading(true);
+    try {
+      let allOk = true;
+      for (const id of idsToSync) {
+        const res = await syncMonitorInstance(id);
+        if (res.code !== 0) { toast.error(res.msg || '同步失败'); allOk = false; }
+      }
+      if (allOk) {
+        toast.success('同步完成，新节点将自动关联到服务器资产');
+        void loadAssets();
+      }
+    } catch { toast.error('同步请求失败'); }
+    finally { setProvisionSyncLoading(false); }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => toast.success('已复制到剪贴板'));
   };
@@ -498,7 +698,7 @@ export default function AssetsPage() {
     setForm({
       id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
       ipv6: asset.ipv6 || '', environment: asset.environment || '', provider: asset.provider || '',
-      region: asset.region || '', role: asset.role || '', os: asset.os || '',
+      region: asset.region || '', role: asset.role || '', os: asset.os || '', osCategory: asset.osCategory || '',
       cpuCores: asset.cpuCores?.toString() || '', memTotalMb: asset.memTotalMb?.toString() || '',
       diskTotalGb: asset.diskTotalGb?.toString() || '', bandwidthMbps: asset.bandwidthMbps?.toString() || '',
       monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
@@ -536,6 +736,7 @@ export default function AssetsPage() {
         region: form.region.trim() || null,
         role: form.role || null,
         os: form.os.trim() || null,
+        osCategory: form.osCategory || null,
         cpuCores: form.cpuCores ? parseInt(form.cpuCores) : null,
         memTotalMb: form.memTotalMb ? parseInt(form.memTotalMb) : null,
         diskTotalGb: form.diskTotalGb ? parseInt(form.diskTotalGb) : null,
@@ -583,6 +784,103 @@ export default function AssetsPage() {
     finally { setActionLoadingId(null); }
   };
 
+  const toggleSelectId = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredAssets.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAssets.map(a => a.id)));
+    }
+  };
+
+  const openBatchModal = () => {
+    if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
+    setBatchField('tags');
+    setBatchValue('');
+    onBatchOpen();
+  };
+
+  const handleBatchGeolocate = async () => {
+    if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
+    const targets = filteredAssets.filter(a => selectedIds.has(a.id) && a.primaryIp);
+    if (targets.length === 0) { toast('所选资产都缺少 IP，无法匹配地区', { icon: '📍' }); return; }
+    setBatchLoading(true);
+    let matched = 0; let failed = 0;
+    try {
+      for (const asset of targets) {
+        try {
+          const res = await geolocateIp(asset.primaryIp!);
+          if (res.code === 0 && res.data?.country) {
+            const regionKey = COUNTRY_TO_REGION[res.data.country] || res.data.country;
+            const match = REGIONS.find(r => r.key === regionKey || r.label === regionKey);
+            if (match?.key) {
+              await batchUpdateAsset({ ids: [asset.id], field: 'region', value: match.key });
+              matched++;
+            } else { failed++; }
+          } else { failed++; }
+        } catch { failed++; }
+      }
+      toast.success(`已匹配 ${matched} 个，失败 ${failed} 个`);
+      setSelectedIds(new Set());
+      setBatchMode(false);
+      await loadAssets();
+    } catch { toast.error('批量匹配失败'); }
+    finally { setBatchLoading(false); }
+  };
+
+  const handleBatchUpdate = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchLoading(true);
+    try {
+      const payload: any = {
+        ids: Array.from(selectedIds),
+        field: batchField,
+        value: batchValue || '',
+      };
+      if (batchField === 'tags') payload.mode = 'merge';
+      const res = await batchUpdateAsset(payload);
+      if (res.code !== 0) { toast.error(res.msg || '操作失败'); return; }
+      toast.success(`已批量更新 ${selectedIds.size} 个资产`);
+      onBatchClose();
+      setSelectedIds(new Set());
+      setBatchMode(false);
+      await loadAssets();
+    } catch { toast.error('操作失败'); }
+    finally { setBatchLoading(false); }
+  };
+
+  const handleGeolocate = async () => {
+    const ip = form.primaryIp.trim();
+    if (!ip) { toast.error('请先填写 IP 地址'); return; }
+    setGeoLoading(true);
+    try {
+      const res = await geolocateIp(ip);
+      if (res.code === 0 && res.data) {
+        const country = res.data.country || '';
+        // Use mapping table first, then direct match
+        const regionKey = COUNTRY_TO_REGION[country] || country;
+        const match = REGIONS.find(r => r.key === regionKey || r.label === regionKey || r.label === country);
+        if (match && match.key) {
+          setForm(p => ({ ...p, region: match.key }));
+          const extra = [res.data.regionName, res.data.city, res.data.isp].filter(Boolean).join(' · ');
+          toast.success(`已识别: ${match.flag} ${match.label}${extra ? ` (${extra})` : ''}`);
+        } else {
+          toast(`国家: ${country}，未匹配预设地区，请手动选择`, { icon: '📍' });
+        }
+      } else {
+        toast.error(res.msg || 'IP 查询失败');
+      }
+    } catch { toast.error('IP 查询失败'); }
+    finally { setGeoLoading(false); }
+  };
+
   const openDetailModal = (assetId: number) => {
     setExpandedAssetId(assetId);
     onDetailOpen();
@@ -617,7 +915,14 @@ export default function AssetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button color="primary" size="sm" onPress={openProvisionModal}>添加服务器</Button>
+          <Button
+            variant={batchMode ? 'solid' : 'flat'} size="sm"
+            color={batchMode ? 'warning' : 'default'}
+            onPress={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
+          >
+            {batchMode ? '退出批量' : '批量操作'}
+          </Button>
+          <Button color="primary" size="sm" onPress={() => openProvisionModal()}>添加服务器</Button>
           <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
         </div>
       </div>
@@ -661,7 +966,7 @@ export default function AssetsPage() {
           size="sm"
           value={searchKeyword}
           onValueChange={setSearchKeyword}
-          placeholder="搜索名称、IP、供应商、地区..."
+          placeholder="搜索名称、IP、OS、供应商、地区、备注..."
           isClearable
           onClear={() => setSearchKeyword('')}
         />
@@ -702,10 +1007,90 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* Tag filter bar - Pika style */}
+      {/* Region / OS / Provider quick filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Region filter */}
+        {regionCounts.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">地区:</span>
+            <button onClick={() => setFilterRegion('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterRegion ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {regionCounts.filter(([r]) => r).map(([region, count]) => {
+              const flag = REGIONS.find(r => r.key === region)?.flag || '';
+              return (
+                <button key={region} onClick={() => setFilterRegion(filterRegion === region ? '' : region)}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                    filterRegion === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                  }`}>{flag}{region} ({count})</button>
+              );
+            })}
+            {regionCounts.some(([r]) => !r) && (
+              <button onClick={() => setFilterRegion(filterRegion === '_empty' ? '' : '_empty')}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                  filterRegion === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>未设置 ({regionCounts.find(([r]) => !r)?.[1]})</button>
+            )}
+          </div>
+        )}
+        {/* OS filter */}
+        {osCounts.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">系统:</span>
+            <button onClick={() => setFilterOs('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterOs ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {osCounts.filter(([o]) => o).map(([os, count]) => (
+              <button key={os} onClick={() => setFilterOs(filterOs === os ? '' : os)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterOs === os ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>{os} ({count})</button>
+            ))}
+            {osCounts.some(([o]) => !o) && (
+              <button onClick={() => setFilterOs(filterOs === '_empty' ? '' : '_empty')}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterOs === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>未知 ({osCounts.find(([o]) => !o)?.[1]})</button>
+            )}
+          </div>
+        )}
+        {/* Provider filter */}
+        {providerCounts.filter(([p]) => p).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">厂商:</span>
+            <button onClick={() => setFilterProvider('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterProvider ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {providerCounts.filter(([p]) => p).map(([provider, count]) => (
+              <button key={provider} onClick={() => setFilterProvider(filterProvider === provider ? '' : provider)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterProvider === provider ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>{provider} ({count})</button>
+            ))}
+            {providerCounts.some(([p]) => !p) && (
+              <button onClick={() => setFilterProvider(filterProvider === '_empty' ? '' : '_empty')}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterProvider === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>未设置 ({providerCounts.find(([p]) => !p)?.[1]})</button>
+            )}
+          </div>
+        )}
+        {/* Active filter count indicator + clear all */}
+        {(filterRegion || filterOs || filterProvider || filterTag || filterRole || filterProbe) && (
+          <button onClick={() => { setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterTag(''); setFilterRole(null); setFilterProbe(''); }}
+            className="rounded-full px-2.5 py-0.5 text-[10px] font-bold text-danger border border-danger/30 hover:bg-danger-50 transition-all cursor-pointer ml-auto">
+            清除所有筛选
+          </button>
+        )}
+      </div>
+
+      {/* Tag filter bar */}
       {assetTagCounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">FILTERS:</span>
+          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">标签:</span>
           <button
             onClick={() => setFilterTag('')}
             className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
@@ -721,6 +1106,25 @@ export default function AssetsPage() {
               {tag.toUpperCase()} ({count})
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Batch action bar */}
+      {batchMode && (
+        <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-50/50 dark:bg-warning-50/10 px-4 py-2">
+          <span className="text-sm font-semibold text-warning-700 dark:text-warning-400">
+            已选 {selectedIds.size} / {filteredAssets.length}
+          </span>
+          <Button size="sm" variant="flat" onPress={toggleSelectAll}>
+            {selectedIds.size === filteredAssets.length ? '取消全选' : '全选'}
+          </Button>
+          <div className="flex-1" />
+          <Button size="sm" variant="flat" isDisabled={selectedIds.size === 0} isLoading={batchLoading} onPress={handleBatchGeolocate}>
+            📍 批量匹配地区
+          </Button>
+          <Button size="sm" color="primary" isDisabled={selectedIds.size === 0} onPress={openBatchModal}>
+            批量修改
+          </Button>
         </div>
       )}
 
@@ -740,12 +1144,20 @@ export default function AssetsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-divider/60 bg-default-50/80">
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[220px]">服务器</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[80px]">探针</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[180px]">遥测</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[130px]">流量/到期</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[130px]">标签</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[80px]">关联</th>
+                    {batchMode && (
+                      <th className="px-2 py-3 w-[40px]">
+                        <input type="checkbox" className="h-4 w-4 rounded accent-primary cursor-pointer"
+                          checked={selectedIds.size === filteredAssets.length && filteredAssets.length > 0}
+                          onChange={toggleSelectAll} />
+                      </th>
+                    )}
+                    <th className="px-4 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[260px]">服务器</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[90px]">探针</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[200px]">遥测</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">流量/到期</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">标签</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[90px]">关联</th>
+                    <th className="px-3 py-3 text-right text-[11px] font-bold tracking-widest text-default-400 uppercase w-[100px]">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -759,21 +1171,28 @@ export default function AssetsPage() {
                     return (
                       <tr
                         key={asset.id}
-                        className="border-b border-divider/40 hover:bg-primary-50/40 dark:hover:bg-primary-50/10 transition-colors cursor-pointer group"
-                        onClick={() => openDetailModal(asset.id)}
+                        className={`border-b border-divider/40 hover:bg-primary-50/40 dark:hover:bg-primary-50/10 transition-colors cursor-pointer group ${batchMode && selectedIds.has(asset.id) ? 'bg-primary-50/30 dark:bg-primary-50/5' : ''}`}
+                        onClick={() => batchMode ? toggleSelectId(asset.id) : openDetailModal(asset.id)}
                       >
+                        {batchMode && (
+                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" className="h-4 w-4 rounded accent-primary cursor-pointer"
+                              checked={selectedIds.has(asset.id)}
+                              onChange={() => toggleSelectId(asset.id)} />
+                          </td>
+                        )}
                         {/* Server identity */}
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${
                               isOnline ? 'bg-success animate-pulse' : hasMonitor ? 'bg-danger' : 'bg-default-300'
                             }`} />
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                {getRegionFlag(asset.region) && <span className="text-sm flex-shrink-0">{getRegionFlag(asset.region)}</span>}
-                                <span className="truncate font-semibold text-sm">{asset.name}</span>
+                                {getRegionFlag(asset.region) && <span className="text-base flex-shrink-0">{getRegionFlag(asset.region)}</span>}
+                                <span className="truncate font-semibold text-[15px]">{asset.name}</span>
                                 {roleChip && (
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                     roleChip.color === 'primary' ? 'bg-primary-100 text-primary dark:bg-primary/20' :
                                     roleChip.color === 'warning' ? 'bg-warning-100 text-warning dark:bg-warning/20' :
                                     roleChip.color === 'success' ? 'bg-success-100 text-success dark:bg-success/20' :
@@ -781,31 +1200,31 @@ export default function AssetsPage() {
                                   }`}>{roleChip.text}</span>
                                 )}
                               </div>
-                              <p className="truncate text-[11px] text-default-400 font-mono">
+                              <p className="truncate text-xs text-default-400 font-mono mt-0.5">
                                 {asset.primaryIp || '-'}
-                                {asset.os ? <span className="ml-1 opacity-60">/ {asset.os}</span> : null}
+                                {(asset.osCategory || asset.os) ? <span className="ml-1.5 opacity-60">/ {asset.osCategory || asset.os}</span> : null}
                               </p>
                             </div>
                           </div>
                         </td>
 
                         {/* Probe source + sync time */}
-                        <td className="px-3 py-2.5">
-                          <div className="space-y-0.5">
+                        <td className="px-3 py-3">
+                          <div className="space-y-1">
                             {asset.probeSource === 'dual' ? (
                               <div className="flex gap-1">
-                                <Chip size="sm" variant="flat" color="primary" className="h-4 text-[8px]">K</Chip>
-                                <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[8px]">P</Chip>
+                                <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">K</Chip>
+                                <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">P</Chip>
                               </div>
                             ) : asset.probeSource === 'komari' ? (
-                              <Chip size="sm" variant="flat" color="primary" className="h-4 text-[8px]">Komari</Chip>
+                              <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">Komari</Chip>
                             ) : asset.probeSource === 'pika' ? (
-                              <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[8px]">Pika</Chip>
+                              <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">Pika</Chip>
                             ) : (
-                              <span className="text-[10px] text-default-300">本地</span>
+                              <span className="text-xs text-default-300">本地</span>
                             )}
                             {asset.monitorLastSyncAt && (
-                              <p className="text-[9px] text-default-400 font-mono">
+                              <p className="text-[10px] text-default-400 font-mono">
                                 {new Date(asset.monitorLastSyncAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
                               </p>
                             )}
@@ -813,30 +1232,30 @@ export default function AssetsPage() {
                         </td>
 
                         {/* Telemetry - CPU/MEM bars + Net */}
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-3">
                           {hasMonitor && isOnline ? (
-                            <div className="space-y-0.5">
+                            <div className="space-y-1">
                               <ResourceBar label="CPU" value={cpu} color={barColorClass(cpu)} />
                               <ResourceBar label="MEM" value={memPct} color={barColorClass(memPct)} />
-                              <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
+                              <div className="flex items-center gap-2 text-xs text-default-400 font-mono">
                                 <span className="text-success">&#x2193;{formatSpeed(asset.monitorNetIn)}</span>
                                 <span className="text-primary">&#x2191;{formatSpeed(asset.monitorNetOut)}</span>
                               </div>
                             </div>
                           ) : hasMonitor ? (
-                            <span className="text-[11px] text-danger font-mono">离线</span>
+                            <span className="text-xs text-danger font-mono font-semibold">离线</span>
                           ) : (
-                            <span className="text-[11px] text-default-300 font-mono">-</span>
+                            <span className="text-xs text-default-300 font-mono">-</span>
                           )}
                         </td>
 
                         {/* Traffic & Expire */}
-                        <td className="px-3 py-2.5">
-                          <div className="space-y-0.5">
+                        <td className="px-3 py-3">
+                          <div className="space-y-1">
                             {asset.probeTrafficLimit && asset.probeTrafficLimit > 0 ? (
-                              <div className="text-[10px] font-mono">
-                                <span className="text-default-500">{formatFlow(asset.probeTrafficUsed)}</span>
-                                <span className="text-default-300"> / {formatFlow(asset.probeTrafficLimit)}</span>
+                              <div className="text-xs font-mono">
+                                <span className="text-default-600">{formatFlow(asset.probeTrafficUsed)}</span>
+                                <span className="text-default-400"> / {formatFlow(asset.probeTrafficLimit)}</span>
                               </div>
                             ) : null}
                             {(asset.probeExpiredAt && asset.probeExpiredAt > 0) || asset.expireDate ? (() => {
@@ -846,52 +1265,80 @@ export default function AssetsPage() {
                               const isExpired = days < 0;
                               const isSoon = days >= 0 && days <= 30;
                               return (
-                                <p className={`text-[10px] font-mono ${isExpired ? 'text-danger' : isSoon ? 'text-warning' : 'text-default-500'}`}>
-                                  {new Date(expiry).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                                <p className={`text-xs font-mono ${isExpired ? 'text-danger font-semibold' : isSoon ? 'text-warning font-semibold' : 'text-default-500'}`}>
+                                  {new Date(expiry).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}
                                   {isExpired ? ' 已过期' : ` ${days}天`}
                                 </p>
                               );
                             })() : (
-                              <span className="text-[10px] text-default-300">-</span>
+                              <span className="text-xs text-default-300">-</span>
                             )}
                           </div>
                         </td>
 
                         {/* Tags */}
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-wrap gap-0.5">
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
                             {(() => {
-                              const tagSrc = asset.probeTags || asset.tags;
-                              if (!tagSrc) return <span className="text-[10px] text-default-300">-</span>;
+                              const tagSrc = asset.tags;
+                              if (!tagSrc) return <span className="text-xs text-default-300">-</span>;
                               try {
                                 const arr = JSON.parse(tagSrc);
                                 if (Array.isArray(arr) && arr.length > 0) {
                                   return arr.slice(0, 3).map((t: string) => (
-                                    <span key={t} className="px-1 py-0.5 rounded bg-default-100 text-[9px] text-default-500">{t}</span>
+                                    <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t}</span>
                                   ));
                                 }
                               } catch { /* not JSON */ }
                               return tagSrc.split(/[;,]/).filter(Boolean).slice(0, 3).map((t: string) => (
-                                <span key={t} className="px-1 py-0.5 rounded bg-default-100 text-[9px] text-default-500">{t.trim()}</span>
+                                <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t.trim()}</span>
                               ));
                             })()}
                           </div>
                         </td>
 
                         {/* Integration links */}
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1 text-[11px] font-mono text-default-400">
+                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap items-center gap-1 text-xs">
                             {asset.totalXuiInstances > 0 && (
-                              <span className="px-1 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[9px]">
-                                {asset.totalXuiInstances}XUI
-                              </span>
+                              <button type="button" onClick={() => navigate('/xui')}
+                                className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[11px] font-semibold hover:bg-primary-100 transition-colors cursor-pointer">
+                                {asset.totalXuiInstances} XUI
+                              </button>
+                            )}
+                            {asset.panelUrl && (
+                              <a href={asset.panelUrl} target="_blank" rel="noopener noreferrer"
+                                className="px-1.5 py-0.5 rounded bg-success-50 text-success dark:bg-success/10 text-[11px] font-semibold hover:bg-success-100 transition-colors no-underline">
+                                1Panel
+                              </a>
                             )}
                             {asset.totalForwards > 0 && (
-                              <span className="px-1 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[9px]">
-                                {asset.totalForwards}转发
-                              </span>
+                              <button type="button" onClick={() => navigate('/forward')}
+                                className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[11px] font-semibold hover:bg-secondary-100 transition-colors cursor-pointer">
+                                {asset.totalForwards} 转发
+                              </button>
                             )}
-                            {!asset.totalXuiInstances && !asset.totalForwards && '-'}
+                            {!asset.totalXuiInstances && !asset.panelUrl && !asset.totalForwards && (
+                              <span className="text-default-300 font-mono">-</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button type="button"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-default-200 text-[11px] font-medium text-default-600 hover:bg-default-100 hover:border-default-300 transition-all cursor-pointer"
+                              onClick={() => openDetailModal(asset.id)}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                              查看
+                            </button>
+                            <button type="button"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-primary-200 text-[11px] font-medium text-primary hover:bg-primary-50 hover:border-primary-300 transition-all cursor-pointer"
+                              onClick={() => openEditModal(asset)}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              编辑
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -981,6 +1428,79 @@ export default function AssetsPage() {
               <ModalBody className="space-y-4">
                 {detailLoading && <div className="flex justify-center py-4"><Spinner /></div>}
 
+                {/* Quick Links - XUI / 1Panel / Forwards (top of modal for quick access) */}
+                {((detail?.xuiInstances && detail.xuiInstances.length > 0) || selectedAsset.panelUrl || (detail?.forwards && detail.forwards.length > 0)) && (
+                  <div className="rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-3">
+                    <p className="text-[10px] font-bold tracking-widest text-primary-600 dark:text-primary-400 uppercase">快捷入口</p>
+
+                    {/* XUI Instances - clickable to actual backend URL */}
+                    {detail?.xuiInstances && detail.xuiInstances.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-default-500 mb-1.5">X-UI 实例</p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {detail.xuiInstances.map((inst) => {
+                            const syncChip = getStatusChip(inst.lastSyncStatus);
+                            const instUrl = buildInstanceAddress(inst);
+                            return (
+                              <a key={inst.id} href={instUrl} target="_blank" rel="noopener noreferrer"
+                                className="rounded-xl border border-divider/60 bg-content1 p-3 text-left transition-all hover:border-primary/40 hover:shadow-sm block no-underline">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="truncate font-semibold text-sm">{inst.name}</p>
+                                    <p className="truncate text-[11px] text-primary font-mono">{instUrl}</p>
+                                  </div>
+                                  <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
+                                </div>
+                                <div className="mt-2 flex gap-3 text-[11px] text-default-500 font-mono">
+                                  <span>{inst.inboundCount || 0} 入站</span>
+                                  <span>{inst.clientCount || 0} 客户端</span>
+                                </div>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 1Panel + Forwards row */}
+                    <div className="flex flex-wrap gap-2">
+                      {selectedAsset.panelUrl && (
+                        <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-2 text-xs font-medium transition-all hover:border-primary/40 hover:shadow-sm no-underline">
+                          <span className="text-primary font-semibold flex-shrink-0">1Panel</span>
+                          <span className="text-default-400 font-mono break-all">{selectedAsset.panelUrl}</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Forwards */}
+                    {detail?.forwards && detail.forwards.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-default-500 mb-1.5">转发规则</p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {detail.forwards.map((item) => (
+                            <button type="button" key={item.id} onClick={() => navigate('/forward')}
+                              className="rounded-xl border border-divider/60 bg-content1 p-2.5 text-left transition-all hover:border-primary/40 text-xs cursor-pointer">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate font-medium">{item.name}</span>
+                                <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
+                                  {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
+                                </Chip>
+                              </div>
+                              <p className="mt-1 text-[11px] text-default-400 font-mono truncate">
+                                {item.tunnelName ? `${item.tunnelName} -> ` : ''}{item.remoteAddr}
+                              </p>
+                              {item.remoteSourceLabel && (
+                                <Chip size="sm" variant="flat" color="secondary" className="mt-1">{item.remoteSourceLabel}</Chip>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Info Cards Grid */}
                 <div className="grid gap-3 md:grid-cols-3">
                   {/* Server Info */}
@@ -1044,6 +1564,24 @@ export default function AssetsPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Protocol Summary */}
+                {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">协议</p>
+                    <div className="flex flex-wrap gap-2">
+                      {detail.protocolSummaries.map((p) => (
+                        <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
+                          <span className="font-bold uppercase">{p.protocol}</span>
+                          <span className="ml-2 text-default-400 font-mono">
+                            {p.inboundCount} 入站 / {p.clientCount} 客户端 ({p.onlineClientCount} 在线)
+                          </span>
+                          {p.allTime ? <span className="ml-2 text-default-400 font-mono">{formatFlow(p.allTime)}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {selectedAsset.remark && (
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-xs">
@@ -1189,78 +1727,6 @@ export default function AssetsPage() {
                     </div>
                   </div>
                 )}
-
-                {/* X-UI Instances */}
-                {detail?.xuiInstances && detail.xuiInstances.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">X-UI 实例</p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {detail.xuiInstances.map((inst) => {
-                        const syncChip = getStatusChip(inst.lastSyncStatus);
-                        return (
-                          <button type="button" key={inst.id} onClick={() => navigate('/xui')}
-                            className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-left transition-all hover:border-primary/40">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold text-sm">{inst.name}</p>
-                                <p className="truncate text-[11px] text-default-400 font-mono">{buildInstanceAddress(inst)}</p>
-                              </div>
-                              <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
-                            </div>
-                            <div className="mt-2 flex gap-3 text-[11px] text-default-500 font-mono">
-                              <span>{inst.inboundCount || 0} 入站</span>
-                              <span>{inst.clientCount || 0} 客户端</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Protocol Summary */}
-                {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">协议</p>
-                    <div className="flex flex-wrap gap-2">
-                      {detail.protocolSummaries.map((p) => (
-                        <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
-                          <span className="font-bold uppercase">{p.protocol}</span>
-                          <span className="ml-2 text-default-400 font-mono">
-                            {p.inboundCount} 入站 / {p.clientCount} 客户端 ({p.onlineClientCount} 在线)
-                          </span>
-                          {p.allTime ? <span className="ml-2 text-default-400 font-mono">{formatFlow(p.allTime)}</span> : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Forwards */}
-                {detail?.forwards && detail.forwards.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">转发规则</p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {detail.forwards.map((item) => (
-                        <button type="button" key={item.id} onClick={() => navigate('/forward')}
-                          className="rounded-xl border border-divider/60 bg-default-50/60 p-2.5 text-left transition-all hover:border-primary/40 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-medium">{item.name}</span>
-                            <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
-                              {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
-                            </Chip>
-                          </div>
-                          <p className="mt-1 text-[11px] text-default-400 font-mono truncate">
-                            {item.tunnelName ? `${item.tunnelName} -> ` : ''}{item.remoteAddr}
-                          </p>
-                          {item.remoteSourceLabel && (
-                            <Chip size="sm" variant="flat" color="secondary" className="mt-1">{item.remoteSourceLabel}</Chip>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 {/* Quick Action Hints */}
                 {(() => {
                   const hasK = !!selectedAsset.monitorNodeUuid;
@@ -1270,7 +1736,11 @@ export default function AssetsPage() {
                   const hints: { label: string; action: () => void; color: 'warning' | 'secondary' }[] = [];
                   if (!hasK || !hasP) hints.push({
                     label: `缺少${!hasK && !hasP ? '探针' : !hasK ? 'Komari' : 'Pika'}探针`,
-                    action: () => { onDetailClose(); openProvisionModal(); },
+                    action: () => {
+                      const missingType: 'komari' | 'pika' | 'any' = !hasK && !hasP ? 'any' : !hasK ? 'komari' : 'pika';
+                      onDetailClose();
+                      openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, missingType });
+                    },
                     color: 'warning',
                   });
                   if (!hasXui) hints.push({
@@ -1300,9 +1770,6 @@ export default function AssetsPage() {
               <ModalFooter className="flex-wrap gap-1">
                 <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>
                 <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>
-                {selectedAsset.panelUrl && (
-                  <Button size="sm" variant="flat" as="a" href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer">1Panel</Button>
-                )}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
@@ -1363,14 +1830,28 @@ export default function AssetsPage() {
                     <div className="grid gap-4 md:grid-cols-4">
                       <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
                         onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
-                      <Select label="地区" selectedKeys={form.region ? [form.region] : []}
-                        onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
-                        {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
+                      <div className="flex items-end gap-1">
+                        <Select label="地区" className="flex-1" selectedKeys={form.region ? [form.region] : []}
+                          onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
+                          {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
+                        </Select>
+                        <Button size="sm" variant="flat" isLoading={geoLoading} isDisabled={!form.primaryIp.trim()}
+                          className="h-[40px] min-w-[40px] px-2" onPress={handleGeolocate} title="根据 IP 自动识别地区">
+                          📍
+                        </Button>
+                      </div>
+                      <Select label="操作系统" selectedKeys={form.osCategory ? [form.osCategory] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, osCategory: Array.from(keys)[0]?.toString() || '' }))}
+                        description={hasBoundProbe ? '探针自动分类' : undefined}>
+                        {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                       </Select>
-                      <Input label="环境" placeholder="生产 / 测试" value={form.environment}
-                        onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
                       <Input label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
                         onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <Input label="环境" placeholder="生产 / 测试" value={form.environment}
+                        onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
                     </div>
 
                     <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
@@ -1465,6 +1946,36 @@ export default function AssetsPage() {
                         />
                       </div>
                       <p className="text-[10px] text-default-400 mt-1">回车添加，Backspace 删除末尾</p>
+                      {assetTagCounts.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {assetTagCounts.map(([tag]) => {
+                            let currentTags: string[] = [];
+                            try { currentTags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                              currentTags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                            }
+                            const isActive = currentTags.includes(tag);
+                            return (
+                              <button key={tag} type="button"
+                                className={`px-2 py-0.5 rounded-full text-[10px] border transition-all cursor-pointer ${
+                                  isActive
+                                    ? 'border-primary bg-primary-100 text-primary dark:bg-primary/20'
+                                    : 'border-divider text-default-400 hover:border-primary/40'
+                                }`}
+                                onClick={() => {
+                                  if (isActive) {
+                                    const newTags = currentTags.filter(t => t !== tag);
+                                    setForm(p => ({ ...p, tags: newTags.length > 0 ? JSON.stringify(newTags) : '' }));
+                                  } else {
+                                    currentTags.push(tag);
+                                    setForm(p => ({ ...p, tags: JSON.stringify(currentTags) }));
+                                  }
+                                }}>
+                                {tag}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     <Textarea label="备注" value={form.remark}
@@ -1619,7 +2130,11 @@ export default function AssetsPage() {
                       )}
                       {(!hasKomari || !hasPika) && (
                         <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
-                          onPress={() => { onFormClose(); openProvisionModal(); }}>
+                          onPress={() => {
+                            const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
+                            onFormClose();
+                            openProvisionModal({ assetId: editingAsset.id, assetName: editingAsset.name, missingType });
+                          }}>
                           部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
                         </Button>
                       )}
@@ -1682,6 +2197,7 @@ export default function AssetsPage() {
                                   managementMode: 'observe',
                                   syncEnabled: 1,
                                   syncIntervalMinutes: 30,
+                                  allowInsecureTls: 1,
                                 });
                                 if (res.code === 0) {
                                   toast.success('X-UI 绑定成功，将自动同步');
@@ -1721,7 +2237,7 @@ export default function AssetsPage() {
                         <>
                           <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
-                            onPress={() => setPanelBindOpen(!panelBindOpen)}>
+                            onPress={() => { if (!panelBindOpen) setPanelBindInput(''); setPanelBindOpen(!panelBindOpen); }}>
                             {panelBindOpen ? '收起' : '绑定地址'}
                           </Button>
                         </>
@@ -1732,11 +2248,14 @@ export default function AssetsPage() {
                       <div className="ml-18 flex items-end gap-2">
                         <Input size="sm" label="1Panel 地址" className="flex-1"
                           placeholder={`https://${editingAsset.primaryIp || '1.2.3.4'}:19382`}
-                          value={form.panelUrl}
-                          onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))} />
-                        <Button size="sm" color="primary" className="flex-shrink-0"
-                          isDisabled={!form.panelUrl}
-                          onPress={() => { setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
+                          value={panelBindInput}
+                          onValueChange={setPanelBindInput}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); }
+                          }} />
+                        <Button size="sm" color="primary" className="flex-shrink-0" type="button"
+                          isDisabled={!panelBindInput || panelBindInput.length < 10}
+                          onPress={() => { setForm(p => ({ ...p, panelUrl: panelBindInput })); setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
                           确定
                         </Button>
                       </div>
@@ -1787,22 +2306,38 @@ export default function AssetsPage() {
       {/* Provision Modal */}
       <Modal isOpen={isProvisionOpen} onOpenChange={(open) => !open && onProvisionClose()} size="2xl">
         <ModalContent>
-          <ModalHeader>添加服务器</ModalHeader>
+          <ModalHeader>
+            {provisionContext
+              ? `为「${provisionContext.assetName}」部署${provisionContext.missingType === 'any' ? '' : provisionContext.missingType === 'komari' ? ' Komari' : ' Pika'}探针`
+              : '添加服务器'}
+          </ModalHeader>
           <ModalBody>
             {provisionStep === 'select' ? (
               <div className="space-y-4">
+                {/* Context hint */}
+                {provisionContext && (
+                  <div className="rounded-lg border border-primary/20 bg-primary-50/40 dark:bg-primary-50/5 p-3 text-xs text-default-600">
+                    {provisionContext.missingType === 'any'
+                      ? '该服务器尚未绑定任何探针，请选择探针实例并部署。'
+                      : `该服务器缺少 ${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 探针，已自动筛选对应类型的实例。`}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-default-500">
                     {provisionDualMode
                       ? '同时部署 Komari + Pika 双探针，获得更完整的监控覆盖。'
                       : '选择探针实例，创建客户端并生成安装命令。'}
                   </p>
-                  <Switch size="sm" isSelected={provisionDualMode} onValueChange={(v) => {
-                    setProvisionDualMode(v);
-                    setProvisionInstanceId(''); setProvisionKomariId(''); setProvisionPikaId('');
-                  }}>
-                    <span className="text-xs whitespace-nowrap">双探针</span>
-                  </Switch>
+                  {/* Hide dual-mode toggle when deploying a specific missing probe type */}
+                  {(!provisionContext || provisionContext.missingType === 'any') && (
+                    <Switch size="sm" isSelected={provisionDualMode} onValueChange={(v) => {
+                      setProvisionDualMode(v);
+                      setProvisionInstanceId(''); setProvisionKomariId(''); setProvisionPikaId('');
+                    }}>
+                      <span className="text-xs whitespace-nowrap">双探针</span>
+                    </Switch>
+                  )}
                 </div>
 
                 {provisionDualMode ? (
@@ -1843,38 +2378,55 @@ export default function AssetsPage() {
                   </>
                 ) : (
                   <>
-                    <Select
-                      label="探针实例"
-                      placeholder="选择探针实例"
-                      selectedKeys={provisionInstanceId ? [provisionInstanceId] : []}
-                      onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
-                    >
-                      {monitorInstances.map(inst => (
-                        <SelectItem key={inst.id.toString()}>
-                          <span className="flex items-center gap-2">
-                            <span className={`inline-block w-2 h-2 rounded-full ${inst.type === 'komari' ? 'bg-primary' : 'bg-secondary'}`} />
-                            {inst.name} ({inst.baseUrl})
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </Select>
-                    {monitorInstances.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
-                        暂无探针实例。请先在
-                        <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
-                          {' '}探针管理{' '}
-                        </span>
-                        中添加实例。
-                      </div>
-                    )}
+                    {(() => {
+                      // Filter instances by context probe type
+                      const filteredInstances = provisionContext && provisionContext.missingType !== 'any'
+                        ? monitorInstances.filter(i => i.type === provisionContext.missingType)
+                        : monitorInstances;
+                      return (
+                        <>
+                          <Select
+                            label={provisionContext && provisionContext.missingType !== 'any'
+                              ? `${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 实例`
+                              : '探针实例'}
+                            placeholder="选择探针实例"
+                            selectedKeys={provisionInstanceId ? [provisionInstanceId] : []}
+                            onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
+                          >
+                            {filteredInstances.map(inst => (
+                              <SelectItem key={inst.id.toString()} textValue={`${inst.name} (${inst.baseUrl})`}>
+                                <span className="flex items-center gap-2">
+                                  <span className={`inline-block w-2 h-2 rounded-full ${inst.type === 'komari' ? 'bg-primary' : 'bg-secondary'}`} />
+                                  {inst.name} ({inst.baseUrl})
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </Select>
+                          {filteredInstances.length === 0 && (
+                            <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
+                              {provisionContext && provisionContext.missingType !== 'any'
+                                ? `暂无 ${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 类型的探针实例。`
+                                : '暂无探针实例。'}
+                              请先在
+                              <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
+                                {' '}探针管理{' '}
+                              </span>
+                              中添加实例。
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </>
                 )}
 
                 <Input
-                  label="服务器名称（可选）"
-                  placeholder="例如 HK-VPS-01，留空自动生成"
+                  label={provisionContext ? '服务器名称' : '服务器名称（可选）'}
+                  placeholder="例如 HK-VPS-01"
                   value={provisionName}
                   onValueChange={setProvisionName}
+                  isRequired={!!provisionContext}
+                  description={provisionContext ? '探针节点将使用此名称，确保与资产名称一致以便自动关联' : '留空将自动生成随机名称'}
                 />
               </div>
             ) : provisionDualMode && dualProvisionResult ? (
@@ -1966,9 +2518,13 @@ export default function AssetsPage() {
                   </Accordion>
                 )}
 
-                <p className="text-xs text-default-400">
-                  安装完成后，前往探针管理点击「同步」，系统将自动发现新节点并创建服务器资产。
-                </p>
+                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
+                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync}>
+                    手动同步
+                  </Button>
+                  <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
+                </div>
               </div>
             ) : (
               /* Single-mode result */
@@ -2013,9 +2569,13 @@ export default function AssetsPage() {
                   </AccordionItem>
                 </Accordion>
 
-                <p className="text-xs text-default-400">
-                  安装完成后，前往探针管理点击「同步」，系统将自动发现新节点并创建服务器资产。
-                </p>
+                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
+                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync}>
+                    手动同步
+                  </Button>
+                  <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
+                </div>
               </div>
             )}
           </ModalBody>
@@ -2024,7 +2584,10 @@ export default function AssetsPage() {
               <>
                 <Button variant="flat" onPress={onProvisionClose}>取消</Button>
                 <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
-                  isDisabled={provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId}>
+                  isDisabled={
+                    (provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId) ||
+                    (!!provisionContext && !provisionName.trim())
+                  }>
                   {provisionDualMode ? '创建双探针' : '创建并生成命令'}
                 </Button>
               </>
@@ -2038,6 +2601,100 @@ export default function AssetsPage() {
                 <Button color="primary" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
               </>
             )}
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Batch Edit Modal */}
+      <Modal isOpen={isBatchOpen} onOpenChange={(open) => !open && onBatchClose()} size="lg">
+        <ModalContent>
+          <ModalHeader>批量修改 ({selectedIds.size} 个资产)</ModalHeader>
+          <ModalBody className="space-y-4">
+            <Select
+              label="修改字段"
+              selectedKeys={[batchField]}
+              onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setBatchField(v); setBatchValue(''); }}
+            >
+              <SelectItem key="tags">标签</SelectItem>
+              <SelectItem key="region">地区</SelectItem>
+              <SelectItem key="environment">环境</SelectItem>
+              <SelectItem key="provider">供应商</SelectItem>
+              <SelectItem key="role">角色</SelectItem>
+              <SelectItem key="osCategory">操作系统类别</SelectItem>
+              <SelectItem key="monthlyCost">费用</SelectItem>
+              <SelectItem key="currency">货币</SelectItem>
+              <SelectItem key="billingCycle">付费周期</SelectItem>
+              <SelectItem key="bandwidthMbps">带宽 (Mbps)</SelectItem>
+              <SelectItem key="monthlyTrafficGb">月流量 (GB)</SelectItem>
+              <SelectItem key="sshPort">SSH端口</SelectItem>
+              <SelectItem key="remark">备注</SelectItem>
+            </Select>
+
+            {batchField === 'region' ? (
+              <Select label="地区" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {REGIONS.map(r => <SelectItem key={r.key}>{r.flag} {r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'role' ? (
+              <Select label="角色" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'osCategory' ? (
+              <Select label="操作系统类别" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'currency' ? (
+              <Select label="货币" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {CURRENCIES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'billingCycle' ? (
+              <Select label="付费周期" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {BILLING_CYCLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'tags' ? (
+              <div className="space-y-2">
+                <Input label="添加标签 (逗号分隔)" value={batchValue}
+                  onValueChange={setBatchValue} placeholder="标签1,标签2" />
+                {assetTagCounts.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-default-400 mb-1">点击已有标签快速添加:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {assetTagCounts.map(([tag]) => (
+                        <button key={tag} type="button"
+                          className={`px-2 py-0.5 rounded-full text-[11px] border transition-all cursor-pointer ${
+                            batchValue.split(',').map(t => t.trim()).includes(tag)
+                              ? 'border-primary bg-primary-100 text-primary dark:bg-primary/20'
+                              : 'border-divider text-default-500 hover:border-primary/40'
+                          }`}
+                          onClick={() => {
+                            const current = batchValue.split(',').map(t => t.trim()).filter(Boolean);
+                            if (current.includes(tag)) {
+                              setBatchValue(current.filter(t => t !== tag).join(','));
+                            } else {
+                              setBatchValue([...current, tag].join(','));
+                            }
+                          }}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-default-400">批量标签使用「合并」模式，不会覆盖已有标签</p>
+              </div>
+            ) : (
+              <Input label="新值" value={batchValue} onValueChange={setBatchValue} />
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={onBatchClose}>取消</Button>
+            <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate}>
+              确认修改
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

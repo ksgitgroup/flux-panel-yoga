@@ -31,14 +31,29 @@ LOW_SPACE_MB=2048 scripts/build_docker.sh
 git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 ```
 
+## 并行协作（Claude + Codex）
+
+当前有两个 AI 代理并行开发，使用 Git worktree 隔离：
+
+| Agent | 工作目录 | 分支 | 职责 |
+|-------|---------|------|------|
+| Claude Code | `/flux-panel-yoga` (原目录) | `dev` | 监控/资产/看板/前端 |
+| Codex | `/flux-panel-yoga-codex-iam` (worktree) | `codex/iam-rbac-dingtalk` | IAM 权限角色 + 钉钉登录 |
+
+**规则：**
+- Claude **不要修改** Codex 正在开发的 IAM/RBAC 相关代码（`sys_user`/`sys_role`/`sys_permission` 表、`/api/auth` 端点、钉钉集成、`SecurityConfig`）
+- 合并顺序：功能分支先 `git rebase origin/dev` 再 `merge --no-ff` 到 dev
+- 查看 worktree: `git worktree list`
+
 ## 冲突热点
 
 修改以下文件时保持 diff 精简，不要混合重构和功能：
 - `MonitorServiceImpl.java`（~1600行，同步核心）
 - `AssetHostServiceImpl.java`
-- `DatabaseInitService.java`（Auto-DDL）
+- `DatabaseInitService.java`（Auto-DDL，Codex 也会加表）
 - `assets.tsx`（~2800行）
 - `server-dashboard.tsx`
+- `pom.xml` / `package.json`（依赖变更需协调）
 
 ## 架构边界
 

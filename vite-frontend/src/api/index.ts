@@ -539,3 +539,4 @@ export interface DashboardNodesResponse {
   offline: number;
 }
 export const getMonitorDashboard = () => Network.post<DashboardNodesResponse>("/monitor/dashboard");
+export const deleteMonitorNode = (id: number) => Network.post("/monitor/delete-node", { id });

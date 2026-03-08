@@ -7,12 +7,14 @@ import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Button } from "@heroui/button";
 import {
-  Modal, ModalContent, ModalHeader, ModalBody, useDisclosure
+  Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure
 } from "@heroui/modal";
+import toast from 'react-hot-toast';
 
 import {
   MonitorNodeSnapshot,
   getMonitorDashboard,
+  deleteMonitorNode,
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -102,15 +104,15 @@ export default function ServerDashboardPage() {
     onDetailOpen();
   };
 
-  // Collect all unique tags for filter dropdown
-  const allTags = useMemo(() => {
-    const tagSet = new Set<string>();
+  // Collect all unique tags with counts
+  const tagCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
     nodes.forEach(n => {
       if (n.tags) {
-        try { JSON.parse(n.tags).forEach((t: string) => tagSet.add(t)); } catch { /* ignore */ }
+        try { JSON.parse(n.tags).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch { /* ignore */ }
       }
     });
-    return Array.from(tagSet).sort();
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [nodes]);
 
   // Count by probe type
@@ -221,18 +223,49 @@ export default function ServerDashboardPage() {
           ))}
         </div>
 
-        <div className="flex-1 min-w-[200px] ml-auto max-w-xs flex gap-2">
-          {allTags.length > 0 && (
-            <select value={tagFilter} onChange={e => setTagFilter(e.target.value)}
-              className="h-8 rounded-lg border border-divider/60 bg-content1 text-xs px-2 min-w-[100px]">
-              <option value="">全部标签</option>
-              {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
-            </select>
-          )}
+        <div className="flex-1 min-w-[200px] ml-auto max-w-xs">
           <Input size="sm" placeholder="搜索服务器..." value={search} onValueChange={setSearch}
             isClearable onClear={() => setSearch('')} className="flex-1" />
         </div>
       </div>
+
+      {/* Tag filter bar - Pika style */}
+      {tagCounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">FILTERS:</span>
+          <button
+            onClick={() => setTagFilter('')}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+              !tagFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+            }`}>
+            ALL ({nodes.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter(statusFilter === 'online' ? 'all' : 'online')}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+              statusFilter === 'online' ? 'border-success bg-success-100/60 text-success dark:bg-success/20' : 'border-divider text-default-500 hover:border-success/40'
+            }`}>
+            ONLINE ({summary.online})
+          </button>
+          {summary.offline > 0 && (
+            <button
+              onClick={() => setStatusFilter(statusFilter === 'offline' ? 'all' : 'offline')}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                statusFilter === 'offline' ? 'border-danger bg-danger-100/60 text-danger dark:bg-danger/20' : 'border-divider text-default-500 hover:border-danger/40'
+              }`}>
+              OFFLINE ({summary.offline})
+            </button>
+          )}
+          {tagCounts.map(([tag, count]) => (
+            <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                tagFilter === tag ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>
+              {tag.toUpperCase()} ({count})
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Loading */}
       {loading ? (
@@ -556,6 +589,26 @@ export default function ServerDashboardPage() {
                     </div>
                   )}
                 </ModalBody>
+                <ModalFooter>
+                  <Button size="sm" variant="flat" color="danger"
+                    onPress={async () => {
+                      if (!confirm(`确定删除探针节点「${selectedNode.name || selectedNode.remoteNodeUuid?.slice(0, 8)}」？此操作会同时解除与资产的绑定。`)) return;
+                      try {
+                        const res = await deleteMonitorNode(selectedNode.id);
+                        if (res.code === 0) {
+                          toast.success('已删除探针节点');
+                          onDetailClose();
+                          fetchData(false);
+                        } else {
+                          toast.error(res.msg || '删除失败');
+                        }
+                      } catch { toast.error('删除失败'); }
+                    }}>
+                    删除此节点
+                  </Button>
+                  <Button size="sm" variant="flat" onPress={() => { onDetailClose(); navigate('/assets'); }}>资产</Button>
+                  <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
+                </ModalFooter>
               </>
             );
           })()}

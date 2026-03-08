@@ -27,6 +27,7 @@ import {
   XuiInstance,
   createAsset,
   deleteAsset,
+  deleteMonitorNode,
   getAssetDetail,
   getAssetList,
   getMonitorList,
@@ -230,17 +231,17 @@ export default function AssetsPage() {
     };
   }, [assets]);
 
-  const allAssetTags = useMemo(() => {
-    const tagSet = new Set<string>();
+  const assetTagCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
     assets.forEach(a => {
       for (const src of [a.probeTags, a.tags]) {
         if (!src) continue;
-        try { JSON.parse(src).forEach((t: string) => tagSet.add(t)); } catch {
-          src.split(/[;,]/).filter(Boolean).forEach(t => tagSet.add(t.trim()));
+        try { JSON.parse(src).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch {
+          src.split(/[;,]/).filter(Boolean).forEach(t => { const k = t.trim(); counts[k] = (counts[k] || 0) + 1; });
         }
       }
     });
-    return Array.from(tagSet).sort();
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [assets]);
 
   const roleFilters = useMemo(() => {
@@ -570,25 +571,40 @@ export default function AssetsPage() {
             );
           })}
         </div>
-        {/* Probe type + Tag filters */}
-        <div className="flex gap-2 ml-auto">
-          <select value={filterProbe} onChange={e => setFilterProbe(e.target.value)}
-            className="h-7 rounded-lg border border-divider/60 bg-content1 text-[11px] px-2">
-            <option value="">全部探针</option>
-            <option value="local">本地</option>
-            <option value="komari">Komari</option>
-            <option value="pika">Pika</option>
-            <option value="dual">双探针</option>
-          </select>
-          {allAssetTags.length > 0 && (
-            <select value={filterTag} onChange={e => setFilterTag(e.target.value)}
-              className="h-7 rounded-lg border border-divider/60 bg-content1 text-[11px] px-2 max-w-[120px]">
-              <option value="">全部标签</option>
-              {allAssetTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
-            </select>
-          )}
+        {/* Probe type filters */}
+        <div className="flex gap-1 ml-auto">
+          {[{ v: '', l: '全部探针' }, { v: 'komari', l: 'Komari' }, { v: 'pika', l: 'Pika' }, { v: 'dual', l: '双探针' }, { v: 'local', l: '本地' }].map(({ v, l }) => (
+            <button key={v} onClick={() => setFilterProbe(filterProbe === v ? '' : v)}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                filterProbe === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>
+              {l}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* Tag filter bar - Pika style */}
+      {assetTagCounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">FILTERS:</span>
+          <button
+            onClick={() => setFilterTag('')}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+              !filterTag ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+            }`}>
+            ALL ({assets.length})
+          </button>
+          {assetTagCounts.map(([tag, count]) => (
+            <button key={tag} onClick={() => setFilterTag(filterTag === tag ? '' : tag)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                filterTag === tag ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>
+              {tag.toUpperCase()} ({count})
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Main Server Table (desktop) / Card Grid (mobile) */}
       {filteredAssets.length === 0 ? (
@@ -926,7 +942,26 @@ export default function AssetsPage() {
                                   {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
                                 </Chip>
                               </div>
-                              <span className="text-[10px] font-mono text-default-400">v{node.version || '?'}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono text-default-400">v{node.version || '?'}</span>
+                                <button
+                                  className="text-[10px] text-danger hover:text-danger-600 cursor-pointer"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!confirm(`删除探针节点「${node.name || node.remoteNodeUuid.slice(0, 8)}」？`)) return;
+                                    try {
+                                      const res = await deleteMonitorNode(node.id);
+                                      if (res.code === 0) {
+                                        toast.success('已删除');
+                                        if (expandedAssetId) void loadAssetDetail(expandedAssetId);
+                                        void loadAssets();
+                                      } else toast.error(res.msg || '删除失败');
+                                    } catch { toast.error('删除失败'); }
+                                  }}
+                                  title="删除此探针节点">
+                                  &times;
+                                </button>
+                              </div>
                             </div>
                             {/* 同步时间 */}
                             <div className="flex items-center justify-between mb-1.5 text-[10px] text-default-400 font-mono">
@@ -1134,107 +1169,176 @@ export default function AssetsPage() {
             )}
 
             {/* Section: Local Config (user-editable) */}
-            <div className="rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-4 space-y-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Chip size="sm" variant="flat" color="primary">本地配置</Chip>
-                <span className="text-[11px] text-default-400">手动维护的资产信息</span>
-              </div>
+            {(() => {
+              const hasBoundProbe = !!(form.monitorNodeUuid || form.pikaNodeId);
+              return (
+                <>
+                  <div className="rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-4 space-y-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Chip size="sm" variant="flat" color="primary">本地配置</Chip>
+                      <span className="text-[11px] text-default-400">可直接编辑</span>
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <Input label="名称" placeholder="HK-VPS-01" value={form.name}
-                  onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
-                <Input label="主 IP / 域名" value={form.primaryIp}
-                  onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
-                <Select label="角色" selectedKeys={form.role ? [form.role] : []}
-                  onSelectionChange={(keys) => setForm(p => ({ ...p, role: Array.from(keys)[0]?.toString() || '' }))}>
-                  {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
-                </Select>
-              </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <Input label="名称" placeholder="HK-VPS-01" value={form.name}
+                        onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
+                      <Input label="主 IP / 域名" value={form.primaryIp}
+                        onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
+                      <Select label="角色" selectedKeys={form.role ? [form.role] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, role: Array.from(keys)[0]?.toString() || '' }))}>
+                        {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+                      </Select>
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
-                  onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
-                <Input label="地区" placeholder="香港" value={form.region}
-                  onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
-                <Input label="环境" placeholder="生产 / 测试" value={form.environment}
-                  onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
-              </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
+                        onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
+                      <Input label="地区" placeholder="香港" value={form.region}
+                        onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
+                      <Input label="环境" placeholder="生产 / 测试" value={form.environment}
+                        onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <Input label="到期日期" type="date" value={form.expireDate}
-                  onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
-                <Input label="月费" value={form.monthlyCost}
-                  onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
-                <Select label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
-                  onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
-                  {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
-                </Select>
-              </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <Input label="到期日期" type="date" value={form.expireDate}
+                        onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
+                      <Input label="月费" value={form.monthlyCost}
+                        onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
+                      <Select label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
+                        {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                      </Select>
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
-                  onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
-                <Input label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
-                  onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
-              </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
+                        onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
+                      <Input label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
+                        onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
+                      <Input label="标签 (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
+                        onValueChange={(v) => setForm(p => ({ ...p, tags: v }))}
+                        description="手动标签，JSON 数组格式" />
+                    </div>
 
-              <Textarea label="备注" value={form.remark}
-                onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} minRows={2} />
-            </div>
+                    <Textarea label="备注" value={form.remark}
+                      onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} minRows={2} />
+                  </div>
 
-            {/* Section: Probe-synced fields */}
-            <div className="rounded-xl border border-secondary/20 bg-secondary-50/30 dark:bg-secondary-50/5 p-4 space-y-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Chip size="sm" variant="flat" color="secondary">探针同步</Chip>
-                <span className="text-[11px] text-default-400">
-                  {(form.monitorNodeUuid || form.pikaNodeId)
-                    ? `已绑定${form.monitorNodeUuid && form.pikaNodeId ? '双探针 (Komari + Pika)' : form.monitorNodeUuid ? 'Komari 探针' : 'Pika 探针'}，以下字段会在同步时自动覆盖（探针 → Flux 单向同步）`
-                    : '绑定探针后可自动同步，也可手动填写'}
-                </span>
-              </div>
+                  {/* Section: Probe-synced fields */}
+                  <div className="rounded-xl border border-secondary/20 bg-secondary-50/30 dark:bg-secondary-50/5 p-4 space-y-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Chip size="sm" variant="flat" color="secondary">探针同步</Chip>
+                      <span className="text-[11px] text-default-400">
+                        {hasBoundProbe
+                          ? `已绑定${form.monitorNodeUuid && form.pikaNodeId ? '双探针 (Komari + Pika)' : form.monitorNodeUuid ? 'Komari' : 'Pika'}，同步时自动覆盖`
+                          : '绑定探针后可自动同步，也可手动填写'}
+                      </span>
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Input label="操作系统" placeholder="Ubuntu 22" value={form.os}
-                  onValueChange={(v) => setForm(p => ({ ...p, os: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="CPU 核心" type="number" value={form.cpuCores}
-                  onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="内存 (MB)" type="number" value={form.memTotalMb}
-                  onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="硬盘 (GB)" type="number" value={form.diskTotalGb}
-                  onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-              </div>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <Input label="操作系统" placeholder="Ubuntu 22" value={form.os}
+                        onValueChange={(v) => setForm(p => ({ ...p, os: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="CPU 核心" type="number" value={form.cpuCores}
+                        onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="内存 (MB)" type="number" value={form.memTotalMb}
+                        onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="硬盘 (GB)" type="number" value={form.diskTotalGb}
+                        onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Input label="CPU 型号" placeholder="AMD EPYC 7543" value={form.cpuName}
-                  onValueChange={(v) => setForm(p => ({ ...p, cpuName: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="架构" placeholder="amd64" value={form.arch}
-                  onValueChange={(v) => setForm(p => ({ ...p, arch: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="虚拟化" placeholder="kvm / lxc" value={form.virtualization}
-                  onValueChange={(v) => setForm(p => ({ ...p, virtualization: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="Swap (MB)" type="number" value={form.swapTotalMb}
-                  onValueChange={(v) => setForm(p => ({ ...p, swapTotalMb: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-              </div>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <Input label="CPU 型号" placeholder="AMD EPYC 7543" value={form.cpuName}
+                        onValueChange={(v) => setForm(p => ({ ...p, cpuName: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="架构" placeholder="amd64" value={form.arch}
+                        onValueChange={(v) => setForm(p => ({ ...p, arch: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="虚拟化" placeholder="kvm / lxc" value={form.virtualization}
+                        onValueChange={(v) => setForm(p => ({ ...p, virtualization: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="Swap (MB)" type="number" value={form.swapTotalMb}
+                        onValueChange={(v) => setForm(p => ({ ...p, swapTotalMb: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <Input label="内核版本" placeholder="6.1.0-13-amd64" value={form.kernelVersion}
-                  onValueChange={(v) => setForm(p => ({ ...p, kernelVersion: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="GPU" placeholder="NVIDIA RTX 4090" value={form.gpuName}
-                  onValueChange={(v) => setForm(p => ({ ...p, gpuName: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-                <Input label="IPv6" value={form.ipv6}
-                  onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))}
-                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
-              </div>
-            </div>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      <Input label="内核版本" placeholder="6.1.0-13-amd64" value={form.kernelVersion}
+                        onValueChange={(v) => setForm(p => ({ ...p, kernelVersion: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="GPU" placeholder="NVIDIA RTX 4090" value={form.gpuName}
+                        onValueChange={(v) => setForm(p => ({ ...p, gpuName: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                      <Input label="IPv6" value={form.ipv6}
+                        onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))}
+                        isReadOnly={hasBoundProbe} description={hasBoundProbe ? '探针自动同步' : undefined} />
+                    </div>
+                  </div>
+
+                  {/* Section: Probe-only read-only info (only shown in edit mode with bound probe) */}
+                  {isEdit && hasBoundProbe && (
+                    <div className="rounded-xl border border-default/30 bg-default-50/50 dark:bg-default-50/5 p-4 space-y-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Chip size="sm" variant="flat" color="default">探针数据</Chip>
+                        <span className="text-[11px] text-default-400">以下字段来自探针，不可编辑（下次同步时自动更新）</span>
+                      </div>
+                      {(() => {
+                        const editingAsset = assets.find(a => a.id === form.id);
+                        if (!editingAsset) return null;
+                        return (
+                          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 text-xs">
+                            {editingAsset.probeTrafficLimit && editingAsset.probeTrafficLimit > 0 && (
+                              <div className="flex justify-between border-b border-divider/30 pb-1">
+                                <span className="text-default-400">流量配额</span>
+                                <span className="font-mono">{formatFlow(editingAsset.probeTrafficUsed)} / {formatFlow(editingAsset.probeTrafficLimit)}</span>
+                              </div>
+                            )}
+                            {editingAsset.probeExpiredAt && editingAsset.probeExpiredAt > 0 && (
+                              <div className="flex justify-between border-b border-divider/30 pb-1">
+                                <span className="text-default-400">探针到期</span>
+                                <span className={`font-mono ${editingAsset.probeExpiredAt < Date.now() ? 'text-danger' : ''}`}>
+                                  {new Date(editingAsset.probeExpiredAt).toLocaleDateString('zh-CN')}
+                                  {editingAsset.probeExpiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((editingAsset.probeExpiredAt - Date.now()) / 86400000)}天)`}
+                                </span>
+                              </div>
+                            )}
+                            {editingAsset.monitorLastSyncAt && (
+                              <div className="flex justify-between border-b border-divider/30 pb-1">
+                                <span className="text-default-400">上次同步</span>
+                                <span className="font-mono">{new Date(editingAsset.monitorLastSyncAt).toLocaleString('zh-CN', { hour12: false })}</span>
+                              </div>
+                            )}
+                            {editingAsset.probeSource && (
+                              <div className="flex justify-between border-b border-divider/30 pb-1">
+                                <span className="text-default-400">数据来源</span>
+                                <span className="font-mono">{editingAsset.probeSource === 'dual' ? 'Komari + Pika' : editingAsset.probeSource}</span>
+                              </div>
+                            )}
+                            {editingAsset.probeTags && (
+                              <div className="col-span-full flex items-center gap-2 border-b border-divider/30 pb-1">
+                                <span className="text-default-400 flex-shrink-0">探针标签</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {(() => {
+                                    try {
+                                      return JSON.parse(editingAsset.probeTags).map((t: string) => (
+                                        <Chip key={t} size="sm" variant="flat" className="h-4 text-[9px]">{t}</Chip>
+                                      ));
+                                    } catch { return <span className="font-mono">{editingAsset.probeTags}</span>; }
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Section: Advanced / Linking */}
             <Accordion variant="light" className="-mx-1">
@@ -1251,23 +1355,14 @@ export default function AssetsPage() {
                   </div>
 
                   <p className="text-xs font-medium text-default-400">关联探针</p>
-                  <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-4 md:grid-cols-2">
                     <Input label="Komari 节点 UUID" placeholder="绑定后自动同步指标" value={form.monitorNodeUuid}
                       onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))}
                       description="Komari 探针 UUID" />
                     <Input label="Pika 节点 ID" placeholder="绑定后自动同步指标" value={form.pikaNodeId}
                       onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))}
                       description="Pika 探针 Agent ID" />
-                    <Input label="标签 (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
-                      onValueChange={(v) => setForm(p => ({ ...p, tags: v }))} />
                   </div>
-                  {(form.monitorNodeUuid || form.pikaNodeId) && (
-                    <p className="text-[11px] text-default-400 mt-1">
-                      {form.monitorNodeUuid && form.pikaNodeId
-                        ? '已绑定双探针 (Komari + Pika)，同步时两个探针数据可交叉验证'
-                        : form.monitorNodeUuid ? '已绑定 Komari 探针' : '已绑定 Pika 探针'}
-                    </p>
-                  )}
                 </div>
               </AccordionItem>
             </Accordion>

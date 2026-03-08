@@ -258,6 +258,33 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return R.ok(result);
     }
 
+    @Override
+    public R deleteNodeSnapshot(Long nodeId) {
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) {
+            return R.err("探针节点不存在");
+        }
+        // Unlink from asset if bound
+        if (node.getAssetId() != null) {
+            AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+            if (asset != null) {
+                if (node.getRemoteNodeUuid() != null && node.getRemoteNodeUuid().equals(asset.getMonitorNodeUuid())) {
+                    asset.setMonitorNodeUuid("");
+                    assetHostMapper.updateById(asset);
+                }
+                if (node.getRemoteNodeUuid() != null && node.getRemoteNodeUuid().equals(asset.getPikaNodeId())) {
+                    asset.setPikaNodeId("");
+                    assetHostMapper.updateById(asset);
+                }
+            }
+        }
+        // Delete metrics then node
+        monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
+                .eq(MonitorMetricLatest::getNodeSnapshotId, nodeId));
+        monitorNodeSnapshotMapper.deleteById(nodeId);
+        return R.ok("已删除探针节点");
+    }
+
     // ==================== Core Sync Logic (Komari) ====================
 
     private Map<String, Object> performSync(MonitorInstance instance) {

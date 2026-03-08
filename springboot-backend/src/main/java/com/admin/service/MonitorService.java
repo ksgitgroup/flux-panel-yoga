@@ -32,4 +32,6 @@ public interface MonitorService extends IService<MonitorInstance> {
     R provisionAgent(MonitorProvisionDto dto);
 
     R getDashboardNodes();
+
+    R deleteNodeSnapshot(Long nodeId);
 }

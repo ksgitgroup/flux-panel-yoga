@@ -88,4 +88,11 @@ public class MonitorController extends BaseController {
     public R dashboard() {
         return monitorService.getDashboardNodes();
     }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/delete-node")
+    public R deleteNode(@Validated @RequestBody MonitorInstanceIdDto dto) {
+        return monitorService.deleteNodeSnapshot(dto.getId());
+    }
 }

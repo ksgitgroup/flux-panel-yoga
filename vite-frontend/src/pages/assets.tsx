@@ -518,7 +518,7 @@ export default function AssetsPage() {
             }`}
             onClick={() => setFilterRole(null)}
           >
-            ALL ({assets.length})
+            全部 ({assets.length})
           </button>
           {Object.entries(roleFilters).map(([role, count]) => {
             const roleInfo = getRoleChip(role === 'none' ? null : role);
@@ -553,12 +553,12 @@ export default function AssetsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-divider/60 bg-default-50/80">
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[220px]">Server</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[200px]">Telemetry</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">Network</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">Provider</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">Expire</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">Links</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[220px]">服务器</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[200px]">遥测</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">网络</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">厂商</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">到期</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">关联</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -638,7 +638,7 @@ export default function AssetsPage() {
                         <td className="px-3 py-2.5">
                           <p className="truncate text-xs">{asset.provider || '-'}</p>
                           {asset.monthlyCost && (
-                            <p className="text-[11px] text-default-400 font-mono">{asset.monthlyCost} {asset.currency || ''}/mo</p>
+                            <p className="text-[11px] text-default-400 font-mono">{asset.monthlyCost} {asset.currency || ''}/月</p>
                           )}
                         </td>
 
@@ -659,7 +659,7 @@ export default function AssetsPage() {
                             )}
                             {asset.totalForwards > 0 && (
                               <span className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10">
-                                {asset.totalForwards} FWD
+                                {asset.totalForwards} 转发
                               </span>
                             )}
                             {!asset.totalXuiInstances && !asset.totalForwards && '-'}
@@ -723,7 +723,7 @@ export default function AssetsPage() {
                     <span>{asset.provider || '-'}{asset.monthlyCost ? ` / ${asset.monthlyCost}${asset.currency || ''}` : ''}</span>
                     <div className="flex gap-1.5">
                       {asset.totalXuiInstances > 0 && <span>{asset.totalXuiInstances} XUI</span>}
-                      {asset.totalForwards > 0 && <span>{asset.totalForwards} FWD</span>}
+                      {asset.totalForwards > 0 && <span>{asset.totalForwards} 转发</span>}
                     </div>
                   </div>
                 </button>
@@ -933,7 +933,7 @@ export default function AssetsPage() {
                 {/* Protocol Summary */}
                 {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Protocols</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">协议</p>
                     <div className="flex flex-wrap gap-2">
                       {detail.protocolSummaries.map((p) => (
                         <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">

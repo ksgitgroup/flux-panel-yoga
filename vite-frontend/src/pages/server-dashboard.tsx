@@ -68,6 +68,8 @@ export default function ServerDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika'>('all');
+  const [tagFilter, setTagFilter] = useState<string>('');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -100,10 +102,38 @@ export default function ServerDashboardPage() {
     onDetailOpen();
   };
 
+  // Collect all unique tags for filter dropdown
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    nodes.forEach(n => {
+      if (n.tags) {
+        try { JSON.parse(n.tags).forEach((t: string) => tagSet.add(t)); } catch { /* ignore */ }
+      }
+    });
+    return Array.from(tagSet).sort();
+  }, [nodes]);
+
+  // Count by probe type
+  const probeCounts = useMemo(() => {
+    const counts = { komari: 0, pika: 0 };
+    nodes.forEach(n => {
+      if (n.instanceType === 'pika') counts.pika++;
+      else counts.komari++;
+    });
+    return counts;
+  }, [nodes]);
+
   const filteredNodes = useMemo(() => {
     let list = nodes;
     if (statusFilter === 'online') list = list.filter(n => n.online === 1);
     else if (statusFilter === 'offline') list = list.filter(n => n.online !== 1);
+    if (probeFilter !== 'all') list = list.filter(n => (n.instanceType || 'komari') === probeFilter);
+    if (tagFilter) {
+      list = list.filter(n => {
+        if (!n.tags) return false;
+        try { return JSON.parse(n.tags).includes(tagFilter); } catch { return false; }
+      });
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(n =>
@@ -111,11 +141,12 @@ export default function ServerDashboardPage() {
         (n.ip || '').toLowerCase().includes(q) ||
         (n.region || '').toLowerCase().includes(q) ||
         (n.assetName || '').toLowerCase().includes(q) ||
-        (n.instanceName || '').toLowerCase().includes(q)
+        (n.instanceName || '').toLowerCase().includes(q) ||
+        (n.tags || '').toLowerCase().includes(q)
       );
     }
     return list;
-  }, [nodes, search, statusFilter]);
+  }, [nodes, search, statusFilter, probeFilter, tagFilter]);
 
   if (!admin) {
     return (
@@ -176,9 +207,30 @@ export default function ServerDashboardPage() {
           <p className={`text-2xl font-bold font-mono ${summary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offline}</p>
         </button>
 
-        <div className="flex-1 min-w-[200px] ml-auto max-w-xs">
+        {/* Probe type filter */}
+        <div className="flex gap-1 ml-2">
+          {(['all', 'komari', 'pika'] as const).map(t => (
+            <button key={t} onClick={() => setProbeFilter(t)}
+              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${
+                probeFilter === t
+                  ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
+                  : 'border-divider/60 bg-content1 text-default-500 hover:border-primary/40'
+              }`}>
+              {t === 'all' ? '全部探针' : t === 'komari' ? `Komari (${probeCounts.komari})` : `Pika (${probeCounts.pika})`}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 min-w-[200px] ml-auto max-w-xs flex gap-2">
+          {allTags.length > 0 && (
+            <select value={tagFilter} onChange={e => setTagFilter(e.target.value)}
+              className="h-8 rounded-lg border border-divider/60 bg-content1 text-xs px-2 min-w-[100px]">
+              <option value="">全部标签</option>
+              {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
+          )}
           <Input size="sm" placeholder="搜索服务器..." value={search} onValueChange={setSearch}
-            isClearable onClear={() => setSearch('')} />
+            isClearable onClear={() => setSearch('')} className="flex-1" />
         </div>
       </div>
 
@@ -230,11 +282,11 @@ export default function ServerDashboardPage() {
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                    {node.instanceName && (
-                      <span className="text-[9px] text-default-400 font-mono truncate max-w-[80px]">{node.instanceName}</span>
-                    )}
+                    <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
+                      {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                    </Chip>
                     {node.assetName && (
-                      <Chip size="sm" variant="flat" color="primary" className="h-5">{node.assetName}</Chip>
+                      <span className="text-[9px] text-default-400 font-mono truncate max-w-[80px]">{node.assetName}</span>
                     )}
                   </div>
                 </div>
@@ -285,6 +337,17 @@ export default function ServerDashboardPage() {
                       </span>
                       <span>{formatUptime(m.uptime)}</span>
                     </div>
+                    {/* Traffic quota bar */}
+                    {node.trafficLimit != null && node.trafficLimit > 0 && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
+                        <span className="flex-shrink-0">流量</span>
+                        <div className="flex-1 h-1 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
+                          <div className={`h-full rounded-sm ${(node.trafficUsed || 0) / node.trafficLimit > 0.9 ? 'bg-danger' : 'bg-primary'}`}
+                            style={{ width: `${Math.min(((node.trafficUsed || 0) / node.trafficLimit) * 100, 100)}%` }} />
+                        </div>
+                        <span className="flex-shrink-0">{formatBytes(node.trafficUsed)} / {formatBytes(node.trafficLimit)}</span>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="py-3 text-center">
@@ -313,12 +376,21 @@ export default function ServerDashboardPage() {
               <>
                 <ModalHeader className="flex items-center gap-3 pb-2">
                   <span className={`inline-block h-3 w-3 rounded-full ${isOnline ? 'bg-success animate-pulse' : 'bg-danger'}`} />
-                  <div className="min-w-0">
-                    <p className="text-lg font-bold">{selectedNode.name || selectedNode.remoteNodeUuid?.slice(0, 8)}</p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-lg font-bold">{selectedNode.name || selectedNode.remoteNodeUuid?.slice(0, 8)}</p>
+                      <Chip size="sm" variant="flat" color={selectedNode.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-5">
+                        {selectedNode.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                      </Chip>
+                    </div>
                     <p className="text-xs font-normal text-default-400 font-mono">
                       {selectedNode.ip || '-'}
                       {selectedNode.ipv6 ? ` / ${selectedNode.ipv6}` : ''}
                       {selectedNode.region ? ` / ${selectedNode.region}` : ''}
+                    </p>
+                    <p className="text-[10px] font-normal text-default-400 font-mono mt-0.5">
+                      同步: {selectedNode.lastSyncAt ? new Date(selectedNode.lastSyncAt).toLocaleString('zh-CN', { hour12: false }) : '-'}
+                      {m?.sampledAt ? ` · 采样: ${new Date(m.sampledAt).toLocaleString('zh-CN', { hour12: false })}` : ''}
                     </p>
                   </div>
                 </ModalHeader>
@@ -354,7 +426,31 @@ export default function ServerDashboardPage() {
                         {selectedNode.instanceName && <p className="flex justify-between"><span className="text-default-400">探针</span><span>{selectedNode.instanceName}</span></p>}
                         {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">资产</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate('/assets'); }}>{selectedNode.assetName}</Chip></p>}
                         {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">价格</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}</span></p>}
-                        {selectedNode.trafficLimit != null && <p className="flex justify-between"><span className="text-default-400">流量</span><span className="font-mono">{formatBytes(selectedNode.trafficLimit)}</span></p>}
+                        {selectedNode.trafficLimit != null && selectedNode.trafficLimit > 0 && (
+                          <p className="flex justify-between"><span className="text-default-400">流量配额</span><span className="font-mono">{formatBytes(selectedNode.trafficUsed)} / {formatBytes(selectedNode.trafficLimit)}</span></p>
+                        )}
+                        {selectedNode.trafficResetDay != null && selectedNode.trafficResetDay > 0 && (
+                          <p className="flex justify-between"><span className="text-default-400">重置日</span><span className="font-mono">每月{selectedNode.trafficResetDay}日</span></p>
+                        )}
+                        {selectedNode.expiredAt != null && selectedNode.expiredAt > 0 && (
+                          <p className="flex justify-between">
+                            <span className="text-default-400">到期</span>
+                            <span className={`font-mono ${selectedNode.expiredAt < Date.now() ? 'text-danger' : ''}`}>
+                              {new Date(selectedNode.expiredAt).toLocaleDateString('zh-CN')}
+                              {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
+                            </span>
+                          </p>
+                        )}
+                        {selectedNode.tags && (() => {
+                          try {
+                            const tags = JSON.parse(selectedNode.tags);
+                            return tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {tags.map((t: string) => <Chip key={t} size="sm" variant="flat" className="h-4 text-[9px]">{t}</Chip>)}
+                              </div>
+                            );
+                          } catch { return null; }
+                        })()}
                       </div>
                     </div>
                   </div>

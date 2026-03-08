@@ -819,7 +819,7 @@ export default function AssetsPage() {
                 {/* Probe Monitor Metrics */}
                 {detail?.monitorNodes && detail.monitorNodes.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">探针指标</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">探针指标 ({detail.monitorNodes.length} 个探针节点)</p>
                     <div className="grid gap-3 md:grid-cols-2">
                       {detail.monitorNodes.map((node: MonitorNodeSnapshot) => {
                         const m = node.latestMetric;
@@ -834,8 +834,16 @@ export default function AssetsPage() {
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className={`inline-block h-2 w-2 rounded-full ${node.online === 1 ? 'bg-success animate-pulse' : 'bg-danger'}`} />
                                 <span className="truncate font-semibold text-sm">{node.name || node.remoteNodeUuid.slice(0, 8)}</span>
+                                <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
+                                  {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                                </Chip>
                               </div>
                               <span className="text-[10px] font-mono text-default-400">v{node.version || '?'}</span>
+                            </div>
+                            {/* 同步时间 */}
+                            <div className="flex items-center justify-between mb-1.5 text-[10px] text-default-400 font-mono">
+                              <span>采样: {m?.sampledAt ? new Date(m.sampledAt).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
+                              <span>同步: {node.lastSyncAt ? new Date(node.lastSyncAt).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
                             </div>
 
                             {m && node.online === 1 ? (
@@ -890,6 +898,18 @@ export default function AssetsPage() {
                                   <span>&#x2193; {formatFlow(m.netTotalDown)}</span>
                                   <span>&#x2191; {formatFlow(m.netTotalUp)}</span>
                                 </div>
+                                {/* Traffic quota (Pika) */}
+                                {node.trafficLimit && node.trafficLimit > 0 && (
+                                  <div className="flex items-center gap-1.5 pt-0.5">
+                                    <span className="text-[10px] text-default-400 font-mono">
+                                      流量配额: {formatFlow(node.trafficUsed)} / {formatFlow(node.trafficLimit)}
+                                      {node.trafficResetDay ? ` (每月${node.trafficResetDay}日重置)` : ''}
+                                    </span>
+                                    <Progress size="sm" value={node.trafficLimit > 0 ? ((node.trafficUsed || 0) / node.trafficLimit * 100) : 0}
+                                      color={node.trafficLimit > 0 && (node.trafficUsed || 0) / node.trafficLimit > 0.9 ? 'danger' : 'primary'}
+                                      className="flex-1 max-w-20" aria-label="Traffic" />
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <div className="text-[11px] text-danger font-mono py-2">连接断开</div>
@@ -901,6 +921,13 @@ export default function AssetsPage() {
                               {node.virtualization && <p>VIRT: {node.virtualization}</p>}
                               {node.kernelVersion && <p className="truncate">Kernel: {node.kernelVersion}</p>}
                               {node.gpuName && <p className="truncate">GPU: {node.gpuName}</p>}
+                              {node.expiredAt && node.expiredAt > 0 && (
+                                <p className={`${node.expiredAt < Date.now() ? 'text-danger' : ''}`}>
+                                  到期: {new Date(node.expiredAt).toLocaleDateString('zh-CN')}
+                                  {node.expiredAt < Date.now() ? ' (已过期)' : ` (剩余${Math.ceil((node.expiredAt - Date.now()) / 86400000)}天)`}
+                                </p>
+                              )}
+                              {node.tags && <p className="truncate">标签: {(() => { try { return JSON.parse(node.tags).join(', '); } catch { return node.tags; } })()}</p>}
                             </div>
                           </div>
                         );

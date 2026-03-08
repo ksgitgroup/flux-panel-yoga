@@ -67,6 +67,10 @@ public class MonitorNodeSnapshot extends BaseEntity {
 
     private String trafficLimitType;
 
+    private Long trafficUsed;
+
+    private Integer trafficResetDay;
+
     private Integer online;
 
     private Long lastActiveAt;

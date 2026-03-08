@@ -11,6 +11,8 @@ public class MonitorNodeSnapshotViewDto {
 
     private String instanceName;
 
+    private String instanceType;
+
     private String remoteNodeUuid;
 
     private Long assetId;
@@ -66,6 +68,10 @@ public class MonitorNodeSnapshotViewDto {
     private Long trafficLimit;
 
     private String trafficLimitType;
+
+    private Long trafficUsed;
+
+    private Integer trafficResetDay;
 
     private Integer online;
 

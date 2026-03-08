@@ -276,6 +276,7 @@ export interface MonitorNodeSnapshot {
   id: number;
   instanceId: number;
   instanceName?: string | null;
+  instanceType?: string | null;
   remoteNodeUuid: string;
   assetId?: number | null;
   assetName?: string | null;
@@ -304,6 +305,8 @@ export interface MonitorNodeSnapshot {
   expiredAt?: number | null;
   trafficLimit?: number | null;
   trafficLimitType?: string | null;
+  trafficUsed?: number | null;
+  trafficResetDay?: number | null;
   online?: number | null;
   lastActiveAt?: number | null;
   lastSyncAt?: number | null;

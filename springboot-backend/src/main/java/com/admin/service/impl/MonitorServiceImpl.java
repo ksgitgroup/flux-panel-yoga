@@ -759,6 +759,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setTags(agent.get("tags") != null ? agent.getJSONArray("tags").toJSONString() : null);
             existing.setWeight(agent.getInteger("weight"));
 
+            // Pika trafficStats: {enabled, type, limit, used, resetDay, ...}
+            JSONObject trafficStats = agent.getJSONObject("trafficStats");
+            if (trafficStats != null && trafficStats.getBooleanValue("enabled")) {
+                Long limit = trafficStats.getLong("limit");
+                if (limit != null && limit > 0) existing.setTrafficLimit(limit);
+                existing.setTrafficUsed(trafficStats.getLong("used"));
+                existing.setTrafficLimitType(trafficStats.getString("type"));
+                existing.setTrafficResetDay(trafficStats.getInteger("resetDay"));
+            }
+
             // Pika status: 1=online, 0=offline
             boolean isOnline = agent.getIntValue("status") == 1;
             if (isOnline) onlineCount++;
@@ -1200,6 +1210,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         List<String> uuids = nodes.stream().map(MonitorNodeSnapshot::getRemoteNodeUuid).collect(Collectors.toList());
         Set<Long> instanceIds = nodes.stream().map(MonitorNodeSnapshot::getInstanceId).collect(Collectors.toSet());
 
+        // Build instance info map (name + type)
+        List<MonitorInstance> instances = this.listByIds(instanceIds);
+        Map<Long, MonitorInstance> instanceMap = instances.stream()
+                .collect(Collectors.toMap(MonitorInstance::getId, i -> i, (a, b) -> a));
+
         List<MonitorMetricLatest> metrics = monitorMetricLatestMapper.selectList(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .in(MonitorMetricLatest::getInstanceId, instanceIds)
                 .in(MonitorMetricLatest::getRemoteNodeUuid, uuids));
@@ -1211,7 +1226,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return nodes.stream().map(node -> {
             MonitorNodeSnapshotViewDto dto = new MonitorNodeSnapshotViewDto();
             BeanUtils.copyProperties(node, dto);
-            dto.setInstanceName(instanceName);
+            // Fill instance name and type
+            MonitorInstance inst = instanceMap.get(node.getInstanceId());
+            if (inst != null) {
+                dto.setInstanceName(instanceName != null ? instanceName : inst.getName());
+                dto.setInstanceType(inst.getType());
+            } else {
+                dto.setInstanceName(instanceName);
+            }
 
             MonitorMetricLatest metric = metricMap.get(node.getInstanceId() + ":" + node.getRemoteNodeUuid());
             if (metric != null) {

@@ -442,6 +442,8 @@ public class DatabaseInitService {
             updateColumn("monitor_node_snapshot", "expired_at", "bigint(20) DEFAULT NULL COMMENT '到期时间'");
             updateColumn("monitor_node_snapshot", "traffic_limit", "bigint(20) DEFAULT NULL COMMENT '流量限额 (bytes)'");
             updateColumn("monitor_node_snapshot", "traffic_limit_type", "varchar(10) DEFAULT NULL COMMENT '流量限额类型'");
+            updateColumn("monitor_node_snapshot", "traffic_used", "bigint(20) DEFAULT NULL COMMENT '已用流量 (bytes)'");
+            updateColumn("monitor_node_snapshot", "traffic_reset_day", "int(10) DEFAULT NULL COMMENT '流量重置日(1-31)'");
 
             // Add new columns to monitor_metric_latest (v2 expansion)
             updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");

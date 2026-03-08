@@ -15,10 +15,14 @@ import {
 } from 'recharts';
 
 import {
+  KomariPingTaskDetail,
   MonitorNodeSnapshot,
+  MonitorNodeProviderDetail,
   MonitorRecordSeries,
   getMonitorDashboard,
+  getMonitorNodeProviderDetail,
   getMonitorRecords,
+  getKomariPingTaskDetail,
   deleteMonitorNode,
   getTerminalAccessUrl,
 } from '@/api';
@@ -266,9 +270,18 @@ export default function ServerDashboardPage() {
   const [osFilter, setOsFilter] = useState<string>('');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [cardProviderDetails, setCardProviderDetails] = useState<Record<number, MonitorNodeProviderDetail>>({});
+  const [cardLoadingIds, setCardLoadingIds] = useState<Record<number, boolean>>({});
 
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
   const [selectedNode, setSelectedNode] = useState<MonitorNodeSnapshot | null>(null);
+  const [providerDetail, setProviderDetail] = useState<MonitorNodeProviderDetail | null>(null);
+  const [providerDetailLoading, setProviderDetailLoading] = useState(false);
+  const [providerDetailError, setProviderDetailError] = useState('');
+  const [selectedPingTaskId, setSelectedPingTaskId] = useState<number | null>(null);
+  const [pingTaskDetail, setPingTaskDetail] = useState<KomariPingTaskDetail | null>(null);
+  const [pingTaskLoading, setPingTaskLoading] = useState(false);
+  const [pingTaskError, setPingTaskError] = useState('');
   const [chartRange, setChartRange] = useState('1h');
   const [showCharts, setShowCharts] = useState(false);
 
@@ -294,10 +307,64 @@ export default function ServerDashboardPage() {
 
   const openDetail = (node: MonitorNodeSnapshot) => {
     setSelectedNode(node);
+    setProviderDetail(null);
+    setProviderDetailError('');
+    setSelectedPingTaskId(null);
+    setPingTaskDetail(null);
+    setPingTaskError('');
     setShowCharts(false);
     setChartRange('1h');
     onDetailOpen();
   };
+
+  useEffect(() => {
+    if (!isDetailOpen || !selectedNode) return;
+    let cancelled = false;
+    setProviderDetailLoading(true);
+    setProviderDetailError('');
+    getMonitorNodeProviderDetail(selectedNode.id)
+      .then(res => {
+        if (cancelled) return;
+        if (res.code === 0 && res.data) {
+          setProviderDetail(res.data as MonitorNodeProviderDetail);
+          setProviderDetailError((res.data as MonitorNodeProviderDetail)?.error || '');
+        } else {
+          setProviderDetail(null);
+          setProviderDetailError(res.msg || '获取探针专属详情失败');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProviderDetail(null);
+          setProviderDetailError('获取探针专属详情失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProviderDetailLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [isDetailOpen, selectedNode]);
+
+  const loadPingTaskDetail = useCallback(async (taskId: number) => {
+    if (!selectedNode) return;
+    setSelectedPingTaskId(taskId);
+    setPingTaskLoading(true);
+    setPingTaskError('');
+    try {
+      const res = await getKomariPingTaskDetail(selectedNode.id, taskId, 12);
+      if (res.code === 0 && res.data) {
+        setPingTaskDetail(res.data as KomariPingTaskDetail);
+      } else {
+        setPingTaskDetail(null);
+        setPingTaskError(res.msg || '获取 Ping 记录失败');
+      }
+    } catch {
+      setPingTaskDetail(null);
+      setPingTaskError('获取 Ping 记录失败');
+    } finally {
+      setPingTaskLoading(false);
+    }
+  }, [selectedNode]);
 
   // Deduplicate by assetId: group nodes into unique servers
   // Same server with both Komari + Pika counts as ONE server
@@ -405,6 +472,34 @@ export default function ServerDashboardPage() {
     }
     return list;
   }, [nodes, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter]);
+
+  useEffect(() => {
+    const candidates = filteredNodes
+      .slice(0, 12)
+      .map((node) => node.id)
+      .filter((id) => !cardProviderDetails[id] && !cardLoadingIds[id]);
+    if (candidates.length === 0) return;
+    let cancelled = false;
+    candidates.forEach((id) => {
+      setCardLoadingIds((prev) => ({ ...prev, [id]: true }));
+      getMonitorNodeProviderDetail(id)
+        .then((res) => {
+          if (cancelled || res.code !== 0 || !res.data) return;
+          setCardProviderDetails((prev) => ({ ...prev, [id]: res.data as MonitorNodeProviderDetail }));
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) {
+            setCardLoadingIds((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+          }
+        });
+    });
+    return () => { cancelled = true; };
+  }, [filteredNodes, cardLoadingIds, cardProviderDetails]);
 
   if (!canViewServerDashboard) {
     return (
@@ -563,6 +658,8 @@ export default function ServerDashboardPage() {
             const cpu = m?.cpuUsage || 0;
             const mem = memPercent(m?.memUsed, m?.memTotal);
             const disk = memPercent(m?.diskUsed, m?.diskTotal);
+            const cardDetail = cardProviderDetails[node.id];
+            const cardLoading = !!cardLoadingIds[node.id];
 
             return (
               <button
@@ -656,6 +753,45 @@ export default function ServerDashboardPage() {
                         <span className="flex-shrink-0">{formatBytes(node.trafficUsed)} / {formatBytes(node.trafficLimit)}</span>
                       </div>
                     )}
+
+                    <div className="rounded-lg bg-default-50 dark:bg-default-100/5 px-2.5 py-2">
+                      {cardLoading ? (
+                        <p className="text-[10px] text-default-400 font-mono">加载探针摘要...</p>
+                      ) : node.instanceType === 'pika' ? (
+                        cardDetail?.pikaSecurity ? (
+                          <div className="space-y-1 text-[10px] text-default-500 font-mono">
+                            <p>
+                              安全: 端口 {cardDetail.pikaSecurity.publicListeningPortCount ?? 0}
+                              <span className="mx-1 text-default-300">·</span>
+                              进程 {cardDetail.pikaSecurity.suspiciousProcessCount ?? 0}
+                            </p>
+                            <p>
+                              防篡改 {cardDetail.pikaSecurity.tamperEnabled ? 'on' : 'off'}
+                              {cardDetail.pikaSecurity.auditEndTime ? ` · 审计 ${new Date(cardDetail.pikaSecurity.auditEndTime).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}` : ''}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-default-400 font-mono">点击查看安全详情</p>
+                        )
+                      ) : (
+                        cardDetail?.komariOperations ? (
+                          <div className="space-y-1 text-[10px] text-default-500 font-mono">
+                            <p>
+                              任务: Ping {cardDetail.komariOperations.pingTasks?.length ?? 0}
+                              <span className="mx-1 text-default-300">·</span>
+                              负载 {cardDetail.komariOperations.loadNotifications?.length ?? 0}
+                            </p>
+                            <p>
+                              离线 {cardDetail.komariOperations.offlineNotifications?.length ?? 0}
+                              <span className="mx-1 text-default-300">·</span>
+                              公开 {cardDetail.komariOperations.publicVisible ? 'yes' : 'no'}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-default-400 font-mono">点击查看任务详情</p>
+                        )
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="py-3 text-center">
@@ -866,6 +1002,274 @@ export default function ServerDashboardPage() {
                           采样时间: {new Date(m.sampledAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </p>
                       )}
+
+                      <Divider />
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">探针专属详情</p>
+                          <Chip size="sm" variant="flat" color={selectedNode.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-5">
+                            {selectedNode.instanceType === 'pika' ? 'Pika Security' : 'Komari Tasks'}
+                          </Chip>
+                        </div>
+
+                        {providerDetailLoading ? (
+                          <div className="flex justify-center py-6"><Spinner size="sm" /></div>
+                        ) : providerDetailError ? (
+                          <div className="rounded-lg border border-warning/30 bg-warning-50/30 dark:bg-warning/5 p-3">
+                            <p className="text-xs text-warning-700 dark:text-warning">{providerDetailError}</p>
+                          </div>
+                        ) : selectedNode.instanceType === 'pika' ? (
+                          (() => {
+                            const pika = providerDetail?.pikaSecurity;
+                            return pika ? (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">公开端口</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{pika.publicListeningPortCount ?? 0}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">可疑进程</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{pika.suspiciousProcessCount ?? 0}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">防篡改</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{pika.tamperEnabled ? '已启用' : '未启用'}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">最近审计</p>
+                                    <p className="text-xs font-semibold font-mono mt-0.5">
+                                      {pika.auditEndTime ? new Date(pika.auditEndTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {!!pika.auditWarnings?.length && (
+                                  <div className="rounded-lg border border-warning/30 bg-warning-50/30 dark:bg-warning/5 p-3">
+                                    <p className="text-xs font-semibold text-warning-700 dark:text-warning mb-1">采集告警</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {pika.auditWarnings.map((item, idx) => (
+                                        <Chip key={`${item}-${idx}`} size="sm" variant="flat" color="warning" className="h-5 text-[10px] max-w-full">
+                                          {item}
+                                        </Chip>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">公开监听端口</p>
+                                    <div className="space-y-1.5">
+                                      {pika.publicListeningPorts?.length ? pika.publicListeningPorts.map((port, idx) => (
+                                        <div key={`${port.protocol}-${port.port}-${idx}`} className="rounded-lg bg-content1 px-2.5 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono">{port.protocol || 'tcp'}://{port.address || '0.0.0.0'}:{port.port ?? '-'}</span>
+                                            {port.processName && <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">{port.processName}</Chip>}
+                                          </div>
+                                        </div>
+                                      )) : <p className="text-xs text-default-400">未发现公开监听端口</p>}
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">可疑进程</p>
+                                    <div className="space-y-1.5">
+                                      {pika.suspiciousProcesses?.length ? pika.suspiciousProcesses.map((proc, idx) => (
+                                        <div key={`${proc.pid}-${idx}`} className="rounded-lg bg-content1 px-2.5 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono">{proc.name || 'unknown'}#{proc.pid ?? '-'}</span>
+                                            <span className="text-default-400">{proc.username || '-'}</span>
+                                          </div>
+                                          {(proc.cpuPercent != null || proc.memPercent != null) && (
+                                            <p className="mt-1 text-[11px] text-default-400 font-mono">
+                                              CPU {proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '0.0'}% · MEM {proc.memPercent != null ? proc.memPercent.toFixed(1) : '0.0'}%
+                                            </p>
+                                          )}
+                                          {proc.cmdline && <p className="mt-1 truncate text-[11px] text-default-500 font-mono">{proc.cmdline}</p>}
+                                        </div>
+                                      )) : <p className="text-xs text-default-400">未发现可疑进程</p>}
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">防篡改</p>
+                                    <div className="space-y-2">
+                                      <p className="text-xs text-default-500">
+                                        状态: <span className="font-mono">{pika.tamperEnabled ? 'enabled' : 'disabled'}</span>
+                                        {pika.tamperApplyStatus ? ` · ${pika.tamperApplyStatus}` : ''}
+                                      </p>
+                                      {!!pika.tamperProtectedPaths?.length && (
+                                        <div className="flex flex-wrap gap-1">
+                                          {pika.tamperProtectedPaths.map((path, idx) => (
+                                            <Chip key={`${path}-${idx}`} size="sm" variant="flat" className="h-5 text-[10px]">{path}</Chip>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {!!pika.recentTamperEvents?.length && (
+                                        <div className="space-y-1">
+                                          {pika.recentTamperEvents.slice(0, 3).map((event, idx) => (
+                                            <p key={`${event.path}-${idx}`} className="text-[11px] text-default-500 font-mono">
+                                              {event.timestamp ? new Date(event.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'} · {event.operation || 'change'} · {event.path || '-'}
+                                            </p>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">审计批次</p>
+                                    <div className="space-y-1.5">
+                                      {pika.recentAuditRuns?.length ? pika.recentAuditRuns.map((run, idx) => (
+                                        <div key={`${run.startTime}-${idx}`} className="rounded-lg bg-content1 px-2.5 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono">{run.endTime ? new Date(run.endTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}</span>
+                                            <span className="text-default-400">{run.system || '-'}</span>
+                                          </div>
+                                          <p className="mt-1 text-[11px] text-default-500 font-mono">
+                                            pass {run.passCount ?? 0} · warn {run.warnCount ?? 0} · fail {run.failCount ?? 0}
+                                          </p>
+                                        </div>
+                                      )) : <p className="text-xs text-default-400">暂无历史审计批次</p>}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : <p className="text-xs text-default-400">暂无 Pika 安全详情</p>;
+                          })()
+                        ) : (
+                          (() => {
+                            const komari = providerDetail?.komariOperations;
+                            return komari ? (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">公开节点</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{komari.publicVisible ? '公开' : '隐藏'}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">Ping 任务</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{komari.pingTasks?.length ?? 0}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">负载规则</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{komari.loadNotifications?.length ?? 0}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
+                                    <p className="text-[9px] text-default-400 uppercase tracking-wider">离线规则</p>
+                                    <p className="text-sm font-semibold font-mono mt-0.5">{komari.offlineNotifications?.length ?? 0}</p>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">公开节点与 Ping 任务</p>
+                                    <p className="text-xs text-default-500 mb-2">
+                                      {komari.publicVisible
+                                        ? `已公开${komari.publicNodeRegion ? ` · ${komari.publicNodeRegion}` : ''}${komari.publicNodeOs ? ` · ${komari.publicNodeOs}` : ''}`
+                                        : '当前未公开展示'}
+                                    </p>
+                                    <div className="space-y-1.5">
+                                      {komari.pingTasks?.length ? komari.pingTasks.map((task) => (
+                                        <div key={task.taskId} className="rounded-lg bg-content1 px-2.5 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                              <p className="font-mono truncate">{task.name || `Ping #${task.taskId}`}</p>
+                                              <p className="text-[11px] text-default-500 truncate">{task.type || 'icmp'} · {task.target || '-'}</p>
+                                            </div>
+                                            <Button size="sm" variant={selectedPingTaskId === task.taskId ? 'solid' : 'flat'} color="primary" onPress={() => loadPingTaskDetail(task.taskId)}>
+                                              查看记录
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      )) : <p className="text-xs text-default-400">该节点未绑定 Ping 任务</p>}
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">通知规则</p>
+                                    <div className="space-y-2">
+                                      <div>
+                                        <p className="text-[11px] font-semibold text-default-500 mb-1">负载规则</p>
+                                        <div className="space-y-1">
+                                          {komari.loadNotifications?.length ? komari.loadNotifications.map((rule, idx) => (
+                                            <p key={`${rule.name}-${idx}`} className="text-[11px] text-default-500 font-mono">
+                                              {rule.name || '负载规则'} · {rule.metric || 'cpu'} &gt; {rule.threshold ?? '-'} · interval {rule.interval ?? '-'}
+                                            </p>
+                                          )) : <p className="text-xs text-default-400">无负载规则</p>}
+                                        </div>
+                                      </div>
+                                      <Divider />
+                                      <div>
+                                        <p className="text-[11px] font-semibold text-default-500 mb-1">离线规则</p>
+                                        <div className="space-y-1">
+                                          {komari.offlineNotifications?.length ? komari.offlineNotifications.map((rule, idx) => (
+                                            <p key={`${rule.gracePeriod}-${idx}`} className="text-[11px] text-default-500 font-mono">
+                                              {rule.enabled ? 'enabled' : 'disabled'} · grace {rule.gracePeriod ?? 180}s
+                                            </p>
+                                          )) : <p className="text-xs text-default-400">无离线规则</p>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {selectedPingTaskId != null && (
+                                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Ping 记录下钻</p>
+                                      {pingTaskLoading && <Spinner size="sm" />}
+                                    </div>
+                                    {pingTaskError ? (
+                                      <p className="text-xs text-danger">{pingTaskError}</p>
+                                    ) : pingTaskDetail ? (
+                                      <div className="space-y-3">
+                                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                                          <div className="rounded-lg bg-content1 px-2.5 py-2 text-center">
+                                            <p className="text-[9px] text-default-400 uppercase tracking-wider">目标</p>
+                                            <p className="text-[11px] font-mono truncate mt-1">{pingTaskDetail.target || '-'}</p>
+                                          </div>
+                                          <div className="rounded-lg bg-content1 px-2.5 py-2 text-center">
+                                            <p className="text-[9px] text-default-400 uppercase tracking-wider">丢包</p>
+                                            <p className="text-[11px] font-mono mt-1">{pingTaskDetail.lossPercent?.toFixed(1) ?? '0.0'}%</p>
+                                          </div>
+                                          <div className="rounded-lg bg-content1 px-2.5 py-2 text-center">
+                                            <p className="text-[9px] text-default-400 uppercase tracking-wider">最小</p>
+                                            <p className="text-[11px] font-mono mt-1">{pingTaskDetail.minLatency ?? '-'} ms</p>
+                                          </div>
+                                          <div className="rounded-lg bg-content1 px-2.5 py-2 text-center">
+                                            <p className="text-[9px] text-default-400 uppercase tracking-wider">最大</p>
+                                            <p className="text-[11px] font-mono mt-1">{pingTaskDetail.maxLatency ?? '-'} ms</p>
+                                          </div>
+                                          <div className="rounded-lg bg-content1 px-2.5 py-2 text-center">
+                                            <p className="text-[9px] text-default-400 uppercase tracking-wider">平均</p>
+                                            <p className="text-[11px] font-mono mt-1">{pingTaskDetail.avgLatency?.toFixed(1) ?? '-'} ms</p>
+                                          </div>
+                                        </div>
+                                        <div className="space-y-1.5 max-h-56 overflow-auto pr-1">
+                                          {pingTaskDetail.records?.length ? pingTaskDetail.records.map((record, idx) => (
+                                            <div key={`${record.time}-${idx}`} className="flex items-center justify-between rounded-lg bg-content1 px-2.5 py-2 text-xs">
+                                              <span className="font-mono text-default-500">
+                                                {record.time ? new Date(record.time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'}
+                                              </span>
+                                              <Chip size="sm" variant="flat" color={record.loss ? 'danger' : 'success'} className="h-5 text-[10px]">
+                                                {record.loss ? 'loss' : `${record.value ?? '-'} ms`}
+                                              </Chip>
+                                            </div>
+                                          )) : <p className="text-xs text-default-400">暂无 Ping 记录</p>}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-default-400">选择一个 Ping 任务后查看最近记录</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ) : <p className="text-xs text-default-400">暂无 Komari 任务详情</p>;
+                          })()
+                        )}
+                      </div>
 
                       {/* Historical Charts */}
                       <Divider />

@@ -36,6 +36,7 @@ import org.springframework.util.StringUtils;
 import javax.annotation.Resource;
 import javax.net.ssl.SSLContext;
 import java.nio.charset.StandardCharsets;
+import java.net.URLEncoder;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -95,6 +96,48 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             log.warn("[MonitorDetail] Failed to build provider summary for {}: {}", instance.getName(), e.getMessage());
         }
         return R.ok(detail);
+    }
+
+    @Override
+    public R getNodeProviderDetail(Long nodeId) {
+        MonitorNodeSnapshot node = getRequiredNode(nodeId);
+        MonitorInstance instance = getRequiredInstance(node.getInstanceId());
+
+        MonitorNodeProviderDetailDto detail = new MonitorNodeProviderDetailDto();
+        detail.setNodeId(node.getId());
+        detail.setNodeName(firstNonBlank(node.getName(), node.getIp(), node.getRemoteNodeUuid()));
+        detail.setInstanceType(instance.getType());
+
+        try {
+            if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                detail.setPikaSecurity(loadPikaNodeSecurityDetail(instance, node));
+            } else if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+                detail.setKomariOperations(loadKomariNodeOperationsDetail(instance, node));
+            }
+        } catch (Exception e) {
+            detail.setError(shortenError(e.getMessage()));
+            log.warn("[MonitorDetail] Failed to load provider detail for node {}: {}", nodeId, e.getMessage());
+        }
+
+        return R.ok(detail);
+    }
+
+    @Override
+    public R getKomariPingTaskDetail(Long nodeId, Long taskId, Integer hours) {
+        MonitorNodeSnapshot node = getRequiredNode(nodeId);
+        MonitorInstance instance = getRequiredInstance(node.getInstanceId());
+        if (!TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            return R.err("仅 Komari 节点支持 Ping 任务记录下钻");
+        }
+        if (taskId == null || taskId <= 0) {
+            return R.err("任务 ID 不合法");
+        }
+        try {
+            return R.ok(loadKomariPingTaskDetail(instance, node, taskId, hours));
+        } catch (Exception e) {
+            log.warn("[MonitorDetail] Failed to load Komari ping task detail for node {} task {}: {}", nodeId, taskId, e.getMessage());
+            return R.err("获取 Ping 任务记录失败: " + shortenError(e.getMessage()));
+        }
     }
 
     @Override
@@ -1728,6 +1771,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return instance;
     }
 
+    private MonitorNodeSnapshot getRequiredNode(Long nodeId) {
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) {
+            throw new IllegalStateException("探针节点不存在");
+        }
+        return node;
+    }
+
     private void validateDuplicateName(String name, Long ignoreId) {
         LambdaQueryWrapper<MonitorInstance> query = new LambdaQueryWrapper<MonitorInstance>()
                 .eq(MonitorInstance::getName, name.trim());
@@ -2102,6 +2153,300 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return summary;
     }
 
+    private PikaNodeSecurityDetailDto loadPikaNodeSecurityDetail(MonitorInstance instance, MonitorNodeSnapshot node) {
+        String agentId = trimToNull(node.getRemoteNodeUuid());
+        if (!StringUtils.hasText(agentId) || !isSafePathSegment(agentId)) {
+            throw new IllegalStateException("Pika 节点标识不合法");
+        }
+
+        String jwt = loginPika(instance);
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        Integer tls = instance.getAllowInsecureTls();
+
+        PikaNodeSecurityDetailDto detail = new PikaNodeSecurityDetailDto();
+        detail.setTamperProtectedPaths(Collections.emptyList());
+        detail.setAuditWarnings(Collections.emptyList());
+        detail.setPublicListeningPorts(Collections.emptyList());
+        detail.setSuspiciousProcesses(Collections.emptyList());
+        detail.setRecentTamperEvents(Collections.emptyList());
+        detail.setRecentTamperAlerts(Collections.emptyList());
+        detail.setRecentAuditRuns(Collections.emptyList());
+
+        try {
+            JSONObject tamperConfig = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/tamper/config",
+                    jwt,
+                    tls)));
+            detail.setTamperEnabled(tamperConfig.getBoolean("enabled"));
+            detail.setTamperProtectedPaths(toStringList(tamperConfig.getJSONArray("paths"), 12));
+            detail.setTamperApplyStatus(trimToNull(tamperConfig.getString("applyStatus")));
+            detail.setTamperApplyMessage(trimToNull(tamperConfig.getString("applyMessage")));
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika tamper config for {}: {}", agentId, e.getMessage());
+        }
+
+        try {
+            JSONObject tamperEvents = parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/tamper/events?pageIndex=1&pageSize=6",
+                    jwt,
+                    tls));
+            detail.setRecentTamperEvents(buildTamperEvents(extractItemsArray(tamperEvents), 6));
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika tamper events for {}: {}", agentId, e.getMessage());
+        }
+
+        try {
+            JSONObject tamperAlerts = parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/tamper/alerts?pageIndex=1&pageSize=6",
+                    jwt,
+                    tls));
+            detail.setRecentTamperAlerts(buildTamperAlerts(extractItemsArray(tamperAlerts), 6));
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika tamper alerts for {}: {}", agentId, e.getMessage());
+        }
+
+        try {
+            JSONObject auditResult = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/audit/result",
+                    jwt,
+                    tls)));
+            detail.setAuditStartTime(firstPositive(auditResult.getLong("startTime")));
+            detail.setAuditEndTime(firstPositive(auditResult.getLong("endTime")));
+            detail.setAuditWarnings(toStringList(auditResult.getJSONArray("collectWarnings"), 8));
+
+            List<PikaListeningPortViewDto> ports = buildPublicListeningPorts(auditResult);
+            detail.setPublicListeningPorts(ports);
+            detail.setPublicListeningPortCount(ports.size());
+
+            List<PikaProcessViewDto> suspicious = buildSuspiciousProcesses(auditResult);
+            detail.setSuspiciousProcesses(suspicious);
+            detail.setSuspiciousProcessCount(suspicious.size());
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika audit detail for {}: {}", agentId, e.getMessage());
+        }
+
+        try {
+            JSONObject auditRuns = parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/audit/results?pageIndex=1&pageSize=5",
+                    jwt,
+                    tls));
+            detail.setRecentAuditRuns(buildAuditRuns(extractItemsArray(auditRuns), 5));
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika audit history for {}: {}", agentId, e.getMessage());
+        }
+
+        if (detail.getPublicListeningPortCount() == null) {
+            detail.setPublicListeningPortCount(0);
+        }
+        if (detail.getSuspiciousProcessCount() == null) {
+            detail.setSuspiciousProcessCount(0);
+        }
+        return detail;
+    }
+
+    private KomariNodeOperationsDetailDto loadKomariNodeOperationsDetail(MonitorInstance instance, MonitorNodeSnapshot node) {
+        String nodeUuid = trimToNull(node.getRemoteNodeUuid());
+        if (!StringUtils.hasText(nodeUuid)) {
+            throw new IllegalStateException("Komari 节点标识不存在");
+        }
+
+        KomariNodeOperationsDetailDto detail = new KomariNodeOperationsDetailDto();
+        detail.setPingTasks(Collections.emptyList());
+        detail.setLoadNotifications(Collections.emptyList());
+        detail.setOfflineNotifications(Collections.emptyList());
+
+        JSONObject publicNodesPayload = parseFlexiblePayload(httpGet(instance, "/api/nodes", instance.getAllowInsecureTls()));
+        JSONArray publicNodes = extractItemsArray(publicNodesPayload);
+        for (int i = 0; i < publicNodes.size(); i++) {
+            JSONObject item = publicNodes.getJSONObject(i);
+            if (!nodeUuid.equals(item.getString("uuid"))) {
+                continue;
+            }
+            detail.setPublicVisible(true);
+            detail.setPublicNodeName(trimToNull(firstNonBlank(item.getString("name"), item.getString("uuid"))));
+            detail.setPublicNodeRegion(trimToNull(item.getString("region")));
+            detail.setPublicNodeOs(trimToNull(item.getString("os")));
+            break;
+        }
+        if (detail.getPublicVisible() == null) {
+            detail.setPublicVisible(false);
+        }
+
+        JSONObject pingPayload = parseFlexiblePayload(httpGet(instance, "/api/admin/ping/", instance.getAllowInsecureTls()));
+        JSONArray pingItems = extractItemsArray(pingPayload);
+        List<KomariPingTaskViewDto> pingTasks = new ArrayList<>();
+        for (int i = 0; i < pingItems.size(); i++) {
+            JSONObject item = pingItems.getJSONObject(i);
+            if (!matchesKomariClient(item.get("clients"), nodeUuid)) {
+                continue;
+            }
+            KomariPingTaskViewDto dto = new KomariPingTaskViewDto();
+            dto.setTaskId(item.getLong("id"));
+            dto.setName(trimToNull(firstNonBlank(item.getString("name"), "Ping Task")));
+            dto.setTarget(trimToNull(item.getString("target")));
+            dto.setType(trimToNull(item.getString("type")));
+            dto.setInterval(item.getInteger("interval"));
+            dto.setClientCount(extractClientCount(item.get("clients")));
+            pingTasks.add(dto);
+        }
+        detail.setPingTasks(pingTasks);
+
+        JSONObject loadPayload = parseFlexiblePayload(httpGet(instance, "/api/admin/notification/load/", instance.getAllowInsecureTls()));
+        JSONArray loadItems = extractItemsArray(loadPayload);
+        List<KomariLoadNotificationViewDto> loadNotifications = new ArrayList<>();
+        for (int i = 0; i < loadItems.size(); i++) {
+            JSONObject item = loadItems.getJSONObject(i);
+            if (!matchesKomariClient(item.get("clients"), nodeUuid)) {
+                continue;
+            }
+            KomariLoadNotificationViewDto dto = new KomariLoadNotificationViewDto();
+            dto.setName(trimToNull(firstNonBlank(item.getString("name"), "负载规则")));
+            dto.setMetric(trimToNull(item.getString("metric")));
+            dto.setThreshold(item.getDouble("threshold"));
+            dto.setRatio(item.getDouble("ratio"));
+            dto.setInterval(item.getInteger("interval"));
+            loadNotifications.add(dto);
+        }
+        detail.setLoadNotifications(loadNotifications);
+
+        JSONObject offlinePayload = parseFlexiblePayload(httpGet(instance, "/api/admin/notification/offline", instance.getAllowInsecureTls()));
+        JSONArray offlineItems = extractItemsArray(offlinePayload);
+        List<KomariOfflineNotificationViewDto> offlineNotifications = new ArrayList<>();
+        for (int i = 0; i < offlineItems.size(); i++) {
+            JSONObject item = offlineItems.getJSONObject(i);
+            if (!nodeUuid.equals(item.getString("client"))) {
+                continue;
+            }
+            KomariOfflineNotificationViewDto dto = new KomariOfflineNotificationViewDto();
+            dto.setEnabled(item.getBoolean("enable"));
+            dto.setGracePeriod(firstPositiveInteger(item.getInteger("grace_period"), 180));
+            offlineNotifications.add(dto);
+        }
+        detail.setOfflineNotifications(offlineNotifications);
+        return detail;
+    }
+
+    private KomariPingTaskDetailViewDto loadKomariPingTaskDetail(MonitorInstance instance,
+                                                                 MonitorNodeSnapshot node,
+                                                                 Long taskId,
+                                                                 Integer hours) {
+        String nodeUuid = trimToNull(node.getRemoteNodeUuid());
+        if (!StringUtils.hasText(nodeUuid)) {
+            throw new IllegalStateException("Komari 节点标识不存在");
+        }
+        int safeHours = hours != null && hours > 0 && hours <= 168 ? hours : 12;
+
+        JSONObject pingPayload = parseFlexiblePayload(httpGet(instance, "/api/admin/ping/", instance.getAllowInsecureTls()));
+        JSONArray pingItems = extractItemsArray(pingPayload);
+        JSONObject matchedTask = null;
+        for (int i = 0; i < pingItems.size(); i++) {
+            JSONObject item = pingItems.getJSONObject(i);
+            if (Objects.equals(item.getLong("id"), taskId) && matchesKomariClient(item.get("clients"), nodeUuid)) {
+                matchedTask = item;
+                break;
+            }
+        }
+        if (matchedTask == null) {
+            throw new IllegalStateException("未找到该节点对应的 Ping 任务");
+        }
+
+        String query = "/api/records/ping?uuid="
+                + URLEncoder.encode(nodeUuid, StandardCharsets.UTF_8)
+                + "&task_id=" + taskId
+                + "&hours=" + safeHours;
+        JSONObject recordsPayload = parseFlexiblePayload(httpGet(instance, query, instance.getAllowInsecureTls()));
+        JSONArray records = recordsPayload.getJSONArray("records");
+        JSONArray basicInfo = recordsPayload.getJSONArray("basic_info");
+
+        KomariPingTaskDetailViewDto detail = new KomariPingTaskDetailViewDto();
+        detail.setTaskId(taskId);
+        detail.setName(trimToNull(firstNonBlank(matchedTask.getString("name"), "Ping Task")));
+        detail.setTarget(trimToNull(matchedTask.getString("target")));
+        detail.setType(trimToNull(matchedTask.getString("type")));
+        detail.setInterval(matchedTask.getInteger("interval"));
+        detail.setClientCount(extractClientCount(matchedTask.get("clients")));
+        detail.setRecords(Collections.emptyList());
+
+        if (basicInfo != null) {
+            for (int i = 0; i < basicInfo.size(); i++) {
+                JSONObject item = basicInfo.getJSONObject(i);
+                if (!nodeUuid.equals(item.getString("client"))) {
+                    continue;
+                }
+                detail.setLossPercent(item.getDouble("loss"));
+                detail.setMinLatency(item.getInteger("min"));
+                detail.setMaxLatency(item.getInteger("max"));
+                break;
+            }
+        }
+
+        List<KomariPingRecordViewDto> recordViews = new ArrayList<>();
+        int totalRecordCount = 0;
+        int lossCount = 0;
+        long latencySum = 0L;
+        int latencyCount = 0;
+        Integer computedMinLatency = null;
+        Integer computedMaxLatency = null;
+        Long lastRecordAt = null;
+        if (records != null) {
+            for (int i = 0; i < records.size(); i++) {
+                JSONObject item = records.getJSONObject(i);
+                if (!Objects.equals(item.getLong("task_id"), taskId) || !nodeUuid.equals(item.getString("client"))) {
+                    continue;
+                }
+                totalRecordCount++;
+                KomariPingRecordViewDto dto = new KomariPingRecordViewDto();
+                Integer value = item.getInteger("value");
+                dto.setValue(value);
+                dto.setLoss(value != null && value < 0);
+                String time = item.getString("time");
+                Long ts = null;
+                try {
+                    if (StringUtils.hasText(time)) {
+                        ts = java.time.Instant.parse(time).toEpochMilli();
+                    }
+                } catch (Exception ignored) {
+                }
+                dto.setTime(ts);
+                if (ts != null && (lastRecordAt == null || ts > lastRecordAt)) {
+                    lastRecordAt = ts;
+                }
+                if (dto.getLoss() != null && dto.getLoss()) {
+                    lossCount++;
+                } else if (value != null) {
+                    latencySum += value;
+                    latencyCount++;
+                    if (computedMinLatency == null || value < computedMinLatency) {
+                        computedMinLatency = value;
+                    }
+                    if (computedMaxLatency == null || value > computedMaxLatency) {
+                        computedMaxLatency = value;
+                    }
+                }
+                if (recordViews.size() < 60) {
+                    recordViews.add(dto);
+                }
+            }
+        }
+        detail.setRecords(recordViews);
+        detail.setRecordCount(totalRecordCount);
+        detail.setLossCount(lossCount);
+        detail.setLastRecordAt(lastRecordAt);
+        if (detail.getLossPercent() == null && !recordViews.isEmpty()) {
+            detail.setLossPercent(lossCount * 100.0 / Math.max(1, totalRecordCount));
+        }
+        if (latencyCount > 0) {
+            detail.setAvgLatency(latencySum * 1.0 / latencyCount);
+        }
+        if (detail.getMinLatency() == null) {
+            detail.setMinLatency(computedMinLatency);
+        }
+        if (detail.getMaxLatency() == null) {
+            detail.setMaxLatency(computedMaxLatency);
+        }
+        return detail;
+    }
+
     private JSONObject parseFlexiblePayload(String responseJson) {
         if (!StringUtils.hasText(responseJson)) {
             return new JSONObject();
@@ -2197,6 +2542,159 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
         return false;
+    }
+
+    private boolean matchesKomariClient(Object rawClients, String nodeUuid) {
+        return StringUtils.hasText(nodeUuid) && matchesKomariClients(rawClients, Collections.singleton(nodeUuid));
+    }
+
+    private int extractClientCount(Object rawClients) {
+        if (rawClients instanceof JSONArray) {
+            return ((JSONArray) rawClients).size();
+        }
+        if (rawClients instanceof Collection) {
+            return ((Collection<?>) rawClients).size();
+        }
+        if (rawClients instanceof String && StringUtils.hasText((String) rawClients)) {
+            try {
+                JSONArray arr = JSON.parseArray((String) rawClients);
+                return arr == null ? 0 : arr.size();
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private List<String> toStringList(JSONArray array, int maxSize) {
+        if (array == null || array.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < array.size() && values.size() < maxSize; i++) {
+            String value = trimToNull(array.getString(i));
+            if (StringUtils.hasText(value)) {
+                values.add(value);
+            }
+        }
+        return values;
+    }
+
+    private List<PikaTamperEventViewDto> buildTamperEvents(JSONArray items, int maxSize) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PikaTamperEventViewDto> result = new ArrayList<>();
+        for (int i = 0; i < items.size() && result.size() < maxSize; i++) {
+            JSONObject item = items.getJSONObject(i);
+            PikaTamperEventViewDto dto = new PikaTamperEventViewDto();
+            dto.setPath(trimToNull(item.getString("path")));
+            dto.setOperation(trimToNull(item.getString("operation")));
+            dto.setDetails(trimToNull(firstNonBlank(item.getString("details"), item.getString("message"))));
+            dto.setTimestamp(firstPositive(item.getLong("timestamp"), item.getLong("createdAt")));
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private List<PikaTamperAlertViewDto> buildTamperAlerts(JSONArray items, int maxSize) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PikaTamperAlertViewDto> result = new ArrayList<>();
+        for (int i = 0; i < items.size() && result.size() < maxSize; i++) {
+            JSONObject item = items.getJSONObject(i);
+            PikaTamperAlertViewDto dto = new PikaTamperAlertViewDto();
+            dto.setPath(trimToNull(item.getString("path")));
+            dto.setDetails(trimToNull(firstNonBlank(item.getString("details"), item.getString("message"))));
+            dto.setRestored(item.getBoolean("restored"));
+            dto.setTimestamp(firstPositive(item.getLong("timestamp"), item.getLong("createdAt")));
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private List<PikaListeningPortViewDto> buildPublicListeningPorts(JSONObject auditResult) {
+        JSONObject inventory = auditResult.getJSONObject("assetInventory");
+        if (inventory == null) {
+            return Collections.emptyList();
+        }
+        JSONObject networkAssets = inventory.getJSONObject("networkAssets");
+        if (networkAssets == null) {
+            return Collections.emptyList();
+        }
+        JSONArray listeningPorts = networkAssets.getJSONArray("listeningPorts");
+        if (listeningPorts == null || listeningPorts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PikaListeningPortViewDto> result = new ArrayList<>();
+        for (int i = 0; i < listeningPorts.size() && result.size() < 12; i++) {
+            JSONObject item = listeningPorts.getJSONObject(i);
+            if (!item.getBooleanValue("isPublic")) {
+                continue;
+            }
+            PikaListeningPortViewDto dto = new PikaListeningPortViewDto();
+            dto.setProtocol(trimToNull(item.getString("protocol")));
+            dto.setAddress(trimToNull(item.getString("address")));
+            dto.setPort(item.getInteger("port"));
+            dto.setProcessName(trimToNull(item.getString("processName")));
+            dto.setProcessPid(item.getInteger("processPid"));
+            dto.setIsPublic(item.getBoolean("isPublic"));
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private List<PikaProcessViewDto> buildSuspiciousProcesses(JSONObject auditResult) {
+        JSONObject inventory = auditResult.getJSONObject("assetInventory");
+        if (inventory == null) {
+            return Collections.emptyList();
+        }
+        JSONObject processAssets = inventory.getJSONObject("processAssets");
+        if (processAssets == null) {
+            return Collections.emptyList();
+        }
+        JSONArray suspiciousProcesses = processAssets.getJSONArray("suspiciousProcesses");
+        if (suspiciousProcesses == null || suspiciousProcesses.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PikaProcessViewDto> result = new ArrayList<>();
+        for (int i = 0; i < suspiciousProcesses.size() && result.size() < 12; i++) {
+            JSONObject item = suspiciousProcesses.getJSONObject(i);
+            PikaProcessViewDto dto = new PikaProcessViewDto();
+            dto.setPid(item.getInteger("pid"));
+            dto.setName(trimToNull(item.getString("name")));
+            dto.setUsername(trimToNull(item.getString("username")));
+            dto.setCpuPercent(item.getDouble("cpuPercent"));
+            dto.setMemPercent(item.getDouble("memPercent"));
+            dto.setExeDeleted(item.getBoolean("exeDeleted"));
+            dto.setCmdline(trimToNull(item.getString("cmdline")));
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private List<PikaAuditRunViewDto> buildAuditRuns(JSONArray items, int maxSize) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PikaAuditRunViewDto> result = new ArrayList<>();
+        for (int i = 0; i < items.size() && result.size() < maxSize; i++) {
+            JSONObject item = items.getJSONObject(i);
+            PikaAuditRunViewDto dto = new PikaAuditRunViewDto();
+            dto.setStartTime(item.getLong("startTime"));
+            dto.setEndTime(item.getLong("endTime"));
+            dto.setPassCount(item.getInteger("passCount"));
+            dto.setFailCount(item.getInteger("failCount"));
+            dto.setWarnCount(item.getInteger("warnCount"));
+            dto.setTotalCount(item.getInteger("totalCount"));
+            JSONObject systemInfo = item.getJSONObject("systemInfo");
+            dto.setSystem(systemInfo == null
+                    ? null
+                    : trimToNull(firstNonBlank(systemInfo.getString("hostname"), systemInfo.getString("os"), systemInfo.getString("publicIP"))));
+            result.add(dto);
+        }
+        return result;
     }
 
     private int countPublicListeningPorts(JSONObject auditResult) {

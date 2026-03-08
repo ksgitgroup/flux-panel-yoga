@@ -6,6 +6,14 @@
 
 - 只修改 `flux-panel-yoga` 仓库，上游仓库（komari, pika, 3x-ui, 1Panel, homepage, jumpserver, openclaw）不可修改
 - 使用中文回复
+- 不要重写任何远端分支历史；没有用户明确批准时，禁止 `git push --force` / `--force-with-lease`
+- 如果功能分支包含了不想让审查看到的旧提交，优先在本地另建 review 分支，不要去改写已有远端分支
+- 任务完成后的默认反馈使用精简格式，只包含：
+  - `result`
+  - `changed files`
+  - `blockers/risk`
+  - `next step`
+- 不做额外 recap；除非用户明确要求展开说明
 - 每次开发完成后自动执行完整流程（无需用户提醒）：
   1. `git add` + `git commit` + `git push origin dev`
   2. `scripts/build_docker.sh`（构建镜像）
@@ -38,12 +46,13 @@ git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 | Agent | 工作目录 | 分支 | 职责 |
 |-------|---------|------|------|
 | Claude Code | `/flux-panel-yoga` (原目录) | `dev` | 监控/资产/看板/前端 |
-| Codex | `/flux-panel-yoga-codex-iam` (worktree) | `codex/iam-rbac-dingtalk` | IAM 权限角色 + 钉钉登录 |
+| Codex | `/flux-panel-yoga-codex-next` (worktree) | `codex/workbench` 基线，实际开发使用 `codex/<topic>` | 独立功能分支开发 |
 
 **规则：**
 - Claude **不要修改** Codex 正在开发的 IAM/RBAC 相关代码（`sys_user`/`sys_role`/`sys_permission` 表、`/api/auth` 端点、钉钉集成、`SecurityConfig`）
 - 合并顺序：功能分支先 `git rebase origin/dev` 再 `merge --no-ff` 到 dev
 - 查看 worktree: `git worktree list`
+- `dev` 和任何已推送的远端功能分支都视为共享协作面，默认只允许追加提交，不允许改写历史
 
 ## 冲突热点
 

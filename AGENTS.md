@@ -13,14 +13,26 @@
 - 分支 `dev` 是集成分支，脏工作区用 worktree 隔离
 - Schema 变更必须向后兼容（只加字段，不删字段）
 - `asset_host` 是服务器身份权威层，探针同步不覆盖用户编辑
+- **禁止重写远端历史**：本项目默认不允许 `git push --force` / `--force-with-lease` 修改任何远端分支历史，除非用户明确批准
+- **禁止为了整理审查 diff 去改远端分支**：如果功能分支历史不干净，优先在本地新建 review 分支，或等审查通过后再正常合并，不能直接改写已有远端分支
+
+## 沟通风格
+
+- 任务完成后的默认反馈使用精简格式，只包含：
+  - `result`
+  - `changed files`
+  - `blockers/risk`
+  - `next step`
+- 不做额外 recap；除非用户明确要求展开说明
 
 ## 并行协作
 
 当前两个 AI 代理并行开发，使用 Git worktree 隔离：
 - **Claude Code**: 原目录 `flux-panel-yoga`，分支 `dev`，负责监控/资产/看板/前端
-- **Codex**: worktree `flux-panel-yoga-codex-iam`，分支 `codex/iam-rbac-dingtalk`，负责 IAM 权限角色 + 钉钉登录
+- **Codex**: worktree `flux-panel-yoga-codex-next`，基线分支 `codex/workbench`，按任务切 `codex/<topic>`，负责独立功能分支开发
 - 合并流程：功能分支先 `rebase origin/dev` 再 `merge --no-ff` 到 dev
 - **互不侵入**：不要修改对方正在开发的模块
+- **共享面约束**：`dev` 和任何已推送的远端功能分支都视为协作面，默认只能追加提交，不能改历史
 
 ## 构建验证
 

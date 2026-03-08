@@ -542,11 +542,18 @@ export default function AdminLayout({
   // Grouped dropdown menus
   const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
   const monitorGroupPaths = ['/monitor', '/probe', '/alert', '/notification', '/audit'];
-  const systemGroupPaths = ['/xui', '/xui-protocols', '/onepanel', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag', '/backup'];
+  // 系统菜单分组：外部集成 | 权限管理 | 系统配置
+  const systemIntegrationPaths = ['/xui', '/xui-protocols', '/onepanel'];
+  const systemAccessPaths = ['/user', '/iam/users', '/iam/roles', '/limit'];
+  const systemConfigPaths = ['/config', '/protocol', '/tag', '/portal', '/portal/config', '/backup'];
+  const systemGroupPaths = [...systemIntegrationPaths, ...systemAccessPaths, ...systemConfigPaths];
 
   const serverGroup = serverGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
   const monitorGroup = monitorGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
   const systemGroup = systemGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
+  const systemIntegrationGroup = systemIntegrationPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
+  const systemAccessGroup = systemAccessPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
+  const systemConfigGroup = systemConfigPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
 
   const allGroupPaths = new Set([...primaryPaths, ...serverGroupPaths, ...monitorGroupPaths, ...systemGroupPaths]);
   const ungroupedItems = filteredMenuItems.filter(i => !allGroupPaths.has(i.path));
@@ -752,13 +759,36 @@ export default function AdminLayout({
                       {!isMobile && '系统'}
                     </Button>
                   </DropdownTrigger>
-                  <DropdownMenu aria-label="系统菜单" className="max-h-80 overflow-y-auto">
-                    {systemGroup.map(item => (
-                      <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
-                        className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
-                        {item.label}
-                      </DropdownItem>
-                    ))}
+                  <DropdownMenu aria-label="系统菜单" className="max-h-96 overflow-y-auto">
+                    {[
+                      ...(systemIntegrationGroup.length > 0 ? [
+                        <DropdownItem key="__section_integration" isReadOnly className="opacity-50 text-[10px] uppercase tracking-wider font-bold cursor-default pointer-events-none">外部集成</DropdownItem>,
+                        ...systemIntegrationGroup.map(item => (
+                          <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
+                            className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
+                            {item.label}
+                          </DropdownItem>
+                        )),
+                      ] : []),
+                      ...(systemAccessGroup.length > 0 ? [
+                        <DropdownItem key="__section_access" isReadOnly className="opacity-50 text-[10px] uppercase tracking-wider font-bold cursor-default pointer-events-none">权限管理</DropdownItem>,
+                        ...systemAccessGroup.map(item => (
+                          <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
+                            className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
+                            {item.label}
+                          </DropdownItem>
+                        )),
+                      ] : []),
+                      ...(systemConfigGroup.length > 0 ? [
+                        <DropdownItem key="__section_config" isReadOnly className="opacity-50 text-[10px] uppercase tracking-wider font-bold cursor-default pointer-events-none">系统配置</DropdownItem>,
+                        ...systemConfigGroup.map(item => (
+                          <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
+                            className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
+                            {item.label}
+                          </DropdownItem>
+                        )),
+                      ] : []),
+                    ]}
                   </DropdownMenu>
                 </Dropdown>
               )}

@@ -73,7 +73,9 @@ export default function BackupPage() {
     setRecordsLoading(true);
     try {
       const res = await getBackupRecords();
-      setRecords(res?.data ?? []);
+      // 后端返回分页对象 {records, total, ...}，提取 records 数组
+      const data = res?.data;
+      setRecords(Array.isArray(data) ? data : (data?.records ?? []));
     } catch {
       toast.error('加载备份记录失败');
     } finally {

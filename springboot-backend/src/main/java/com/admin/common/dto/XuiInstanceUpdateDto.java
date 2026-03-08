@@ -16,6 +16,8 @@ public class XuiInstanceUpdateDto {
     @NotBlank(message = "实例名称不能为空")
     private String name;
 
+    private String provider;
+
     @NotBlank(message = "实例地址不能为空")
     private String baseUrl;
 

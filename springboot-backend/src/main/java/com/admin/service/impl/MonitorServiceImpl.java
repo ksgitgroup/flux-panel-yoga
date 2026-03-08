@@ -214,15 +214,17 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     @Override
     public R getAllUnboundNodes() {
         List<MonitorNodeSnapshot> nodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
-                .isNull(MonitorNodeSnapshot::getAssetId));
+                .isNull(MonitorNodeSnapshot::getAssetId)
+                .ne(MonitorNodeSnapshot::getStatus, -1));
         return R.ok(buildNodeViews(nodes, null));
     }
 
     @Override
     public R getDashboardNodes() {
-        // Return ALL nodes across all instances with latest metrics + instance name
+        // Return ALL active nodes (exclude soft-deleted status=-1)
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(
                 new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .ne(MonitorNodeSnapshot::getStatus, -1)
                         .orderByDesc(MonitorNodeSnapshot::getOnline)
                         .orderByAsc(MonitorNodeSnapshot::getName));
         if (allNodes.isEmpty()) {
@@ -321,10 +323,13 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 }
             }
         }
-        // Delete metrics then node
+        // Soft-delete: mark status=-1 so sync won't re-create, but keep metrics for history
         monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .eq(MonitorMetricLatest::getNodeSnapshotId, nodeId));
-        monitorNodeSnapshotMapper.deleteById(nodeId);
+        node.setStatus(-1); // Soft-deleted
+        node.setOnline(0);
+        node.setUpdatedTime(System.currentTimeMillis());
+        monitorNodeSnapshotMapper.updateById(node);
         return R.ok("已删除探针节点");
     }
 
@@ -700,6 +705,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 existing.setOnline(0);
                 monitorNodeSnapshotMapper.insert(existing);
                 newNodes++;
+            } else if (existing.getStatus() != null && existing.getStatus() == -1) {
+                // Soft-deleted by user — skip entirely, don't update
+                continue;
             } else {
                 updatedNodes++;
             }
@@ -756,12 +764,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 applyNodeMetric(instance, existing, uuid, nodeMetric, now);
             }
 
-            // Auto-create asset for new nodes
-            if (existing.getAssetId() == null) {
+            // Auto-create/link asset (skip if user previously unlinked)
+            if (existing.getAssetId() == null && !Integer.valueOf(1).equals(existing.getAssetUnlinked())) {
                 boolean created = autoCreateAssetFromNode(existing, instance);
                 if (created) newAssets++;
-            } else {
-                // Ongoing sync: update existing asset with probe billing/tags/label
+            } else if (existing.getAssetId() != null) {
                 refreshAssetFromProbe(existing);
             }
         }
@@ -769,7 +776,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         // Mark removed nodes
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
-                .eq(MonitorNodeSnapshot::getInstanceId, instance.getId()));
+                .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
+                .ne(MonitorNodeSnapshot::getStatus, -1));
         for (MonitorNodeSnapshot node : allNodes) {
             if (!seenUuids.contains(node.getRemoteNodeUuid())) {
                 node.setOnline(0);
@@ -1102,6 +1110,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 existing.setOnline(0);
                 monitorNodeSnapshotMapper.insert(existing);
                 newNodes++;
+            } else if (existing.getStatus() != null && existing.getStatus() == -1) {
+                // Soft-deleted by user — skip entirely, don't update
+                continue;
             } else {
                 updatedNodes++;
             }
@@ -1158,12 +1169,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 log.debug("[MonitorSync] Failed to fetch Pika metrics for agent {}: {}", agentId, e.getMessage());
             }
 
-            // Auto-create/link asset
-            if (existing.getAssetId() == null) {
+            // Auto-create/link asset (skip if user previously unlinked)
+            if (existing.getAssetId() == null && !Integer.valueOf(1).equals(existing.getAssetUnlinked())) {
                 boolean created = autoCreateOrLinkAssetFromNode(existing, instance);
                 if (created) newAssets++;
-            } else {
-                // Ongoing sync: update existing asset with probe billing/tags/label
+            } else if (existing.getAssetId() != null) {
                 refreshAssetFromProbe(existing);
             }
         }
@@ -1171,7 +1181,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         // Mark removed nodes
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
-                .eq(MonitorNodeSnapshot::getInstanceId, instance.getId()));
+                .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
+                .ne(MonitorNodeSnapshot::getStatus, -1));
         for (MonitorNodeSnapshot node : allNodes) {
             if (!seenIds.contains(node.getRemoteNodeUuid())) {
                 node.setOnline(0);
@@ -1534,8 +1545,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 changed = true;
             }
 
-            // OS + osCategory: keep in sync
-            if (StringUtils.hasText(node.getOs()) && !node.getOs().equals(asset.getOs())) {
+            // OS + osCategory: only fill if asset has no OS (Flux is authority)
+            if (!StringUtils.hasText(asset.getOs()) && StringUtils.hasText(node.getOs())) {
                 asset.setOs(node.getOs());
                 asset.setOsCategory(deriveOsCategory(node.getOs()));
                 changed = true;

@@ -42,7 +42,7 @@ import {
   geolocateIp
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface AssetForm {
   id?: number;
@@ -349,6 +349,7 @@ const barColorHero = (v: number): 'danger' | 'warning' | 'success' =>
 
 export default function AssetsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const admin = isAdmin();
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -411,6 +412,31 @@ export default function AssetsPage() {
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
 
   useEffect(() => { void loadAssets(); }, []);
+
+  // Handle URL params: ?viewId=123 opens detail, ?viewId=123&deploy=1 opens deploy
+  useEffect(() => {
+    if (loading || assets.length === 0) return;
+    const viewId = searchParams.get('viewId');
+    if (viewId) {
+      const id = Number(viewId);
+      const asset = assets.find(a => a.id === id);
+      if (asset) {
+        openDetailModal(id);
+        // If deploy param, also open provision modal after a short delay
+        if (searchParams.get('deploy') === '1') {
+          setTimeout(() => {
+            setProvisionContext({ assetId: id, assetName: asset.name, missingType: 'any' });
+            setProvisionDualMode(true);
+            setProvisionStep('select');
+            onProvisionOpen();
+          }, 300);
+        }
+      }
+      // Clear URL params after handling
+      setSearchParams({}, { replace: true });
+    }
+  }, [loading, assets]);
+
   useEffect(() => {
     if (!expandedAssetId) { setDetail(null); return; }
     void loadAssetDetail(expandedAssetId);

@@ -766,7 +766,7 @@ export default function ServerDashboardPage() {
                       <div className="space-y-1 text-xs">
                         {selectedNode.cpuName && <p className="truncate text-default-500 font-mono">{selectedNode.cpuName}</p>}
                         {selectedNode.instanceName && <p className="flex justify-between"><span className="text-default-400">探针</span><span>{selectedNode.instanceName}</span></p>}
-                        {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">资产</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate('/assets'); }}>{selectedNode.assetName}</Chip></p>}
+                        {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">资产</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate(selectedNode.assetId ? `/assets?viewId=${selectedNode.assetId}` : '/assets'); }}>{selectedNode.assetName}</Chip></p>}
                         {selectedNode.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedNode.provider}</span></p>}
                         {selectedNode.label && <p className="flex justify-between"><span className="text-default-400">标签</span><span>{selectedNode.label}</span></p>}
                         {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">价格</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}{selectedNode.billingCycle ? ` / ${selectedNode.billingCycle}天` : ''}</span></p>}
@@ -956,7 +956,7 @@ export default function ServerDashboardPage() {
                               建议同时部署双探针以获得更全面的监控数据和冗余保障
                             </p>
                           </div>
-                          <Button size="sm" variant="flat" color="warning" onPress={() => { onDetailClose(); navigate('/probe'); }}>
+                          <Button size="sm" variant="flat" color="warning" onPress={() => { onDetailClose(); navigate(selectedNode.assetId ? `/assets?viewId=${selectedNode.assetId}&deploy=1` : '/assets'); }}>
                             部署探针
                           </Button>
                         </div>

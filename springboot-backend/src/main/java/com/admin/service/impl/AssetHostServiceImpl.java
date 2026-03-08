@@ -46,6 +46,9 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     @Resource
     private MonitorMetricLatestMapper monitorMetricLatestMapper;
 
+    @Resource
+    private MonitorInstanceMapper monitorInstanceMapper;
+
     @Override
     public R getAllAssets() {
         List<AssetHost> assets = this.list(new LambdaQueryWrapper<AssetHost>()
@@ -406,6 +409,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         List<String> uuids = nodes.stream().map(MonitorNodeSnapshot::getRemoteNodeUuid).collect(Collectors.toList());
         Set<Long> mInstanceIds = nodes.stream().map(MonitorNodeSnapshot::getInstanceId).collect(Collectors.toSet());
 
+        // Build instance type map
+        Map<Long, MonitorInstance> instanceMap = new HashMap<>();
+        if (!mInstanceIds.isEmpty()) {
+            monitorInstanceMapper.selectBatchIds(mInstanceIds).forEach(i -> instanceMap.put(i.getId(), i));
+        }
+
         List<MonitorMetricLatest> metrics = monitorMetricLatestMapper.selectList(
                 new LambdaQueryWrapper<MonitorMetricLatest>()
                         .in(MonitorMetricLatest::getInstanceId, mInstanceIds)
@@ -420,6 +429,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             BeanUtils.copyProperties(node, dto);
             dto.setAssetId(asset.getId());
             dto.setAssetName(asset.getName());
+            // Fill instance type
+            MonitorInstance inst = instanceMap.get(node.getInstanceId());
+            if (inst != null) {
+                dto.setInstanceName(inst.getName());
+                dto.setInstanceType(inst.getType());
+            }
 
             MonitorMetricLatest metric = metricMap.get(node.getInstanceId() + ":" + node.getRemoteNodeUuid());
             if (metric != null) {

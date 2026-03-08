@@ -60,6 +60,12 @@ interface AssetForm {
   currency: string;
   tags: string;
   monitorNodeUuid: string;
+  cpuName: string;
+  arch: string;
+  virtualization: string;
+  kernelVersion: string;
+  gpuName: string;
+  swapTotalMb: string;
   remark: string;
 }
 
@@ -67,7 +73,8 @@ const emptyForm = (): AssetForm => ({
   name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
   role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
-  currency: 'CNY', tags: '', monitorNodeUuid: '', remark: '',
+  currency: 'CNY', tags: '', monitorNodeUuid: '', cpuName: '', arch: '', virtualization: '',
+  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '',
 });
 
 const ROLES = [
@@ -112,9 +119,9 @@ const formatUptime = (seconds?: number | null) => {
   if (!seconds) return '-';
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d}d ${h}h`;
+  if (d > 0) return `${d}天 ${h}时`;
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
+  return `${h}时 ${m}分`;
 };
 
 const tsToDateInput = (ts?: number | null) => {
@@ -282,6 +289,7 @@ export default function AssetsPage() {
   const importFromNode = (node: MonitorNodeSnapshot) => {
     const memMb = node.memTotal ? Math.round(node.memTotal / (1024 * 1024)) : undefined;
     const diskGb = node.diskTotal ? Math.round(node.diskTotal / (1024 * 1024 * 1024)) : undefined;
+    const swapMb = node.swapTotal ? Math.round(node.swapTotal / (1024 * 1024)) : undefined;
     setForm(p => ({
       ...p,
       name: p.name || node.name || '',
@@ -291,8 +299,14 @@ export default function AssetsPage() {
       cpuCores: node.cpuCores?.toString() || p.cpuCores,
       memTotalMb: memMb?.toString() || p.memTotalMb,
       diskTotalGb: diskGb?.toString() || p.diskTotalGb,
+      swapTotalMb: swapMb?.toString() || p.swapTotalMb,
       region: node.region || p.region,
       monitorNodeUuid: node.remoteNodeUuid || p.monitorNodeUuid,
+      cpuName: node.cpuName || p.cpuName,
+      arch: node.arch || p.arch,
+      virtualization: node.virtualization || p.virtualization,
+      kernelVersion: node.kernelVersion || p.kernelVersion,
+      gpuName: node.gpuName || p.gpuName,
     }));
     toast.success(`已导入探针节点: ${node.name || node.ip}`);
   };
@@ -341,7 +355,10 @@ export default function AssetsPage() {
       monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
       purchaseDate: tsToDateInput(asset.purchaseDate), expireDate: tsToDateInput(asset.expireDate),
       monthlyCost: asset.monthlyCost || '', currency: asset.currency || 'CNY',
-      tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', remark: asset.remark || '',
+      tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '',
+      cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
+      kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
+      swapTotalMb: asset.swapTotalMb?.toString() || '', remark: asset.remark || '',
     });
     onFormOpen();
   };
@@ -380,6 +397,12 @@ export default function AssetsPage() {
         currency: form.currency || null,
         tags: form.tags.trim() || null,
         monitorNodeUuid: form.monitorNodeUuid.trim() || null,
+        cpuName: form.cpuName.trim() || null,
+        arch: form.arch.trim() || null,
+        virtualization: form.virtualization.trim() || null,
+        kernelVersion: form.kernelVersion.trim() || null,
+        gpuName: form.gpuName.trim() || null,
+        swapTotalMb: form.swapTotalMb ? parseInt(form.swapTotalMb) : null,
         remark: form.remark.trim() || null,
       };
       const response = isEdit ? await updateAsset(payload) : await createAsset(payload);
@@ -415,7 +438,7 @@ export default function AssetsPage() {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
         <CardBody className="p-6">
-          <h1 className="text-xl font-semibold text-danger">Admin Only</h1>
+          <h1 className="text-xl font-semibold text-danger">仅管理员可访问</h1>
         </CardBody>
       </Card>
     );
@@ -448,24 +471,24 @@ export default function AssetsPage() {
       {/* Summary Stats - 4 compact cards */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
         <div className="rounded-xl border border-divider/60 bg-content1 p-3">
-          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Total</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
           <p className="text-2xl font-bold font-mono">{summary.totalAssets}</p>
         </div>
         <div className="rounded-xl border border-success/20 bg-success-50/30 dark:bg-success-50/10 p-3">
-          <p className="text-[10px] font-bold tracking-widest text-success uppercase">Online</p>
+          <p className="text-[10px] font-bold tracking-widest text-success uppercase">在线</p>
           <p className="text-2xl font-bold font-mono text-success">{summary.onlineAssets}</p>
         </div>
         <div className={`rounded-xl border p-3 ${summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`}>
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>Offline</p>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-2xl font-bold font-mono ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
         </div>
         <div className="rounded-xl border border-divider/60 bg-content1 p-3">
-          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Integrations</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">关联模块</p>
           <div className="flex items-baseline gap-2">
             <span className="text-lg font-bold font-mono">{summary.totalXuiInstances}</span>
             <span className="text-[10px] text-default-400">XUI</span>
             <span className="text-lg font-bold font-mono">{summary.totalForwards}</span>
-            <span className="text-[10px] text-default-400">FWD</span>
+            <span className="text-[10px] text-default-400">转发</span>
           </div>
         </div>
       </div>
@@ -587,7 +610,7 @@ export default function AssetsPage() {
                               <ResourceBar label="MEM" value={memPct} color={barColorClass(memPct)} />
                             </div>
                           ) : hasMonitor ? (
-                            <span className="text-[11px] text-danger font-mono">OFFLINE</span>
+                            <span className="text-[11px] text-danger font-mono">离线</span>
                           ) : (
                             <span className="text-[11px] text-default-300 font-mono">-</span>
                           )}
@@ -692,7 +715,7 @@ export default function AssetsPage() {
                     </div>
                   )}
                   {hasMonitor && !isOnline && (
-                    <p className="mt-2 text-[11px] text-danger font-mono">OFFLINE</p>
+                    <p className="mt-2 text-[11px] text-danger font-mono">离线</p>
                   )}
 
                   {/* Footer */}
@@ -732,30 +755,33 @@ export default function AssetsPage() {
                   {/* Server Info */}
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Server</p>
-                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Probe</Chip>}
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器</p>
+                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>探针</Chip>}
                     </div>
                     <div className="space-y-1 text-xs">
-                      <p className="flex justify-between"><span className="text-default-400">OS</span><span className="font-mono">{selectedAsset.os || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedAsset.cpuCores || '?'} cores</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">RAM</span><span className="font-mono">{selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb} MB` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Disk</span><span className="font-mono">{selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb} GB` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">BW</span><span className="font-mono">{selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono">{selectedAsset.os || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedAsset.cpuCores || '?'} 核{selectedAsset.cpuName ? ` (${selectedAsset.cpuName})` : ''}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb} MB` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb} GB` : '-'}</span></p>
+                      {selectedAsset.swapTotalMb && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{selectedAsset.swapTotalMb} MB</span></p>}
+                      <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}</span></p>
+                      {selectedAsset.arch && <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{selectedAsset.arch}</span></p>}
+                      {selectedAsset.virtualization && <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{selectedAsset.virtualization}</span></p>}
                       <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
                     </div>
                   </div>
 
                   {/* Provider & Cost */}
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Provider</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">供应商</p>
                     <div className="space-y-1 text-xs">
-                      <p className="flex justify-between"><span className="text-default-400">Vendor</span><span>{selectedAsset.provider || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Region</span><span>{selectedAsset.region || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Cost</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}/mo` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Traffic</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/mo` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Purchase</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{selectedAsset.region || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">月费</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}/月` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/月` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
                       <p className="flex justify-between">
-                        <span className="text-default-400">Expire</span>
+                        <span className="text-default-400">到期</span>
                         <span className={`font-mono ${selectedAsset.expireDate && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
                           {formatDateShort(selectedAsset.expireDate)}
                         </span>
@@ -765,13 +791,13 @@ export default function AssetsPage() {
 
                   {/* Integrations */}
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Integrations</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">关联模块</p>
                     <div className="space-y-1 text-xs">
                       <p className="flex justify-between"><span className="text-default-400">X-UI</span><span className="font-mono">{selectedAsset.totalXuiInstances || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Protocols</span><span className="font-mono">{selectedAsset.totalProtocols || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Inbounds</span><span className="font-mono">{selectedAsset.totalInbounds || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Clients</span><span className="font-mono">{selectedAsset.totalClients || 0} ({selectedAsset.onlineClients || 0} online)</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">Forwards</span><span className="font-mono">{selectedAsset.totalForwards || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">协议</span><span className="font-mono">{selectedAsset.totalProtocols || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">入站</span><span className="font-mono">{selectedAsset.totalInbounds || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">客户端</span><span className="font-mono">{selectedAsset.totalClients || 0} ({selectedAsset.onlineClients || 0} 在线)</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">转发</span><span className="font-mono">{selectedAsset.totalForwards || 0}</span></p>
                       <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName || '-'}</span></p>
                     </div>
                   </div>
@@ -779,14 +805,14 @@ export default function AssetsPage() {
 
                 {selectedAsset.remark && (
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-xs">
-                    <span className="text-default-400 mr-2">Remark:</span>{selectedAsset.remark}
+                    <span className="text-default-400 mr-2">备注:</span>{selectedAsset.remark}
                   </div>
                 )}
 
                 {/* Probe Monitor Metrics */}
                 {detail?.monitorNodes && detail.monitorNodes.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Probe Metrics</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">探针指标</p>
                     <div className="grid gap-3 md:grid-cols-2">
                       {detail.monitorNodes.map((node: MonitorNodeSnapshot) => {
                         const m = node.latestMetric;
@@ -859,7 +885,7 @@ export default function AssetsPage() {
                                 </div>
                               </div>
                             ) : (
-                              <div className="text-[11px] text-danger font-mono py-2">CONNECTION_LOST</div>
+                              <div className="text-[11px] text-danger font-mono py-2">连接断开</div>
                             )}
 
                             {/* Hardware info */}
@@ -879,7 +905,7 @@ export default function AssetsPage() {
                 {/* X-UI Instances */}
                 {detail?.xuiInstances && detail.xuiInstances.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">X-UI Instances</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">X-UI 实例</p>
                     <div className="grid gap-2 md:grid-cols-2">
                       {detail.xuiInstances.map((inst) => {
                         const syncChip = getStatusChip(inst.lastSyncStatus);
@@ -894,8 +920,8 @@ export default function AssetsPage() {
                               <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
                             </div>
                             <div className="mt-2 flex gap-3 text-[11px] text-default-500 font-mono">
-                              <span>{inst.inboundCount || 0} inbounds</span>
-                              <span>{inst.clientCount || 0} clients</span>
+                              <span>{inst.inboundCount || 0} 入站</span>
+                              <span>{inst.clientCount || 0} 客户端</span>
                             </div>
                           </button>
                         );
@@ -913,7 +939,7 @@ export default function AssetsPage() {
                         <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
                           <span className="font-bold uppercase">{p.protocol}</span>
                           <span className="ml-2 text-default-400 font-mono">
-                            {p.inboundCount} in / {p.clientCount} clients ({p.onlineClientCount} online)
+                            {p.inboundCount} 入站 / {p.clientCount} 客户端 ({p.onlineClientCount} 在线)
                           </span>
                           {p.allTime ? <span className="ml-2 text-default-400 font-mono">{formatFlow(p.allTime)}</span> : null}
                         </div>
@@ -925,7 +951,7 @@ export default function AssetsPage() {
                 {/* Forwards */}
                 {detail?.forwards && detail.forwards.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">Forwards</p>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">转发规则</p>
                     <div className="grid gap-2 md:grid-cols-2">
                       {detail.forwards.map((item) => (
                         <button type="button" key={item.id} onClick={() => navigate('/forward')}
@@ -933,7 +959,7 @@ export default function AssetsPage() {
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate font-medium">{item.name}</span>
                             <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
-                              {item.status === 1 ? 'Running' : item.status === 0 ? 'Paused' : 'Error'}
+                              {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
                             </Chip>
                           </div>
                           <p className="mt-1 text-[11px] text-default-400 font-mono truncate">
@@ -949,11 +975,11 @@ export default function AssetsPage() {
                 )}
               </ModalBody>
               <ModalFooter>
-                <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>Edit</Button>
-                <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>Delete</Button>
-                <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>Probe</Button>
+                <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>
+                <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>
+                <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针</Button>
                 <Button size="sm" variant="flat" onPress={() => navigate('/xui')}>X-UI</Button>
-                <Button size="sm" color="primary" onPress={onDetailClose}>Close</Button>
+                <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
           )}
@@ -1038,24 +1064,53 @@ export default function AssetsPage() {
             <div className="rounded-xl border border-secondary/20 bg-secondary-50/30 dark:bg-secondary-50/5 p-4 space-y-4">
               <div className="flex items-center gap-2 mb-1">
                 <Chip size="sm" variant="flat" color="secondary">探针同步</Chip>
-                <span className="text-[11px] text-default-400">绑定探针后自动同步，也可手动填写</span>
+                <span className="text-[11px] text-default-400">
+                  {form.monitorNodeUuid
+                    ? '已绑定探针，以下字段会在同步时自动覆盖（Komari → Flux 单向同步，在 Flux 修改不会回写探针）'
+                    : '绑定探针后可自动同步，也可手动填写'}
+                </span>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Input label="操作系统" placeholder="Ubuntu 22" value={form.os}
                   onValueChange={(v) => setForm(p => ({ ...p, os: v }))}
-                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
                 <Input label="CPU 核心" type="number" value={form.cpuCores}
                   onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))}
-                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
                 <Input label="内存 (MB)" type="number" value={form.memTotalMb}
                   onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))}
-                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
                 <Input label="硬盘 (GB)" type="number" value={form.diskTotalGb}
                   onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))}
-                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Input label="CPU 型号" placeholder="AMD EPYC 7543" value={form.cpuName}
+                  onValueChange={(v) => setForm(p => ({ ...p, cpuName: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                <Input label="架构" placeholder="amd64" value={form.arch}
+                  onValueChange={(v) => setForm(p => ({ ...p, arch: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                <Input label="虚拟化" placeholder="kvm / lxc" value={form.virtualization}
+                  onValueChange={(v) => setForm(p => ({ ...p, virtualization: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                <Input label="Swap (MB)" type="number" value={form.swapTotalMb}
+                  onValueChange={(v) => setForm(p => ({ ...p, swapTotalMb: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <Input label="内核版本" placeholder="6.1.0-13-amd64" value={form.kernelVersion}
+                  onValueChange={(v) => setForm(p => ({ ...p, kernelVersion: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                <Input label="GPU" placeholder="NVIDIA RTX 4090" value={form.gpuName}
+                  onValueChange={(v) => setForm(p => ({ ...p, gpuName: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
                 <Input label="IPv6" value={form.ipv6}
-                  onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))} />
+                  onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))}
+                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
               </div>
             </div>
 

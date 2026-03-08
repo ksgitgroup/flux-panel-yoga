@@ -590,16 +590,24 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         asset.setCpuCores(node.getCpuCores());
         asset.setRegion(node.getRegion());
         asset.setMonitorNodeUuid(node.getRemoteNodeUuid());
+        asset.setCpuName(node.getCpuName());
+        asset.setArch(node.getArch());
+        asset.setVirtualization(node.getVirtualization());
+        asset.setKernelVersion(node.getKernelVersion());
+        asset.setGpuName(node.getGpuName());
         asset.setCreatedTime(now);
         asset.setUpdatedTime(now);
         asset.setStatus(0);
 
-        // Convert memTotal (bytes) -> MB, diskTotal (bytes) -> GB
+        // Convert memTotal (bytes) -> MB, diskTotal (bytes) -> GB, swapTotal (bytes) -> MB
         if (node.getMemTotal() != null && node.getMemTotal() > 0) {
             asset.setMemTotalMb((int) (node.getMemTotal() / (1024 * 1024)));
         }
         if (node.getDiskTotal() != null && node.getDiskTotal() > 0) {
             asset.setDiskTotalGb((int) (node.getDiskTotal() / (1024L * 1024 * 1024)));
+        }
+        if (node.getSwapTotal() != null && node.getSwapTotal() > 0) {
+            asset.setSwapTotalMb((int) (node.getSwapTotal() / (1024 * 1024)));
         }
 
         try {

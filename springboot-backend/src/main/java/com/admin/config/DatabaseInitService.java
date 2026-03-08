@@ -326,6 +326,12 @@ public class DatabaseInitService {
             updateColumn("asset_host", "tags", "varchar(500) DEFAULT NULL COMMENT '标签 (JSON 数组)'");
             updateColumn("asset_host", "gost_node_id", "bigint(20) DEFAULT NULL COMMENT '关联 GOST 节点 ID'");
             updateColumn("asset_host", "monitor_node_uuid", "varchar(64) DEFAULT NULL COMMENT '关联探针节点 UUID'");
+            updateColumn("asset_host", "cpu_name", "varchar(120) DEFAULT NULL COMMENT 'CPU 型号名称（探针同步）'");
+            updateColumn("asset_host", "arch", "varchar(30) DEFAULT NULL COMMENT '架构（探针同步）'");
+            updateColumn("asset_host", "virtualization", "varchar(30) DEFAULT NULL COMMENT '虚拟化类型（探针同步）'");
+            updateColumn("asset_host", "kernel_version", "varchar(120) DEFAULT NULL COMMENT '内核版本（探针同步）'");
+            updateColumn("asset_host", "gpu_name", "varchar(120) DEFAULT NULL COMMENT 'GPU 型号（探针同步）'");
+            updateColumn("asset_host", "swap_total_mb", "int(10) DEFAULT NULL COMMENT 'Swap 容量 (MB)（探针同步）'");
             updateColumn("node", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
             log.info("[DatabaseInit] AssetHost VPS 管理字段增量升级完成");
         } catch (Exception e) {

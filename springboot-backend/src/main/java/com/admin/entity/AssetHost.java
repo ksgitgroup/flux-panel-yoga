@@ -55,5 +55,18 @@ public class AssetHost extends BaseEntity {
 
     private String monitorNodeUuid;
 
+    // Probe-synced hardware detail fields
+    private String cpuName;
+
+    private String arch;
+
+    private String virtualization;
+
+    private String kernelVersion;
+
+    private String gpuName;
+
+    private Integer swapTotalMb;
+
     private String remark;
 }

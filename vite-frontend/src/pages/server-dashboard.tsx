@@ -40,9 +40,9 @@ function formatUptime(seconds?: number | null): string {
   if (seconds == null || seconds === 0) return '-';
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d}d ${h}h`;
+  if (d > 0) return `${d}天 ${h}时`;
   const m = Math.floor((seconds % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return h > 0 ? `${h}时 ${m}分` : `${m}分`;
 }
 
 function barColor(v: number): 'success' | 'warning' | 'danger' {
@@ -120,7 +120,7 @@ export default function ServerDashboardPage() {
   if (!admin) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
-        <CardBody className="p-6"><h1 className="text-xl font-semibold text-danger">Admin Only</h1></CardBody>
+        <CardBody className="p-6"><h1 className="text-xl font-semibold text-danger">仅管理员可访问</h1></CardBody>
       </Card>
     );
   }
@@ -130,19 +130,19 @@ export default function ServerDashboardPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Server Dashboard</h1>
+          <h1 className="text-2xl font-bold tracking-tight">服务器看板</h1>
           <p className="mt-0.5 text-sm text-default-500">
-            Real-time server monitoring
+            实时监控 · 每 10 秒自动刷新
             {lastUpdate && (
               <span className="ml-2 text-default-400">
-                Updated {lastUpdate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                更新于 {lastUpdate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="flat" onPress={() => navigate('/assets')}>Assets</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>Config</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/assets')}>资产管理</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针配置</Button>
         </div>
       </div>
 
@@ -154,7 +154,7 @@ export default function ServerDashboardPage() {
             statusFilter === 'all' ? 'border-primary bg-primary-50 dark:bg-primary/10' : 'border-divider/60 bg-content1 hover:border-primary/40'
           }`}
         >
-          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">Total</p>
+          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
           <p className="text-2xl font-bold font-mono">{summary.total}</p>
         </button>
         <button
@@ -163,7 +163,7 @@ export default function ServerDashboardPage() {
             statusFilter === 'online' ? 'border-success bg-success-50 dark:bg-success/10' : 'border-success/20 bg-success-50/30 dark:bg-success-50/10 hover:border-success/40'
           }`}
         >
-          <p className="text-[10px] font-bold tracking-widest text-success uppercase">Online</p>
+          <p className="text-[10px] font-bold tracking-widest text-success uppercase">在线</p>
           <p className="text-2xl font-bold font-mono text-success">{summary.online}</p>
         </button>
         <button
@@ -172,12 +172,12 @@ export default function ServerDashboardPage() {
             statusFilter === 'offline' ? 'border-danger bg-danger-50 dark:bg-danger/10' : summary.offline > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40' : 'border-divider/60 bg-content1'
           }`}
         >
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>Offline</p>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-2xl font-bold font-mono ${summary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offline}</p>
         </button>
 
         <div className="flex-1 min-w-[200px] ml-auto max-w-xs">
-          <Input size="sm" placeholder="Search server..." value={search} onValueChange={setSearch}
+          <Input size="sm" placeholder="搜索服务器..." value={search} onValueChange={setSearch}
             isClearable onClear={() => setSearch('')} />
         </div>
       </div>
@@ -188,10 +188,10 @@ export default function ServerDashboardPage() {
       ) : filteredNodes.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
           <h3 className="text-base font-semibold text-default-600">
-            {nodes.length === 0 ? 'No servers found' : 'No matching results'}
+            {nodes.length === 0 ? '暂无服务器' : '没有匹配的结果'}
           </h3>
           <p className="mt-2 text-sm text-default-400">
-            {nodes.length === 0 ? 'Add probe instances and sync to see servers here.' : 'Try adjusting search or filter.'}
+            {nodes.length === 0 ? '添加探针实例并同步后，服务器将显示在此处。' : '尝试调整搜索条件或筛选项。'}
           </p>
         </div>
       ) : (
@@ -288,7 +288,7 @@ export default function ServerDashboardPage() {
                   </div>
                 ) : (
                   <div className="py-3 text-center">
-                    <span className="text-[11px] text-danger font-mono font-bold tracking-wider">OFFLINE</span>
+                    <span className="text-[11px] text-danger font-bold tracking-wider">离线</span>
                     {node.os && <p className="text-[10px] text-default-400 mt-1">{node.os}</p>}
                   </div>
                 )}
@@ -326,35 +326,35 @@ export default function ServerDashboardPage() {
                   {/* System Info */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">System</p>
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">系统</p>
                       <div className="space-y-1 text-xs">
-                        <p className="flex justify-between"><span className="text-default-400">OS</span><span className="font-mono">{selectedNode.os || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">Kernel</span><span className="font-mono text-[11px] truncate ml-2">{selectedNode.kernelVersion || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">Arch</span><span className="font-mono">{selectedNode.arch || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">Virt</span><span className="font-mono">{selectedNode.virtualization || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">操作系统</span><span className="font-mono">{selectedNode.os || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">内核</span><span className="font-mono text-[11px] truncate ml-2">{selectedNode.kernelVersion || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{selectedNode.arch || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{selectedNode.virtualization || '-'}</span></p>
                         <p className="flex justify-between"><span className="text-default-400">Agent</span><span className="font-mono">v{selectedNode.version || '?'}</span></p>
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">Hardware</p>
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">硬件</p>
                       <div className="space-y-1 text-xs">
-                        <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedNode.cpuCores || '?'}C</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">RAM</span><span className="font-mono">{formatBytes(selectedNode.memTotal)}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedNode.cpuCores || '?'} 核</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{formatBytes(selectedNode.memTotal)}</span></p>
                         <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{formatBytes(selectedNode.swapTotal)}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">Disk</span><span className="font-mono">{formatBytes(selectedNode.diskTotal)}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{formatBytes(selectedNode.diskTotal)}</span></p>
                         {selectedNode.gpuName && <p className="flex justify-between"><span className="text-default-400">GPU</span><span className="font-mono truncate ml-2">{selectedNode.gpuName}</span></p>}
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">Info</p>
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">信息</p>
                       <div className="space-y-1 text-xs">
                         {selectedNode.cpuName && <p className="truncate text-default-500 font-mono">{selectedNode.cpuName}</p>}
-                        {selectedNode.instanceName && <p className="flex justify-between"><span className="text-default-400">Probe</span><span>{selectedNode.instanceName}</span></p>}
-                        {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">Asset</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate('/assets'); }}>{selectedNode.assetName}</Chip></p>}
-                        {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">Price</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}</span></p>}
-                        {selectedNode.trafficLimit != null && <p className="flex justify-between"><span className="text-default-400">Traffic</span><span className="font-mono">{formatBytes(selectedNode.trafficLimit)}</span></p>}
+                        {selectedNode.instanceName && <p className="flex justify-between"><span className="text-default-400">探针</span><span>{selectedNode.instanceName}</span></p>}
+                        {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">资产</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate('/assets'); }}>{selectedNode.assetName}</Chip></p>}
+                        {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">价格</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}</span></p>}
+                        {selectedNode.trafficLimit != null && <p className="flex justify-between"><span className="text-default-400">流量</span><span className="font-mono">{formatBytes(selectedNode.trafficLimit)}</span></p>}
                       </div>
                     </div>
                   </div>
@@ -364,7 +364,7 @@ export default function ServerDashboardPage() {
                     <>
                       <Divider />
                       <div>
-                        <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-3">Real-time Metrics</p>
+                        <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-3">实时指标</p>
                         <div className="space-y-2.5">
                           <div>
                             <div className="flex justify-between text-sm mb-1">
@@ -375,7 +375,7 @@ export default function ServerDashboardPage() {
                           </div>
                           <div>
                             <div className="flex justify-between text-sm mb-1">
-                              <span className="text-default-500">Memory</span>
+                              <span className="text-default-500">内存</span>
                               <span className="font-mono text-sm">{mem.toFixed(1)}% <span className="text-xs text-default-400">{formatBytes(m.memUsed)} / {formatBytes(m.memTotal)}</span></span>
                             </div>
                             <Progress value={mem} color={barColor(mem)} size="sm" aria-label="MEM" />
@@ -402,27 +402,27 @@ export default function ServerDashboardPage() {
                       {/* Detail stats grid */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Net In</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">下行速率</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{formatSpeed(m.netIn)}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Net Out</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">上行速率</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{formatSpeed(m.netOut)}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Traffic In</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">累计下行</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{formatBytes(m.netTotalDown)}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Traffic Out</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">累计上行</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{formatBytes(m.netTotalUp)}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Load 1/5/15</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">负载 1/5/15</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{m.load1?.toFixed(2) ?? '-'} / {m.load5?.toFixed(2) ?? '-'} / {m.load15?.toFixed(2) ?? '-'}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Uptime</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">运行时间</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{formatUptime(m.uptime)}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
@@ -430,7 +430,7 @@ export default function ServerDashboardPage() {
                           <p className="text-sm font-semibold font-mono mt-0.5">{m.connections ?? '-'} / {m.connectionsUdp ?? '-'}</p>
                         </div>
                         <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                          <p className="text-[9px] text-default-400 uppercase tracking-wider">Processes</p>
+                          <p className="text-[9px] text-default-400 uppercase tracking-wider">进程数</p>
                           <p className="text-sm font-semibold font-mono mt-0.5">{m.processCount ?? '-'}</p>
                         </div>
                         {m.gpuUsage != null && m.gpuUsage > 0 && (
@@ -441,22 +441,22 @@ export default function ServerDashboardPage() {
                         )}
                         {m.temperature != null && m.temperature > 0 && (
                           <div className="rounded-lg bg-default-50 dark:bg-default-100/5 p-2.5 text-center">
-                            <p className="text-[9px] text-default-400 uppercase tracking-wider">Temp</p>
-                            <p className="text-sm font-semibold font-mono mt-0.5">{m.temperature.toFixed(1)} C</p>
+                            <p className="text-[9px] text-default-400 uppercase tracking-wider">温度</p>
+                            <p className="text-sm font-semibold font-mono mt-0.5">{m.temperature.toFixed(1)}°C</p>
                           </div>
                         )}
                       </div>
 
                       {m.sampledAt && (
                         <p className="text-[10px] text-default-400 text-right font-mono">
-                          Sampled: {new Date(m.sampledAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          采样时间: {new Date(m.sampledAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </p>
                       )}
                     </>
                   ) : (
                     <div className="rounded-xl border border-danger/20 bg-danger-50/30 p-4 text-center">
-                      <span className="text-danger font-mono font-bold">OFFLINE</span>
-                      <p className="text-xs text-default-400 mt-1">This server is currently unreachable.</p>
+                      <span className="text-danger font-mono font-bold">离线</span>
+                      <p className="text-xs text-default-400 mt-1">该服务器当前不可达</p>
                     </div>
                   )}
                 </ModalBody>

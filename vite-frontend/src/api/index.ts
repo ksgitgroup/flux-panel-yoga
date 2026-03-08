@@ -211,6 +211,12 @@ export interface AssetHost {
   gostNodeId?: number | null;
   gostNodeName?: string | null;
   monitorNodeUuid?: string | null;
+  cpuName?: string | null;
+  arch?: string | null;
+  virtualization?: string | null;
+  kernelVersion?: string | null;
+  gpuName?: string | null;
+  swapTotalMb?: number | null;
   remark?: string | null;
   totalXuiInstances: number;
   totalProtocols: number;

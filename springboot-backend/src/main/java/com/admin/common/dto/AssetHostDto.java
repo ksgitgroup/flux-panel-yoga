@@ -52,5 +52,17 @@ public class AssetHostDto {
 
     private String monitorNodeUuid;
 
+    private String cpuName;
+
+    private String arch;
+
+    private String virtualization;
+
+    private String kernelVersion;
+
+    private String gpuName;
+
+    private Integer swapTotalMb;
+
     private String remark;
 }

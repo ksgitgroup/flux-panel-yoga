@@ -11,7 +11,7 @@ import { Switch } from "@heroui/switch";
 import toast from 'react-hot-toast';
 
 import { getPortalLinks, PortalLink, savePortalLinks } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 
 interface PortalLinkForm {
   id?: string;
@@ -59,7 +59,7 @@ const buildTemporaryId = () => `portal_${Date.now()}_${Math.random().toString(36
 
 export default function PortalConfigPage() {
   const navigate = useNavigate();
-  const admin = isAdmin();
+  const canManagePortal = hasPermission('portal.write');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<PortalLink[]>([]);
@@ -76,13 +76,13 @@ export default function PortalConfigPage() {
   } = useDisclosure();
 
   useEffect(() => {
-    if (!admin) {
-      toast.error('权限不足，只有管理员可以访问导航配置');
+    if (!canManagePortal) {
+      toast.error('权限不足，无法访问导航配置');
       navigate('/dashboard', { replace: true });
       return;
     }
     void loadPortalLinks();
-  }, [admin, navigate]);
+  }, [canManagePortal, navigate]);
 
   const loadPortalLinks = async () => {
     setLoading(true);
@@ -246,7 +246,7 @@ export default function PortalConfigPage() {
     window.open(item.href, '_blank', 'noopener,noreferrer');
   };
 
-  if (!admin) {
+  if (!canManagePortal) {
     return null;
   }
 

@@ -42,7 +42,7 @@ import {
   batchUpdateAsset,
   geolocateIp
 } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface AssetForm {
@@ -351,7 +351,9 @@ const barColorHero = (v: number): 'danger' | 'warning' | 'success' =>
 export default function AssetsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const admin = isAdmin();
+  const canViewAssets = hasPermission('asset.read');
+  const canManageAssets = hasPermission('asset.write');
+  const canManageXui = hasPermission('xui.write');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assets, setAssets] = useState<AssetHost[]>([]);
@@ -570,6 +572,10 @@ export default function AssetsPage() {
   };
 
   const openCreateModal = () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法新建资产');
+      return;
+    }
     setIsEdit(false); setErrors({}); setForm(emptyForm()); setUnboundNodes([]);
     onFormOpen();
     void loadUnboundNodes();
@@ -585,6 +591,10 @@ export default function AssetsPage() {
   };
 
   const importFromNode = (node: MonitorNodeSnapshot) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法导入探针节点');
+      return;
+    }
     const memMb = node.memTotal ? Math.round(node.memTotal / (1024 * 1024)) : undefined;
     const diskGb = node.diskTotal ? Math.round(node.diskTotal / (1024 * 1024 * 1024)) : undefined;
     const swapMb = node.swapTotal ? Math.round(node.swapTotal / (1024 * 1024)) : undefined;
@@ -614,6 +624,10 @@ export default function AssetsPage() {
   };
 
   const openProvisionModal = async (ctx?: { assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' }) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法为资产部署探针');
+      return;
+    }
     setProvisionStep('select');
     setProvisionResult(null);
     setDualProvisionResult(null);
@@ -651,6 +665,10 @@ export default function AssetsPage() {
   };
 
   const handleProvision = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法创建探针安装命令');
+      return;
+    }
     if (provisionDualMode) {
       const kid = provisionKomariId ? parseInt(provisionKomariId) : null;
       const pid = provisionPikaId ? parseInt(provisionPikaId) : null;
@@ -691,6 +709,10 @@ export default function AssetsPage() {
 
   // After probe install, sync the instance to discover the new node
   const handleProvisionSync = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法同步探针实例');
+      return;
+    }
     // Determine which instance(s) to sync
     const idsToSync: number[] = [];
     if (provisionDualMode && dualProvisionResult) {
@@ -721,6 +743,10 @@ export default function AssetsPage() {
   };
 
   const openEditModal = (asset: AssetHost, tab?: string) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法编辑资产');
+      return;
+    }
     setIsEdit(true); setErrors({});
     setXuiBindOpen(false); setXuiBindForm({ addr: '', user: '', pass: '' }); setXuiBindLoading(false);
     setPanelBindOpen(false); setTagInput('');
@@ -752,6 +778,10 @@ export default function AssetsPage() {
   };
 
   const handleSubmit = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法保存资产');
+      return;
+    }
     if (!validateForm()) return;
     setSubmitLoading(true);
     try {
@@ -799,8 +829,19 @@ export default function AssetsPage() {
     finally { setSubmitLoading(false); }
   };
 
-  const openDeleteModal = (asset: AssetHost) => { setAssetToDelete(asset); onDeleteOpen(); };
+  const openDeleteModal = (asset: AssetHost) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法删除资产');
+      return;
+    }
+    setAssetToDelete(asset);
+    onDeleteOpen();
+  };
   const handleDelete = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法删除资产');
+      return;
+    }
     if (!assetToDelete) return;
     setActionLoadingId(assetToDelete.id);
     try {
@@ -831,6 +872,10 @@ export default function AssetsPage() {
   };
 
   const openBatchModal = () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法批量修改资产');
+      return;
+    }
     if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
     setBatchField('tags');
     setBatchValue('');
@@ -838,6 +883,10 @@ export default function AssetsPage() {
   };
 
   const handleBatchGeolocate = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法批量匹配地区');
+      return;
+    }
     if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
     const targets = filteredAssets.filter(a => selectedIds.has(a.id) && a.primaryIp);
     if (targets.length === 0) { toast('所选资产都缺少 IP，无法匹配地区', { icon: '📍' }); return; }
@@ -866,6 +915,10 @@ export default function AssetsPage() {
   };
 
   const handleBatchUpdate = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法批量修改资产');
+      return;
+    }
     if (selectedIds.size === 0) return;
     setBatchLoading(true);
     try {
@@ -887,6 +940,10 @@ export default function AssetsPage() {
   };
 
   const handleGeolocate = async () => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法修改资产地区');
+      return;
+    }
     const ip = form.primaryIp.trim();
     if (!ip) { toast.error('请先填写 IP 地址'); return; }
     setGeoLoading(true);
@@ -916,11 +973,11 @@ export default function AssetsPage() {
     onDetailOpen();
   };
 
-  if (!admin) {
+  if (!canViewAssets) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
         <CardBody className="p-6">
-          <h1 className="text-xl font-semibold text-danger">仅管理员可访问</h1>
+          <h1 className="text-xl font-semibold text-danger">缺少资产查看权限</h1>
         </CardBody>
       </Card>
     );
@@ -945,15 +1002,19 @@ export default function AssetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant={batchMode ? 'solid' : 'flat'} size="sm"
-            color={batchMode ? 'warning' : 'default'}
-            onPress={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
-          >
-            {batchMode ? '退出批量' : '批量操作'}
-          </Button>
-          <Button color="primary" size="sm" onPress={() => openProvisionModal()}>添加服务器</Button>
-          <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
+          {canManageAssets && (
+            <>
+              <Button
+                variant={batchMode ? 'solid' : 'flat'} size="sm"
+                color={batchMode ? 'warning' : 'default'}
+                onPress={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
+              >
+                {batchMode ? '退出批量' : '批量操作'}
+              </Button>
+              <Button color="primary" size="sm" onPress={() => openProvisionModal()}>添加服务器</Button>
+              <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1140,7 +1201,7 @@ export default function AssetsPage() {
       )}
 
       {/* Batch action bar */}
-      {batchMode && (
+      {canManageAssets && batchMode && (
         <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-50/50 dark:bg-warning-50/10 px-4 py-2">
           <span className="text-sm font-semibold text-warning-700 dark:text-warning-400">
             已选 {selectedIds.size} / {filteredAssets.length}
@@ -1363,12 +1424,14 @@ export default function AssetsPage() {
                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                               查看
                             </button>
-                            <button type="button"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-primary-200 text-[11px] font-medium text-primary hover:bg-primary-50 hover:border-primary-300 transition-all cursor-pointer"
-                              onClick={() => openEditModal(asset)}>
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                              编辑
-                            </button>
+                            {canManageAssets && (
+                              <button type="button"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-primary-200 text-[11px] font-medium text-primary hover:bg-primary-50 hover:border-primary-300 transition-all cursor-pointer"
+                                onClick={() => openEditModal(asset)}>
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                编辑
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1488,7 +1551,7 @@ export default function AssetsPage() {
                   return (
                     <div className="rounded-lg border border-warning/30 bg-warning-50/40 dark:bg-warning-50/10 px-3 py-2 flex items-center gap-2 flex-wrap">
                       <span className="text-[11px] font-semibold text-warning-600 dark:text-warning-400">待完善</span>
-                      {hints.map((h, i) => (
+                      {canManageAssets && hints.map((h, i) => (
                         <Chip key={i} size="sm" variant="flat" color={h.color} className="h-5 text-[10px] cursor-pointer hover:opacity-80"
                           onClick={h.action}>
                           {h.label} &rarr;
@@ -1786,8 +1849,8 @@ export default function AssetsPage() {
                 )}
               </ModalBody>
               <ModalFooter className="flex-wrap gap-1">
-                <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>
-                <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>
+                {canManageAssets && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
+                {canManageAssets && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
@@ -1800,7 +1863,7 @@ export default function AssetsPage() {
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑资产' : '新建资产'}</ModalHeader>
           <ModalBody className="px-3 pb-2">
-            {!isEdit && unboundNodes.length > 0 && (
+            {!isEdit && canManageAssets && unboundNodes.length > 0 && (
               <div className="rounded-lg border border-primary-200 bg-primary-50 p-3 dark:border-primary-800 dark:bg-primary-950 mb-2">
                 <p className="mb-2 text-xs font-medium text-primary-600 dark:text-primary-400">从探针导入（自动填充服务器信息）</p>
                 <div className="flex flex-wrap gap-2">
@@ -1814,7 +1877,7 @@ export default function AssetsPage() {
                 </div>
               </div>
             )}
-            {!isEdit && importLoading && (
+            {!isEdit && canManageAssets && importLoading && (
               <div className="flex items-center gap-2 text-xs text-default-400 mb-2">
                 <Spinner size="sm" /> 加载探针节点...
               </div>
@@ -2030,7 +2093,7 @@ export default function AssetsPage() {
                             )}
                           </div>
                         </div>
-                        {(!hasKomari || !hasPika) && editingAsset && (
+                        {canManageAssets && (!hasKomari || !hasPika) && editingAsset && (
                           <Button size="sm" variant="flat" color="primary"
                             onPress={() => {
                               const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
@@ -2088,7 +2151,7 @@ export default function AssetsPage() {
                             <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           )}
                         </div>
-                        {!hasXui && editingAsset && (
+                        {canManageAssets && canManageXui && !hasXui && editingAsset && (
                           <>
                             {!xuiBindOpen ? (
                               <Button size="sm" variant="flat" color="primary"
@@ -2159,16 +2222,18 @@ export default function AssetsPage() {
                                 className="text-[11px] text-primary hover:underline truncate max-w-[200px]">
                                 {form.panelUrl}
                               </a>
-                              <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
-                                onPress={() => setForm(p => ({ ...p, panelUrl: '' }))}>
-                                解绑
-                              </Button>
+                              {canManageAssets && (
+                                <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
+                                  onPress={() => setForm(p => ({ ...p, panelUrl: '' }))}>
+                                  解绑
+                                </Button>
+                              )}
                             </div>
                           ) : (
                             <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           )}
                         </div>
-                        {!hasPanel && editingAsset && (
+                        {canManageAssets && !hasPanel && editingAsset && (
                           <>
                             {!panelBindOpen ? (
                               <Button size="sm" variant="flat" color="primary"
@@ -2274,7 +2339,7 @@ export default function AssetsPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onFormClose}>取消</Button>
-            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit}>
+            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit} isDisabled={!canManageAssets}>
               {isEdit ? '保存' : '创建'}
             </Button>
           </ModalFooter>
@@ -2290,7 +2355,7 @@ export default function AssetsPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onDeleteClose}>取消</Button>
-            <Button color="danger" isLoading={actionLoadingId === assetToDelete?.id} onPress={handleDelete}>删除</Button>
+            <Button color="danger" isLoading={actionLoadingId === assetToDelete?.id} onPress={handleDelete} isDisabled={!canManageAssets}>删除</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -2512,7 +2577,7 @@ export default function AssetsPage() {
 
                 <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
                   <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
-                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync}>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!canManageAssets}>
                     手动同步
                   </Button>
                   <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
@@ -2563,7 +2628,7 @@ export default function AssetsPage() {
 
                 <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
                   <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
-                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync}>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!canManageAssets}>
                     手动同步
                   </Button>
                   <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
@@ -2577,6 +2642,7 @@ export default function AssetsPage() {
                 <Button variant="flat" onPress={onProvisionClose}>取消</Button>
                 <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
                   isDisabled={
+                    !canManageAssets ||
                     (provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId) ||
                     (!!provisionContext && !provisionName.trim())
                   }>
@@ -2684,7 +2750,7 @@ export default function AssetsPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onBatchClose}>取消</Button>
-            <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate}>
+            <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate} isDisabled={!canManageAssets}>
               确认修改
             </Button>
           </ModalFooter>

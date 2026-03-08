@@ -11,7 +11,7 @@ import { Select, SelectItem } from "@heroui/select";
 import toast from 'react-hot-toast';
 import { updateConfigs, testWebhook } from '@/api';
 import { SettingsIcon } from '@/components/icons';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 import { clearConfigCache, getCachedConfigs, siteConfig, updateSiteConfig } from '@/config/site';
 
 type ConfigType = 'input' | 'switch' | 'select' | 'textarea';
@@ -258,6 +258,8 @@ const SaveIcon = ({ className }: { className?: string }) => (
 export default function ConfigPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const canViewConfig = hasPermission('site_config.read');
+  const canManageConfig = hasPermission('site_config.write');
   const initialConfigs = getInitialConfigs();
   const [configs, setConfigs] = useState<Record<string, string>>(initialConfigs);
   const [loading, setLoading] = useState(Object.keys(initialConfigs).length === 0);
@@ -267,11 +269,11 @@ export default function ConfigPage() {
   const [testingWebhook, setTestingWebhook] = useState(false);
 
   useEffect(() => {
-    if (!isAdmin()) {
-      toast.error('权限不足，只有管理员可以访问此页面');
+    if (!canViewConfig) {
+      toast.error('权限不足，无法访问网站配置');
       navigate('/dashboard', { replace: true });
     }
-  }, [navigate]);
+  }, [canViewConfig, navigate]);
 
   const activeSection = (searchParams.get('section') as ConfigSectionKey) || 'basic';
 
@@ -341,6 +343,10 @@ export default function ConfigPage() {
   };
 
   const handleSave = async () => {
+    if (!canManageConfig) {
+      toast.error('权限不足，无法保存配置');
+      return;
+    }
     setSaving(true);
     try {
       const response = await updateConfigs(configs);
@@ -452,6 +458,9 @@ export default function ConfigPage() {
   };
 
   const renderFieldActions = (item: ConfigItem) => {
+    if (!canManageConfig) {
+      return null;
+    }
     if (item.key === 'wechat_webhook_url' && configs.wechat_webhook_url) {
       return (
         <Button
@@ -533,7 +542,7 @@ export default function ConfigPage() {
               startContent={<SaveIcon className="w-4 h-4" />}
               onClick={handleSave}
               isLoading={saving}
-              disabled={!hasChanges}
+              disabled={!canManageConfig || !hasChanges}
             >
               {saving ? '保存中...' : '保存配置'}
             </Button>

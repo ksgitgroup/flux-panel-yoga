@@ -35,7 +35,7 @@ import {
   getUserPackageInfo,
   runDiagnosisNow,
 } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 import { siteConfig } from '@/config/site';
 
 interface DiagnosisRecord {
@@ -564,7 +564,9 @@ const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
 };
 
 export default function MonitorPage() {
-  const admin = isAdmin();
+  const canViewMonitor = hasPermission('monitor.read');
+  const canManageMonitor = hasPermission('monitor.write');
+  const canViewNodes = hasPermission('node.read');
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [runtime, setRuntime] = useState<DiagnosisRuntimeStatus | null>(null);
@@ -597,7 +599,7 @@ export default function MonitorPage() {
         getDiagnosisRuntimeStatus().catch(() => null),
         getUserPackageInfo().catch(() => null),
         getForwardList().catch(() => null),
-        admin ? getNodeList().catch(() => null) : Promise.resolve(null),
+        canViewNodes ? getNodeList().catch(() => null) : Promise.resolve(null),
       ]);
 
       if (summaryResp.code === 0) {
@@ -624,7 +626,7 @@ export default function MonitorPage() {
         setForwardList(Array.isArray(forwardResp.data) ? forwardResp.data : []);
       }
 
-      if (admin && nodeResp?.code === 0) {
+      if (canViewNodes && nodeResp?.code === 0) {
         setNodes((prev) => (nodeResp.data || []).map((node: any) => {
           const existing = prev.find((item) => item.id === node.id);
           return {
@@ -640,7 +642,7 @@ export default function MonitorPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [admin]);
+  }, [canViewNodes]);
 
   useEffect(() => {
     void loadBoard();
@@ -654,7 +656,7 @@ export default function MonitorPage() {
   }, [loadBoard, runtime?.running]);
 
   useEffect(() => {
-    if (!admin) {
+    if (!canViewNodes) {
       setNodes([]);
       setNodeTrafficSeries([]);
       if (reconnectTimerRef.current) {
@@ -788,10 +790,10 @@ export default function MonitorPage() {
       unmounted = true;
       closeSocket();
     };
-  }, [admin]);
+  }, [canViewNodes]);
 
   useEffect(() => {
-    if (!admin) return;
+    if (!canViewNodes) return;
     const timer = window.setInterval(() => {
       const snapshot = nodesRef.current;
       const onlineNodes = snapshot.filter((node) => node.connectionStatus === 'online');
@@ -806,10 +808,10 @@ export default function MonitorPage() {
       setNodeTrafficSeries((prev) => [...prev.slice(-17), nextPoint]);
     }, 4000);
     return () => window.clearInterval(timer);
-  }, [admin]);
+  }, [canViewNodes]);
 
   const handleRunNow = async () => {
-    if (!admin) return;
+    if (!canManageMonitor) return;
     setTriggering(true);
     try {
       const resp = await runDiagnosisNow();
@@ -924,6 +926,17 @@ export default function MonitorPage() {
 
   const noData = !summary || summary.totalCount === 0;
 
+  if (!canViewMonitor) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[420px] gap-4">
+        <div className="min-w-[300px] rounded-xl border border-danger-200 bg-danger-50 p-4 text-center text-danger dark:bg-danger-900/10">
+          <p className="font-bold">缺少诊断看板查看权限</p>
+          <p className="text-sm opacity-80">请联系管理员为当前角色分配 `monitor.read`。</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1600px] space-y-5 py-2">
       <Card className="overflow-hidden border border-default-200 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.12),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.1),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,252,0.96))] shadow-sm dark:bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.18),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.14),transparent_28%),linear-gradient(180deg,rgba(9,9,11,0.96),rgba(15,23,42,0.94))]">
@@ -945,7 +958,7 @@ export default function MonitorPage() {
 
             <div className="flex gap-2 self-start">
               <Button variant="bordered" onPress={() => loadBoard(false)} size="sm">刷新</Button>
-              {admin && (
+              {canManageMonitor && (
                 <Button color="primary" onPress={handleRunNow} isLoading={triggering} size="sm">
                   立即诊断
                 </Button>
@@ -953,7 +966,7 @@ export default function MonitorPage() {
             </div>
           </div>
 
-          {admin && runtime && (
+          {runtime && (
             <Card className="border border-primary/20 bg-primary/5 shadow-none">
               <CardBody className="gap-4 p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1046,7 +1059,7 @@ export default function MonitorPage() {
             </div>
           </CardHeader>
           <CardBody className="space-y-4 pt-5">
-            {admin ? (
+            {canViewNodes ? (
               <>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
@@ -1114,7 +1127,7 @@ export default function MonitorPage() {
               </>
             ) : (
               <div className="rounded-2xl border border-dashed border-default-300 bg-default-50/70 px-4 py-6 text-sm text-default-500">
-                节点实时流量只对管理员开放。普通账号可以直接看下方的隧道/转发累计流量与诊断详情。
+                当前角色没有节点查看权限。你仍然可以继续查看下方的隧道、转发和诊断结果。
               </div>
             )}
           </CardBody>

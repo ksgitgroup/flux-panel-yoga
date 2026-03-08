@@ -9,7 +9,17 @@ import axios from "axios";
 import { siteConfig } from "@/config/site";
 import { title } from "@/components/primitives";
 import DefaultLayout from "@/layouts/default";
-import { checkCaptcha, completeTwoFactorLogin, LoginData, LoginResponse, login } from "@/api";
+import {
+  checkCaptcha,
+  completeTwoFactorLogin,
+  getDingtalkAuthorizeUrl,
+  getIamAuthOptions,
+  IamAuthOptions,
+  LoginData,
+  LoginResponse,
+  login
+} from "@/api";
+import { persistAuthSession } from "@/utils/auth";
 import "@/utils/tac.css";
 import "@/utils/tac.min.js";
 import bgImage from "@/images/bg.jpg";
@@ -56,12 +66,31 @@ export default function IndexPage() {
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
   const [twoFactorErrors, setTwoFactorErrors] = useState<Partial<TwoFactorForm>>({});
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [authOptions, setAuthOptions] = useState<IamAuthOptions | null>(null);
+  const [authOptionsLoading, setAuthOptionsLoading] = useState(true);
+  const [dingtalkLoading, setDingtalkLoading] = useState(false);
   const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
   const [twoFactorChallengeToken, setTwoFactorChallengeToken] = useState("");
   const [twoFactorChallengeExpiresAt, setTwoFactorChallengeExpiresAt] = useState<number | null>(null);
   const navigate = useNavigate();
   const tacInstanceRef = useRef<any>(null);
   const captchaContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const loadAuthOptions = async () => {
+      try {
+        const response = await getIamAuthOptions();
+        if (response.code === 0 && response.data) {
+          setAuthOptions(response.data);
+        }
+      } catch (error) {
+        console.error("加载认证选项失败:", error);
+      } finally {
+        setAuthOptionsLoading(false);
+      }
+    };
+    void loadAuthOptions();
+  }, []);
+
   useEffect(() => {
     return () => {
       if (tacInstanceRef.current) {
@@ -121,17 +150,17 @@ export default function IndexPage() {
   };
 
   const handleAuthSuccess = (authData?: LoginResponse) => {
-    if (!authData?.token || authData.role_id === undefined || !authData.name) {
+    if (!persistAuthSession(authData)) {
+      toast.error("登录响应不完整，请重试");
+      return;
+    }
+    const session = authData;
+    if (!session) {
       toast.error("登录响应不完整，请重试");
       return;
     }
 
-    localStorage.setItem("token", authData.token);
-    localStorage.setItem("role_id", authData.role_id.toString());
-    localStorage.setItem("name", authData.name);
-    localStorage.setItem("admin", (authData.role_id === 0).toString());
-
-    if (authData.requirePasswordChange) {
+    if (session.requirePasswordChange) {
       localStorage.setItem("force_password_change", "true");
       localStorage.removeItem("force_two_factor_setup");
       toast.success("检测到默认密码，即将跳转到修改密码页面");
@@ -141,9 +170,9 @@ export default function IndexPage() {
 
     localStorage.removeItem("force_password_change");
 
-    if (authData.requireTwoFactorSetup) {
+    if (session.requireTwoFactorSetup) {
       localStorage.setItem("force_two_factor_setup", "true");
-      toast.success(authData.twoFactorRequired ? "当前安全策略要求先完成二步验证绑定" : "请完成二步验证绑定");
+      toast.success(session.twoFactorRequired ? "当前安全策略要求先完成二步验证绑定" : "请完成二步验证绑定");
       navigate("/profile");
       return;
     }
@@ -151,6 +180,22 @@ export default function IndexPage() {
     localStorage.removeItem("force_two_factor_setup");
     toast.success("登录成功");
     navigate("/dashboard");
+  };
+
+  const handleDingtalkLogin = async () => {
+    setDingtalkLoading(true);
+    try {
+      const response = await getDingtalkAuthorizeUrl('web');
+      if (response.code !== 0 || !response.data?.authorizeUrl) {
+        toast.error(response.msg || "获取钉钉登录地址失败");
+        return;
+      }
+      window.location.assign(response.data.authorizeUrl);
+    } catch (error) {
+      toast.error("获取钉钉登录地址失败");
+    } finally {
+      setDingtalkLoading(false);
+    }
   };
 
   const initCaptcha = async () => {
@@ -320,50 +365,81 @@ export default function IndexPage() {
           <Card className="w-full">
             <CardHeader className="flex-col items-center px-6 pb-0 pt-6">
               <h1 className={title({ size: "sm" })}>登陆</h1>
-              <p className="text-small text-default-500 mt-2">请输入您的账号信息</p>
+              <p className="text-small text-default-500 mt-2">请选择管理员本地登录或钉钉登录</p>
             </CardHeader>
             <CardBody className="px-6 py-6">
               <div className="flex flex-col gap-4">
-                <Input
-                  label="用户名"
-                  placeholder="请输入用户名"
-                  value={form.username}
-                  onChange={(e) => handleInputChange('username', e.target.value)}
-                  onKeyDown={handlePrimaryKeyPress}
-                  variant="bordered"
-                  isDisabled={loading}
-                  isInvalid={!!errors.username}
-                  errorMessage={errors.username}
-                />
-                
-                <Input
-                  label="密码"
-                  placeholder="请输入密码"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  onKeyDown={handlePrimaryKeyPress}
-                  variant="bordered"
-                  isDisabled={loading}
-                  isInvalid={!!errors.password}
-                  errorMessage={errors.password}
-                />
+                {(authOptions?.localAdminEnabled ?? true) && (
+                  <>
+                    <Input
+                      label="管理员用户名"
+                      placeholder="请输入用户名"
+                      value={form.username}
+                      onChange={(e) => handleInputChange('username', e.target.value)}
+                      onKeyDown={handlePrimaryKeyPress}
+                      variant="bordered"
+                      isDisabled={loading || dingtalkLoading}
+                      isInvalid={!!errors.username}
+                      errorMessage={errors.username}
+                    />
+                    
+                    <Input
+                      label="管理员密码"
+                      placeholder="请输入密码"
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
+                      onKeyDown={handlePrimaryKeyPress}
+                      variant="bordered"
+                      isDisabled={loading || dingtalkLoading}
+                      isInvalid={!!errors.password}
+                      errorMessage={errors.password}
+                    />
 
-                <p className="text-xs leading-6 text-default-500">
-                  若账号启用了二步验证，提交用户名和密码后会进入单独的验证码确认步骤。
-                </p>
+                    <p className="text-xs leading-6 text-default-500">
+                      本地登录仅保留给应急管理员。若账号启用了二步验证，提交用户名和密码后会进入单独的验证码确认步骤。
+                    </p>
 
-                
-                <Button
-                  color="primary"
-                  size="lg"
-                  onClick={handleLogin}
-                  isLoading={loading}
-                  isDisabled={loading}
-                  className="mt-2"
-                >
-                  {loading ? (showCaptcha ? "验证中..." : "登录中...") : "登录"}
-                </Button>
+                    <Button
+                      color="primary"
+                      size="lg"
+                      onClick={handleLogin}
+                      isLoading={loading}
+                      isDisabled={loading || dingtalkLoading || authOptionsLoading}
+                      className="mt-2"
+                    >
+                      {loading ? (showCaptcha ? "验证中..." : "登录中...") : "管理员登录"}
+                    </Button>
+                  </>
+                )}
+
+                {authOptions?.dingtalkOauthEnabled && authOptions?.dingtalkConfigured && (
+                  <>
+                    <div className="relative py-1">
+                      <div className="h-px bg-divider" />
+                      <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-content1 px-3 text-xs text-default-400">
+                        企业成员
+                      </span>
+                    </div>
+                    <Button
+                      color="default"
+                      size="lg"
+                      variant="bordered"
+                      onClick={handleDingtalkLogin}
+                      isLoading={dingtalkLoading}
+                      isDisabled={loading || dingtalkLoading}
+                    >
+                      使用钉钉登录
+                    </Button>
+                    <p className="text-xs leading-6 text-default-500">
+                      企业成员通过钉钉完成组织身份验证，并按 Flux 中的角色权限进入对应模块。
+                    </p>
+                  </>
+                )}
+
+                {!authOptionsLoading && !(authOptions?.localAdminEnabled ?? true) && !(authOptions?.dingtalkOauthEnabled && authOptions?.dingtalkConfigured) && (
+                  <p className="text-sm text-danger">当前没有可用的登录方式，请联系管理员检查 IAM 配置。</p>
+                )}
               </div>
             </CardBody>
           </Card>

@@ -1,6 +1,7 @@
 package com.admin.config;
 
 import com.admin.common.interceptor.JwtInterceptor;
+import com.admin.service.IamAuthService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -15,6 +16,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 @EnableWebMvc
 public class WebMvcConfig implements WebMvcConfigurer {
+
+    private final IamAuthService iamAuthService;
+
+    public WebMvcConfig(IamAuthService iamAuthService) {
+        this.iamAuthService = iamAuthService;
+    }
 
     private CorsConfiguration buildConfig() {
         CorsConfiguration corsConfiguration = new CorsConfiguration();
@@ -44,8 +51,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
      * JWT拦截器
      */
     @Bean
-    public JwtInterceptor jwtInterceptor() {
-        return new JwtInterceptor();
+    public JwtInterceptor jwtInterceptor(IamAuthService iamAuthService) {
+        return new JwtInterceptor(iamAuthService);
     }
 
     /**
@@ -54,7 +61,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         // 添加JWT拦截器，不拦截登录接口
-        registry.addInterceptor(jwtInterceptor())
+        registry.addInterceptor(jwtInterceptor(iamAuthService))
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/flow/**")
                 .excludePathPatterns("/api/v1/open_api/**")
@@ -62,6 +69,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/v1/xui/traffic/**")
                 .excludePathPatterns("/api/v1/user/login")
                 .excludePathPatterns("/api/v1/user/login/2fa")
+                .excludePathPatterns("/api/v1/iam/auth/options")
+                .excludePathPatterns("/api/v1/iam/auth/dingtalk/authorize-url")
+                .excludePathPatterns("/api/v1/iam/auth/dingtalk/login")
                 .excludePathPatterns("/api/v1/captcha/**");
     }
 }

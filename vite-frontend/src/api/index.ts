@@ -219,6 +219,8 @@ export interface AssetHost {
   gpuName?: string | null;
   swapTotalMb?: number | null;
   remark?: string | null;
+  panelUrl?: string | null;
+  billingCycle?: number | null;
   totalXuiInstances: number;
   totalProtocols: number;
   totalInbounds: number;

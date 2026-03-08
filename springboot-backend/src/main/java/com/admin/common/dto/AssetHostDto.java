@@ -67,4 +67,8 @@ public class AssetHostDto {
     private Integer swapTotalMb;
 
     private String remark;
+
+    private Integer billingCycle;
+
+    private String panelUrl;
 }

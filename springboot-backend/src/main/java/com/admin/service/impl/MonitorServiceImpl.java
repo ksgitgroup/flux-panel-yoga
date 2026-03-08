@@ -740,6 +740,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             if (existing.getAssetId() == null) {
                 boolean created = autoCreateAssetFromNode(existing, instance);
                 if (created) newAssets++;
+            } else {
+                // Ongoing sync: update existing asset with probe billing/tags/label
+                refreshAssetFromProbe(existing);
             }
         }
 
@@ -1139,6 +1142,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             if (existing.getAssetId() == null) {
                 boolean created = autoCreateOrLinkAssetFromNode(existing, instance);
                 if (created) newAssets++;
+            } else {
+                // Ongoing sync: update existing asset with probe billing/tags/label
+                refreshAssetFromProbe(existing);
             }
         }
 
@@ -1372,6 +1378,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         asset.setUpdatedTime(now);
         asset.setStatus(0);
 
+        // Set label from probe name (unique server identifier)
+        if (StringUtils.hasText(node.getName())) {
+            asset.setLabel(node.getName());
+        }
+
         // Set probe link based on type
         if (isPika) {
             asset.setPikaNodeId(node.getRemoteNodeUuid());
@@ -1390,6 +1401,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             asset.setSwapTotalMb((int) (node.getSwapTotal() / (1024 * 1024)));
         }
 
+        // Sync billing info from probe (Komari)
+        applyProbeBillingToAsset(asset, node);
+
+        // Sync tags from probe
+        applyProbeTagsToAsset(asset, node);
+
         try {
             assetHostMapper.insert(asset);
             node.setAssetId(asset.getId());
@@ -1399,6 +1416,129 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         } catch (Exception e) {
             log.warn("[MonitorSync] Failed to auto-create asset for node {}: {}", node.getRemoteNodeUuid(), e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Sync billing fields from probe snapshot to asset (only fills empty fields).
+     * Komari provides: price, billingCycle, currency, expiredAt.
+     */
+    private void applyProbeBillingToAsset(AssetHost asset, MonitorNodeSnapshot node) {
+        // monthlyCost ← price (convert to string)
+        if (!StringUtils.hasText(asset.getMonthlyCost()) && node.getPrice() != null && node.getPrice() > 0) {
+            asset.setMonthlyCost(String.valueOf(node.getPrice()));
+        }
+        // billingCycle
+        if (asset.getBillingCycle() == null && node.getBillingCycle() != null && node.getBillingCycle() > 0) {
+            asset.setBillingCycle(node.getBillingCycle());
+        }
+        // currency
+        if (!StringUtils.hasText(asset.getCurrency()) && StringUtils.hasText(node.getCurrency())) {
+            asset.setCurrency(node.getCurrency());
+        }
+        // expireDate ← expiredAt
+        if (asset.getExpireDate() == null && node.getExpiredAt() != null && node.getExpiredAt() > 0) {
+            // Skip far-future dates (Komari uses year > 2200 for "lifetime")
+            long yearMs = 365L * 24 * 3600 * 1000;
+            if (node.getExpiredAt() < System.currentTimeMillis() + 100 * yearMs) {
+                asset.setExpireDate(node.getExpiredAt());
+            }
+        }
+    }
+
+    /**
+     * Merge probe tags into asset tags.
+     * Probe tags are added to asset tags; existing user tags are preserved.
+     */
+    private void applyProbeTagsToAsset(AssetHost asset, MonitorNodeSnapshot node) {
+        if (!StringUtils.hasText(node.getTags())) return;
+        try {
+            // Parse probe tags
+            java.util.Set<String> probeTags = new java.util.LinkedHashSet<>();
+            com.alibaba.fastjson2.JSONArray probeArr = com.alibaba.fastjson2.JSON.parseArray(node.getTags());
+            if (probeArr != null) {
+                for (int i = 0; i < probeArr.size(); i++) {
+                    String t = probeArr.getString(i);
+                    if (StringUtils.hasText(t)) probeTags.add(t.trim());
+                }
+            }
+            if (probeTags.isEmpty()) return;
+
+            // Parse existing asset tags
+            java.util.Set<String> assetTags = new java.util.LinkedHashSet<>();
+            if (StringUtils.hasText(asset.getTags())) {
+                try {
+                    com.alibaba.fastjson2.JSONArray existArr = com.alibaba.fastjson2.JSON.parseArray(asset.getTags());
+                    if (existArr != null) {
+                        for (int i = 0; i < existArr.size(); i++) {
+                            String t = existArr.getString(i);
+                            if (StringUtils.hasText(t)) assetTags.add(t.trim());
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Fallback: comma/semicolon separated
+                    for (String t : asset.getTags().split("[;,]")) {
+                        if (StringUtils.hasText(t.trim())) assetTags.add(t.trim());
+                    }
+                }
+            }
+
+            // Merge: add probe tags that don't exist yet
+            assetTags.addAll(probeTags);
+
+            // Write back as JSON array
+            com.alibaba.fastjson2.JSONArray merged = new com.alibaba.fastjson2.JSONArray();
+            merged.addAll(assetTags);
+            asset.setTags(merged.toJSONString());
+        } catch (Exception e) {
+            log.debug("[MonitorSync] Failed to merge probe tags: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Ongoing sync: refresh existing asset with probe data (label, tags, billing).
+     * Only fills empty fields — never overwrites user-edited values.
+     */
+    private void refreshAssetFromProbe(MonitorNodeSnapshot node) {
+        if (node.getAssetId() == null) return;
+        try {
+            AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+            if (asset == null || asset.getStatus() != 0) return;
+
+            boolean changed = false;
+
+            // Label: sync from probe name if asset label is empty
+            if (!StringUtils.hasText(asset.getLabel()) && StringUtils.hasText(node.getName())) {
+                asset.setLabel(node.getName());
+                changed = true;
+            }
+
+            // Billing: fill empty fields
+            String prevCost = asset.getMonthlyCost();
+            Integer prevCycle = asset.getBillingCycle();
+            String prevCurrency = asset.getCurrency();
+            Long prevExpire = asset.getExpireDate();
+            applyProbeBillingToAsset(asset, node);
+            if (!java.util.Objects.equals(prevCost, asset.getMonthlyCost())
+                    || !java.util.Objects.equals(prevCycle, asset.getBillingCycle())
+                    || !java.util.Objects.equals(prevCurrency, asset.getCurrency())
+                    || !java.util.Objects.equals(prevExpire, asset.getExpireDate())) {
+                changed = true;
+            }
+
+            // Tags: merge probe tags
+            String prevTags = asset.getTags();
+            applyProbeTagsToAsset(asset, node);
+            if (!java.util.Objects.equals(prevTags, asset.getTags())) {
+                changed = true;
+            }
+
+            if (changed) {
+                asset.setUpdatedTime(System.currentTimeMillis());
+                assetHostMapper.updateById(asset);
+            }
+        } catch (Exception e) {
+            log.debug("[MonitorSync] Failed to refresh asset from probe {}: {}", node.getRemoteNodeUuid(), e.getMessage());
         }
     }
 

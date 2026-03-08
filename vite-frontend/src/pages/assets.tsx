@@ -33,6 +33,7 @@ import {
   getAssetList,
   getMonitorList,
   getMonitorUnboundNodes,
+  createXuiInstance,
   provisionDualAgent,
   provisionMonitorAgent,
   updateAsset
@@ -61,6 +62,7 @@ interface AssetForm {
   expireDate: string;
   monthlyCost: string;
   currency: string;
+  billingCycle: string;
   tags: string;
   monitorNodeUuid: string;
   pikaNodeId: string;
@@ -71,14 +73,15 @@ interface AssetForm {
   gpuName: string;
   swapTotalMb: string;
   remark: string;
+  panelUrl: string;
 }
 
 const emptyForm = (): AssetForm => ({
   name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
   role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
-  currency: 'CNY', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
-  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '',
+  currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
+  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '',
 });
 
 const ROLES = [
@@ -94,7 +97,72 @@ const CURRENCIES = [
   { key: 'USD', label: 'USD' },
   { key: 'EUR', label: 'EUR' },
   { key: 'JPY', label: 'JPY' },
+  { key: '$', label: '$' },
 ];
+
+const REGIONS = [
+  { key: '', label: '未指定', flag: '' },
+  { key: '香港', label: '香港', flag: '🇭🇰' },
+  { key: '台湾', label: '台湾', flag: '🇹🇼' },
+  { key: '日本', label: '日本', flag: '🇯🇵' },
+  { key: '新加坡', label: '新加坡', flag: '🇸🇬' },
+  { key: '韩国', label: '韩国', flag: '🇰🇷' },
+  { key: '美国', label: '美国', flag: '🇺🇸' },
+  { key: '英国', label: '英国', flag: '🇬🇧' },
+  { key: '德国', label: '德国', flag: '🇩🇪' },
+  { key: '法国', label: '法国', flag: '🇫🇷' },
+  { key: '荷兰', label: '荷兰', flag: '🇳🇱' },
+  { key: '加拿大', label: '加拿大', flag: '🇨🇦' },
+  { key: '澳大利亚', label: '澳大利亚', flag: '🇦🇺' },
+  { key: '印度', label: '印度', flag: '🇮🇳' },
+  { key: '俄罗斯', label: '俄罗斯', flag: '🇷🇺' },
+  { key: '土耳其', label: '土耳其', flag: '🇹🇷' },
+  { key: '巴西', label: '巴西', flag: '🇧🇷' },
+  { key: '马来西亚', label: '马来西亚', flag: '🇲🇾' },
+  { key: '泰国', label: '泰国', flag: '🇹🇭' },
+  { key: '越南', label: '越南', flag: '🇻🇳' },
+  { key: '菲律宾', label: '菲律宾', flag: '🇵🇭' },
+  { key: '印度尼西亚', label: '印度尼西亚', flag: '🇮🇩' },
+  { key: '阿根廷', label: '阿根廷', flag: '🇦🇷' },
+  { key: '南非', label: '南非', flag: '🇿🇦' },
+];
+
+const BILLING_CYCLES = [
+  { key: '', label: '未知' },
+  { key: '30', label: '月付' },
+  { key: '90', label: '季付' },
+  { key: '180', label: '半年付' },
+  { key: '365', label: '年付' },
+  { key: '730', label: '两年付' },
+  { key: '1095', label: '三年付' },
+];
+
+const getRegionFlag = (region?: string | null) => {
+  if (!region) return '';
+  const match = REGIONS.find(r => r.key === region);
+  return match?.flag || '';
+};
+
+const formatBillingCycle = (days?: number | null) => {
+  if (!days) return '';
+  if (days >= 27 && days <= 32) return '月付';
+  if (days >= 87 && days <= 95) return '季付';
+  if (days >= 175 && days <= 185) return '半年付';
+  if (days >= 360 && days <= 370) return '年付';
+  if (days >= 720 && days <= 750) return '两年付';
+  if (days >= 1080 && days <= 1150) return '三年付';
+  return `${days}天`;
+};
+
+/** Calculate remaining value: (remaining days / billing cycle days) * price */
+const calcRemainingValue = (expireDate?: number | null, monthlyCost?: string | null, billingCycle?: number | null, currency?: string | null) => {
+  if (!expireDate || !monthlyCost || !billingCycle || billingCycle <= 0) return null;
+  const price = parseFloat(monthlyCost);
+  if (isNaN(price) || price <= 0) return null;
+  const remainingDays = Math.max(0, Math.ceil((expireDate - Date.now()) / 86400000));
+  const remainingValue = (remainingDays / billingCycle) * price;
+  return { remainingDays, remainingValue: remainingValue.toFixed(2), currency: currency || '' };
+};
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 
@@ -214,6 +282,15 @@ export default function AssetsPage() {
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
+
+  // XUI inline binding form
+  const [xuiBindOpen, setXuiBindOpen] = useState(false);
+  const [xuiBindForm, setXuiBindForm] = useState({ addr: '', user: '', pass: '' });
+  const [xuiBindLoading, setXuiBindLoading] = useState(false);
+  // 1Panel inline binding
+  const [panelBindOpen, setPanelBindOpen] = useState(false);
+  // Tag input
+  const [tagInput, setTagInput] = useState('');
 
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
@@ -416,6 +493,8 @@ export default function AssetsPage() {
 
   const openEditModal = (asset: AssetHost) => {
     setIsEdit(true); setErrors({});
+    setXuiBindOpen(false); setXuiBindForm({ addr: '', user: '', pass: '' }); setXuiBindLoading(false);
+    setPanelBindOpen(false); setTagInput('');
     setForm({
       id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
       ipv6: asset.ipv6 || '', environment: asset.environment || '', provider: asset.provider || '',
@@ -425,10 +504,12 @@ export default function AssetsPage() {
       monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
       purchaseDate: tsToDateInput(asset.purchaseDate), expireDate: tsToDateInput(asset.expireDate),
       monthlyCost: asset.monthlyCost || '', currency: asset.currency || 'CNY',
+      billingCycle: asset.billingCycle?.toString() || '',
       tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', pikaNodeId: asset.pikaNodeId || '',
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
       swapTotalMb: asset.swapTotalMb?.toString() || '', remark: asset.remark || '',
+      panelUrl: asset.panelUrl || '',
     });
     onFormOpen();
   };
@@ -465,6 +546,7 @@ export default function AssetsPage() {
         expireDate: dateInputToTs(form.expireDate) ?? null,
         monthlyCost: form.monthlyCost.trim() || null,
         currency: form.currency || null,
+        billingCycle: form.billingCycle ? parseInt(form.billingCycle) : null,
         tags: form.tags.trim() || null,
         monitorNodeUuid: form.monitorNodeUuid.trim() || null,
         pikaNodeId: form.pikaNodeId.trim() || null,
@@ -475,6 +557,7 @@ export default function AssetsPage() {
         gpuName: form.gpuName.trim() || null,
         swapTotalMb: form.swapTotalMb ? parseInt(form.swapTotalMb) : null,
         remark: form.remark.trim() || null,
+        panelUrl: form.panelUrl.trim() || null,
       };
       const response = isEdit ? await updateAsset(payload) : await createAsset(payload);
       if (response.code !== 0) { toast.error(response.msg || '操作失败'); return; }
@@ -687,6 +770,7 @@ export default function AssetsPage() {
                             }`} />
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
+                                {getRegionFlag(asset.region) && <span className="text-sm flex-shrink-0">{getRegionFlag(asset.region)}</span>}
                                 <span className="truncate font-semibold text-sm">{asset.name}</span>
                                 {roleChip && (
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
@@ -841,6 +925,7 @@ export default function AssetsPage() {
                         <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${
                           isOnline ? 'bg-success animate-pulse' : hasMonitor ? 'bg-danger' : 'bg-default-300'
                         }`} />
+                        {getRegionFlag(asset.region) && <span className="text-sm flex-shrink-0">{getRegionFlag(asset.region)}</span>}
                         <span className="truncate font-semibold text-sm">{asset.name}</span>
                       </div>
                       <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-3.5">
@@ -886,6 +971,7 @@ export default function AssetsPage() {
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success animate-pulse' : (selectedAsset.monitorNodeUuid || selectedAsset.pikaNodeId) ? 'bg-danger' : 'bg-default-300'}`} />
+                  {getRegionFlag(selectedAsset.region) && <span className="text-lg">{getRegionFlag(selectedAsset.region)}</span>}
                   <span className="text-lg font-bold">{selectedAsset.name}</span>
                   {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
                   {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
@@ -922,8 +1008,8 @@ export default function AssetsPage() {
                     <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">供应商</p>
                     <div className="space-y-1 text-xs">
                       <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{selectedAsset.region || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">月费</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}/月` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.currency || ''}${selectedAsset.monthlyCost}/${formatBillingCycle(selectedAsset.billingCycle) || '周期'}` : '-'}</span></p>
                       <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/月` : '-'}</span></p>
                       <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
                       <p className="flex justify-between">
@@ -932,6 +1018,16 @@ export default function AssetsPage() {
                           {formatDateShort(selectedAsset.expireDate)}
                         </span>
                       </p>
+                      {(() => {
+                        const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
+                        if (!rv) return null;
+                        return (
+                          <p className="flex justify-between pt-1 border-t border-divider/40">
+                            <span className="text-default-400">剩余价值</span>
+                            <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                          </p>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1165,12 +1261,48 @@ export default function AssetsPage() {
                     </div>
                   </div>
                 )}
+                {/* Quick Action Hints */}
+                {(() => {
+                  const hasK = !!selectedAsset.monitorNodeUuid;
+                  const hasP = !!selectedAsset.pikaNodeId;
+                  const hasXui = (selectedAsset.totalXuiInstances || 0) > 0;
+                  const hasPanel = !!selectedAsset.panelUrl;
+                  const hints: { label: string; action: () => void; color: 'warning' | 'secondary' }[] = [];
+                  if (!hasK || !hasP) hints.push({
+                    label: `缺少${!hasK && !hasP ? '探针' : !hasK ? 'Komari' : 'Pika'}探针`,
+                    action: () => { onDetailClose(); openProvisionModal(); },
+                    color: 'warning',
+                  });
+                  if (!hasXui) hints.push({
+                    label: '未绑定 X-UI',
+                    action: () => { onDetailClose(); openEditModal(selectedAsset); },
+                    color: 'warning',
+                  });
+                  if (!hasPanel) hints.push({
+                    label: '未绑定 1Panel',
+                    action: () => { onDetailClose(); openEditModal(selectedAsset); },
+                    color: 'secondary',
+                  });
+                  if (hints.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1.5 mt-2 pt-3 border-t border-divider/40">
+                      <span className="text-[10px] text-default-400 self-center mr-1">待完善:</span>
+                      {hints.map((h, i) => (
+                        <Chip key={i} size="sm" variant="flat" color={h.color} className="h-5 text-[10px] cursor-pointer hover:opacity-80"
+                          onClick={h.action}>
+                          {h.label} →
+                        </Chip>
+                      ))}
+                    </div>
+                  );
+                })()}
               </ModalBody>
-              <ModalFooter>
+              <ModalFooter className="flex-wrap gap-1">
                 <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>
                 <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>
-                <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针</Button>
-                <Button size="sm" variant="flat" onPress={() => navigate('/xui')}>X-UI</Button>
+                {selectedAsset.panelUrl && (
+                  <Button size="sm" variant="flat" as="a" href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer">1Panel</Button>
+                )}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
@@ -1214,9 +1346,12 @@ export default function AssetsPage() {
                       <span className="text-[11px] text-default-400">可直接编辑</span>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                       <Input label="名称" placeholder="HK-VPS-01" value={form.name}
                         onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
+                      <Input label="标识 (Label)" placeholder="唯一标识符" value={form.label}
+                        onValueChange={(v) => setForm(p => ({ ...p, label: v }))}
+                        description="服务器唯一别名，用于跨系统识别" />
                       <Input label="主 IP / 域名" value={form.primaryIp}
                         onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
                       <Select label="角色" selectedKeys={form.role ? [form.role] : []}
@@ -1225,34 +1360,111 @@ export default function AssetsPage() {
                       </Select>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                       <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
                         onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
-                      <Input label="地区" placeholder="香港" value={form.region}
-                        onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
+                      <Select label="地区" selectedKeys={form.region ? [form.region] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
+                        {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
+                      </Select>
                       <Input label="环境" placeholder="生产 / 测试" value={form.environment}
                         onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+                      <Input label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
+                        onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+                      <Input label="购买日期" type="date" value={form.purchaseDate}
+                        onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
                       <Input label="到期日期" type="date" value={form.expireDate}
                         onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
-                      <Input label="月费" value={form.monthlyCost}
+                      <Input label="费用" placeholder="10.00" value={form.monthlyCost}
                         onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
                       <Select label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
                         onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
                         {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
                       </Select>
+                      <Select label="付费周期" selectedKeys={form.billingCycle ? [form.billingCycle] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
+                        {BILLING_CYCLES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                      </Select>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    {/* Remaining value hint */}
+                    {(() => {
+                      const rv = calcRemainingValue(
+                        dateInputToTs(form.expireDate),
+                        form.monthlyCost,
+                        form.billingCycle ? parseInt(form.billingCycle) : null,
+                        form.currency,
+                      );
+                      if (!rv) return null;
+                      return (
+                        <div className="rounded-lg bg-default-100/60 dark:bg-default-50/10 px-3 py-1.5 text-xs text-default-500">
+                          剩余 <span className="font-semibold text-default-700">{rv.remainingDays}</span> 天，
+                          剩余价值约 <span className="font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="grid gap-4 md:grid-cols-2">
                       <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
                         onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
                       <Input label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
                         onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
-                      <Input label="标签 (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
-                        onValueChange={(v) => setForm(p => ({ ...p, tags: v }))}
-                        description="手动标签，JSON 数组格式" />
+                    </div>
+
+                    {/* Tag chip input */}
+                    <div>
+                      <p className="text-xs font-medium text-default-600 mb-1.5">标签</p>
+                      <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-lg border border-default-200 bg-default-100/50 dark:bg-default-50/10 p-2">
+                        {(() => {
+                          let tags: string[] = [];
+                          try { tags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                            tags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                          }
+                          return tags.map((tag, idx) => (
+                            <Chip key={`${tag}-${idx}`} size="sm" variant="flat" color="primary"
+                              onClose={() => {
+                                const newTags = tags.filter((_, i) => i !== idx);
+                                setForm(p => ({ ...p, tags: newTags.length > 0 ? JSON.stringify(newTags) : '' }));
+                              }}>
+                              {tag}
+                            </Chip>
+                          ));
+                        })()}
+                        <input
+                          className="flex-1 min-w-[80px] bg-transparent text-sm outline-none placeholder:text-default-300"
+                          placeholder={(() => { try { return (JSON.parse(form.tags || '[]')).length > 0 ? '' : '输入标签后按回车添加'; } catch { return '输入标签后按回车添加'; } })()}
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && tagInput.trim()) {
+                              e.preventDefault();
+                              let tags: string[] = [];
+                              try { tags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                                tags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                              }
+                              if (!tags.includes(tagInput.trim())) {
+                                tags.push(tagInput.trim());
+                                setForm(p => ({ ...p, tags: JSON.stringify(tags) }));
+                              }
+                              setTagInput('');
+                            }
+                            if (e.key === 'Backspace' && !tagInput) {
+                              let tags: string[] = [];
+                              try { tags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                                tags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                              }
+                              if (tags.length > 0) {
+                                tags.pop();
+                                setForm(p => ({ ...p, tags: tags.length > 0 ? JSON.stringify(tags) : '' }));
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-default-400 mt-1">回车添加，Backspace 删除末尾</p>
                     </div>
 
                     <Textarea label="备注" value={form.remark}
@@ -1375,28 +1587,175 @@ export default function AssetsPage() {
               );
             })()}
 
-            {/* Section: Advanced / Linking */}
-            <Accordion variant="light" className="-mx-1">
-              <AccordionItem key="advanced" title="更多配置" classNames={{ title: "text-xs text-default-400" }}>
-                <div className="space-y-4">
-                  <p className="text-xs font-medium text-default-400">网络与接入</p>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <Input label="标签" placeholder="可选标识" value={form.label}
-                      onValueChange={(v) => setForm(p => ({ ...p, label: v }))} />
-                    <Input label="SSH 端口" type="number" value={form.sshPort}
-                      onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
-                    <Input label="购买日期" type="date" value={form.purchaseDate}
-                      onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
+            {/* Section: Quick Actions - Service Bindings */}
+            {isEdit && (() => {
+              const editingAsset = assets.find(a => a.id === form.id);
+              if (!editingAsset) return null;
+              const hasKomari = !!form.monitorNodeUuid;
+              const hasPika = !!form.pikaNodeId;
+              const hasXui = (editingAsset.totalXuiInstances || 0) > 0;
+              const hasPanel = !!form.panelUrl;
+
+              return (
+                <div className="rounded-xl border border-warning/20 bg-warning-50/30 dark:bg-warning-50/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Chip size="sm" variant="flat" color="warning">服务绑定</Chip>
+                    <span className="text-[11px] text-default-400">快捷管理此服务器关联的服务</span>
                   </div>
 
-                  <p className="text-xs font-medium text-default-400">关联探针</p>
+                  {/* Probe Status */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-default-600 w-16">探针</span>
+                      {hasKomari ? (
+                        <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Komari ✓</Chip>
+                      ) : (
+                        <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">Komari ✗</Chip>
+                      )}
+                      {hasPika ? (
+                        <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Pika ✓</Chip>
+                      ) : (
+                        <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">Pika ✗</Chip>
+                      )}
+                      {(!hasKomari || !hasPika) && (
+                        <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                          onPress={() => { onFormClose(); openProvisionModal(); }}>
+                          部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* X-UI Status */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-default-600 w-16">X-UI</span>
+                      {hasXui ? (
+                        <>
+                          <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">
+                            已绑定 ({editingAsset.totalXuiInstances} 个)
+                          </Chip>
+                          <Button size="sm" variant="light" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => { onFormClose(); navigate('/xui'); }}>
+                            管理
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
+                          <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => {
+                              setXuiBindOpen(!xuiBindOpen);
+                              setXuiBindForm({ addr: `https://${editingAsset.primaryIp || ''}:54321`, user: '', pass: '' });
+                            }}>
+                            {xuiBindOpen ? '收起' : '快速绑定'}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {/* XUI inline binding form */}
+                    {!hasXui && xuiBindOpen && (
+                      <div className="ml-18 rounded-lg border border-primary/20 bg-primary-50/20 dark:bg-primary-50/5 p-3 space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <Input size="sm" label="面板地址" placeholder="https://ip:54321"
+                            value={xuiBindForm.addr}
+                            onValueChange={(v) => setXuiBindForm(p => ({ ...p, addr: v }))} />
+                          <Input size="sm" label="用户名" placeholder="admin"
+                            value={xuiBindForm.user}
+                            onValueChange={(v) => setXuiBindForm(p => ({ ...p, user: v }))} />
+                          <Input size="sm" label="密码" type="password" placeholder="登录密码"
+                            value={xuiBindForm.pass}
+                            onValueChange={(v) => setXuiBindForm(p => ({ ...p, pass: v }))} />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" color="primary" isLoading={xuiBindLoading}
+                            isDisabled={!xuiBindForm.addr || !xuiBindForm.user || !xuiBindForm.pass}
+                            onPress={async () => {
+                              setXuiBindLoading(true);
+                              try {
+                                const res = await createXuiInstance({
+                                  name: `${editingAsset.name}-xui`,
+                                  baseUrl: xuiBindForm.addr,
+                                  username: xuiBindForm.user,
+                                  password: xuiBindForm.pass,
+                                  assetId: editingAsset.id,
+                                  managementMode: 'observe',
+                                  syncEnabled: 1,
+                                  syncIntervalMinutes: 30,
+                                });
+                                if (res.code === 0) {
+                                  toast.success('X-UI 绑定成功，将自动同步');
+                                  setXuiBindOpen(false);
+                                  void loadAssets();
+                                } else {
+                                  toast.error(res.msg || '绑定失败');
+                                }
+                              } catch { toast.error('绑定请求失败'); }
+                              finally { setXuiBindLoading(false); }
+                            }}>
+                            绑定
+                          </Button>
+                          <Button size="sm" variant="flat" onPress={() => setXuiBindOpen(false)}>取消</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 1Panel Status */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-default-600 w-16">1Panel</span>
+                      {hasPanel ? (
+                        <>
+                          <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">已绑定</Chip>
+                          <a href={form.panelUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-[11px] text-primary hover:underline truncate max-w-[200px]">
+                            {form.panelUrl}
+                          </a>
+                          <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => setForm(p => ({ ...p, panelUrl: '' }))}>
+                            解绑
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
+                          <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => setPanelBindOpen(!panelBindOpen)}>
+                            {panelBindOpen ? '收起' : '绑定地址'}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {/* 1Panel inline binding */}
+                    {!hasPanel && panelBindOpen && (
+                      <div className="ml-18 flex items-end gap-2">
+                        <Input size="sm" label="1Panel 地址" className="flex-1"
+                          placeholder={`https://${editingAsset.primaryIp || '1.2.3.4'}:19382`}
+                          value={form.panelUrl}
+                          onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))} />
+                        <Button size="sm" color="primary" className="flex-shrink-0"
+                          isDisabled={!form.panelUrl}
+                          onPress={() => { setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
+                          确定
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Section: Advanced - Probe UUID manual binding (rarely used) */}
+            <Accordion variant="light" className="-mx-1">
+              <AccordionItem key="advanced" title="手动关联探针 (高级)" classNames={{ title: "text-xs text-default-400" }}>
+                <div className="space-y-3">
+                  <p className="text-[11px] text-default-400">通常由系统自动关联，仅在手动修复绑定关系时使用。</p>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="Komari 节点 UUID" placeholder="绑定后自动同步指标" value={form.monitorNodeUuid}
-                      onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))}
-                      description="Komari 探针 UUID" />
-                    <Input label="Pika 节点 ID" placeholder="绑定后自动同步指标" value={form.pikaNodeId}
-                      onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))}
-                      description="Pika 探针 Agent ID" />
+                    <Input size="sm" label="Komari 节点 UUID" placeholder="自动同步时填入" value={form.monitorNodeUuid}
+                      onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))} />
+                    <Input size="sm" label="Pika 节点 ID" placeholder="自动同步时填入" value={form.pikaNodeId}
+                      onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))} />
                   </div>
                 </div>
               </AccordionItem>

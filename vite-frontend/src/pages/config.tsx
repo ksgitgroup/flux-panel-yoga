@@ -559,6 +559,23 @@ export default function ConfigPage() {
         })}
       </div>
 
+      {/* Alert rule management quick entry */}
+      {activeSection === 'alerting' && (
+        <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 shadow-sm">
+          <CardBody className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 py-3">
+            <div>
+              <p className="text-sm font-semibold">告警规则管理</p>
+              <p className="text-xs text-default-500 mt-0.5">
+                配置节点监控告警规则（CPU/内存/离线/到期/流量等），管理告警日志
+              </p>
+            </div>
+            <Button size="sm" color="primary" variant="flat" onPress={() => navigate('/alert')}>
+              管理规则
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
       {activeSectionItems.length > 0 && (() => {
         const section = CONFIG_SECTIONS[activeSection];
 

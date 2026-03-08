@@ -31,6 +31,7 @@ const METRICS = [
   { value: 'offline', label: '节点离线' },
   { value: 'expiry', label: '到期提醒 (剩余天数)' },
   { value: 'traffic_quota', label: '流量配额 (已用%)' },
+  { value: 'forward_health', label: '转发健康度 (低于阈值告警)' },
 ];
 
 const OPERATORS = [
@@ -234,13 +235,15 @@ export default function AlertPage() {
                       <Chip size="sm" variant="flat" color={SEVERITIES.find(s => s.value === rule.severity)?.color || 'warning'} className="h-5 text-[10px]">
                         {SEVERITIES.find(s => s.value === rule.severity)?.label || '警告'}
                       </Chip>
-                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : 'primary'} className="h-5 text-[10px]">
+                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : rule.metric === 'forward_health' ? 'danger' : 'primary'} className="h-5 text-[10px]">
                         {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
                       </Chip>
                       {rule.metric === 'expiry' ? (
                         <span className="text-xs font-mono text-default-500">&le; {rule.threshold} 天</span>
                       ) : rule.metric === 'traffic_quota' ? (
                         <span className="text-xs font-mono text-default-500">&ge; {rule.threshold}%</span>
+                      ) : rule.metric === 'forward_health' ? (
+                        <span className="text-xs font-mono text-default-500">&lt; {rule.threshold}%</span>
                       ) : rule.metric !== 'offline' ? (
                         <span className="text-xs font-mono text-default-500">
                           {OPERATORS.find(o => o.value === rule.operator)?.label || rule.operator} {rule.threshold}
@@ -349,6 +352,11 @@ export default function AlertPage() {
                     description="当流量已用百分比 >= 此值时触发告警"
                     value={String(editRule.threshold ?? 80)}
                     onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 80, operator: 'gte' })} />
+                ) : editRule.metric === 'forward_health' ? (
+                  <Input label="健康度阈值 (%)" size="sm" type="number" placeholder="60"
+                    description="当转发健康度低于此值时触发告警（100=完美，0=完全不可用）"
+                    value={String(editRule.threshold ?? 60)}
+                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 60, operator: 'lt' })} />
                 ) : editRule.metric !== 'offline' ? (
                   <div className="flex gap-2">
                     <Select label="操作符" size="sm" className="w-28" selectedKeys={editRule.operator ? [editRule.operator] : ['gt']}

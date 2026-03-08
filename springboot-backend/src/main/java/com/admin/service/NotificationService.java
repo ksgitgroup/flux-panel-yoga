@@ -1,0 +1,18 @@
+package com.admin.service;
+
+import com.admin.common.lang.R;
+import com.admin.entity.Notification;
+import com.baomidou.mybatisplus.extension.service.IService;
+
+public interface NotificationService extends IService<Notification> {
+
+    R send(String title, String content, String type, String severity, String sourceModule, Long sourceId);
+
+    R listForCurrentUser(int page, int size, Integer readStatus, String type);
+
+    R unreadCount();
+
+    R markRead(Long id);
+
+    R markAllRead();
+}

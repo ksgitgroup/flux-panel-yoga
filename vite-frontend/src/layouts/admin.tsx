@@ -7,7 +7,7 @@ import { Input } from "@heroui/input";
 import { toast } from 'react-hot-toast';
 
 import { Logo } from '@/components/icons';
-import { updatePassword } from '@/api';
+import { updatePassword, getUnreadCount } from '@/api';
 import { hasAnyPermission, isAdmin as checkIsAdmin } from '@/utils/auth';
 import { safeLogout } from '@/utils/logout';
 import { siteConfig } from '@/config/site';
@@ -47,6 +47,7 @@ export default function AdminLayout({
     newPassword: '',
     confirmPassword: ''
   });
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // 菜单项配置
   const menuItems: MenuItem[] = [
@@ -322,6 +323,72 @@ export default function AdminLayout({
       ),
       adminOnly: true,
       requiredPermissions: ['server_dashboard.read']
+    },
+    {
+      path: '/topology',
+      label: '拓扑视图',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="12" cy="18" r="3" />
+          <line x1="8.7" y1="7.5" x2="10.3" y2="16" /><line x1="15.3" y1="7.5" x2="13.7" y2="16" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['topology.read']
+    },
+    {
+      path: '/notification',
+      label: '通知中心',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+          <polyline points="22,6 12,13 2,6" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['notification.read']
+    },
+    {
+      path: '/audit',
+      label: '审计日志',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['audit.read']
+    },
+    {
+      path: '/backup',
+      label: '备份管理',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['backup.read']
+    },
+    {
+      path: '/ip-quality',
+      label: 'IP质量检测',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z" />
+          <circle cx="12" cy="10" r="3" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['ip_quality.read']
     }
   ];
 
@@ -345,8 +412,18 @@ export default function AdminLayout({
     checkMobile();
     window.addEventListener('resize', checkMobile);
 
+    // Fetch unread notification count
+    const fetchUnread = () => {
+      getUnreadCount().then(res => {
+        if (res.code === 0 && res.data) setUnreadCount(res.data.count || 0);
+      }).catch(() => {});
+    };
+    fetchUnread();
+    const unreadTimer = setInterval(fetchUnread, 60000);
+
     return () => {
       window.removeEventListener('resize', checkMobile);
+      clearInterval(unreadTimer);
     };
   }, []);
 
@@ -447,9 +524,9 @@ export default function AdminLayout({
     .filter((item): item is MenuItem => Boolean(item));
 
   // Grouped dropdown menus
-  const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic'];
-  const monitorGroupPaths = ['/monitor', '/probe', '/alert'];
-  const systemGroupPaths = ['/xui', '/xui-protocols', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag'];
+  const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
+  const monitorGroupPaths = ['/monitor', '/probe', '/alert', '/notification', '/audit'];
+  const systemGroupPaths = ['/xui', '/xui-protocols', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag', '/backup'];
 
   const serverGroup = serverGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
   const monitorGroup = monitorGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
@@ -669,6 +746,24 @@ export default function AdminLayout({
                   </DropdownMenu>
                 </Dropdown>
               )}
+
+              <Button
+                size="sm"
+                variant="flat"
+                isIconOnly
+                className="relative h-10 w-10 rounded-full border border-divider bg-white/85 shadow-sm dark:bg-default-100/10"
+                onPress={() => handleMenuClick('/notification')}
+              >
+                <svg className="w-5 h-5 text-default-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white px-1">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </Button>
 
               <Dropdown placement="bottom-end">
                 <DropdownTrigger>

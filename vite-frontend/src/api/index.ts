@@ -825,3 +825,239 @@ export const updateIamUser = (data: any) => Network.post<IamUserDetail>("/iam/us
 export const deleteIamUser = (id: number) => Network.post("/iam/user/delete", { id });
 export const assignIamUserRoles = (userId: number, roleIds: number[]) =>
   Network.post<IamUserDetail>("/iam/user/assign-roles", { userId, roleIds });
+
+// ==================== Audit Log ====================
+export interface AuditLogItem {
+  id: number;
+  username: string;
+  action: string;
+  module: string;
+  targetId?: number | null;
+  targetName?: string | null;
+  detail?: string | null;
+  ip?: string | null;
+  result?: string | null;
+  createdTime: number;
+}
+export interface AuditStats {
+  todayCount: number;
+  weekCount: number;
+  moduleDistribution: { module: string; count: number }[];
+}
+export const getAuditLogs = (params: { page?: number; size?: number; module?: string; action?: string; startTime?: number; endTime?: number }) =>
+  Network.post<{ records: AuditLogItem[]; total: number; page: number; size: number }>("/audit/logs", params);
+export const getAuditStats = () => Network.post<AuditStats>("/audit/stats");
+export const clearAuditLogs = (days: number) => Network.post<number>("/audit/clear", { days });
+
+// ==================== Expiry Reminder ====================
+export interface ExpiryReminderConfig {
+  id: number;
+  enabled: number;
+  remindDaysBefore: string;
+  notifyChannel: string;
+  lastCheckAt?: number | null;
+}
+export const getExpiryConfig = () => Network.post<ExpiryReminderConfig>("/audit/expiry/config");
+export const updateExpiryConfig = (config: Partial<ExpiryReminderConfig>) =>
+  Network.post("/audit/expiry/config/update", config);
+export const checkExpiryNow = () =>
+  Network.post<{ checkedCount: number; notifiedCount: number; details: any[] }>("/audit/expiry/check-now");
+
+// ==================== Notification Center ====================
+export interface NotificationItem {
+  id: number;
+  title: string;
+  content: string;
+  type: string;
+  severity: string;
+  sourceModule?: string | null;
+  sourceId?: number | null;
+  readStatus: number;
+  readAt?: number | null;
+  createdTime: number;
+}
+export interface NotifyChannelItem {
+  id: number;
+  name: string;
+  type: string;
+  enabled: number;
+  configJson?: string | null;
+  createdTime: number;
+}
+export interface NotifyPolicyItem {
+  id: number;
+  name: string;
+  enabled: number;
+  eventTypes?: string | null;
+  severityFilter?: string | null;
+  channelIds?: string | null;
+  createdTime: number;
+}
+export const getNotifications = (params?: { page?: number; size?: number; readStatus?: number; type?: string }) =>
+  Network.post<{ records: NotificationItem[]; total: number; page: number; size: number }>("/notification/list", params);
+export const getUnreadCount = () => Network.post<{ count: number }>("/notification/unread");
+export const markNotificationRead = (id: number) => Network.post("/notification/read", { id });
+export const markAllNotificationsRead = () => Network.post("/notification/read-all");
+export const getNotifyChannels = () => Network.post<NotifyChannelItem[]>("/notification/channel/list");
+export const createNotifyChannel = (data: Partial<NotifyChannelItem>) => Network.post<NotifyChannelItem>("/notification/channel/create", data);
+export const updateNotifyChannel = (data: Partial<NotifyChannelItem>) => Network.post<NotifyChannelItem>("/notification/channel/update", data);
+export const deleteNotifyChannel = (id: number) => Network.post("/notification/channel/delete", { id });
+export const testNotifyChannel = (id: number) => Network.post("/notification/channel/test", { id });
+export const getNotifyPolicies = () => Network.post<NotifyPolicyItem[]>("/notification/policy/list");
+export const createNotifyPolicy = (data: Partial<NotifyPolicyItem>) => Network.post<NotifyPolicyItem>("/notification/policy/create", data);
+export const updateNotifyPolicy = (data: Partial<NotifyPolicyItem>) => Network.post<NotifyPolicyItem>("/notification/policy/update", data);
+export const deleteNotifyPolicy = (id: number) => Network.post("/notification/policy/delete", { id });
+
+// ==================== Server Group / Topology ====================
+export interface ServerGroupItem {
+  id: number;
+  name: string;
+  description?: string | null;
+  groupType?: string | null;
+  region?: string | null;
+  color?: string | null;
+  sortOrder?: number | null;
+  createdTime: number;
+}
+export interface ServerGroupMemberItem {
+  id: number;
+  groupId: number;
+  assetId: number;
+  roleInGroup?: string | null;
+  sortOrder?: number | null;
+  assetName?: string | null;
+  primaryIp?: string | null;
+  region?: string | null;
+  role?: string | null;
+  provider?: string | null;
+}
+export interface TopologyData {
+  nodes: { id: string; name: string; ip?: string; type: string; region?: string; role?: string }[];
+  edges: { from: string; to: string; label?: string; forwardId?: number; forwardName?: string }[];
+}
+export const getServerGroups = () => Network.post<ServerGroupItem[]>("/topology/group/list");
+export const createServerGroup = (data: Partial<ServerGroupItem>) => Network.post<ServerGroupItem>("/topology/group/create", data);
+export const updateServerGroup = (data: Partial<ServerGroupItem>) => Network.post<ServerGroupItem>("/topology/group/update", data);
+export const deleteServerGroup = (id: number) => Network.post("/topology/group/delete", { id });
+export const getGroupMembers = (groupId: number) => Network.post<ServerGroupMemberItem[]>("/topology/group/members", { groupId });
+export const addGroupMember = (groupId: number, assetId: number, roleInGroup?: string) =>
+  Network.post<ServerGroupMemberItem>("/topology/group/member/add", { groupId, assetId, roleInGroup });
+export const removeGroupMember = (id: number) => Network.post("/topology/group/member/remove", { id });
+export const getTopologyData = () => Network.post<TopologyData>("/topology/data");
+export const getGroupDashboard = (groupId: number) =>
+  Network.post<{ group: ServerGroupItem; totalCount: number; onlineCount: number; offlineCount: number; totalMonthlyCost: number; members: any[] }>("/topology/group/dashboard", { groupId });
+
+// ==================== Backup Management ====================
+export interface BackupRecordItem {
+  id: number;
+  name: string;
+  type: string;
+  sourceId?: number | null;
+  sourceName?: string | null;
+  backupData?: string | null;
+  triggerType: string;
+  backupStatus: string;
+  createdTime: number;
+}
+export interface BackupScheduleItem {
+  id: number;
+  name: string;
+  type: string;
+  cronExpr: string;
+  enabled: number;
+  lastRunAt?: number | null;
+  createdTime: number;
+}
+export const getBackupRecords = (params?: { type?: string; page?: number; size?: number }) =>
+  Network.post<any>("/backup/list", params);
+export const exportGostConfig = (nodeId: number) => Network.post<BackupRecordItem>("/backup/export/gost", { nodeId });
+export const exportXuiConfig = (instanceId: number) => Network.post<BackupRecordItem>("/backup/export/xui", { instanceId });
+export const backupDatabase = () => Network.post<BackupRecordItem>("/backup/database");
+export const deleteBackupRecord = (id: number) => Network.post("/backup/delete", { id });
+export const getBackupSchedules = () => Network.post<BackupScheduleItem[]>("/backup/schedule/list");
+export const createBackupSchedule = (data: Partial<BackupScheduleItem>) => Network.post<BackupScheduleItem>("/backup/schedule/create", data);
+export const updateBackupSchedule = (data: Partial<BackupScheduleItem>) => Network.post<BackupScheduleItem>("/backup/schedule/update", data);
+export const deleteBackupSchedule = (id: number) => Network.post("/backup/schedule/delete", { id });
+
+// ==================== IP Quality ====================
+export interface IpCheckRecordItem {
+  id: number;
+  ip: string;
+  assetId?: number | null;
+  assetName?: string | null;
+  checkType: string;
+  blacklistResult?: string | null;
+  blacklistScore?: number | null;
+  geoInfo?: string | null;
+  portCheck?: string | null;
+  overallStatus: string;
+  createdTime: number;
+}
+export interface LatencyMatrixItem {
+  id: number;
+  fromRegion?: string | null;
+  fromAssetId?: number | null;
+  toIp?: string | null;
+  toAssetId?: number | null;
+  latencyMs?: number | null;
+  packetLoss?: number | null;
+  jitterMs?: number | null;
+  testMethod?: string | null;
+  createdTime: number;
+}
+export const checkIpQuality = (ip: string, assetId?: number) =>
+  Network.post<IpCheckRecordItem>("/ip-quality/check", { ip, assetId });
+export const batchCheckIpQuality = (assetIds: number[]) =>
+  Network.post<IpCheckRecordItem[]>("/ip-quality/batch-check", { assetIds });
+export const getIpCheckRecords = (params?: { page?: number; size?: number; ip?: string; overallStatus?: string }) =>
+  Network.post<{ records: IpCheckRecordItem[]; total: number; page: number; size: number }>("/ip-quality/list", params);
+export const getLatestIpCheckByAsset = () => Network.post<IpCheckRecordItem[]>("/ip-quality/latest-by-asset");
+export const getLatencyMatrix = () => Network.post<LatencyMatrixItem[]>("/ip-quality/latency-matrix");
+
+// ==================== Traffic Analysis ====================
+export interface TrafficOverview {
+  totalUpload24h: number;
+  totalDownload24h: number;
+  peakRate24h: number;
+  unacknowledgedAnomalies: number;
+}
+export interface TrafficHourlyStat {
+  id: number;
+  dimensionType: string;
+  dimensionId?: number | null;
+  dimensionName?: string | null;
+  hourKey: string;
+  uploadBytes: number;
+  downloadBytes: number;
+  totalBytes: number;
+  peakRateBps?: number | null;
+  createdTime: number;
+}
+export interface TrafficAnomalyItem {
+  id: number;
+  dimensionType: string;
+  dimensionId?: number | null;
+  dimensionName?: string | null;
+  anomalyType: string;
+  severity: string;
+  description?: string | null;
+  currentValue?: number | null;
+  baselineValue?: number | null;
+  deviationRatio?: number | null;
+  acknowledged: number;
+  createdTime: number;
+}
+export const getTrafficOverview = () => Network.post<TrafficOverview>("/traffic-analysis/overview");
+export const getTrafficTrend = (params?: { dimensionType?: string; dimensionId?: number; range?: string }) =>
+  Network.post<TrafficHourlyStat[]>("/traffic-analysis/trend", params);
+export const getTrafficTopUsers = (range?: string, limit?: number) =>
+  Network.post<{ dimensionId: number; dimensionName?: string; totalBytes: number }[]>("/traffic-analysis/top-users", { range, limit });
+export const getTrafficTopForwards = (range?: string, limit?: number) =>
+  Network.post<{ dimensionId: number; dimensionName?: string; totalBytes: number }[]>("/traffic-analysis/top-forwards", { range, limit });
+export const getTrafficPeakHours = (range?: string) =>
+  Network.post<{ hour: number; totalBytes: number }[]>("/traffic-analysis/peak-hours", { range });
+export const getTrafficProtocolDistribution = (range?: string) =>
+  Network.post<{ protocol: string; totalBytes: number }[]>("/traffic-analysis/protocol-distribution", { range });
+export const getTrafficAnomalies = (params?: { page?: number; size?: number; acknowledged?: number }) =>
+  Network.post<{ records: TrafficAnomalyItem[]; total: number; page: number; size: number }>("/traffic-analysis/anomalies", params);
+export const acknowledgeTrafficAnomaly = (id: number) => Network.post("/traffic-analysis/anomalies/acknowledge", { id });

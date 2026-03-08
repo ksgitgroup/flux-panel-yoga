@@ -794,6 +794,322 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] 企业IAM基础表初始化失败: {}", e.getMessage());
         }
 
+        // ==================== Phase 5: 新增功能模块表 ====================
+
+        // 5.1 审计日志表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `audit_log` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`username` varchar(100) DEFAULT NULL COMMENT '用户名快照'," +
+                    "`action` varchar(50) NOT NULL COMMENT 'create/update/delete/login/logout/export/import'," +
+                    "`module` varchar(50) NOT NULL COMMENT 'asset/forward/tunnel/node/xui/user/iam/alert/backup'," +
+                    "`target_id` bigint(20) DEFAULT NULL COMMENT '操作目标ID'," +
+                    "`target_name` varchar(200) DEFAULT NULL COMMENT '目标名称快照'," +
+                    "`detail` text DEFAULT NULL COMMENT 'JSON变更摘要'," +
+                    "`ip` varchar(64) DEFAULT NULL COMMENT '操作IP'," +
+                    "`user_agent` varchar(500) DEFAULT NULL," +
+                    "`result` varchar(20) DEFAULT 'success' COMMENT 'success/fail'," +
+                    "`error_msg` varchar(500) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_module_action` (`module`,`action`)," +
+                    "KEY `idx_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计日志'");
+            log.info("[DatabaseInit] audit_log 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] audit_log 表创建失败: {}", e.getMessage()); }
+
+        // 5.2 到期提醒配置表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `expiry_reminder_config` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`enabled` tinyint(1) DEFAULT 1," +
+                    "`remind_days_before` varchar(100) DEFAULT '30,14,7,3,1' COMMENT '提前天数(逗号分隔)'," +
+                    "`notify_channel` varchar(50) DEFAULT 'in_app'," +
+                    "`notify_target` varchar(500) DEFAULT NULL," +
+                    "`last_check_at` bigint(20) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='到期提醒配置'");
+            log.info("[DatabaseInit] expiry_reminder_config 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] expiry_reminder_config 表创建失败: {}", e.getMessage()); }
+
+        // 5.3 站内通知消息表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `notification` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`user_id` bigint(20) DEFAULT NULL COMMENT '目标用户ID,NULL=广播'," +
+                    "`title` varchar(200) NOT NULL," +
+                    "`content` text DEFAULT NULL," +
+                    "`type` varchar(30) NOT NULL COMMENT 'expiry/alert/system/backup/ip_check/traffic'," +
+                    "`severity` varchar(20) DEFAULT 'info'," +
+                    "`source_module` varchar(50) DEFAULT NULL," +
+                    "`source_id` bigint(20) DEFAULT NULL," +
+                    "`read_status` tinyint(1) DEFAULT 0 COMMENT '0未读1已读'," +
+                    "`read_at` bigint(20) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_user_read` (`user_id`,`read_status`)," +
+                    "KEY `idx_type` (`type`)," +
+                    "KEY `idx_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内通知消息'");
+            log.info("[DatabaseInit] notification 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] notification 表创建失败: {}", e.getMessage()); }
+
+        // 5.4 通知渠道配置表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `notify_channel` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(100) NOT NULL COMMENT '渠道名称'," +
+                    "`type` varchar(30) NOT NULL COMMENT 'email/telegram/webhook/dingtalk'," +
+                    "`config_json` text NOT NULL COMMENT 'JSON配置'," +
+                    "`enabled` tinyint(1) DEFAULT 1," +
+                    "`test_status` varchar(20) DEFAULT NULL COMMENT 'success/fail/untested'," +
+                    "`last_test_at` bigint(20) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='通知渠道配置'");
+            log.info("[DatabaseInit] notify_channel 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] notify_channel 表创建失败: {}", e.getMessage()); }
+
+        // 5.5 通知策略组表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `notify_policy` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(100) NOT NULL COMMENT '策略名称'," +
+                    "`description` varchar(500) DEFAULT NULL," +
+                    "`event_types` varchar(500) NOT NULL COMMENT '触发事件(逗号分隔)'," +
+                    "`severity_filter` varchar(100) DEFAULT 'info,warning,critical'," +
+                    "`channel_ids` varchar(200) NOT NULL COMMENT '关联渠道ID(逗号分隔)'," +
+                    "`recipient_user_ids` varchar(500) DEFAULT NULL COMMENT '接收用户ID,NULL=所有管理员'," +
+                    "`enabled` tinyint(1) DEFAULT 1," +
+                    "`cooldown_minutes` int(10) DEFAULT 0," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='通知策略组'");
+            log.info("[DatabaseInit] notify_policy 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] notify_policy 表创建失败: {}", e.getMessage()); }
+
+        // 5.6 服务器分组表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `server_group` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(100) NOT NULL," +
+                    "`description` varchar(500) DEFAULT NULL," +
+                    "`group_type` varchar(30) DEFAULT 'business' COMMENT 'business/customer/project/region'," +
+                    "`color` varchar(30) DEFAULT NULL," +
+                    "`icon` varchar(50) DEFAULT NULL," +
+                    "`parent_id` bigint(20) DEFAULT NULL," +
+                    "`sort_order` int(10) DEFAULT 0," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服务器分组'");
+            log.info("[DatabaseInit] server_group 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] server_group 表创建失败: {}", e.getMessage()); }
+
+        // 5.7 分组成员关系表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `server_group_member` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`group_id` bigint(20) NOT NULL," +
+                    "`asset_id` bigint(20) NOT NULL," +
+                    "`role_in_group` varchar(30) DEFAULT 'member' COMMENT 'entry/relay/landing/member'," +
+                    "`sort_order` int(10) DEFAULT 0," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_group_asset` (`group_id`,`asset_id`)," +
+                    "KEY `idx_asset` (`asset_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分组成员关系'");
+            log.info("[DatabaseInit] server_group_member 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] server_group_member 表创建失败: {}", e.getMessage()); }
+
+        // 5.8 备份记录表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `backup_record` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(200) NOT NULL COMMENT '备份名称'," +
+                    "`type` varchar(30) NOT NULL COMMENT 'gost_config/xui_config/database/full'," +
+                    "`source_id` bigint(20) DEFAULT NULL," +
+                    "`source_name` varchar(100) DEFAULT NULL," +
+                    "`file_path` varchar(500) DEFAULT NULL," +
+                    "`file_size` bigint(20) DEFAULT NULL," +
+                    "`backup_data` longtext DEFAULT NULL COMMENT 'JSON备份数据'," +
+                    "`trigger_type` varchar(20) DEFAULT 'manual' COMMENT 'manual/scheduled'," +
+                    "`backup_status` varchar(20) DEFAULT 'success'," +
+                    "`error_msg` varchar(500) DEFAULT NULL," +
+                    "`remark` varchar(500) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_type` (`type`)," +
+                    "KEY `idx_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='备份记录'");
+            log.info("[DatabaseInit] backup_record 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] backup_record 表创建失败: {}", e.getMessage()); }
+
+        // 5.9 备份计划表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `backup_schedule` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(100) NOT NULL," +
+                    "`type` varchar(30) NOT NULL COMMENT 'gost_config/xui_config/database'," +
+                    "`source_id` bigint(20) DEFAULT NULL," +
+                    "`cron_expr` varchar(50) NOT NULL," +
+                    "`retention_count` int(10) DEFAULT 10," +
+                    "`enabled` tinyint(1) DEFAULT 1," +
+                    "`last_run_at` bigint(20) DEFAULT NULL," +
+                    "`last_run_status` varchar(20) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='备份计划'");
+            log.info("[DatabaseInit] backup_schedule 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] backup_schedule 表创建失败: {}", e.getMessage()); }
+
+        // 5.10 IP质量检测记录表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `ip_check_record` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`ip` varchar(64) NOT NULL," +
+                    "`asset_id` bigint(20) DEFAULT NULL," +
+                    "`asset_name` varchar(100) DEFAULT NULL," +
+                    "`check_type` varchar(30) NOT NULL COMMENT 'blacklist/latency/full'," +
+                    "`blacklist_result` text DEFAULT NULL COMMENT 'JSON结果'," +
+                    "`blacklist_score` int(10) DEFAULT NULL COMMENT '0-100越高越差'," +
+                    "`geo_info` text DEFAULT NULL COMMENT 'JSON地理信息'," +
+                    "`port_check` text DEFAULT NULL COMMENT 'JSON端口检测'," +
+                    "`overall_status` varchar(20) DEFAULT NULL COMMENT 'clean/suspicious/blocked'," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_ip` (`ip`)," +
+                    "KEY `idx_asset` (`asset_id`)," +
+                    "KEY `idx_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='IP质量检测记录'");
+            log.info("[DatabaseInit] ip_check_record 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] ip_check_record 表创建失败: {}", e.getMessage()); }
+
+        // 5.11 延迟矩阵表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `latency_matrix` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`from_region` varchar(50) NOT NULL," +
+                    "`from_asset_id` bigint(20) DEFAULT NULL," +
+                    "`to_ip` varchar(64) NOT NULL," +
+                    "`to_asset_id` bigint(20) DEFAULT NULL," +
+                    "`latency_ms` double DEFAULT NULL," +
+                    "`packet_loss` double DEFAULT NULL," +
+                    "`jitter_ms` double DEFAULT NULL," +
+                    "`test_method` varchar(20) DEFAULT 'ping'," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_to_ip` (`to_ip`)," +
+                    "KEY `idx_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='延迟矩阵'");
+            log.info("[DatabaseInit] latency_matrix 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] latency_matrix 表创建失败: {}", e.getMessage()); }
+
+        // 5.12 小时级流量统计表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `traffic_hourly_stats` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`dimension_type` varchar(20) NOT NULL COMMENT 'user/forward/tunnel/protocol/asset'," +
+                    "`dimension_id` bigint(20) NOT NULL," +
+                    "`dimension_name` varchar(100) DEFAULT NULL," +
+                    "`hour_key` varchar(13) NOT NULL COMMENT '2026-03-09-14'," +
+                    "`upload_bytes` bigint(20) DEFAULT 0," +
+                    "`download_bytes` bigint(20) DEFAULT 0," +
+                    "`total_bytes` bigint(20) DEFAULT 0," +
+                    "`peak_rate_bps` bigint(20) DEFAULT NULL," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_dimension_hour` (`dimension_type`,`dimension_id`,`hour_key`)," +
+                    "KEY `idx_hour_key` (`hour_key`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='小时级流量统计'");
+            log.info("[DatabaseInit] traffic_hourly_stats 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] traffic_hourly_stats 表创建失败: {}", e.getMessage()); }
+
+        // 5.13 流量异常事件表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `traffic_anomaly` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`dimension_type` varchar(20) NOT NULL COMMENT 'user/forward/tunnel'," +
+                    "`dimension_id` bigint(20) NOT NULL," +
+                    "`dimension_name` varchar(100) DEFAULT NULL," +
+                    "`anomaly_type` varchar(30) NOT NULL COMMENT 'spike/drop/unusual_pattern/quota_exceed'," +
+                    "`severity` varchar(20) DEFAULT 'warning'," +
+                    "`description` varchar(500) DEFAULT NULL," +
+                    "`current_value` bigint(20) DEFAULT NULL," +
+                    "`baseline_value` bigint(20) DEFAULT NULL," +
+                    "`deviation_ratio` double DEFAULT NULL," +
+                    "`acknowledged` tinyint(1) DEFAULT 0," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_dimension` (`dimension_type`,`dimension_id`)," +
+                    "KEY `idx_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='流量异常事件'");
+            log.info("[DatabaseInit] traffic_anomaly 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] traffic_anomaly 表创建失败: {}", e.getMessage()); }
+
+        // 5.14 新模块权限种子数据
+        try {
+            ensureIamPermission("audit.read", "查看审计日志", "audit", "允许查看操作审计日志", 180, 1);
+            ensureIamPermission("audit.write", "管理审计日志", "audit", "允许清理审计日志", 181, 1);
+            ensureIamPermission("notification.read", "查看通知", "notification", "允许查看站内通知", 190, 1);
+            ensureIamPermission("notification.write", "管理通知", "notification", "允许管理通知渠道与策略", 191, 1);
+            ensureIamPermission("topology.read", "查看拓扑", "topology", "允许查看网络拓扑与分组", 200, 1);
+            ensureIamPermission("topology.write", "管理拓扑", "topology", "允许管理服务器分组", 201, 1);
+            ensureIamPermission("backup.read", "查看备份", "backup", "允许查看备份记录", 210, 1);
+            ensureIamPermission("backup.write", "管理备份", "backup", "允许执行备份与恢复操作", 211, 1);
+            ensureIamPermission("ip_quality.read", "查看IP质量", "ip_quality", "允许查看IP检测结果", 220, 1);
+            ensureIamPermission("ip_quality.write", "管理IP质量", "ip_quality", "允许执行IP检测", 221, 1);
+            ensureIamPermission("traffic_analysis.read", "查看流量分析", "traffic_analysis", "允许查看流量分析面板", 230, 1);
+
+            // SUPER_ADMIN gets all new permissions
+            String[] newPerms = {"audit.read","audit.write","notification.read","notification.write",
+                    "topology.read","topology.write","backup.read","backup.write",
+                    "ip_quality.read","ip_quality.write","traffic_analysis.read"};
+            for (String p : newPerms) {
+                ensureIamRolePermission("SUPER_ADMIN", p);
+            }
+            // DEV_ADMIN gets read + some write
+            String[] devPerms = {"audit.read","notification.read","notification.write",
+                    "topology.read","topology.write","backup.read","backup.write",
+                    "ip_quality.read","ip_quality.write","traffic_analysis.read"};
+            for (String p : devPerms) {
+                ensureIamRolePermission("DEV_ADMIN", p);
+            }
+            // DEVELOPER gets read only
+            String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read"};
+            for (String p : devReadPerms) {
+                ensureIamRolePermission("DEVELOPER", p);
+            }
+
+            log.info("[DatabaseInit] Phase 5 新模块权限种子数据初始化成功");
+        } catch (Exception e) { log.error("[DatabaseInit] Phase 5 权限种子数据初始化失败: {}", e.getMessage()); }
+
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }
 

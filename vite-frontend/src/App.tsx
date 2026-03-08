@@ -28,6 +28,11 @@ import AlertPage from "@/pages/alert";
 import ServerDashboardPage from "@/pages/server-dashboard";
 import CostAnalysisPage from "@/pages/cost-analysis";
 import TrafficAnalysisPage from "@/pages/traffic-analysis";
+import AuditPage from "@/pages/audit";
+import NotificationPage from "@/pages/notification";
+import TopologyPage from "@/pages/topology";
+import BackupPage from "@/pages/backup";
+import IpQualityPage from "@/pages/ip-quality";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
@@ -479,6 +484,54 @@ function App() {
         element={
           <ProtectedRoute requiredPermissions={['server_dashboard.read']}>
             <TrafficAnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/audit"
+        element={
+          <ProtectedRoute requiredPermissions={['audit.read']}>
+            <SystemWorkspace>
+              <AuditPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/notification"
+        element={
+          <ProtectedRoute requiredPermissions={['notification.read']}>
+            <SystemWorkspace>
+              <NotificationPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/topology"
+        element={
+          <ProtectedRoute requiredPermissions={['topology.read']}>
+            <TopologyPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/backup"
+        element={
+          <ProtectedRoute requiredPermissions={['backup.read']}>
+            <SystemWorkspace>
+              <BackupPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ip-quality"
+        element={
+          <ProtectedRoute requiredPermissions={['ip_quality.read']}>
+            <SystemWorkspace>
+              <IpQualityPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />

@@ -6,6 +6,8 @@
 
 - 只修改 `flux-panel-yoga` 仓库，上游仓库（komari, pika, 3x-ui, 1Panel, homepage, jumpserver, openclaw）不可修改
 - 使用中文回复
+- 不要重写任何远端分支历史；没有用户明确批准时，禁止 `git push --force` / `--force-with-lease`
+- 如果功能分支包含了不想让审查看到的旧提交，优先在本地另建 review 分支，不要去改写已有远端分支
 - 任务完成后的默认反馈使用精简格式，只包含：
   - `result`
   - `changed files`
@@ -50,6 +52,7 @@ git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 - Claude **不要修改** Codex 正在开发的 IAM/RBAC 相关代码（`sys_user`/`sys_role`/`sys_permission` 表、`/api/auth` 端点、钉钉集成、`SecurityConfig`）
 - 合并顺序：功能分支先 `git rebase origin/dev` 再 `merge --no-ff` 到 dev
 - 查看 worktree: `git worktree list`
+- `dev` 和任何已推送的远端功能分支都视为共享协作面，默认只允许追加提交，不允许改写历史
 
 ## 冲突热点
 

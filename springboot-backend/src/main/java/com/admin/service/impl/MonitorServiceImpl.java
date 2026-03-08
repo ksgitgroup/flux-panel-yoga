@@ -10,6 +10,7 @@ import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.MonitorInstanceMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
 import com.admin.mapper.MonitorNodeSnapshotMapper;
+import com.admin.service.AlertService;
 import com.admin.service.MonitorService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
@@ -59,6 +60,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private AssetHostMapper assetHostMapper;
+
+    @Resource
+    private AlertService alertService;
 
     // ==================== CRUD ====================
 
@@ -191,6 +195,13 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 log.warn("[MonitorSync] Auto sync failed for {}: {}", instance.getName(), e.getMessage());
             }
         }
+
+        // Evaluate alert rules after all syncs complete
+        try {
+            alertService.evaluateAlerts();
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Alert evaluation failed: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -283,6 +294,281 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 .eq(MonitorMetricLatest::getNodeSnapshotId, nodeId));
         monitorNodeSnapshotMapper.deleteById(nodeId);
         return R.ok("已删除探针节点");
+    }
+
+    // ==================== Historical Records (Charts) ====================
+
+    @Override
+    public R getNodeRecords(MonitorRecordsDto dto) {
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(dto.getNodeId());
+        if (node == null) {
+            return R.err("探针节点不存在");
+        }
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) {
+            return R.err("探针实例不存在");
+        }
+
+        String range = dto.getRange();
+        if (!StringUtils.hasText(range)) range = "1h";
+        String type = dto.getType();
+        if (!StringUtils.hasText(type)) type = "all";
+
+        try {
+            if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+                return fetchKomariRecords(instance, node, range, type);
+            } else if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                return fetchPikaRecords(instance, node, range, type);
+            } else {
+                return R.err("不支持的探针类型: " + instance.getType());
+            }
+        } catch (Exception e) {
+            log.warn("[MonitorRecords] Failed to fetch records for node {}: {}", node.getId(), e.getMessage());
+            return R.err("获取历史数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Fetch historical records from Komari via JSON-RPC getRecords.
+     * Returns normalized chart data: {series: [{name, data: [{timestamp, value}]}]}
+     */
+    private R fetchKomariRecords(MonitorInstance instance, MonitorNodeSnapshot node, String range, String type) {
+        // Map range string to hours
+        int hours = rangeToHours(range);
+
+        // Map our type to Komari load_type
+        String loadType = mapToKomariLoadType(type);
+
+        // Build RPC request
+        JSONObject params = new JSONObject();
+        params.put("type", "load");
+        params.put("uuid", node.getRemoteNodeUuid());
+        params.put("hours", hours);
+        if (!"all".equals(loadType)) {
+            params.put("load_type", loadType);
+        }
+        params.put("maxCount", 2000);
+
+        JSONObject rpcRequest = new JSONObject();
+        rpcRequest.put("jsonrpc", "2.0");
+        rpcRequest.put("method", "common:getRecords");
+        rpcRequest.put("params", params);
+        rpcRequest.put("id", 1);
+
+        String rpcJson = httpPost(instance, "/api/rpc2", rpcRequest.toJSONString(), instance.getAllowInsecureTls());
+        if (rpcJson == null) {
+            throw new RuntimeException("Empty response from Komari RPC");
+        }
+
+        JSONObject rpcResponse = JSON.parseObject(rpcJson);
+        if (rpcResponse.containsKey("error")) {
+            throw new RuntimeException("RPC error: " + rpcResponse.get("error"));
+        }
+        JSONObject result = rpcResponse.getJSONObject("result");
+        if (result == null) {
+            return R.ok(Map.of("series", List.of(), "probeType", "komari"));
+        }
+
+        // If load_type was specified, result has: {records: {uuid: [{time, cpu/ram/...}]}, load_type}
+        // If not, result has: {records: {uuid: [{time, cpu, ram, ...all fields}]}}
+        JSONObject records = result.getJSONObject("records");
+        if (records == null || records.isEmpty()) {
+            return R.ok(Map.of("series", List.of(), "probeType", "komari"));
+        }
+
+        // Get records for our node's UUID
+        String uuid = node.getRemoteNodeUuid();
+        JSONArray nodeRecords = records.getJSONArray(uuid);
+        if (nodeRecords == null || nodeRecords.isEmpty()) {
+            return R.ok(Map.of("series", List.of(), "probeType", "komari"));
+        }
+
+        // Normalize to chart series format
+        List<Map<String, Object>> series = normalizeKomariToSeries(nodeRecords, type);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("series", series);
+        data.put("probeType", "komari");
+        data.put("range", range);
+        data.put("nodeId", node.getId());
+        return R.ok(data);
+    }
+
+    /**
+     * Fetch historical records from Pika via REST API.
+     * GET /api/agents/:id/metrics?type=cpu&range=1h
+     */
+    private R fetchPikaRecords(MonitorInstance instance, MonitorNodeSnapshot node, String range, String type) {
+        String jwt = loginPika(instance);
+        if (jwt == null) {
+            throw new RuntimeException("Pika login failed");
+        }
+
+        // Pika metric types: cpu, memory, disk, network, disk_io, temperature
+        List<String> pikaTypes = mapToPikaTypes(type);
+        List<Map<String, Object>> allSeries = new ArrayList<>();
+
+        String pikaRange = mapToPikaRange(range);
+
+        for (String pikaType : pikaTypes) {
+            String path = "/api/agents/" + node.getRemoteNodeUuid() + "/metrics?type=" + pikaType + "&range=" + pikaRange;
+            String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+            String responseJson = httpGetWithToken(baseUrl + path, jwt, instance.getAllowInsecureTls());
+            if (responseJson == null) continue;
+
+            JSONObject resp = JSON.parseObject(responseJson);
+            // Pika may wrap in {data: {series: [...]}} or return directly
+            JSONObject data = resp.containsKey("data") ? resp.getJSONObject("data") : resp;
+            JSONArray pikaSeries = data.getJSONArray("series");
+            if (pikaSeries == null) continue;
+
+            for (int i = 0; i < pikaSeries.size(); i++) {
+                JSONObject s = pikaSeries.getJSONObject(i);
+                String name = pikaType + "_" + s.getString("name");
+                JSONArray dataArr = s.getJSONArray("data");
+                if (dataArr == null || dataArr.isEmpty()) continue;
+
+                List<Map<String, Object>> points = new ArrayList<>();
+                for (int j = 0; j < dataArr.size(); j++) {
+                    JSONObject pt = dataArr.getJSONObject(j);
+                    Map<String, Object> point = new LinkedHashMap<>();
+                    point.put("timestamp", pt.getLong("timestamp"));
+                    point.put("value", pt.getDouble("value"));
+                    points.add(point);
+                }
+                Map<String, Object> seriesItem = new LinkedHashMap<>();
+                seriesItem.put("name", name);
+                seriesItem.put("data", points);
+                allSeries.add(seriesItem);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("series", allSeries);
+        result.put("probeType", "pika");
+        result.put("range", range);
+        result.put("nodeId", node.getId());
+        return R.ok(result);
+    }
+
+    private List<Map<String, Object>> normalizeKomariToSeries(JSONArray records, String type) {
+        List<Map<String, Object>> series = new ArrayList<>();
+
+        if ("all".equals(type) || "cpu".equals(type)) {
+            series.add(extractKomariSeries(records, "cpu", "cpu"));
+        }
+        if ("all".equals(type) || "ram".equals(type) || "memory".equals(type)) {
+            series.add(extractKomariSeries(records, "ram", "ram"));
+            series.add(extractKomariSeries(records, "ram_total", "ram_total"));
+        }
+        if ("all".equals(type) || "swap".equals(type)) {
+            series.add(extractKomariSeries(records, "swap", "swap"));
+            series.add(extractKomariSeries(records, "swap_total", "swap_total"));
+        }
+        if ("all".equals(type) || "disk".equals(type)) {
+            series.add(extractKomariSeries(records, "disk", "disk"));
+            series.add(extractKomariSeries(records, "disk_total", "disk_total"));
+        }
+        if ("all".equals(type) || "network".equals(type)) {
+            series.add(extractKomariSeries(records, "net_in", "net_in"));
+            series.add(extractKomariSeries(records, "net_out", "net_out"));
+        }
+        if ("all".equals(type) || "load".equals(type)) {
+            series.add(extractKomariSeries(records, "load", "load"));
+        }
+        if ("all".equals(type) || "connections".equals(type)) {
+            series.add(extractKomariSeries(records, "connections", "connections"));
+        }
+
+        // Remove empty series
+        series.removeIf(s -> ((List<?>) s.get("data")).isEmpty());
+        return series;
+    }
+
+    private Map<String, Object> extractKomariSeries(JSONArray records, String field, String seriesName) {
+        List<Map<String, Object>> points = new ArrayList<>();
+        for (int i = 0; i < records.size(); i++) {
+            JSONObject rec = records.getJSONObject(i);
+            Object val = rec.get(field);
+            if (val == null) continue;
+
+            // Parse Komari time (RFC3339 string or LocalTime object)
+            String timeStr = rec.getString("time");
+            long timestamp;
+            try {
+                // Try parsing RFC3339
+                timestamp = java.time.OffsetDateTime.parse(timeStr).toInstant().toEpochMilli();
+            } catch (Exception e) {
+                try {
+                    // Fallback: parse as local datetime
+                    timestamp = java.time.LocalDateTime.parse(timeStr.replace(" ", "T"))
+                            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+                } catch (Exception e2) {
+                    continue;
+                }
+            }
+
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("timestamp", timestamp);
+            point.put("value", ((Number) val).doubleValue());
+            points.add(point);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("name", seriesName);
+        result.put("data", points);
+        return result;
+    }
+
+    private int rangeToHours(String range) {
+        if (range == null) return 1;
+        switch (range) {
+            case "1h": return 1;
+            case "3h": return 3;
+            case "6h": return 6;
+            case "12h": return 12;
+            case "24h": case "1d": return 24;
+            case "3d": return 72;
+            case "7d": return 168;
+            default: return 1;
+        }
+    }
+
+    private String mapToKomariLoadType(String type) {
+        if (type == null || "all".equals(type)) return "all";
+        switch (type) {
+            case "memory": case "ram": return "ram";
+            case "network": return "network";
+            case "disk": return "disk";
+            case "cpu": return "cpu";
+            case "swap": return "swap";
+            case "load": return "load";
+            case "connections": return "connections";
+            default: return "all";
+        }
+    }
+
+    private List<String> mapToPikaTypes(String type) {
+        if (type == null || "all".equals(type)) {
+            return List.of("cpu", "memory", "network", "disk");
+        }
+        switch (type) {
+            case "cpu": return List.of("cpu");
+            case "memory": case "ram": return List.of("memory");
+            case "network": return List.of("network");
+            case "disk": return List.of("disk");
+            case "load": return List.of("cpu"); // Pika cpu includes load
+            default: return List.of(type);
+        }
+    }
+
+    private String mapToPikaRange(String range) {
+        // Pika supports: 1m, 5m, 15m, 30m, 1h, 3h, 6h, 12h, 1d/24h, 3d, 7d, 30d
+        if (range == null) return "1h";
+        switch (range) {
+            case "1h": case "3h": case "6h": case "12h": case "24h": case "3d": case "7d":
+                return range;
+            case "1d": return "24h";
+            default: return "1h";
+        }
     }
 
     // ==================== Core Sync Logic (Komari) ====================

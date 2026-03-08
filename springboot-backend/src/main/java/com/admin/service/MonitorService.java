@@ -3,6 +3,7 @@ package com.admin.service;
 import com.admin.common.dto.MonitorInstanceDto;
 import com.admin.common.dto.MonitorInstanceUpdateDto;
 import com.admin.common.dto.MonitorProvisionDto;
+import com.admin.common.dto.MonitorRecordsDto;
 import com.admin.common.lang.R;
 import com.admin.entity.MonitorInstance;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -34,4 +35,6 @@ public interface MonitorService extends IService<MonitorInstance> {
     R getDashboardNodes();
 
     R deleteNodeSnapshot(Long nodeId);
+
+    R getNodeRecords(MonitorRecordsDto dto);
 }

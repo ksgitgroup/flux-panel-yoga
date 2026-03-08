@@ -10,10 +10,15 @@ import {
   Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure
 } from "@heroui/modal";
 import toast from 'react-hot-toast';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts';
 
 import {
   MonitorNodeSnapshot,
+  MonitorRecordSeries,
   getMonitorDashboard,
+  getMonitorRecords,
   deleteMonitorNode,
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
@@ -60,6 +65,205 @@ function memPercent(used?: number | null, total?: number | null): number {
   return (used / total) * 100;
 }
 
+// ===================== Chart Helpers =====================
+
+const CHART_COLORS = {
+  cpu: '#3b82f6',
+  ram: '#10b981', ram_total: '#6ee7b7',
+  swap: '#f59e0b', swap_total: '#fcd34d',
+  disk: '#8b5cf6', disk_total: '#c4b5fd',
+  net_in: '#06b6d4', net_out: '#f43f5e',
+  load: '#ec4899',
+  connections: '#6366f1',
+  // Pika naming
+  cpu_usage: '#3b82f6',
+  memory_usage: '#10b981',
+  network_upload: '#f43f5e', network_download: '#06b6d4',
+  disk_usage: '#8b5cf6',
+};
+
+const CHART_LABELS: Record<string, string> = {
+  cpu: 'CPU %', ram: '已用内存', ram_total: '总内存',
+  swap: '已用 Swap', swap_total: '总 Swap',
+  disk: '已用磁盘', disk_total: '总磁盘',
+  net_in: '下行 B/s', net_out: '上行 B/s',
+  load: '负载', connections: 'TCP 连接数',
+  cpu_usage: 'CPU %', memory_usage: '内存 %',
+  network_upload: '上行 B/s', network_download: '下行 B/s',
+  disk_usage: '磁盘 %',
+};
+
+const TIME_RANGES = [
+  { label: '1h', value: '1h' },
+  { label: '3h', value: '3h' },
+  { label: '6h', value: '6h' },
+  { label: '12h', value: '12h' },
+  { label: '24h', value: '24h' },
+  { label: '3d', value: '3d' },
+  { label: '7d', value: '7d' },
+];
+
+// Group series for rendering as separate charts
+type ChartGroup = { title: string; unit: string; series: MonitorRecordSeries[]; domain?: [number, number] };
+
+function groupSeries(allSeries: MonitorRecordSeries[], probeType: string): ChartGroup[] {
+  const groups: ChartGroup[] = [];
+  const has = (name: string) => allSeries.some(s => s.name === name);
+
+  if (probeType === 'pika') {
+    if (has('cpu_usage'))
+      groups.push({ title: 'CPU', unit: '%', series: allSeries.filter(s => s.name === 'cpu_usage'), domain: [0, 100] });
+    if (has('memory_usage'))
+      groups.push({ title: '内存', unit: '%', series: allSeries.filter(s => s.name === 'memory_usage'), domain: [0, 100] });
+    const netSeries = allSeries.filter(s => s.name.startsWith('network_'));
+    if (netSeries.length > 0) groups.push({ title: '网络', unit: 'B/s', series: netSeries });
+    if (has('disk_usage'))
+      groups.push({ title: '磁盘', unit: '%', series: allSeries.filter(s => s.name === 'disk_usage'), domain: [0, 100] });
+  } else {
+    // Komari
+    if (has('cpu'))
+      groups.push({ title: 'CPU', unit: '%', series: allSeries.filter(s => s.name === 'cpu'), domain: [0, 100] });
+    const ramSeries = allSeries.filter(s => s.name === 'ram' || s.name === 'ram_total');
+    if (ramSeries.length > 0) groups.push({ title: '内存', unit: 'bytes', series: ramSeries });
+    const swapSeries = allSeries.filter(s => s.name === 'swap' || s.name === 'swap_total');
+    if (swapSeries.length > 0) groups.push({ title: 'Swap', unit: 'bytes', series: swapSeries });
+    const diskSeries = allSeries.filter(s => s.name === 'disk' || s.name === 'disk_total');
+    if (diskSeries.length > 0) groups.push({ title: '磁盘', unit: 'bytes', series: diskSeries });
+    const netSeries = allSeries.filter(s => s.name === 'net_in' || s.name === 'net_out');
+    if (netSeries.length > 0) groups.push({ title: '网络', unit: 'B/s', series: netSeries });
+    if (has('load'))
+      groups.push({ title: '负载', unit: '', series: allSeries.filter(s => s.name === 'load') });
+    if (has('connections'))
+      groups.push({ title: '连接数', unit: '', series: allSeries.filter(s => s.name === 'connections') });
+  }
+  return groups;
+}
+
+function formatChartTime(ts: number, range: string): string {
+  const d = new Date(ts);
+  if (['3d', '7d'].includes(range)) {
+    return `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  }
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function formatChartValue(v: number, unit: string): string {
+  if (unit === 'bytes' || unit === 'B/s') {
+    if (v < 1024) return v.toFixed(0) + ' B';
+    if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB';
+    if (v < 1024 * 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + ' MB';
+    return (v / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+  if (unit === '%') return v.toFixed(1) + '%';
+  return v.toFixed(2);
+}
+
+function MiniChartTooltip({ active, payload, unit }: any) {
+  if (!active || !payload?.length) return null;
+  const ts = payload[0]?.payload?.timestamp;
+  return (
+    <div className="rounded-lg bg-content1 border border-divider/60 p-2 shadow-lg text-xs">
+      <p className="text-default-400 font-mono mb-1">{ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
+      {payload.map((p: any) => (
+        <p key={p.dataKey} className="font-mono" style={{ color: p.color }}>
+          {CHART_LABELS[p.dataKey] || p.dataKey}: {formatChartValue(p.value, unit)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function NodeCharts({ nodeId, range }: { nodeId: number; range: string }) {
+  const [series, setSeries] = useState<MonitorRecordSeries[]>([]);
+  const [probeType, setProbeType] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    getMonitorRecords(nodeId, range)
+      .then(res => {
+        if (cancelled) return;
+        if (res.code === 0 && res.data) {
+          setSeries((res.data as any).series || []);
+          setProbeType((res.data as any).probeType || '');
+        } else {
+          setError(res.msg || '获取失败');
+        }
+      })
+      .catch(() => { if (!cancelled) setError('请求失败'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [nodeId, range]);
+
+  if (loading) return <div className="flex justify-center py-6"><Spinner size="sm" /></div>;
+  if (error) return <p className="text-xs text-danger text-center py-4">{error}</p>;
+  if (series.length === 0) return <p className="text-xs text-default-400 text-center py-4">暂无历史数据</p>;
+
+  const groups = groupSeries(series, probeType);
+
+  return (
+    <div className="space-y-4">
+      {groups.map((g) => {
+        // Merge all series data by timestamp
+        const timeMap = new Map<number, Record<string, number>>();
+        g.series.forEach(s => {
+          s.data.forEach(pt => {
+            const existing = timeMap.get(pt.timestamp) || { timestamp: pt.timestamp };
+            existing[s.name] = pt.value;
+            timeMap.set(pt.timestamp, existing);
+          });
+        });
+        const chartData = Array.from(timeMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+        if (chartData.length === 0) return null;
+
+        return (
+          <div key={g.title}>
+            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">{g.title}</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  {g.series.map(s => (
+                    <linearGradient key={s.name} id={`grad_${s.name}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={(CHART_COLORS as any)[s.name] || '#6366f1'} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={(CHART_COLORS as any)[s.name] || '#6366f1'} stopOpacity={0} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--heroui-divider)" opacity={0.4} />
+                <XAxis
+                  dataKey="timestamp" type="number" scale="time" domain={['dataMin', 'dataMax']}
+                  tickFormatter={(v) => formatChartTime(v, range)}
+                  tick={{ fontSize: 10 }} stroke="var(--heroui-default-400)"
+                />
+                <YAxis
+                  tick={{ fontSize: 10 }} stroke="var(--heroui-default-400)" width={50}
+                  domain={g.domain || ['auto', 'auto']}
+                  tickFormatter={(v) => g.unit === 'bytes' || g.unit === 'B/s' ? formatChartValue(v, g.unit) : g.unit === '%' ? `${v}%` : String(v)}
+                />
+                <Tooltip content={<MiniChartTooltip unit={g.unit} />} />
+                {g.series.length > 1 && <Legend formatter={(v: string) => CHART_LABELS[v] || v} wrapperStyle={{ fontSize: 10 }} />}
+                {g.series.map(s => (
+                  <Area
+                    key={s.name} type="monotone" dataKey={s.name}
+                    name={s.name}
+                    stroke={(CHART_COLORS as any)[s.name] || '#6366f1'}
+                    strokeWidth={1.5}
+                    fill={`url(#grad_${s.name})`}
+                    dot={false} activeDot={{ r: 2 }}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ===================== Component =====================
 
 export default function ServerDashboardPage() {
@@ -77,6 +281,8 @@ export default function ServerDashboardPage() {
 
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
   const [selectedNode, setSelectedNode] = useState<MonitorNodeSnapshot | null>(null);
+  const [chartRange, setChartRange] = useState('1h');
+  const [showCharts, setShowCharts] = useState(false);
 
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -101,6 +307,8 @@ export default function ServerDashboardPage() {
 
   const openDetail = (node: MonitorNodeSnapshot) => {
     setSelectedNode(node);
+    setShowCharts(false);
+    setChartRange('1h');
     onDetailOpen();
   };
 
@@ -176,6 +384,7 @@ export default function ServerDashboardPage() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="flat" onPress={() => navigate('/assets')}>资产管理</Button>
           <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针配置</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/alert')}>告警管理</Button>
         </div>
       </div>
 
@@ -581,6 +790,29 @@ export default function ServerDashboardPage() {
                           采样时间: {new Date(m.sampledAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </p>
                       )}
+
+                      {/* Historical Charts */}
+                      <Divider />
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">历史图表</p>
+                          <div className="flex items-center gap-1">
+                            {!showCharts ? (
+                              <Button size="sm" variant="flat" onPress={() => setShowCharts(true)}>加载图表</Button>
+                            ) : (
+                              TIME_RANGES.map(r => (
+                                <button key={r.value} onClick={() => setChartRange(r.value)}
+                                  className={`rounded-md px-2 py-0.5 text-[10px] font-mono font-bold border transition-all cursor-pointer ${
+                                    chartRange === r.value
+                                      ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
+                                      : 'border-divider text-default-400 hover:border-primary/40'
+                                  }`}>{r.label}</button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                        {showCharts && <NodeCharts nodeId={selectedNode.id} range={chartRange} />}
+                      </div>
                     </>
                   ) : (
                     <div className="rounded-xl border border-danger/20 bg-danger-50/30 p-4 text-center">

@@ -540,3 +540,61 @@ export interface DashboardNodesResponse {
 }
 export const getMonitorDashboard = () => Network.post<DashboardNodesResponse>("/monitor/dashboard");
 export const deleteMonitorNode = (id: number) => Network.post("/monitor/delete-node", { id });
+
+// Historical records / charts
+export interface MonitorRecordPoint {
+  timestamp: number;
+  value: number;
+}
+export interface MonitorRecordSeries {
+  name: string;
+  data: MonitorRecordPoint[];
+}
+export interface MonitorRecordsResponse {
+  series: MonitorRecordSeries[];
+  probeType: string;
+  range: string;
+  nodeId: number;
+}
+export const getMonitorRecords = (nodeId: number, range: string, type?: string) =>
+  Network.post<MonitorRecordsResponse>("/monitor/records", { nodeId, range, type: type || 'all' });
+
+// Alert system
+export interface AlertRule {
+  id: number;
+  name: string;
+  enabled: number;
+  metric: string;
+  operator: string;
+  threshold: number;
+  durationSeconds: number;
+  scopeType: string;
+  scopeValue?: string | null;
+  notifyType: string;
+  notifyTarget?: string | null;
+  cooldownMinutes: number;
+  lastTriggeredAt?: number | null;
+  createdTime: number;
+  updatedTime: number;
+}
+export interface AlertLog {
+  id: number;
+  ruleId: number;
+  ruleName?: string | null;
+  nodeId?: number | null;
+  nodeName?: string | null;
+  metric?: string | null;
+  currentValue?: number | null;
+  threshold?: number | null;
+  message?: string | null;
+  notifyStatus?: string | null;
+  createdTime: number;
+}
+export const getAlertRules = () => Network.post<AlertRule[]>("/alert/rules");
+export const createAlertRule = (data: Partial<AlertRule>) => Network.post<AlertRule>("/alert/rule/create", data);
+export const updateAlertRule = (data: Partial<AlertRule>) => Network.post<AlertRule>("/alert/rule/update", data);
+export const deleteAlertRule = (id: number) => Network.post("/alert/rule/delete", { id });
+export const toggleAlertRule = (id: number) => Network.post<AlertRule>("/alert/rule/toggle", { id });
+export const getAlertLogs = (page?: number, size?: number) =>
+  Network.post<{ records: AlertLog[]; total: number }>("/alert/logs", { page: page || 1, size: size || 20 });
+export const clearAlertLogs = () => Network.post("/alert/logs/clear");

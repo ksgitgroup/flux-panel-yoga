@@ -6,6 +6,7 @@ import com.admin.common.dto.MonitorInstanceDto;
 import com.admin.common.dto.MonitorInstanceIdDto;
 import com.admin.common.dto.MonitorInstanceUpdateDto;
 import com.admin.common.dto.MonitorProvisionDto;
+import com.admin.common.dto.MonitorRecordsDto;
 import com.admin.common.lang.R;
 import com.admin.service.MonitorService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,5 +95,11 @@ public class MonitorController extends BaseController {
     @PostMapping("/delete-node")
     public R deleteNode(@Validated @RequestBody MonitorInstanceIdDto dto) {
         return monitorService.deleteNodeSnapshot(dto.getId());
+    }
+
+    @RequireRole
+    @PostMapping("/records")
+    public R records(@Validated @RequestBody MonitorRecordsDto dto) {
+        return monitorService.getNodeRecords(dto);
     }
 }

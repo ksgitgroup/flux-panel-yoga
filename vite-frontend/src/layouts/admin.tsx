@@ -283,6 +283,30 @@ export default function AdminLayout({
       ),
       adminOnly: true,
       requiredPermissions: ['alert.read']
+    },
+    {
+      path: '/cost',
+      label: '成本分析',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['asset.read']
+    },
+    {
+      path: '/traffic',
+      label: '流量分析',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['server_dashboard.read']
     }
   ];
 

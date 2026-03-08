@@ -341,25 +341,31 @@ public class FlowController extends BaseController {
     }
 
     private void updateForwardFlow(String forwardId, FlowDto flowStats) {
+        long d = flowStats.getD() != null ? flowStats.getD() : 0L;
+        long u = flowStats.getU() != null ? flowStats.getU() : 0L;
+        if (d == 0 && u == 0) return;
         // 对相同转发的流量更新进行同步，避免并发覆盖
         synchronized (getForwardLock(forwardId)) {
             UpdateWrapper<Forward> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", forwardId);
-            updateWrapper.setSql("in_flow = in_flow + " + flowStats.getD());
-            updateWrapper.setSql("out_flow = out_flow + " + flowStats.getU());
+            updateWrapper.setSql("in_flow = in_flow + " + d);
+            updateWrapper.setSql("out_flow = out_flow + " + u);
 
             forwardService.update(null, updateWrapper);
         }
     }
 
     private void updateUserFlow(String userId, FlowDto flowStats) {
+        long d = flowStats.getD() != null ? flowStats.getD() : 0L;
+        long u = flowStats.getU() != null ? flowStats.getU() : 0L;
+        if (d == 0 && u == 0) return;
         // 对相同用户的流量更新进行同步，避免并发覆盖
         synchronized (getUserLock(userId)) {
             UpdateWrapper<User> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", userId);
 
-            updateWrapper.setSql("in_flow = in_flow + " + flowStats.getD());
-            updateWrapper.setSql("out_flow = out_flow + " + flowStats.getU());
+            updateWrapper.setSql("in_flow = in_flow + " + d);
+            updateWrapper.setSql("out_flow = out_flow + " + u);
 
             userService.update(null, updateWrapper);
         }
@@ -369,13 +375,16 @@ public class FlowController extends BaseController {
         if (Objects.equals(userTunnelId, DEFAULT_USER_TUNNEL_ID)) {
             return; // 默认隧道不需要更新，返回成功
         }
+        long d = flowStats.getD() != null ? flowStats.getD() : 0L;
+        long u = flowStats.getU() != null ? flowStats.getU() : 0L;
+        if (d == 0 && u == 0) return;
 
         // 对相同用户隧道的流量更新进行同步，避免并发覆盖
         synchronized (getTunnelLock(userTunnelId)) {
             UpdateWrapper<UserTunnel> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", userTunnelId);
-            updateWrapper.setSql("in_flow = in_flow + " + flowStats.getD());
-            updateWrapper.setSql("out_flow = out_flow + " + flowStats.getU());
+            updateWrapper.setSql("in_flow = in_flow + " + d);
+            updateWrapper.setSql("out_flow = out_flow + " + u);
             userTunnelService.update(null, updateWrapper);
         }
     }

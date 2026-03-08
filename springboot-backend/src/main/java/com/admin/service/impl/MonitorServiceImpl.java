@@ -1545,14 +1545,50 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 changed = true;
             }
 
-            // OS + osCategory: only fill if asset has no OS (Flux is authority)
-            if (!StringUtils.hasText(asset.getOs()) && StringUtils.hasText(node.getOs())) {
-                asset.setOs(node.getOs());
-                asset.setOsCategory(deriveOsCategory(node.getOs()));
-                changed = true;
+            // OS + osCategory: always sync from probe (probe knows the real running OS)
+            if (StringUtils.hasText(node.getOs())) {
+                String newOs = node.getOs();
+                String newCat = deriveOsCategory(newOs);
+                if (!newOs.equals(asset.getOs()) || !java.util.Objects.equals(newCat, asset.getOsCategory())) {
+                    asset.setOs(newOs);
+                    asset.setOsCategory(newCat);
+                    changed = true;
+                }
             } else if (StringUtils.hasText(asset.getOs()) && !StringUtils.hasText(asset.getOsCategory())) {
                 asset.setOsCategory(deriveOsCategory(asset.getOs()));
                 changed = true;
+            }
+
+            // Hardware: always sync from probe (probe has real-time hardware info)
+            if (node.getCpuCores() != null && !java.util.Objects.equals(node.getCpuCores(), asset.getCpuCores())) {
+                asset.setCpuCores(node.getCpuCores()); changed = true;
+            }
+            if (node.getMemTotal() != null) {
+                Integer memMb = (int) (node.getMemTotal() / (1024 * 1024));
+                if (!java.util.Objects.equals(memMb, asset.getMemTotalMb())) { asset.setMemTotalMb(memMb); changed = true; }
+            }
+            if (node.getDiskTotal() != null) {
+                Integer diskGb = (int) (node.getDiskTotal() / (1024 * 1024 * 1024));
+                if (!java.util.Objects.equals(diskGb, asset.getDiskTotalGb())) { asset.setDiskTotalGb(diskGb); changed = true; }
+            }
+            if (StringUtils.hasText(node.getCpuName()) && !node.getCpuName().equals(asset.getCpuName())) {
+                asset.setCpuName(node.getCpuName()); changed = true;
+            }
+            if (StringUtils.hasText(node.getArch()) && !node.getArch().equals(asset.getArch())) {
+                asset.setArch(node.getArch()); changed = true;
+            }
+            if (StringUtils.hasText(node.getVirtualization()) && !node.getVirtualization().equals(asset.getVirtualization())) {
+                asset.setVirtualization(node.getVirtualization()); changed = true;
+            }
+            if (StringUtils.hasText(node.getKernelVersion()) && !node.getKernelVersion().equals(asset.getKernelVersion())) {
+                asset.setKernelVersion(node.getKernelVersion()); changed = true;
+            }
+            if (StringUtils.hasText(node.getGpuName()) && !node.getGpuName().equals(asset.getGpuName())) {
+                asset.setGpuName(node.getGpuName()); changed = true;
+            }
+            if (node.getSwapTotal() != null) {
+                Integer swapMb = (int) (node.getSwapTotal() / (1024 * 1024));
+                if (!java.util.Objects.equals(swapMb, asset.getSwapTotalMb())) { asset.setSwapTotalMb(swapMb); changed = true; }
             }
 
             // Billing: fill empty fields

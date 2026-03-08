@@ -25,11 +25,14 @@ import PortalConfigPage from "@/pages/portal-config";
 import ProbePage from "@/pages/probe";
 import AlertPage from "@/pages/alert";
 import ServerDashboardPage from "@/pages/server-dashboard";
+import CostAnalysisPage from "@/pages/cost-analysis";
+import TrafficAnalysisPage from "@/pages/traffic-analysis";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
 import H5SimpleLayout from "@/layouts/h5-simple";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { getTwoFactorStatus } from "@/api";
 import { hasAnyPermission, isLoggedIn } from "@/utils/auth";
@@ -453,6 +456,22 @@ function App() {
         }
       />
       <Route
+        path="/cost"
+        element={
+          <ProtectedRoute requiredPermissions={['asset.read']}>
+            <CostAnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/traffic"
+        element={
+          <ProtectedRoute requiredPermissions={['server_dashboard.read']}>
+            <TrafficAnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/settings"
         element={<SettingsPage />}
       />
@@ -460,4 +479,12 @@ function App() {
   );
 }
 
-export default App;
+function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithErrorBoundary;

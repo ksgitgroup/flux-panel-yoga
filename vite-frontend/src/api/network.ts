@@ -65,9 +65,9 @@ function handleTokenExpired() {
   window.localStorage.removeItem('force_password_change');
   window.localStorage.removeItem('force_two_factor_setup');
   
-  // 跳转到登录页面
+  // 跳转到登录页面（replace 不污染浏览器历史）
   if (window.location.pathname !== '/') {
-    window.location.href = '/';
+    window.location.replace('/');
   }
 }
 

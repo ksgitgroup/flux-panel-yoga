@@ -50,7 +50,9 @@ public class NodeController extends BaseController {
     @RequireRole
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Object idObj = params.get("id");
+        if (idObj == null) return R.err("ID 不能为空");
+        Long id = Long.valueOf(idObj.toString());
         return nodeService.deleteNode(id);
     }
 
@@ -58,7 +60,9 @@ public class NodeController extends BaseController {
     @RequireRole
     @PostMapping("/install")
     public R getInstallCommand(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Object idObj = params.get("id");
+        if (idObj == null) return R.err("ID 不能为空");
+        Long id = Long.valueOf(idObj.toString());
         return nodeService.getInstallCommand(id);
     }
 

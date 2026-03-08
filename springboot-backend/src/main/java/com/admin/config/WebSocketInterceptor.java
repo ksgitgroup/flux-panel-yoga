@@ -39,7 +39,7 @@ public class WebSocketInterceptor extends HttpSessionHandshakeInterceptor {
         String type = serverHttpRequest.getServletRequest().getParameter("type");
         String version = serverHttpRequest.getServletRequest().getParameter("version");
         if (Objects.equals(type, "1")) {
-            System.out.println("type: " + type + " - version: " + version + " - secret: " + secret + " - IP: " + getClientIp(request));
+            log.debug("WebSocket node handshake: version={}, IP={}", version, getClientIp(request));
             Node node = nodeService.getOne(new QueryWrapper<Node>().eq("secret", secret));
             if (node == null) {
                 log.info("节点验证失败：未找到匹配的secret");

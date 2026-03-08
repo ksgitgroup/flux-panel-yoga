@@ -84,6 +84,16 @@ public class MonitorNodeSnapshotViewDto {
     /** Base URL of the probe instance (e.g. https://komari.example.com). */
     private String instanceBaseUrl;
 
+    // ---- Asset enrichment fields ----
+    private String provider;
+    private String label;
+    private Integer bandwidthMbps;
+    private Integer sshPort;
+    private String panelUrl;
+    private String remark;
+    private Long purchaseDate;
+    private String monthlyCost;
+
     /** Peer probe node ID (same server, different probe type). Null if no peer. */
     private Long peerNodeId;
 

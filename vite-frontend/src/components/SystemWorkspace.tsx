@@ -106,13 +106,14 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
-    key: 'assets',
-    label: '服务器资产',
-    path: '/assets',
+    key: 'probe',
+    label: '探针配置',
+    path: '/probe',
     group: '外部集成',
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16v4H4zM4 14h16v4H4z" />
+        <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6l4 2" />
       </svg>
     ),
   },

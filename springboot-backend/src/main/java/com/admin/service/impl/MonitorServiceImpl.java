@@ -197,6 +197,57 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return R.ok(buildNodeViews(nodes, null));
     }
 
+    @Override
+    public R getDashboardNodes() {
+        // Return ALL nodes across all instances with latest metrics + instance name
+        List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .orderByDesc(MonitorNodeSnapshot::getOnline)
+                        .orderByAsc(MonitorNodeSnapshot::getName));
+        if (allNodes.isEmpty()) {
+            return R.ok(Collections.emptyMap());
+        }
+
+        // Build instance name map
+        List<MonitorInstance> instances = this.list();
+        Map<Long, String> instanceNameMap = instances.stream()
+                .collect(Collectors.toMap(MonitorInstance::getId, MonitorInstance::getName, (a, b) -> a));
+
+        // Build node views with metrics
+        List<MonitorNodeSnapshotViewDto> nodeViews = buildNodeViews(allNodes, null);
+        for (MonitorNodeSnapshotViewDto nv : nodeViews) {
+            if (nv.getInstanceName() == null) {
+                nv.setInstanceName(instanceNameMap.get(nv.getInstanceId()));
+            }
+        }
+
+        // Build asset name map for nodes with assetId
+        Set<Long> assetIds = allNodes.stream()
+                .map(MonitorNodeSnapshot::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> assetNameMap = new HashMap<>();
+        if (!assetIds.isEmpty()) {
+            List<AssetHost> assets = assetHostMapper.selectBatchIds(assetIds);
+            for (AssetHost a : assets) {
+                assetNameMap.put(a.getId(), a.getName());
+            }
+        }
+        for (MonitorNodeSnapshotViewDto nv : nodeViews) {
+            if (nv.getAssetId() != null && nv.getAssetName() == null) {
+                nv.setAssetName(assetNameMap.get(nv.getAssetId()));
+            }
+        }
+
+        long online = allNodes.stream().filter(n -> n.getOnline() != null && n.getOnline() == 1).count();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("nodes", nodeViews);
+        result.put("total", allNodes.size());
+        result.put("online", online);
+        result.put("offline", allNodes.size() - online);
+        return R.ok(result);
+    }
+
     // ==================== Core Sync Logic (Komari) ====================
 
     private Map<String, Object> performSync(MonitorInstance instance) {

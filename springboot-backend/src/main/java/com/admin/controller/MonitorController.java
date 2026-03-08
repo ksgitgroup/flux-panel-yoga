@@ -82,4 +82,10 @@ public class MonitorController extends BaseController {
     public R provision(@Validated @RequestBody MonitorProvisionDto dto) {
         return monitorService.provisionAgent(dto);
     }
+
+    @RequireRole
+    @PostMapping("/dashboard")
+    public R dashboard() {
+        return monitorService.getDashboardNodes();
+    }
 }

@@ -514,3 +514,11 @@ export interface MonitorProvisionResult {
 }
 export const provisionMonitorAgent = (instanceId: number, name?: string) =>
   Network.post<MonitorProvisionResult>("/monitor/provision", { instanceId, name });
+
+export interface DashboardNodesResponse {
+  nodes: MonitorNodeSnapshot[];
+  total: number;
+  online: number;
+  offline: number;
+}
+export const getMonitorDashboard = () => Network.post<DashboardNodesResponse>("/monitor/dashboard");

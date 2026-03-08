@@ -985,78 +985,99 @@ export default function AssetsPage() {
               </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <Input label="名称" placeholder="HK-VPS-01" value={form.name}
-                onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
-              <Input label="主 IP / 域名" value={form.primaryIp}
-                onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
-              <Select label="角色" selectedKeys={form.role ? [form.role] : []}
-                onSelectionChange={(keys) => setForm(p => ({ ...p, role: Array.from(keys)[0]?.toString() || '' }))}>
-                {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
-              </Select>
+            {/* Section: Local Config (user-editable) */}
+            <div className="rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-4 space-y-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Chip size="sm" variant="flat" color="primary">本地配置</Chip>
+                <span className="text-[11px] text-default-400">手动维护的资产信息</span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <Input label="名称" placeholder="HK-VPS-01" value={form.name}
+                  onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
+                <Input label="主 IP / 域名" value={form.primaryIp}
+                  onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
+                <Select label="角色" selectedKeys={form.role ? [form.role] : []}
+                  onSelectionChange={(keys) => setForm(p => ({ ...p, role: Array.from(keys)[0]?.toString() || '' }))}>
+                  {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+                </Select>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
+                  onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
+                <Input label="地区" placeholder="香港" value={form.region}
+                  onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
+                <Input label="环境" placeholder="生产 / 测试" value={form.environment}
+                  onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <Input label="到期日期" type="date" value={form.expireDate}
+                  onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
+                <Input label="月费" value={form.monthlyCost}
+                  onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
+                <Select label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
+                  onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
+                  {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                </Select>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
+                  onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
+                <Input label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
+                  onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
+              </div>
+
+              <Textarea label="备注" value={form.remark}
+                onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} minRows={2} />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
-                onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
-              <Input label="地区" placeholder="香港" value={form.region}
-                onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
-              <Input label="到期日期" type="date" value={form.expireDate}
-                onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
+            {/* Section: Probe-synced fields */}
+            <div className="rounded-xl border border-secondary/20 bg-secondary-50/30 dark:bg-secondary-50/5 p-4 space-y-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Chip size="sm" variant="flat" color="secondary">探针同步</Chip>
+                <span className="text-[11px] text-default-400">绑定探针后自动同步，也可手动填写</span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                <Input label="操作系统" placeholder="Ubuntu 22" value={form.os}
+                  onValueChange={(v) => setForm(p => ({ ...p, os: v }))}
+                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                <Input label="CPU 核心" type="number" value={form.cpuCores}
+                  onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))}
+                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                <Input label="内存 (MB)" type="number" value={form.memTotalMb}
+                  onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))}
+                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                <Input label="硬盘 (GB)" type="number" value={form.diskTotalGb}
+                  onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))}
+                  description={form.monitorNodeUuid ? '探针可同步' : undefined} />
+                <Input label="IPv6" value={form.ipv6}
+                  onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))} />
+              </div>
             </div>
 
-            <Textarea label="备注" value={form.remark}
-              onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} minRows={2} />
-
+            {/* Section: Advanced / Linking */}
             <Accordion variant="light" className="-mx-1">
               <AccordionItem key="advanced" title="更多配置" classNames={{ title: "text-xs text-default-400" }}>
                 <div className="space-y-4">
-                  <p className="text-xs font-medium text-default-400">网络</p>
+                  <p className="text-xs font-medium text-default-400">网络与接入</p>
                   <div className="grid gap-4 md:grid-cols-3">
                     <Input label="标签" placeholder="可选标识" value={form.label}
                       onValueChange={(v) => setForm(p => ({ ...p, label: v }))} />
-                    <Input label="IPv6" value={form.ipv6}
-                      onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))} />
                     <Input label="SSH 端口" type="number" value={form.sshPort}
                       onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
-                  </div>
-
-                  <p className="text-xs font-medium text-default-400">配置</p>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                    <Input label="操作系统" placeholder="Ubuntu 22" value={form.os}
-                      onValueChange={(v) => setForm(p => ({ ...p, os: v }))} />
-                    <Input label="CPU 核心" type="number" value={form.cpuCores}
-                      onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))} />
-                    <Input label="内存 (MB)" type="number" value={form.memTotalMb}
-                      onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))} />
-                    <Input label="硬盘 (GB)" type="number" value={form.diskTotalGb}
-                      onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))} />
-                    <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
-                      onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
-                  </div>
-
-                  <p className="text-xs font-medium text-default-400">费用</p>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <Input label="环境" placeholder="生产 / 测试" value={form.environment}
-                      onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
-                    <Input label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
-                      onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
-                    <Input label="月费" value={form.monthlyCost}
-                      onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
-                    <Select label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
-                      onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
-                      {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
-                    </Select>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
                     <Input label="购买日期" type="date" value={form.purchaseDate}
                       onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
                   </div>
 
                   <p className="text-xs font-medium text-default-400">关联</p>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="探针节点 UUID" placeholder="Komari 节点 UUID" value={form.monitorNodeUuid}
-                      onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))} />
+                    <Input label="探针节点 UUID" placeholder="Komari 节点 UUID（绑定后自动同步指标）" value={form.monitorNodeUuid}
+                      onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))}
+                      description="绑定探针后，服务器看板和资产详情会自动展示实时指标" />
                     <Input label="标签 (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
                       onValueChange={(v) => setForm(p => ({ ...p, tags: v }))} />
                   </div>

@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from "@heroui/button";
-import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input, Textarea } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Switch } from "@heroui/switch";
 import { Spinner } from "@heroui/spinner";
-import { Progress } from "@heroui/progress";
 import { Divider } from "@heroui/divider";
-import { Tooltip } from "@heroui/tooltip";
 import {
   Modal,
   ModalContent,
@@ -17,21 +15,12 @@ import {
   ModalFooter,
   useDisclosure
 } from "@heroui/modal";
-import {
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell
-} from "@heroui/table";
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 
 import {
   MonitorInstance,
-  MonitorNodeSnapshot,
   getMonitorList,
-  getMonitorDetail,
   createMonitorInstance,
   updateMonitorInstance,
   deleteMonitorInstance,
@@ -39,7 +28,6 @@ import {
   syncMonitorInstance,
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
-import { useNavigate } from 'react-router-dom';
 
 // ===================== Types =====================
 
@@ -55,11 +43,6 @@ interface InstanceForm {
   remark: string;
 }
 
-interface DetailData {
-  instance: MonitorInstance;
-  nodes: MonitorNodeSnapshot[];
-}
-
 const defaultForm: InstanceForm = {
   name: '', type: 'komari', baseUrl: '', apiKey: '',
   syncEnabled: 1, syncIntervalMinutes: 5, allowInsecureTls: 0, remark: '',
@@ -67,47 +50,9 @@ const defaultForm: InstanceForm = {
 
 // ===================== Helpers =====================
 
-function formatBytes(bytes?: number | null): string {
-  if (bytes == null || bytes === 0) return '-';
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-}
-
-function formatSpeed(bytesPerSec?: number | null): string {
-  if (bytesPerSec == null || bytesPerSec === 0) return '-';
-  const bits = bytesPerSec * 8;
-  if (bits < 1000) return bits.toFixed(0) + ' bps';
-  if (bits < 1_000_000) return (bits / 1000).toFixed(1) + ' Kbps';
-  if (bits < 1_000_000_000) return (bits / 1_000_000).toFixed(1) + ' Mbps';
-  return (bits / 1_000_000_000).toFixed(2) + ' Gbps';
-}
-
-function formatUptime(seconds?: number | null): string {
-  if (seconds == null || seconds === 0) return '-';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d} 天 ${h} 时`;
-  const m = Math.floor((seconds % 3600) / 60);
-  return h > 0 ? `${h} 时 ${m} 分` : `${m} 分`;
-}
-
 function formatTime(ts?: number | null): string {
   if (!ts) return '-';
   return new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
-
-function cpuColor(usage?: number | null): "success" | "warning" | "danger" | "default" {
-  if (usage == null) return "default";
-  if (usage < 50) return "success";
-  if (usage < 80) return "warning";
-  return "danger";
-}
-
-function memPercent(used?: number | null, total?: number | null): number | null {
-  if (used == null || total == null || total === 0) return null;
-  return (used / total) * 100;
 }
 
 const SYNC_STATUS_MAP: Record<string, { label: string; color: "success" | "danger" | "default" }> = {
@@ -119,14 +64,10 @@ const SYNC_STATUS_MAP: Record<string, { label: string; color: "success" | "dange
 // ===================== Component =====================
 
 export default function ProbePage() {
-  const navigate = useNavigate();
   const admin = isAdmin();
 
   const [instances, setInstances] = useState<MonitorInstance[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -135,12 +76,6 @@ export default function ProbePage() {
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const [deleteTarget, setDeleteTarget] = useState<MonitorInstance | null>(null);
-
-  const { isOpen: isNodeDetailOpen, onOpen: onNodeDetailOpen, onClose: onNodeDetailClose } = useDisclosure();
-  const [selectedNode, setSelectedNode] = useState<MonitorNodeSnapshot | null>(null);
-  const openNodeDetail = (node: MonitorNodeSnapshot) => { setSelectedNode(node); onNodeDetailOpen(); };
-
-  const [search, setSearch] = useState('');
 
   // ===================== Data Loading =====================
 
@@ -152,21 +87,7 @@ export default function ProbePage() {
     } catch { /* ignore */ } finally { setLoading(false); }
   };
 
-  const loadDetail = async (id: number) => {
-    setDetailLoading(true);
-    try {
-      const res = await getMonitorDetail(id);
-      if (res.code === 0) setDetail(res.data as DetailData);
-    } catch { /* ignore */ } finally { setDetailLoading(false); }
-  };
-
   useEffect(() => { loadInstances(); }, []);
-  useEffect(() => { selectedId != null ? loadDetail(selectedId) : setDetail(null); }, [selectedId]);
-  useEffect(() => {
-    if (selectedId == null) return;
-    const timer = setInterval(() => loadDetail(selectedId), 30_000);
-    return () => clearInterval(timer);
-  }, [selectedId]);
 
   // ===================== Actions =====================
 
@@ -176,7 +97,6 @@ export default function ProbePage() {
       const res = await testMonitorInstance(id);
       res.code === 0 ? toast.success('连接成功') : toast.error(res.msg || '连接失败');
       loadInstances();
-      if (selectedId === id) loadDetail(id);
     } catch { toast.error('连接失败'); } finally { setActionLoading(null); }
   };
 
@@ -201,7 +121,6 @@ export default function ProbePage() {
         toast.error(res.msg || '同步失败');
       }
       loadInstances();
-      if (selectedId === id) loadDetail(id);
     } catch { toast.error('同步失败'); } finally { setActionLoading(null); }
   };
 
@@ -218,7 +137,6 @@ export default function ProbePage() {
         toast.success(isEdit ? '已更新' : '已创建');
         onClose();
         loadInstances();
-        if (isEdit && selectedId === form.id) loadDetail(form.id!);
       } else {
         toast.error(res.msg || '保存失败');
       }
@@ -233,7 +151,6 @@ export default function ProbePage() {
       if (res.code === 0) {
         toast.success('已删除');
         onDeleteClose();
-        if (selectedId === deleteTarget.id) { setSelectedId(null); setDetail(null); }
         loadInstances();
       } else { toast.error(res.msg || '删除失败'); }
     } catch { toast.error('删除失败'); } finally { setActionLoading(null); }
@@ -252,12 +169,6 @@ export default function ProbePage() {
 
   // ===================== Computed =====================
 
-  const filteredInstances = useMemo(() => {
-    if (!search.trim()) return instances;
-    const q = search.toLowerCase();
-    return instances.filter(i => (i.name || '').toLowerCase().includes(q) || (i.baseUrl || '').toLowerCase().includes(q));
-  }, [instances, search]);
-
   const summary = useMemo(() => ({
     total: instances.length,
     totalNodes: instances.reduce((s, i) => s + (i.nodeCount || 0), 0),
@@ -269,290 +180,120 @@ export default function ProbePage() {
   // ===================== Render =====================
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto px-3 md:px-6 py-4 md:py-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">探针管理</h1>
-          <p className="text-sm text-default-500 mt-0.5">
-            连接 Komari / Pika 探针服务器，自动同步节点状态和实时指标。添加探针后系统会定期拉取数据，无需手动维护。
-          </p>
+    <div className="space-y-5">
+      {/* Header with summary */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Chip size="sm" variant="flat" color="primary">{summary.total} 个实例</Chip>
+          <Chip size="sm" variant="flat" color="success">{summary.onlineNodes}/{summary.totalNodes} 节点在线</Chip>
+          {summary.syncFail > 0 && <Chip size="sm" variant="flat" color="danger">{summary.syncFail} 同步异常</Chip>}
         </div>
-        {admin && (
-          <Button color="primary" size="sm" onPress={openCreateModal}>添加探针</Button>
-        )}
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-5">
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">探针实例</p>
-          <p className="text-xl font-bold">{summary.total}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">节点总数</p>
-          <p className="text-xl font-bold">{summary.totalNodes}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">在线节点</p>
-          <p className="text-xl font-bold text-success">{summary.onlineNodes}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">同步正常</p>
-          <p className="text-xl font-bold text-success">{summary.syncOk}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">同步异常</p>
-          <p className="text-xl font-bold text-danger">{summary.syncFail}</p>
-        </CardBody></Card>
-      </div>
-
-      {/* Two-panel layout */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Left: Instance list */}
-        <div className="w-full lg:w-[340px] xl:w-[380px] flex-shrink-0 space-y-3">
-          <Input size="sm" placeholder="搜索探针..." value={search} onValueChange={setSearch} isClearable onClear={() => setSearch('')} />
-
-          {loading ? (
-            <div className="flex justify-center py-8"><Spinner size="lg" /></div>
-          ) : filteredInstances.length === 0 ? (
-            <Card shadow="sm"><CardBody className="py-8 text-center text-default-400">
-              {instances.length === 0 ? '暂无探针实例，点击「添加探针」开始接入' : '没有匹配的结果'}
-            </CardBody></Card>
-          ) : (
-            filteredInstances.map(inst => {
-              const syncInfo = SYNC_STATUS_MAP[inst.lastSyncStatus || 'never'] || SYNC_STATUS_MAP.never;
-              return (
-                <Card key={inst.id} shadow="sm" isPressable onPress={() => setSelectedId(inst.id)}
-                  className={`transition-all ${selectedId === inst.id ? 'ring-2 ring-primary' : 'hover:shadow-md'}`}>
-                  <CardBody className="p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 bg-${syncInfo.color}`} />
-                        <span className="font-semibold text-sm truncate">{inst.name}</span>
-                      </div>
-                      <Chip size="sm" variant="flat" color="secondary">{(inst.type || 'komari').toUpperCase()}</Chip>
-                    </div>
-                    <p className="text-xs text-default-400 truncate">{inst.baseUrl}</p>
-                    <div className="flex items-center gap-3 text-xs">
-                      <span className="text-default-500">
-                        节点: <span className="font-medium text-foreground">{inst.onlineNodeCount || 0}</span>
-                        <span className="text-default-300">/{inst.nodeCount || 0}</span>
-                      </span>
-                      {inst.syncEnabled === 1 && <Chip size="sm" variant="dot" color="success">自动</Chip>}
-                      {inst.lastSyncAt && <span className="text-default-400 ml-auto">{formatTime(inst.lastSyncAt)}</span>}
-                    </div>
-                    {admin && (
-                      <div className="flex gap-1.5 pt-1">
-                        <Button size="sm" variant="flat" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
-                        <Button size="sm" variant="flat" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>
-                        <Button size="sm" variant="flat" onPress={() => openEditModal(inst)}>编辑</Button>
-                        <Button size="sm" variant="flat" color="danger" onPress={() => confirmDelete(inst)}>删除</Button>
-                      </div>
-                    )}
-                  </CardBody>
-                </Card>
-              );
-            })
+        <div className="flex items-center gap-2">
+          <Button as={Link} to="/server-dashboard" size="sm" variant="flat" color="secondary" startContent={
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          }>
+            服务器看板
+          </Button>
+          {admin && (
+            <Button color="primary" size="sm" onPress={openCreateModal} startContent={
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            }>
+              添加探针
+            </Button>
           )}
         </div>
-
-        {/* Right: Detail panel */}
-        <div className="flex-1 min-w-0">
-          {selectedId == null ? (
-            <Card shadow="sm" className="h-full min-h-[400px]">
-              <CardBody className="flex items-center justify-center text-default-400">
-                选择一个探针实例查看其节点和监控数据
-              </CardBody>
-            </Card>
-          ) : detailLoading && !detail ? (
-            <Card shadow="sm" className="h-full min-h-[400px]">
-              <CardBody className="flex items-center justify-center"><Spinner size="lg" /></CardBody>
-            </Card>
-          ) : detail ? (
-            <div className="space-y-4">
-              {/* Instance overview */}
-              <Card shadow="sm">
-                <CardHeader className="pb-1 px-4 pt-3 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold">{detail.instance.name}</h2>
-                    <p className="text-xs text-default-400">{(detail.instance as any).baseUrl || ''}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {(() => { const s = SYNC_STATUS_MAP[detail.instance.lastSyncStatus || 'never'] || SYNC_STATUS_MAP.never; return <Chip size="sm" color={s.color} variant="flat">{s.label}</Chip>; })()}
-                    {detail.instance.lastSyncAt && <span className="text-xs text-default-400">上次同步: {formatTime(detail.instance.lastSyncAt)}</span>}
-                  </div>
-                </CardHeader>
-                <CardBody className="px-4 pb-3 pt-2">
-                  {detail.instance.lastSyncError && (
-                    <div className="bg-danger-50 dark:bg-danger-50/10 text-danger text-xs p-2 rounded-lg mb-3">{detail.instance.lastSyncError}</div>
-                  )}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div><p className="text-xs text-default-400">类型</p><p className="font-medium">{(detail.instance.type || 'komari').toUpperCase()}</p></div>
-                    <div><p className="text-xs text-default-400">节点</p><p className="font-medium">{detail.instance.onlineNodeCount || 0} / {detail.instance.nodeCount || 0}</p></div>
-                    <div><p className="text-xs text-default-400">自动同步</p><p className="font-medium">{detail.instance.syncEnabled === 1 ? `每 ${detail.instance.syncIntervalMinutes || 5} 分钟` : '已禁用'}</p></div>
-                    <div><p className="text-xs text-default-400">TLS</p><p className="font-medium">{detail.instance.allowInsecureTls === 1 ? '跳过验证' : '验证证书'}</p></div>
-                  </div>
-                </CardBody>
-              </Card>
-
-              {/* Node list */}
-              <Card shadow="sm">
-                <CardHeader className="px-4 pt-3 pb-1 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">监控节点 ({detail.nodes?.length || 0})</h2>
-                  <Button size="sm" variant="flat" color="success" isLoading={actionLoading === 'sync-' + selectedId} onPress={() => handleSync(selectedId!)}>立即同步</Button>
-                </CardHeader>
-                <CardBody className="px-4 pb-4 pt-2">
-                  {!detail.nodes || detail.nodes.length === 0 ? (
-                    <p className="text-default-400 text-sm py-4 text-center">暂无节点数据，点击「立即同步」或等待自动同步</p>
-                  ) : (
-                    <>
-                      {/* Desktop table */}
-                      <div className="hidden md:block overflow-x-auto -mx-4 px-4">
-                        <Table aria-label="节点列表" removeWrapper isCompact>
-                          <TableHeader>
-                            <TableColumn>状态</TableColumn>
-                            <TableColumn>名称</TableColumn>
-                            <TableColumn>IP</TableColumn>
-                            <TableColumn>CPU</TableColumn>
-                            <TableColumn>内存</TableColumn>
-                            <TableColumn>磁盘</TableColumn>
-                            <TableColumn>网络</TableColumn>
-                            <TableColumn>运行</TableColumn>
-                            <TableColumn>关联资产</TableColumn>
-                          </TableHeader>
-                          <TableBody>
-                            {detail.nodes.map(node => {
-                              const m = node.latestMetric;
-                              const mp = memPercent(m?.memUsed, m?.memTotal);
-                              const dp = memPercent(m?.diskUsed, m?.diskTotal);
-                              return (
-                                <TableRow key={node.id} className="cursor-pointer hover:bg-default-100" onClick={() => openNodeDetail(node)}>
-                                  <TableCell>
-                                    <Chip size="sm" color={node.online === 1 ? 'success' : 'default'} variant="dot">
-                                      {node.online === 1 ? '在线' : '离线'}
-                                    </Chip>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div>
-                                      <p className="font-medium text-sm">{node.name || node.remoteNodeUuid?.slice(0, 8)}</p>
-                                      {node.os && <p className="text-xs text-default-400">{node.os}</p>}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell><p className="text-xs font-mono">{node.ip || '-'}</p></TableCell>
-                                  <TableCell>
-                                    {m?.cpuUsage != null ? (
-                                      <div className="w-20">
-                                        <p className="text-xs font-medium mb-0.5">{m.cpuUsage.toFixed(1)}%</p>
-                                        <Progress size="sm" value={m.cpuUsage} color={cpuColor(m.cpuUsage)} aria-label="CPU" />
-                                      </div>
-                                    ) : <span className="text-default-300">-</span>}
-                                  </TableCell>
-                                  <TableCell>
-                                    {mp != null ? (
-                                      <div className="w-20">
-                                        <p className="text-xs font-medium mb-0.5">{mp.toFixed(0)}%</p>
-                                        <Progress size="sm" value={mp} color={cpuColor(mp)} aria-label="MEM" />
-                                      </div>
-                                    ) : <span className="text-default-300">-</span>}
-                                  </TableCell>
-                                  <TableCell>
-                                    {dp != null ? (
-                                      <Tooltip content={`${formatBytes(m?.diskUsed)} / ${formatBytes(m?.diskTotal)}`}>
-                                        <div className="w-20">
-                                          <p className="text-xs font-medium mb-0.5">{dp.toFixed(0)}%</p>
-                                          <Progress size="sm" value={dp} color={cpuColor(dp)} aria-label="Disk" />
-                                        </div>
-                                      </Tooltip>
-                                    ) : <span className="text-default-300">-</span>}
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="text-xs">
-                                      <p>上行: {formatSpeed(m?.netIn)}</p>
-                                      <p>下行: {formatSpeed(m?.netOut)}</p>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell><span className="text-xs">{formatUptime(m?.uptime)}</span></TableCell>
-                                  <TableCell>
-                                    {node.assetName ? (
-                                      <Chip size="sm" variant="flat" color="primary" className="cursor-pointer" onClick={() => navigate('/assets')}>{node.assetName}</Chip>
-                                    ) : (
-                                      <span className="text-xs text-default-300">未绑定</span>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-
-                      {/* Mobile cards */}
-                      <div className="md:hidden space-y-3">
-                        {detail.nodes.map(node => {
-                          const m = node.latestMetric;
-                          const mp = memPercent(m?.memUsed, m?.memTotal);
-                          return (
-                            <Card key={node.id} shadow="none" className="border border-default-200 cursor-pointer" isPressable onPress={() => openNodeDetail(node)}>
-                              <CardBody className="p-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${node.online === 1 ? 'bg-success' : 'bg-default-300'}`} />
-                                    <span className="font-medium text-sm">{node.name || node.remoteNodeUuid?.slice(0, 8)}</span>
-                                  </div>
-                                  {node.assetName ? (
-                                    <Chip size="sm" variant="flat" color="primary">{node.assetName}</Chip>
-                                  ) : (
-                                    <span className="text-xs text-default-300">未绑定</span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-default-400">
-                                  <span className="font-mono">{node.ip || '-'}</span>
-                                  {node.os && <><span>|</span><span>{node.os}</span></>}
-                                </div>
-                                {node.online === 1 && m && (
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div>
-                                      <p className="text-[10px] text-default-400">CPU</p>
-                                      <p className="text-sm font-semibold">{m.cpuUsage?.toFixed(1) || '-'}%</p>
-                                      {m.cpuUsage != null && <Progress size="sm" value={m.cpuUsage} color={cpuColor(m.cpuUsage)} className="mt-0.5" aria-label="CPU" />}
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">内存</p>
-                                      <p className="text-sm font-semibold">{mp != null ? mp.toFixed(0) + '%' : '-'}</p>
-                                      {mp != null && <Progress size="sm" value={mp} color={cpuColor(mp)} className="mt-0.5" aria-label="MEM" />}
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">运行时间</p>
-                                      <p className="text-sm font-semibold">{formatUptime(m.uptime)}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">上行</p>
-                                      <p className="text-xs font-medium">{formatSpeed(m.netIn)}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">下行</p>
-                                      <p className="text-xs font-medium">{formatSpeed(m.netOut)}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">连接数</p>
-                                      <p className="text-xs font-medium">{m.connections ?? '-'}</p>
-                                    </div>
-                                  </div>
-                                )}
-                              </CardBody>
-                            </Card>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </CardBody>
-              </Card>
-            </div>
-          ) : null}
-        </div>
       </div>
+
+      {/* Instance cards grid */}
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+      ) : instances.length === 0 ? (
+        <Card shadow="sm">
+          <CardBody className="py-12 text-center">
+            <div className="text-default-300 mb-3">
+              <svg className="h-12 w-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6l4 2" />
+              </svg>
+            </div>
+            <p className="text-default-500 text-sm">暂无探针实例</p>
+            <p className="text-default-400 text-xs mt-1">添加 Komari 或 Pika 探针服务器，自动同步服务器节点和监控数据</p>
+            {admin && (
+              <Button color="primary" size="sm" className="mt-4" onPress={openCreateModal}>添加第一个探针</Button>
+            )}
+          </CardBody>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {instances.map(inst => {
+            const syncInfo = SYNC_STATUS_MAP[inst.lastSyncStatus || 'never'] || SYNC_STATUS_MAP.never;
+            return (
+              <Card key={inst.id} shadow="sm" className="transition-shadow hover:shadow-md">
+                <CardBody className="p-4 space-y-3">
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-base truncate">{inst.name}</span>
+                        <Chip size="sm" variant="flat" color="secondary">{(inst.type || 'komari').toUpperCase()}</Chip>
+                      </div>
+                      <p className="text-xs text-default-400 mt-0.5 truncate font-mono">{inst.baseUrl}</p>
+                    </div>
+                    <Chip size="sm" variant="flat" color={syncInfo.color}>{syncInfo.label}</Chip>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-default-400 uppercase tracking-wide">节点</p>
+                      <p className="text-lg font-bold mt-0.5">
+                        <span className="text-success">{inst.onlineNodeCount || 0}</span>
+                        <span className="text-default-300 text-sm font-normal">/{inst.nodeCount || 0}</span>
+                      </p>
+                    </div>
+                    <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-default-400 uppercase tracking-wide">同步间隔</p>
+                      <p className="text-lg font-bold mt-0.5">
+                        {inst.syncEnabled === 1 ? `${inst.syncIntervalMinutes || 5}m` : <span className="text-default-300 text-sm">禁用</span>}
+                      </p>
+                    </div>
+                    <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-default-400 uppercase tracking-wide">上次同步</p>
+                      <p className="text-xs font-medium mt-1.5">{formatTime(inst.lastSyncAt)}</p>
+                    </div>
+                  </div>
+
+                  {/* Error message if any */}
+                  {inst.lastSyncError && (
+                    <div className="bg-danger-50 dark:bg-danger-50/10 text-danger text-xs p-2 rounded-lg truncate">
+                      {inst.lastSyncError}
+                    </div>
+                  )}
+
+                  {/* Remark */}
+                  {inst.remark && (
+                    <p className="text-xs text-default-400 truncate">{inst.remark}</p>
+                  )}
+
+                  {/* Actions */}
+                  {admin && (
+                    <div className="flex gap-1.5 pt-1 border-t border-divider">
+                      <Button size="sm" variant="light" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
+                      <Button size="sm" variant="light" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>
+                      <Button size="sm" variant="light" onPress={() => openEditModal(inst)}>编辑</Button>
+                      <Button size="sm" variant="light" color="danger" className="ml-auto" onPress={() => confirmDelete(inst)}>删除</Button>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside">
@@ -606,179 +347,6 @@ export default function ProbePage() {
             <Button variant="flat" onPress={onDeleteClose}>取消</Button>
             <Button color="danger" isLoading={actionLoading === 'delete'} onPress={handleDelete}>删除</Button>
           </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Node Detail Modal */}
-      <Modal isOpen={isNodeDetailOpen} onClose={onNodeDetailClose} size="2xl" scrollBehavior="inside">
-        <ModalContent>
-          {selectedNode && (() => {
-            const m = selectedNode.latestMetric;
-            const mp = memPercent(m?.memUsed, m?.memTotal);
-            const sp = memPercent(m?.swapUsed, m?.swapTotal);
-            const dp = memPercent(m?.diskUsed, m?.diskTotal);
-            return (
-              <>
-                <ModalHeader className="flex items-center gap-3">
-                  <span className={`inline-block h-3 w-3 rounded-full ${selectedNode.online === 1 ? 'bg-success' : 'bg-default-300'}`} />
-                  <div>
-                    <p>{selectedNode.name || selectedNode.remoteNodeUuid?.slice(0, 8)}</p>
-                    <p className="text-xs font-normal text-default-400">{selectedNode.online === 1 ? '在线' : '离线'} · {selectedNode.ip || '-'}</p>
-                  </div>
-                </ModalHeader>
-                <ModalBody className="space-y-4 pb-6">
-                  {/* System Info */}
-                  <div>
-                    <p className="text-xs text-default-500 font-medium mb-2">系统信息</p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                      <div><p className="text-xs text-default-400">操作系统</p><p className="font-medium">{selectedNode.os || '-'}</p></div>
-                      <div><p className="text-xs text-default-400">内核</p><p className="font-medium text-xs">{selectedNode.kernelVersion || '-'}</p></div>
-                      <div><p className="text-xs text-default-400">架构</p><p className="font-medium">{selectedNode.arch || '-'}</p></div>
-                      <div><p className="text-xs text-default-400">虚拟化</p><p className="font-medium">{selectedNode.virtualization || '-'}</p></div>
-                      <div><p className="text-xs text-default-400">Agent版本</p><p className="font-medium">{selectedNode.version || '-'}</p></div>
-                      <div><p className="text-xs text-default-400">区域</p><p className="font-medium">{selectedNode.region || '-'}</p></div>
-                    </div>
-                  </div>
-
-                  <Divider />
-
-                  {/* Hardware */}
-                  <div>
-                    <p className="text-xs text-default-500 font-medium mb-2">硬件信息</p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                      <div className="col-span-2 md:col-span-3"><p className="text-xs text-default-400">CPU</p><p className="font-medium">{selectedNode.cpuName || '-'} ({selectedNode.cpuCores || '-'} 核)</p></div>
-                      {selectedNode.gpuName && <div className="col-span-2 md:col-span-3"><p className="text-xs text-default-400">GPU</p><p className="font-medium">{selectedNode.gpuName}</p></div>}
-                      <div><p className="text-xs text-default-400">内存</p><p className="font-medium">{formatBytes(selectedNode.memTotal)}</p></div>
-                      <div><p className="text-xs text-default-400">Swap</p><p className="font-medium">{formatBytes(selectedNode.swapTotal)}</p></div>
-                      <div><p className="text-xs text-default-400">磁盘</p><p className="font-medium">{formatBytes(selectedNode.diskTotal)}</p></div>
-                    </div>
-                  </div>
-
-                  {/* Network */}
-                  <div>
-                    <p className="text-xs text-default-500 font-medium mb-2">网络</p>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div><p className="text-xs text-default-400">IPv4</p><p className="font-medium font-mono text-xs">{selectedNode.ip || '-'}</p></div>
-                      <div><p className="text-xs text-default-400">IPv6</p><p className="font-medium font-mono text-xs truncate">{selectedNode.ipv6 || '-'}</p></div>
-                    </div>
-                  </div>
-
-                  {selectedNode.online === 1 && m && (
-                    <>
-                      <Divider />
-                      {/* Real-time Metrics */}
-                      <div>
-                        <p className="text-xs text-default-500 font-medium mb-3">实时指标</p>
-                        <div className="space-y-3">
-                          {/* CPU */}
-                          <div>
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="text-default-500">CPU</span>
-                              <span className="font-semibold">{m.cpuUsage?.toFixed(1) || '-'}%</span>
-                            </div>
-                            {m.cpuUsage != null && <Progress value={m.cpuUsage} color={cpuColor(m.cpuUsage)} size="sm" aria-label="CPU" />}
-                          </div>
-                          {/* Memory */}
-                          <div>
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="text-default-500">内存</span>
-                              <span className="font-semibold">{mp != null ? mp.toFixed(1) + '%' : '-'} <span className="text-xs text-default-400 font-normal">{formatBytes(m.memUsed)} / {formatBytes(m.memTotal)}</span></span>
-                            </div>
-                            {mp != null && <Progress value={mp} color={cpuColor(mp)} size="sm" aria-label="MEM" />}
-                          </div>
-                          {/* Swap */}
-                          {(m.swapTotal ?? 0) > 0 && (
-                            <div>
-                              <div className="flex justify-between text-sm mb-1">
-                                <span className="text-default-500">Swap</span>
-                                <span className="font-semibold">{sp != null ? sp.toFixed(1) + '%' : '-'} <span className="text-xs text-default-400 font-normal">{formatBytes(m.swapUsed)} / {formatBytes(m.swapTotal)}</span></span>
-                              </div>
-                              {sp != null && <Progress value={sp} color={cpuColor(sp)} size="sm" aria-label="Swap" />}
-                            </div>
-                          )}
-                          {/* Disk */}
-                          <div>
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="text-default-500">磁盘</span>
-                              <span className="font-semibold">{dp != null ? dp.toFixed(1) + '%' : '-'} <span className="text-xs text-default-400 font-normal">{formatBytes(m.diskUsed)} / {formatBytes(m.diskTotal)}</span></span>
-                            </div>
-                            {dp != null && <Progress value={dp} color={cpuColor(dp)} size="sm" aria-label="Disk" />}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Detailed metrics grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">上行速率</p>
-                          <p className="text-sm font-semibold mt-1">{formatSpeed(m.netOut)}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">下行速率</p>
-                          <p className="text-sm font-semibold mt-1">{formatSpeed(m.netIn)}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">累计上行</p>
-                          <p className="text-sm font-semibold mt-1">{formatBytes(m.netTotalUp)}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">累计下行</p>
-                          <p className="text-sm font-semibold mt-1">{formatBytes(m.netTotalDown)}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">负载 1/5/15</p>
-                          <p className="text-sm font-semibold mt-1">{m.load1?.toFixed(2) ?? '-'} / {m.load5?.toFixed(2) ?? '-'} / {m.load15?.toFixed(2) ?? '-'}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">运行时间</p>
-                          <p className="text-sm font-semibold mt-1">{formatUptime(m.uptime)}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">TCP / UDP</p>
-                          <p className="text-sm font-semibold mt-1">{m.connections ?? '-'} / {m.connectionsUdp ?? '-'}</p>
-                        </div>
-                        <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                          <p className="text-[10px] text-default-400 uppercase">进程数</p>
-                          <p className="text-sm font-semibold mt-1">{m.processCount ?? '-'}</p>
-                        </div>
-                        {m.gpuUsage != null && m.gpuUsage > 0 && (
-                          <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                            <p className="text-[10px] text-default-400 uppercase">GPU</p>
-                            <p className="text-sm font-semibold mt-1">{m.gpuUsage.toFixed(1)}%</p>
-                          </div>
-                        )}
-                        {m.temperature != null && m.temperature > 0 && (
-                          <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-3">
-                            <p className="text-[10px] text-default-400 uppercase">温度</p>
-                            <p className="text-sm font-semibold mt-1">{m.temperature.toFixed(1)}°C</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {m.sampledAt && (
-                        <p className="text-xs text-default-400 text-right">数据采样: {formatTime(m.sampledAt)}</p>
-                      )}
-                    </>
-                  )}
-
-                  {/* Billing info if available */}
-                  {(selectedNode.price != null || selectedNode.expiredAt != null || selectedNode.trafficLimit != null) && (
-                    <>
-                      <Divider />
-                      <div>
-                        <p className="text-xs text-default-500 font-medium mb-2">计费信息</p>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                          {selectedNode.price != null && <div><p className="text-xs text-default-400">价格</p><p className="font-medium">{selectedNode.price} {selectedNode.currency || ''}</p></div>}
-                          {selectedNode.expiredAt != null && <div><p className="text-xs text-default-400">到期</p><p className="font-medium">{formatTime(selectedNode.expiredAt)}</p></div>}
-                          {selectedNode.trafficLimit != null && <div><p className="text-xs text-default-400">流量限制</p><p className="font-medium">{formatBytes(selectedNode.trafficLimit)}</p></div>}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </ModalBody>
-              </>
-            );
-          })()}
         </ModalContent>
       </Modal>
     </div>

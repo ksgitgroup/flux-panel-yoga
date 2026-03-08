@@ -383,6 +383,9 @@ export default function AssetsPage() {
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
+  const [filterRegion, setFilterRegion] = useState<string>('');
+  const [filterOs, setFilterOs] = useState<string>('');
+  const [filterProvider, setFilterProvider] = useState<string>('');
 
   // XUI inline binding form
   const [xuiBindOpen, setXuiBindOpen] = useState(false);
@@ -461,6 +464,24 @@ export default function AssetsPage() {
     return counts;
   }, [assets]);
 
+  const regionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => { const r = a.region || ''; counts[r] = (counts[r] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [assets]);
+
+  const osCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => { const o = a.osCategory || ''; counts[o] = (counts[o] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [assets]);
+
+  const providerCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    assets.forEach(a => { const p = a.provider || ''; counts[p] = (counts[p] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [assets]);
+
   const filteredAssets = useMemo(() => {
     let list = assets;
     if (filterRole) {
@@ -468,6 +489,15 @@ export default function AssetsPage() {
     }
     if (filterProbe) {
       list = list.filter(a => (a.probeSource || 'local') === filterProbe || (filterProbe === 'dual' && a.probeSource === 'dual'));
+    }
+    if (filterRegion) {
+      list = list.filter(a => filterRegion === '_empty' ? !a.region : a.region === filterRegion);
+    }
+    if (filterOs) {
+      list = list.filter(a => filterOs === '_empty' ? !a.osCategory : a.osCategory === filterOs);
+    }
+    if (filterProvider) {
+      list = list.filter(a => filterProvider === '_empty' ? !a.provider : a.provider === filterProvider);
     }
     if (filterTag) {
       list = list.filter(a => {
@@ -482,12 +512,12 @@ export default function AssetsPage() {
     const kw = normalizeKeyword(searchKeyword);
     if (kw) {
       list = list.filter((item) =>
-        [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark, item.tags, item.probeTags]
+        [item.name, item.label, item.primaryIp, item.ipv6, item.environment, item.provider, item.region, item.role, item.os, item.osCategory, item.remark, item.tags, item.probeTags, item.cpuName, item.arch, item.virtualization, item.panelUrl, item.monthlyCost]
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
     return list;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -935,7 +965,7 @@ export default function AssetsPage() {
           size="sm"
           value={searchKeyword}
           onValueChange={setSearchKeyword}
-          placeholder="搜索名称、IP、供应商、地区..."
+          placeholder="搜索名称、IP、OS、供应商、地区、备注..."
           isClearable
           onClear={() => setSearchKeyword('')}
         />
@@ -976,10 +1006,90 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* Tag filter bar - Pika style */}
+      {/* Region / OS / Provider quick filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Region filter */}
+        {regionCounts.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">地区:</span>
+            <button onClick={() => setFilterRegion('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterRegion ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {regionCounts.filter(([r]) => r).map(([region, count]) => {
+              const flag = REGIONS.find(r => r.key === region)?.flag || '';
+              return (
+                <button key={region} onClick={() => setFilterRegion(filterRegion === region ? '' : region)}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                    filterRegion === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                  }`}>{flag}{region} ({count})</button>
+              );
+            })}
+            {regionCounts.some(([r]) => !r) && (
+              <button onClick={() => setFilterRegion(filterRegion === '_empty' ? '' : '_empty')}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                  filterRegion === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>未设置 ({regionCounts.find(([r]) => !r)?.[1]})</button>
+            )}
+          </div>
+        )}
+        {/* OS filter */}
+        {osCounts.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">系统:</span>
+            <button onClick={() => setFilterOs('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterOs ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {osCounts.filter(([o]) => o).map(([os, count]) => (
+              <button key={os} onClick={() => setFilterOs(filterOs === os ? '' : os)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterOs === os ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>{os} ({count})</button>
+            ))}
+            {osCounts.some(([o]) => !o) && (
+              <button onClick={() => setFilterOs(filterOs === '_empty' ? '' : '_empty')}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterOs === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>未知 ({osCounts.find(([o]) => !o)?.[1]})</button>
+            )}
+          </div>
+        )}
+        {/* Provider filter */}
+        {providerCounts.filter(([p]) => p).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">厂商:</span>
+            <button onClick={() => setFilterProvider('')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                !filterProvider ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+              }`}>全部</button>
+            {providerCounts.filter(([p]) => p).map(([provider, count]) => (
+              <button key={provider} onClick={() => setFilterProvider(filterProvider === provider ? '' : provider)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterProvider === provider ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>{provider} ({count})</button>
+            ))}
+            {providerCounts.some(([p]) => !p) && (
+              <button onClick={() => setFilterProvider(filterProvider === '_empty' ? '' : '_empty')}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterProvider === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>未设置 ({providerCounts.find(([p]) => !p)?.[1]})</button>
+            )}
+          </div>
+        )}
+        {/* Active filter count indicator + clear all */}
+        {(filterRegion || filterOs || filterProvider || filterTag || filterRole || filterProbe) && (
+          <button onClick={() => { setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterTag(''); setFilterRole(null); setFilterProbe(''); }}
+            className="rounded-full px-2.5 py-0.5 text-[10px] font-bold text-danger border border-danger/30 hover:bg-danger-50 transition-all cursor-pointer ml-auto">
+            清除所有筛选
+          </button>
+        )}
+      </div>
+
+      {/* Tag filter bar */}
       {assetTagCounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">FILTERS:</span>
+          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">标签:</span>
           <button
             onClick={() => setFilterTag('')}
             className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
@@ -1317,71 +1427,7 @@ export default function AssetsPage() {
               <ModalBody className="space-y-4">
                 {detailLoading && <div className="flex justify-center py-4"><Spinner /></div>}
 
-                {/* Info Cards Grid */}
-                <div className="grid gap-3 md:grid-cols-3">
-                  {/* Server Info */}
-                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器</p>
-                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Komari</Chip>}
-                      {selectedAsset.pikaNodeId && <Chip size="sm" variant="flat" color="warning" classNames={{content: "text-[10px]"}}>Pika</Chip>}
-                    </div>
-                    <div className="space-y-1 text-xs">
-                      <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono">{selectedAsset.os || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedAsset.cpuCores || '?'} 核{selectedAsset.cpuName ? ` (${selectedAsset.cpuName})` : ''}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb} MB` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb} GB` : '-'}</span></p>
-                      {selectedAsset.swapTotalMb && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{selectedAsset.swapTotalMb} MB</span></p>}
-                      <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}</span></p>
-                      {selectedAsset.arch && <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{selectedAsset.arch}</span></p>}
-                      {selectedAsset.virtualization && <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{selectedAsset.virtualization}</span></p>}
-                      <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
-                    </div>
-                  </div>
-
-                  {/* Provider & Cost */}
-                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">供应商</p>
-                    <div className="space-y-1 text-xs">
-                      <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.currency || ''}${selectedAsset.monthlyCost}/${formatBillingCycle(selectedAsset.billingCycle) || '周期'}` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/月` : '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
-                      <p className="flex justify-between">
-                        <span className="text-default-400">到期</span>
-                        <span className={`font-mono ${selectedAsset.expireDate && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
-                          {formatDateShort(selectedAsset.expireDate)}
-                        </span>
-                      </p>
-                      {(() => {
-                        const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
-                        if (!rv) return null;
-                        return (
-                          <p className="flex justify-between pt-1 border-t border-divider/40">
-                            <span className="text-default-400">剩余价值</span>
-                            <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
-                          </p>
-                        );
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* Integrations */}
-                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">关联模块</p>
-                    <div className="space-y-1 text-xs">
-                      <p className="flex justify-between"><span className="text-default-400">X-UI</span><span className="font-mono">{selectedAsset.totalXuiInstances || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">协议</span><span className="font-mono">{selectedAsset.totalProtocols || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">入站</span><span className="font-mono">{selectedAsset.totalInbounds || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">客户端</span><span className="font-mono">{selectedAsset.totalClients || 0} ({selectedAsset.onlineClients || 0} 在线)</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">转发</span><span className="font-mono">{selectedAsset.totalForwards || 0}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName || '-'}</span></p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Quick Links - XUI / 1Panel / Forwards (first screen for quick access) */}
+                {/* Quick Links - XUI / 1Panel / Forwards (top of modal for quick access) */}
                 {((detail?.xuiInstances && detail.xuiInstances.length > 0) || selectedAsset.panelUrl || (detail?.forwards && detail.forwards.length > 0)) && (
                   <div className="rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-3">
                     <p className="text-[10px] font-bold tracking-widest text-primary-600 dark:text-primary-400 uppercase">快捷入口</p>
@@ -1453,6 +1499,70 @@ export default function AssetsPage() {
                     )}
                   </div>
                 )}
+
+                {/* Info Cards Grid */}
+                <div className="grid gap-3 md:grid-cols-3">
+                  {/* Server Info */}
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器</p>
+                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Komari</Chip>}
+                      {selectedAsset.pikaNodeId && <Chip size="sm" variant="flat" color="warning" classNames={{content: "text-[10px]"}}>Pika</Chip>}
+                    </div>
+                    <div className="space-y-1 text-xs">
+                      <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono">{selectedAsset.os || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedAsset.cpuCores || '?'} 核{selectedAsset.cpuName ? ` (${selectedAsset.cpuName})` : ''}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{selectedAsset.memTotalMb ? `${selectedAsset.memTotalMb} MB` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{selectedAsset.diskTotalGb ? `${selectedAsset.diskTotalGb} GB` : '-'}</span></p>
+                      {selectedAsset.swapTotalMb && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{selectedAsset.swapTotalMb} MB</span></p>}
+                      <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedAsset.bandwidthMbps ? `${selectedAsset.bandwidthMbps} Mbps` : '-'}</span></p>
+                      {selectedAsset.arch && <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{selectedAsset.arch}</span></p>}
+                      {selectedAsset.virtualization && <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{selectedAsset.virtualization}</span></p>}
+                      <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
+                    </div>
+                  </div>
+
+                  {/* Provider & Cost */}
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">供应商</p>
+                    <div className="space-y-1 text-xs">
+                      <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.currency || ''}${selectedAsset.monthlyCost}/${formatBillingCycle(selectedAsset.billingCycle) || '周期'}` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/月` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
+                      <p className="flex justify-between">
+                        <span className="text-default-400">到期</span>
+                        <span className={`font-mono ${selectedAsset.expireDate && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
+                          {formatDateShort(selectedAsset.expireDate)}
+                        </span>
+                      </p>
+                      {(() => {
+                        const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
+                        if (!rv) return null;
+                        return (
+                          <p className="flex justify-between pt-1 border-t border-divider/40">
+                            <span className="text-default-400">剩余价值</span>
+                            <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Integrations */}
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">关联模块</p>
+                    <div className="space-y-1 text-xs">
+                      <p className="flex justify-between"><span className="text-default-400">X-UI</span><span className="font-mono">{selectedAsset.totalXuiInstances || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">协议</span><span className="font-mono">{selectedAsset.totalProtocols || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">入站</span><span className="font-mono">{selectedAsset.totalInbounds || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">客户端</span><span className="font-mono">{selectedAsset.totalClients || 0} ({selectedAsset.onlineClients || 0} 在线)</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">转发</span><span className="font-mono">{selectedAsset.totalForwards || 0}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName || '-'}</span></p>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Protocol Summary */}
                 {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
@@ -2138,9 +2248,12 @@ export default function AssetsPage() {
                         <Input size="sm" label="1Panel 地址" className="flex-1"
                           placeholder={`https://${editingAsset.primaryIp || '1.2.3.4'}:19382`}
                           value={form.panelUrl}
-                          onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))} />
-                        <Button size="sm" color="primary" className="flex-shrink-0"
-                          isDisabled={!form.panelUrl}
+                          onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); }
+                          }} />
+                        <Button size="sm" color="primary" className="flex-shrink-0" type="button"
+                          isDisabled={!form.panelUrl || form.panelUrl.length < 10}
                           onPress={() => { setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
                           确定
                         </Button>

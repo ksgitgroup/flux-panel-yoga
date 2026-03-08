@@ -10,6 +10,11 @@ import com.admin.mapper.MonitorAlertLogMapper;
 import com.admin.mapper.MonitorAlertRuleMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
 import com.admin.mapper.MonitorNodeSnapshotMapper;
+import com.admin.common.utils.WeChatWorkUtil;
+import com.admin.entity.MonitorInstance;
+import com.admin.entity.ViteConfig;
+import com.admin.mapper.MonitorInstanceMapper;
+import com.admin.mapper.ViteConfigMapper;
 import com.admin.service.AlertService;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -43,6 +48,10 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     private MonitorNodeSnapshotMapper nodeSnapshotMapper;
     @Resource
     private MonitorMetricLatestMapper metricLatestMapper;
+    @Resource
+    private MonitorInstanceMapper monitorInstanceMapper;
+    @Resource
+    private ViteConfigMapper viteConfigMapper;
 
     @Override
     public R listRules() {
@@ -150,6 +159,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
 
             // Determine which nodes to check
             List<MonitorNodeSnapshot> targetNodes = filterNodesByScope(allNodes, rule);
+            targetNodes = filterNodesByProbeCondition(targetNodes, rule);
 
             for (MonitorNodeSnapshot node : targetNodes) {
                 boolean triggered = false;
@@ -266,6 +276,63 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         return allNodes;
     }
 
+    private List<MonitorNodeSnapshot> filterNodesByProbeCondition(List<MonitorNodeSnapshot> nodes, MonitorAlertRule rule) {
+        String condition = rule.getProbeCondition();
+        if (condition == null || "any".equals(condition)) {
+            return nodes;
+        }
+
+        // Build instance type map
+        Set<Long> instanceIds = new HashSet<>();
+        for (MonitorNodeSnapshot n : nodes) {
+            if (n.getInstanceId() != null) instanceIds.add(n.getInstanceId());
+        }
+        if (instanceIds.isEmpty()) return nodes;
+
+        Map<Long, String> instanceTypeMap = new HashMap<>();
+        for (MonitorInstance inst : monitorInstanceMapper.selectBatchIds(instanceIds)) {
+            instanceTypeMap.put(inst.getId(), inst.getType());
+        }
+
+        if ("komari".equals(condition)) {
+            List<MonitorNodeSnapshot> result = new ArrayList<>();
+            for (MonitorNodeSnapshot n : nodes) {
+                if ("komari".equals(instanceTypeMap.get(n.getInstanceId()))) result.add(n);
+            }
+            return result;
+        }
+        if ("pika".equals(condition)) {
+            List<MonitorNodeSnapshot> result = new ArrayList<>();
+            for (MonitorNodeSnapshot n : nodes) {
+                if ("pika".equals(instanceTypeMap.get(n.getInstanceId()))) result.add(n);
+            }
+            return result;
+        }
+        if ("both".equals(condition)) {
+            // Only include nodes where the same IP has both komari and pika probes
+            Map<String, Set<String>> ipProbeTypes = new HashMap<>();
+            for (MonitorNodeSnapshot n : nodes) {
+                if (n.getIp() != null) {
+                    ipProbeTypes.computeIfAbsent(n.getIp(), k -> new HashSet<>())
+                            .add(instanceTypeMap.getOrDefault(n.getInstanceId(), ""));
+                }
+            }
+            Set<String> dualIps = new HashSet<>();
+            for (Map.Entry<String, Set<String>> entry : ipProbeTypes.entrySet()) {
+                if (entry.getValue().contains("komari") && entry.getValue().contains("pika")) {
+                    dualIps.add(entry.getKey());
+                }
+            }
+            List<MonitorNodeSnapshot> result = new ArrayList<>();
+            for (MonitorNodeSnapshot n : nodes) {
+                if (dualIps.contains(n.getIp())) result.add(n);
+            }
+            return result;
+        }
+
+        return nodes;
+    }
+
     private double getMetricValue(MonitorMetricLatest metric, String metricName, MonitorNodeSnapshot node) {
         switch (metricName) {
             case "cpu": return metric.getCpuUsage() != null ? metric.getCpuUsage() : 0;
@@ -324,6 +391,10 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     }
 
     private String sendNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {
+        if ("wechat".equals(rule.getNotifyType())) {
+            return sendWeChatNotification(rule, message, node);
+        }
+
         if (!"webhook".equals(rule.getNotifyType()) || !StringUtils.hasText(rule.getNotifyTarget())) {
             return "sent"; // log-only mode
         }
@@ -355,6 +426,39 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             }
         } catch (Exception e) {
             log.warn("[Alert] Webhook failed: {}", e.getMessage());
+            return "failed";
+        }
+    }
+
+    private String sendWeChatNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {
+        try {
+            // Read webhook URL from config
+            ViteConfig config = viteConfigMapper.selectOne(
+                    new LambdaQueryWrapper<ViteConfig>().eq(ViteConfig::getName, "wechat_webhook_url"));
+            String webhookUrl = config != null ? config.getValue() : null;
+            if (!StringUtils.hasText(webhookUrl)) {
+                log.warn("[Alert] 企业微信 Webhook URL 未配置");
+                return "failed";
+            }
+
+            // Build markdown message
+            String markdown = String.format(
+                    "## ⚠️ 告警: %s\n" +
+                    "> **节点**: %s (%s)\n" +
+                    "> **指标**: %s\n" +
+                    "> **详情**: %s\n" +
+                    "> **时间**: %s",
+                    rule.getName(),
+                    node.getName(), node.getIp() != null ? node.getIp() : "-",
+                    rule.getMetric(),
+                    message,
+                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
+            );
+
+            boolean success = WeChatWorkUtil.sendMarkdown(webhookUrl, markdown);
+            return success ? "sent" : "failed";
+        } catch (Exception e) {
+            log.warn("[Alert] 企业微信通知失败: {}", e.getMessage());
             return "failed";
         }
     }

@@ -36,7 +36,9 @@ import {
   createXuiInstance,
   provisionDualAgent,
   provisionMonitorAgent,
-  updateAsset
+  updateAsset,
+  batchUpdateAsset,
+  geolocateIp
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -229,15 +231,15 @@ const buildInstanceAddress = (instance: Pick<XuiInstance, 'baseUrl' | 'webBasePa
 
 /* Compact resource bar - inspired by Pika's design */
 const ResourceBar = ({ label, value, color }: { label: string; value: number; color: string }) => (
-  <div className="flex items-center gap-1.5 h-4 text-xs font-mono">
-    <span className="w-7 text-[10px] font-bold tracking-wider opacity-70 flex-shrink-0">{label}</span>
-    <div className="w-[80px] h-1.5 bg-default-200 dark:bg-default-100 relative overflow-hidden rounded-sm flex-shrink-0">
+  <div className="flex items-center gap-2 h-5 text-xs font-mono">
+    <span className="w-8 text-[11px] font-bold tracking-wider opacity-70 flex-shrink-0">{label}</span>
+    <div className="w-[90px] h-2 bg-default-200 dark:bg-default-100 relative overflow-hidden rounded-sm flex-shrink-0">
       <div
         className={`h-full transition-all duration-500 ease-out rounded-sm ${color}`}
         style={{ width: `${Math.min(value, 100)}%` }}
       />
     </div>
-    <span className={`w-9 text-right text-[11px] font-medium ${
+    <span className={`w-10 text-right text-xs font-medium ${
       value > 90 ? 'text-danger' : value > 75 ? 'text-warning' : 'text-default-600'
     }`}>{value.toFixed(0)}%</span>
   </div>
@@ -291,6 +293,14 @@ export default function AssetsPage() {
   const [panelBindOpen, setPanelBindOpen] = useState(false);
   // Tag input
   const [tagInput, setTagInput] = useState('');
+  // Batch selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchMode, setBatchMode] = useState(false);
+  const { isOpen: isBatchOpen, onOpen: onBatchOpen, onClose: onBatchClose } = useDisclosure();
+  const [batchField, setBatchField] = useState<string>('tags');
+  const [batchValue, setBatchValue] = useState<string>('');
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [geoLoading, setGeoLoading] = useState(false);
 
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
@@ -583,6 +593,74 @@ export default function AssetsPage() {
     finally { setActionLoadingId(null); }
   };
 
+  const toggleSelectId = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredAssets.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAssets.map(a => a.id)));
+    }
+  };
+
+  const openBatchModal = () => {
+    if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
+    setBatchField('tags');
+    setBatchValue('');
+    onBatchOpen();
+  };
+
+  const handleBatchUpdate = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchLoading(true);
+    try {
+      const payload: any = {
+        ids: Array.from(selectedIds),
+        field: batchField,
+        value: batchValue || '',
+      };
+      if (batchField === 'tags') payload.mode = 'merge';
+      const res = await batchUpdateAsset(payload);
+      if (res.code !== 0) { toast.error(res.msg || '操作失败'); return; }
+      toast.success(`已批量更新 ${selectedIds.size} 个资产`);
+      onBatchClose();
+      setSelectedIds(new Set());
+      setBatchMode(false);
+      await loadAssets();
+    } catch { toast.error('操作失败'); }
+    finally { setBatchLoading(false); }
+  };
+
+  const handleGeolocate = async () => {
+    const ip = form.primaryIp.trim();
+    if (!ip) { toast.error('请先填写 IP 地址'); return; }
+    setGeoLoading(true);
+    try {
+      const res = await geolocateIp(ip);
+      if (res.code === 0 && res.data) {
+        const country = res.data.country || '';
+        // Map country name to region key
+        const match = REGIONS.find(r => r.label === country || r.key === country);
+        if (match && match.key) {
+          setForm(p => ({ ...p, region: match.key }));
+          const extra = [res.data.regionName, res.data.city, res.data.isp].filter(Boolean).join(' · ');
+          toast.success(`已识别: ${match.flag} ${match.label}${extra ? ` (${extra})` : ''}`);
+        } else {
+          toast(`国家: ${country}，未匹配预设地区，请手动选择`, { icon: '📍' });
+        }
+      } else {
+        toast.error(res.msg || 'IP 查询失败');
+      }
+    } catch { toast.error('IP 查询失败'); }
+    finally { setGeoLoading(false); }
+  };
+
   const openDetailModal = (assetId: number) => {
     setExpandedAssetId(assetId);
     onDetailOpen();
@@ -617,6 +695,13 @@ export default function AssetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant={batchMode ? 'solid' : 'flat'} size="sm"
+            color={batchMode ? 'warning' : 'default'}
+            onPress={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
+          >
+            {batchMode ? '退出批量' : '批量操作'}
+          </Button>
           <Button color="primary" size="sm" onPress={openProvisionModal}>添加服务器</Button>
           <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
         </div>
@@ -724,6 +809,22 @@ export default function AssetsPage() {
         </div>
       )}
 
+      {/* Batch action bar */}
+      {batchMode && (
+        <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-50/50 dark:bg-warning-50/10 px-4 py-2">
+          <span className="text-sm font-semibold text-warning-700 dark:text-warning-400">
+            已选 {selectedIds.size} / {filteredAssets.length}
+          </span>
+          <Button size="sm" variant="flat" onPress={toggleSelectAll}>
+            {selectedIds.size === filteredAssets.length ? '取消全选' : '全选'}
+          </Button>
+          <div className="flex-1" />
+          <Button size="sm" color="primary" isDisabled={selectedIds.size === 0} onPress={openBatchModal}>
+            批量修改
+          </Button>
+        </div>
+      )}
+
       {/* Main Server Table (desktop) / Card Grid (mobile) */}
       {filteredAssets.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
@@ -740,12 +841,19 @@ export default function AssetsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-divider/60 bg-default-50/80">
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[220px]">服务器</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[80px]">探针</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[180px]">遥测</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[130px]">流量/到期</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[130px]">标签</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[80px]">关联</th>
+                    {batchMode && (
+                      <th className="px-2 py-3 w-[40px]">
+                        <input type="checkbox" className="h-4 w-4 rounded accent-primary cursor-pointer"
+                          checked={selectedIds.size === filteredAssets.length && filteredAssets.length > 0}
+                          onChange={toggleSelectAll} />
+                      </th>
+                    )}
+                    <th className="px-4 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[260px]">服务器</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[90px]">探针</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[200px]">遥测</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">流量/到期</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">标签</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[90px]">关联</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -759,21 +867,28 @@ export default function AssetsPage() {
                     return (
                       <tr
                         key={asset.id}
-                        className="border-b border-divider/40 hover:bg-primary-50/40 dark:hover:bg-primary-50/10 transition-colors cursor-pointer group"
-                        onClick={() => openDetailModal(asset.id)}
+                        className={`border-b border-divider/40 hover:bg-primary-50/40 dark:hover:bg-primary-50/10 transition-colors cursor-pointer group ${batchMode && selectedIds.has(asset.id) ? 'bg-primary-50/30 dark:bg-primary-50/5' : ''}`}
+                        onClick={() => batchMode ? toggleSelectId(asset.id) : openDetailModal(asset.id)}
                       >
+                        {batchMode && (
+                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" className="h-4 w-4 rounded accent-primary cursor-pointer"
+                              checked={selectedIds.has(asset.id)}
+                              onChange={() => toggleSelectId(asset.id)} />
+                          </td>
+                        )}
                         {/* Server identity */}
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${
                               isOnline ? 'bg-success animate-pulse' : hasMonitor ? 'bg-danger' : 'bg-default-300'
                             }`} />
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                {getRegionFlag(asset.region) && <span className="text-sm flex-shrink-0">{getRegionFlag(asset.region)}</span>}
-                                <span className="truncate font-semibold text-sm">{asset.name}</span>
+                                {getRegionFlag(asset.region) && <span className="text-base flex-shrink-0">{getRegionFlag(asset.region)}</span>}
+                                <span className="truncate font-semibold text-[15px]">{asset.name}</span>
                                 {roleChip && (
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                     roleChip.color === 'primary' ? 'bg-primary-100 text-primary dark:bg-primary/20' :
                                     roleChip.color === 'warning' ? 'bg-warning-100 text-warning dark:bg-warning/20' :
                                     roleChip.color === 'success' ? 'bg-success-100 text-success dark:bg-success/20' :
@@ -781,31 +896,31 @@ export default function AssetsPage() {
                                   }`}>{roleChip.text}</span>
                                 )}
                               </div>
-                              <p className="truncate text-[11px] text-default-400 font-mono">
+                              <p className="truncate text-xs text-default-400 font-mono mt-0.5">
                                 {asset.primaryIp || '-'}
-                                {asset.os ? <span className="ml-1 opacity-60">/ {asset.os}</span> : null}
+                                {asset.os ? <span className="ml-1.5 opacity-60">/ {asset.os}</span> : null}
                               </p>
                             </div>
                           </div>
                         </td>
 
                         {/* Probe source + sync time */}
-                        <td className="px-3 py-2.5">
-                          <div className="space-y-0.5">
+                        <td className="px-3 py-3">
+                          <div className="space-y-1">
                             {asset.probeSource === 'dual' ? (
                               <div className="flex gap-1">
-                                <Chip size="sm" variant="flat" color="primary" className="h-4 text-[8px]">K</Chip>
-                                <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[8px]">P</Chip>
+                                <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">K</Chip>
+                                <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">P</Chip>
                               </div>
                             ) : asset.probeSource === 'komari' ? (
-                              <Chip size="sm" variant="flat" color="primary" className="h-4 text-[8px]">Komari</Chip>
+                              <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">Komari</Chip>
                             ) : asset.probeSource === 'pika' ? (
-                              <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[8px]">Pika</Chip>
+                              <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">Pika</Chip>
                             ) : (
-                              <span className="text-[10px] text-default-300">本地</span>
+                              <span className="text-xs text-default-300">本地</span>
                             )}
                             {asset.monitorLastSyncAt && (
-                              <p className="text-[9px] text-default-400 font-mono">
+                              <p className="text-[10px] text-default-400 font-mono">
                                 {new Date(asset.monitorLastSyncAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
                               </p>
                             )}
@@ -813,30 +928,30 @@ export default function AssetsPage() {
                         </td>
 
                         {/* Telemetry - CPU/MEM bars + Net */}
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-3">
                           {hasMonitor && isOnline ? (
-                            <div className="space-y-0.5">
+                            <div className="space-y-1">
                               <ResourceBar label="CPU" value={cpu} color={barColorClass(cpu)} />
                               <ResourceBar label="MEM" value={memPct} color={barColorClass(memPct)} />
-                              <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
+                              <div className="flex items-center gap-2 text-xs text-default-400 font-mono">
                                 <span className="text-success">&#x2193;{formatSpeed(asset.monitorNetIn)}</span>
                                 <span className="text-primary">&#x2191;{formatSpeed(asset.monitorNetOut)}</span>
                               </div>
                             </div>
                           ) : hasMonitor ? (
-                            <span className="text-[11px] text-danger font-mono">离线</span>
+                            <span className="text-xs text-danger font-mono font-semibold">离线</span>
                           ) : (
-                            <span className="text-[11px] text-default-300 font-mono">-</span>
+                            <span className="text-xs text-default-300 font-mono">-</span>
                           )}
                         </td>
 
                         {/* Traffic & Expire */}
-                        <td className="px-3 py-2.5">
-                          <div className="space-y-0.5">
+                        <td className="px-3 py-3">
+                          <div className="space-y-1">
                             {asset.probeTrafficLimit && asset.probeTrafficLimit > 0 ? (
-                              <div className="text-[10px] font-mono">
-                                <span className="text-default-500">{formatFlow(asset.probeTrafficUsed)}</span>
-                                <span className="text-default-300"> / {formatFlow(asset.probeTrafficLimit)}</span>
+                              <div className="text-xs font-mono">
+                                <span className="text-default-600">{formatFlow(asset.probeTrafficUsed)}</span>
+                                <span className="text-default-400"> / {formatFlow(asset.probeTrafficLimit)}</span>
                               </div>
                             ) : null}
                             {(asset.probeExpiredAt && asset.probeExpiredAt > 0) || asset.expireDate ? (() => {
@@ -846,49 +961,49 @@ export default function AssetsPage() {
                               const isExpired = days < 0;
                               const isSoon = days >= 0 && days <= 30;
                               return (
-                                <p className={`text-[10px] font-mono ${isExpired ? 'text-danger' : isSoon ? 'text-warning' : 'text-default-500'}`}>
+                                <p className={`text-xs font-mono ${isExpired ? 'text-danger font-semibold' : isSoon ? 'text-warning font-semibold' : 'text-default-500'}`}>
                                   {new Date(expiry).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
                                   {isExpired ? ' 已过期' : ` ${days}天`}
                                 </p>
                               );
                             })() : (
-                              <span className="text-[10px] text-default-300">-</span>
+                              <span className="text-xs text-default-300">-</span>
                             )}
                           </div>
                         </td>
 
                         {/* Tags */}
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-wrap gap-0.5">
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
                             {(() => {
                               const tagSrc = asset.probeTags || asset.tags;
-                              if (!tagSrc) return <span className="text-[10px] text-default-300">-</span>;
+                              if (!tagSrc) return <span className="text-xs text-default-300">-</span>;
                               try {
                                 const arr = JSON.parse(tagSrc);
                                 if (Array.isArray(arr) && arr.length > 0) {
                                   return arr.slice(0, 3).map((t: string) => (
-                                    <span key={t} className="px-1 py-0.5 rounded bg-default-100 text-[9px] text-default-500">{t}</span>
+                                    <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t}</span>
                                   ));
                                 }
                               } catch { /* not JSON */ }
                               return tagSrc.split(/[;,]/).filter(Boolean).slice(0, 3).map((t: string) => (
-                                <span key={t} className="px-1 py-0.5 rounded bg-default-100 text-[9px] text-default-500">{t.trim()}</span>
+                                <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t.trim()}</span>
                               ));
                             })()}
                           </div>
                         </td>
 
                         {/* Integration links */}
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1 text-[11px] font-mono text-default-400">
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-1.5 text-xs font-mono text-default-400">
                             {asset.totalXuiInstances > 0 && (
-                              <span className="px-1 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[9px]">
-                                {asset.totalXuiInstances}XUI
+                              <span className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[11px] font-semibold">
+                                {asset.totalXuiInstances} XUI
                               </span>
                             )}
                             {asset.totalForwards > 0 && (
-                              <span className="px-1 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[9px]">
-                                {asset.totalForwards}转发
+                              <span className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[11px] font-semibold">
+                                {asset.totalForwards} 转发
                               </span>
                             )}
                             {!asset.totalXuiInstances && !asset.totalForwards && '-'}
@@ -1363,10 +1478,16 @@ export default function AssetsPage() {
                     <div className="grid gap-4 md:grid-cols-4">
                       <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
                         onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
-                      <Select label="地区" selectedKeys={form.region ? [form.region] : []}
-                        onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
-                        {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
-                      </Select>
+                      <div className="flex items-end gap-1">
+                        <Select label="地区" className="flex-1" selectedKeys={form.region ? [form.region] : []}
+                          onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
+                          {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
+                        </Select>
+                        <Button size="sm" variant="flat" isLoading={geoLoading} isDisabled={!form.primaryIp.trim()}
+                          className="h-[40px] min-w-[40px] px-2" onPress={handleGeolocate} title="根据 IP 自动识别地区">
+                          📍
+                        </Button>
+                      </div>
                       <Input label="环境" placeholder="生产 / 测试" value={form.environment}
                         onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
                       <Input label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
@@ -1465,6 +1586,36 @@ export default function AssetsPage() {
                         />
                       </div>
                       <p className="text-[10px] text-default-400 mt-1">回车添加，Backspace 删除末尾</p>
+                      {assetTagCounts.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {assetTagCounts.map(([tag]) => {
+                            let currentTags: string[] = [];
+                            try { currentTags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                              currentTags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                            }
+                            const isActive = currentTags.includes(tag);
+                            return (
+                              <button key={tag} type="button"
+                                className={`px-2 py-0.5 rounded-full text-[10px] border transition-all cursor-pointer ${
+                                  isActive
+                                    ? 'border-primary bg-primary-100 text-primary dark:bg-primary/20'
+                                    : 'border-divider text-default-400 hover:border-primary/40'
+                                }`}
+                                onClick={() => {
+                                  if (isActive) {
+                                    const newTags = currentTags.filter(t => t !== tag);
+                                    setForm(p => ({ ...p, tags: newTags.length > 0 ? JSON.stringify(newTags) : '' }));
+                                  } else {
+                                    currentTags.push(tag);
+                                    setForm(p => ({ ...p, tags: JSON.stringify(currentTags) }));
+                                  }
+                                }}>
+                                {tag}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     <Textarea label="备注" value={form.remark}
@@ -2038,6 +2189,95 @@ export default function AssetsPage() {
                 <Button color="primary" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
               </>
             )}
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Batch Edit Modal */}
+      <Modal isOpen={isBatchOpen} onOpenChange={(open) => !open && onBatchClose()} size="lg">
+        <ModalContent>
+          <ModalHeader>批量修改 ({selectedIds.size} 个资产)</ModalHeader>
+          <ModalBody className="space-y-4">
+            <Select
+              label="修改字段"
+              selectedKeys={[batchField]}
+              onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setBatchField(v); setBatchValue(''); }}
+            >
+              <SelectItem key="tags">标签</SelectItem>
+              <SelectItem key="region">地区</SelectItem>
+              <SelectItem key="environment">环境</SelectItem>
+              <SelectItem key="provider">供应商</SelectItem>
+              <SelectItem key="role">角色</SelectItem>
+              <SelectItem key="os">操作系统</SelectItem>
+              <SelectItem key="monthlyCost">费用</SelectItem>
+              <SelectItem key="currency">货币</SelectItem>
+              <SelectItem key="billingCycle">付费周期</SelectItem>
+              <SelectItem key="bandwidthMbps">带宽 (Mbps)</SelectItem>
+              <SelectItem key="monthlyTrafficGb">月流量 (GB)</SelectItem>
+              <SelectItem key="sshPort">SSH端口</SelectItem>
+              <SelectItem key="remark">备注</SelectItem>
+            </Select>
+
+            {batchField === 'region' ? (
+              <Select label="地区" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {REGIONS.map(r => <SelectItem key={r.key}>{r.flag} {r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'role' ? (
+              <Select label="角色" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'currency' ? (
+              <Select label="货币" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {CURRENCIES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'billingCycle' ? (
+              <Select label="付费周期" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {BILLING_CYCLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'tags' ? (
+              <div className="space-y-2">
+                <Input label="添加标签 (逗号分隔)" value={batchValue}
+                  onValueChange={setBatchValue} placeholder="标签1,标签2" />
+                {assetTagCounts.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-default-400 mb-1">点击已有标签快速添加:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {assetTagCounts.map(([tag]) => (
+                        <button key={tag} type="button"
+                          className={`px-2 py-0.5 rounded-full text-[11px] border transition-all cursor-pointer ${
+                            batchValue.split(',').map(t => t.trim()).includes(tag)
+                              ? 'border-primary bg-primary-100 text-primary dark:bg-primary/20'
+                              : 'border-divider text-default-500 hover:border-primary/40'
+                          }`}
+                          onClick={() => {
+                            const current = batchValue.split(',').map(t => t.trim()).filter(Boolean);
+                            if (current.includes(tag)) {
+                              setBatchValue(current.filter(t => t !== tag).join(','));
+                            } else {
+                              setBatchValue([...current, tag].join(','));
+                            }
+                          }}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-default-400">批量标签使用「合并」模式，不会覆盖已有标签</p>
+              </div>
+            ) : (
+              <Input label="新值" value={batchValue} onValueChange={setBatchValue} />
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={onBatchClose}>取消</Button>
+            <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate}>
+              确认修改
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

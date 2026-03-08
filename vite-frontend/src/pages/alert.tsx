@@ -50,6 +50,14 @@ const SCOPE_TYPES = [
 const NOTIFY_TYPES = [
   { value: 'log', label: '仅记录日志' },
   { value: 'webhook', label: 'Webhook' },
+  { value: 'wechat', label: '企业微信机器人' },
+];
+
+const PROBE_CONDITIONS = [
+  { value: 'any', label: '任意探针' },
+  { value: 'komari', label: '仅 Komari' },
+  { value: 'pika', label: '仅 Pika' },
+  { value: 'both', label: '双探针节点' },
 ];
 
 function formatTime(ts?: number | null): string {
@@ -211,6 +219,7 @@ export default function AlertPage() {
                       范围: {SCOPE_TYPES.find(s => s.value === rule.scopeType)?.label || rule.scopeType}
                       {rule.scopeValue ? ` (${rule.scopeValue})` : ''}
                       {' · '}通知: {NOTIFY_TYPES.find(n => n.value === rule.notifyType)?.label || rule.notifyType}
+                      {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
                       {' · '}冷却: {rule.cooldownMinutes}分钟
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
@@ -339,6 +348,20 @@ export default function AlertPage() {
                     value={editRule.notifyTarget || ''}
                     onValueChange={v => setEditRule({ ...editRule, notifyTarget: v })} />
                 )}
+
+                {editRule.notifyType === 'wechat' && (
+                  <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
+                    将使用系统配置中的企业微信 Webhook 地址发送告警通知。请在「系统配置 → 企业微信」中设置 Webhook URL。
+                  </p>
+                )}
+
+                <Divider />
+
+                <Select label="探针条件" size="sm" description="选择触发告警时检查哪些探针的节点"
+                  selectedKeys={editRule.probeCondition ? [editRule.probeCondition] : ['any']}
+                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, probeCondition: v }); }}>
+                  {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
+                </Select>
 
                 <Input label="冷却时间 (分钟)" size="sm" type="number"
                   value={String(editRule.cooldownMinutes ?? 5)}

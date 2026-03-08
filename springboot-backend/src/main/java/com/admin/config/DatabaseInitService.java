@@ -508,6 +508,8 @@ public class DatabaseInitService {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警日志表'";
             jdbcTemplate.execute(createAlertLogTable);
 
+            updateColumn("monitor_alert_rule", "probe_condition", "varchar(20) DEFAULT 'any' COMMENT '探针条件: any, komari, pika, both'");
+
             log.info("[DatabaseInit] 告警规则/日志表校验成功");
         } catch (Exception e) {
             log.error("[DatabaseInit] 告警表创建失败: {}", e.getMessage());

@@ -811,8 +811,45 @@ export default function ServerDashboardPage() {
                             )}
                           </div>
                         </div>
-                        {showCharts && <NodeCharts nodeId={selectedNode.id} range={chartRange} />}
+                        {showCharts && (
+                          <>
+                            {/* Current probe charts */}
+                            {selectedNode.peerNodeId && (
+                              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">
+                                {selectedNode.instanceType === 'pika' ? 'Pika' : 'Komari'} 探针
+                              </p>
+                            )}
+                            <NodeCharts nodeId={selectedNode.id} range={chartRange} />
+
+                            {/* Peer probe charts */}
+                            {selectedNode.peerNodeId && (
+                              <div className="mt-4 pt-4 border-t border-divider/40">
+                                <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">
+                                  {selectedNode.peerInstanceType === 'pika' ? 'Pika' : 'Komari'} 探针
+                                </p>
+                                <NodeCharts nodeId={selectedNode.peerNodeId} range={chartRange} />
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
+
+                      {/* Single-probe hint */}
+                      {!selectedNode.peerNodeId && (
+                        <div className="rounded-lg border border-warning/30 bg-warning-50/30 dark:bg-warning/5 p-3 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-semibold text-warning-600 dark:text-warning">
+                              仅部署了 {selectedNode.instanceType === 'pika' ? 'Pika' : 'Komari'} 探针
+                            </p>
+                            <p className="text-[11px] text-default-400 mt-0.5">
+                              建议同时部署双探针以获得更全面的监控数据和冗余保障
+                            </p>
+                          </div>
+                          <Button size="sm" variant="flat" color="warning" onPress={() => { onDetailClose(); navigate('/probe'); }}>
+                            部署探针
+                          </Button>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="rounded-xl border border-danger/20 bg-danger-50/30 p-4 text-center">

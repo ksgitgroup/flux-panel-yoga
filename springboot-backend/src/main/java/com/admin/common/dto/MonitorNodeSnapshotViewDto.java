@@ -80,4 +80,10 @@ public class MonitorNodeSnapshotViewDto {
     private Long lastSyncAt;
 
     private MonitorMetricLatestViewDto latestMetric;
+
+    /** Peer probe node ID (same server, different probe type). Null if no peer. */
+    private Long peerNodeId;
+
+    /** Peer probe type (komari/pika). Null if no peer. */
+    private String peerInstanceType;
 }

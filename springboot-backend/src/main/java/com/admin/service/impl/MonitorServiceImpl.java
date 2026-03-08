@@ -260,6 +260,27 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
+        // Populate peer probe info (same assetId, different instance type)
+        Map<Long, List<MonitorNodeSnapshotViewDto>> assetNodeMap = new HashMap<>();
+        for (MonitorNodeSnapshotViewDto nv : nodeViews) {
+            if (nv.getAssetId() != null) {
+                assetNodeMap.computeIfAbsent(nv.getAssetId(), k -> new ArrayList<>()).add(nv);
+            }
+        }
+        for (List<MonitorNodeSnapshotViewDto> group : assetNodeMap.values()) {
+            if (group.size() >= 2) {
+                for (MonitorNodeSnapshotViewDto nv : group) {
+                    for (MonitorNodeSnapshotViewDto peer : group) {
+                        if (!peer.getId().equals(nv.getId()) && !Objects.equals(peer.getInstanceType(), nv.getInstanceType())) {
+                            nv.setPeerNodeId(peer.getId());
+                            nv.setPeerInstanceType(peer.getInstanceType());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         long online = allNodes.stream().filter(n -> n.getOnline() != null && n.getOnline() == 1).count();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("nodes", nodeViews);

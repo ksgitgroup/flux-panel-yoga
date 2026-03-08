@@ -164,6 +164,29 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                     } else {
                         continue;
                     }
+                } else if ("expiry".equals(rule.getMetric())) {
+                    // Expiry alert: threshold = days remaining to trigger (e.g. 7 means alert when <=7 days left)
+                    if (node.getExpiredAt() == null || node.getExpiredAt() <= 0) continue;
+                    long daysRemaining = (node.getExpiredAt() - now) / (24 * 60 * 60 * 1000L);
+                    currentValue = daysRemaining;
+                    // For expiry, we always use "lte" logic: alert when days remaining <= threshold
+                    triggered = daysRemaining <= (long) rule.getThreshold().intValue();
+                    if (!triggered) continue;
+                    if (daysRemaining < 0) {
+                        message = String.format("节点「%s」已过期 %d 天", node.getName(), Math.abs(daysRemaining));
+                    } else {
+                        message = String.format("节点「%s」将在 %d 天后到期", node.getName(), daysRemaining);
+                    }
+                } else if ("traffic_quota".equals(rule.getMetric())) {
+                    // Traffic quota alert: threshold = usage percentage (e.g. 80 means alert when >=80% used)
+                    if (node.getTrafficLimit() == null || node.getTrafficLimit() <= 0) continue;
+                    long used = node.getTrafficUsed() != null ? node.getTrafficUsed() : 0;
+                    currentValue = (double) used / node.getTrafficLimit() * 100;
+                    triggered = compare(currentValue, rule.getOperator(), rule.getThreshold());
+                    if (!triggered) continue;
+                    message = String.format("节点「%s」流量已用 %.1f%% (%s / %s)",
+                            node.getName(), currentValue,
+                            formatTraffic(used), formatTraffic(node.getTrafficLimit()));
                 } else {
                     MonitorMetricLatest metric = metricMap.get(node.getId());
                     if (metric == null) continue;
@@ -278,7 +301,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     }
 
     private String formatValue(double value, String metric) {
-        if ("cpu".equals(metric) || "mem".equals(metric) || "disk".equals(metric)) {
+        if ("cpu".equals(metric) || "mem".equals(metric) || "disk".equals(metric) || "traffic_quota".equals(metric)) {
             return String.format("%.1f%%", value);
         }
         if ("net_in".equals(metric) || "net_out".equals(metric)) {
@@ -286,7 +309,18 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             if (value < 1024 * 1024) return String.format("%.1f KB/s", value / 1024);
             return String.format("%.1f MB/s", value / (1024 * 1024));
         }
+        if ("expiry".equals(metric)) {
+            return String.format("%.0f 天", value);
+        }
         return String.format("%.2f", value);
+    }
+
+    private String formatTraffic(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        if (bytes < 1024L * 1024 * 1024 * 1024) return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+        return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
     }
 
     private String sendNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {

@@ -29,6 +29,8 @@ const METRICS = [
   { value: 'temperature', label: '温度 (°C)' },
   { value: 'connections', label: 'TCP 连接数' },
   { value: 'offline', label: '节点离线' },
+  { value: 'expiry', label: '到期提醒 (剩余天数)' },
+  { value: 'traffic_quota', label: '流量配额 (已用%)' },
 ];
 
 const OPERATORS = [
@@ -192,14 +194,18 @@ export default function AlertPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
-                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : 'primary'} className="h-5 text-[10px]">
+                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : 'primary'} className="h-5 text-[10px]">
                         {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
                       </Chip>
-                      {rule.metric !== 'offline' && (
+                      {rule.metric === 'expiry' ? (
+                        <span className="text-xs font-mono text-default-500">&le; {rule.threshold} 天</span>
+                      ) : rule.metric === 'traffic_quota' ? (
+                        <span className="text-xs font-mono text-default-500">&ge; {rule.threshold}%</span>
+                      ) : rule.metric !== 'offline' ? (
                         <span className="text-xs font-mono text-default-500">
                           {OPERATORS.find(o => o.value === rule.operator)?.label || rule.operator} {rule.threshold}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <p className="text-[11px] text-default-400 mt-0.5">
                       范围: {SCOPE_TYPES.find(s => s.value === rule.scopeType)?.label || rule.scopeType}
@@ -286,7 +292,17 @@ export default function AlertPage() {
                   {METRICS.map(m => <SelectItem key={m.value}>{m.label}</SelectItem>)}
                 </Select>
 
-                {editRule.metric !== 'offline' && (
+                {editRule.metric === 'expiry' ? (
+                  <Input label="提前提醒天数" size="sm" type="number" placeholder="7"
+                    description="当剩余天数 <= 此值时触发告警（已过期也会触发）"
+                    value={String(editRule.threshold ?? 7)}
+                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 7, operator: 'lte' })} />
+                ) : editRule.metric === 'traffic_quota' ? (
+                  <Input label="流量使用率阈值 (%)" size="sm" type="number" placeholder="80"
+                    description="当流量已用百分比 >= 此值时触发告警"
+                    value={String(editRule.threshold ?? 80)}
+                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 80, operator: 'gte' })} />
+                ) : editRule.metric !== 'offline' ? (
                   <div className="flex gap-2">
                     <Select label="操作符" size="sm" className="w-28" selectedKeys={editRule.operator ? [editRule.operator] : ['gt']}
                       onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, operator: v }); }}>
@@ -296,7 +312,7 @@ export default function AlertPage() {
                       value={String(editRule.threshold ?? '')}
                       onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 0 })} />
                   </div>
-                )}
+                ) : null}
 
                 <Divider />
 

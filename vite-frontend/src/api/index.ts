@@ -317,6 +317,8 @@ export interface MonitorNodeSnapshot {
   lastActiveAt?: number | null;
   lastSyncAt?: number | null;
   latestMetric?: MonitorMetricLatest | null;
+  peerNodeId?: number | null;
+  peerInstanceType?: string | null;
 }
 
 export interface MonitorInstance {

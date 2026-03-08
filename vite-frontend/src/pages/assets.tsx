@@ -104,6 +104,7 @@ const CURRENCIES = [
 
 const REGIONS = [
   { key: '', label: '未指定', flag: '' },
+  { key: '中国大陆', label: '中国大陆', flag: '🇨🇳' },
   { key: '香港', label: '香港', flag: '🇭🇰' },
   { key: '台湾', label: '台湾', flag: '🇹🇼' },
   { key: '日本', label: '日本', flag: '🇯🇵' },
@@ -127,7 +128,84 @@ const REGIONS = [
   { key: '印度尼西亚', label: '印度尼西亚', flag: '🇮🇩' },
   { key: '阿根廷', label: '阿根廷', flag: '🇦🇷' },
   { key: '南非', label: '南非', flag: '🇿🇦' },
+  { key: '波兰', label: '波兰', flag: '🇵🇱' },
+  { key: '瑞典', label: '瑞典', flag: '🇸🇪' },
+  { key: '瑞士', label: '瑞士', flag: '🇨🇭' },
+  { key: '爱尔兰', label: '爱尔兰', flag: '🇮🇪' },
+  { key: '意大利', label: '意大利', flag: '🇮🇹' },
+  { key: '西班牙', label: '西班牙', flag: '🇪🇸' },
+  { key: '罗马尼亚', label: '罗马尼亚', flag: '🇷🇴' },
+  { key: '卢森堡', label: '卢森堡', flag: '🇱🇺' },
 ];
+
+/** ip-api.com 返回的国家名 → REGIONS key 映射 */
+const COUNTRY_TO_REGION: Record<string, string> = {
+  '中国': '中国大陆',
+  'China': '中国大陆',
+  '香港': '香港',
+  'Hong Kong': '香港',
+  '台湾': '台湾',
+  'Taiwan': '台湾',
+  '日本': '日本',
+  'Japan': '日本',
+  '新加坡': '新加坡',
+  'Singapore': '新加坡',
+  '韩国': '韩国',
+  'South Korea': '韩国',
+  '美国': '美国',
+  'United States': '美国',
+  '英国': '英国',
+  'United Kingdom': '英国',
+  '德国': '德国',
+  'Germany': '德国',
+  '法国': '法国',
+  'France': '法国',
+  '荷兰': '荷兰',
+  'Netherlands': '荷兰',
+  '加拿大': '加拿大',
+  'Canada': '加拿大',
+  '澳大利亚': '澳大利亚',
+  'Australia': '澳大利亚',
+  '印度': '印度',
+  'India': '印度',
+  '俄罗斯': '俄罗斯',
+  'Russia': '俄罗斯',
+  '土耳其': '土耳其',
+  'Turkey': '土耳其',
+  'Türkiye': '土耳其',
+  '巴西': '巴西',
+  'Brazil': '巴西',
+  '马来西亚': '马来西亚',
+  'Malaysia': '马来西亚',
+  '泰国': '泰国',
+  'Thailand': '泰国',
+  '越南': '越南',
+  'Vietnam': '越南',
+  '菲律宾': '菲律宾',
+  'Philippines': '菲律宾',
+  '印度尼西亚': '印度尼西亚',
+  'Indonesia': '印度尼西亚',
+  '阿根廷': '阿根廷',
+  'Argentina': '阿根廷',
+  '南非': '南非',
+  'South Africa': '南非',
+  '波兰': '波兰',
+  'Poland': '波兰',
+  '瑞典': '瑞典',
+  'Sweden': '瑞典',
+  '瑞士': '瑞士',
+  'Switzerland': '瑞士',
+  '爱尔兰': '爱尔兰',
+  'Ireland': '爱尔兰',
+  '意大利': '意大利',
+  'Italy': '意大利',
+  '西班牙': '西班牙',
+  'Spain': '西班牙',
+  '罗马尼亚': '罗马尼亚',
+  'Romania': '罗马尼亚',
+  '卢森堡': '卢森堡',
+  'Luxembourg': '卢森堡',
+};
 
 const BILLING_CYCLES = [
   { key: '', label: '未知' },
@@ -330,12 +408,15 @@ export default function AssetsPage() {
   const assetTagCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     assets.forEach(a => {
-      for (const src of [a.probeTags, a.tags]) {
-        if (!src) continue;
-        try { JSON.parse(src).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch {
-          src.split(/[;,]/).filter(Boolean).forEach(t => { const k = t.trim(); counts[k] = (counts[k] || 0) + 1; });
-        }
+      // Only use asset.tags (already merged from probes), avoid double counting
+      const src = a.tags;
+      if (!src) return;
+      const parsed: string[] = [];
+      try { parsed.push(...JSON.parse(src)); } catch {
+        parsed.push(...src.split(/[;,]/).map(t => t.trim()).filter(Boolean));
       }
+      // Deduplicate per-asset before counting
+      new Set(parsed).forEach(t => { counts[t] = (counts[t] || 0) + 1; });
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [assets]);
@@ -359,11 +440,10 @@ export default function AssetsPage() {
     }
     if (filterTag) {
       list = list.filter(a => {
-        for (const src of [a.probeTags, a.tags]) {
-          if (!src) continue;
-          try { if (JSON.parse(src).includes(filterTag)) return true; } catch {
-            if (src.split(/[;,]/).map((t: string) => t.trim()).includes(filterTag)) return true;
-          }
+        const src = a.tags;
+        if (!src) return false;
+        try { if (JSON.parse(src).includes(filterTag)) return true; } catch {
+          if (src.split(/[;,]/).map((t: string) => t.trim()).includes(filterTag)) return true;
         }
         return false;
       });
@@ -616,6 +696,34 @@ export default function AssetsPage() {
     onBatchOpen();
   };
 
+  const handleBatchGeolocate = async () => {
+    if (selectedIds.size === 0) { toast.error('请先选择资产'); return; }
+    const targets = filteredAssets.filter(a => selectedIds.has(a.id) && a.primaryIp && !a.region);
+    if (targets.length === 0) { toast('所选资产都已有地区或缺少 IP', { icon: '📍' }); return; }
+    setBatchLoading(true);
+    let matched = 0; let failed = 0;
+    try {
+      for (const asset of targets) {
+        try {
+          const res = await geolocateIp(asset.primaryIp!);
+          if (res.code === 0 && res.data?.country) {
+            const regionKey = COUNTRY_TO_REGION[res.data.country] || res.data.country;
+            const match = REGIONS.find(r => r.key === regionKey || r.label === regionKey);
+            if (match?.key) {
+              await batchUpdateAsset({ ids: [asset.id], field: 'region', value: match.key });
+              matched++;
+            } else { failed++; }
+          } else { failed++; }
+        } catch { failed++; }
+      }
+      toast.success(`已匹配 ${matched} 个，失败 ${failed} 个`);
+      setSelectedIds(new Set());
+      setBatchMode(false);
+      await loadAssets();
+    } catch { toast.error('批量匹配失败'); }
+    finally { setBatchLoading(false); }
+  };
+
   const handleBatchUpdate = async () => {
     if (selectedIds.size === 0) return;
     setBatchLoading(true);
@@ -645,8 +753,9 @@ export default function AssetsPage() {
       const res = await geolocateIp(ip);
       if (res.code === 0 && res.data) {
         const country = res.data.country || '';
-        // Map country name to region key
-        const match = REGIONS.find(r => r.label === country || r.key === country);
+        // Use mapping table first, then direct match
+        const regionKey = COUNTRY_TO_REGION[country] || country;
+        const match = REGIONS.find(r => r.key === regionKey || r.label === regionKey || r.label === country);
         if (match && match.key) {
           setForm(p => ({ ...p, region: match.key }));
           const extra = [res.data.regionName, res.data.city, res.data.isp].filter(Boolean).join(' · ');
@@ -819,6 +928,9 @@ export default function AssetsPage() {
             {selectedIds.size === filteredAssets.length ? '取消全选' : '全选'}
           </Button>
           <div className="flex-1" />
+          <Button size="sm" variant="flat" isDisabled={selectedIds.size === 0} isLoading={batchLoading} onPress={handleBatchGeolocate}>
+            📍 批量匹配地区
+          </Button>
           <Button size="sm" color="primary" isDisabled={selectedIds.size === 0} onPress={openBatchModal}>
             批量修改
           </Button>
@@ -976,7 +1088,7 @@ export default function AssetsPage() {
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-1">
                             {(() => {
-                              const tagSrc = asset.probeTags || asset.tags;
+                              const tagSrc = asset.tags;
                               if (!tagSrc) return <span className="text-xs text-default-300">-</span>;
                               try {
                                 const arr = JSON.parse(tagSrc);

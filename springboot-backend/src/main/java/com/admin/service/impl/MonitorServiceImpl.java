@@ -1006,9 +1006,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             throw new RuntimeException("Pika password (API Key field) is not configured");
         }
 
-        try {
+        try (CloseableHttpClient client = buildHttpClient(instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1)) {
             String loginBody = JSON.toJSONString(Map.of("username", username, "password", password));
-            CloseableHttpClient client = buildHttpClient(instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1);
             HttpPost request = new HttpPost(baseUrl + "/api/login");
             request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
             request.setHeader("Content-Type", "application/json");
@@ -1045,10 +1044,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
      * HTTP GET with explicit JWT Bearer token (used for Pika where token is obtained per-sync).
      */
     private String httpGetWithToken(String url, String token, Integer allowInsecureTls) {
-        try {
-            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
             HttpGet request = new HttpGet(url);
-            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(30_000).build());
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
             request.setHeader("Authorization", "Bearer " + token);
             request.setHeader("Accept", "application/json");
 
@@ -1601,8 +1599,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     private String httpGet(MonitorInstance instance, String path, Integer allowInsecureTls) {
         String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
-        try {
-            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
             HttpGet request = new HttpGet(url);
             request.setConfig(RequestConfig.custom()
                     .setConnectTimeout(10_000)
@@ -1631,8 +1628,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     private String httpPost(MonitorInstance instance, String path, String jsonBody, Integer allowInsecureTls) {
         String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
-        try {
-            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
             HttpPost request = new HttpPost(url);
             request.setConfig(RequestConfig.custom()
                     .setConnectTimeout(10_000)
@@ -1789,7 +1785,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         List<MonitorProviderHighlightViewDto> highlights = new ArrayList<>();
         summary.setHighlights(highlights);
 
-        String jwt = loginPika(instance);
+        String jwt;
+        try {
+            jwt = loginPika(instance);
+        } catch (Exception e) {
+            log.warn("[MonitorDetail] Pika login failed for {}: {}", instance.getName(), e.getMessage());
+            summary.setLoginError(shortenError(e.getMessage()));
+            return summary;
+        }
         String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
         Integer tls = instance.getAllowInsecureTls();
 
@@ -1847,11 +1850,17 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         int publicPortCount = 0;
         int suspiciousProcessCount = 0;
 
+        // Limit per-node detail fetching to avoid N+1 HTTP latency (4 requests per node)
+        int maxNodeDetail = 5;
+        int nodeDetailCount = 0;
         if (nodes != null) {
             for (MonitorNodeSnapshot node : nodes) {
                 String agentId = node.getRemoteNodeUuid();
-                if (!StringUtils.hasText(agentId)) {
+                if (!StringUtils.hasText(agentId) || !isSafePathSegment(agentId)) {
                     continue;
+                }
+                if (++nodeDetailCount > maxNodeDetail) {
+                    break;
                 }
 
                 try {
@@ -2322,6 +2331,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
         result.put("combinedCommand", String.join("\n\n", installCommands));
         return R.ok(result);
+    }
+
+    private static final java.util.regex.Pattern SAFE_PATH_SEGMENT = java.util.regex.Pattern.compile("^[a-zA-Z0-9._-]{1,128}$");
+
+    private boolean isSafePathSegment(String value) {
+        return value != null && SAFE_PATH_SEGMENT.matcher(value).matches();
     }
 
     private String trimToNull(String value) {

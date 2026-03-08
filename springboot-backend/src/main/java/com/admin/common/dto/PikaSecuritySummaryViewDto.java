@@ -28,4 +28,6 @@ public class PikaSecuritySummaryViewDto {
     private Integer suspiciousProcessCount;
 
     private List<MonitorProviderHighlightViewDto> highlights;
+
+    private String loginError;
 }

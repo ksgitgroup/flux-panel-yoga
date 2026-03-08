@@ -40,7 +40,10 @@ import {
   syncMonitorInstance,
   updateAsset,
   batchUpdateAsset,
-  geolocateIp
+  geolocateIp,
+  getNodeList,
+  createNode,
+  getNodeInstallCommand
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -79,6 +82,7 @@ interface AssetForm {
   swapTotalMb: string;
   remark: string;
   panelUrl: string;
+  gostNodeId: string;
 }
 
 const emptyForm = (): AssetForm => ({
@@ -86,7 +90,7 @@ const emptyForm = (): AssetForm => ({
   role: '', os: '', osCategory: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
   currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
-  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '',
+  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '', gostNodeId: '',
 });
 
 const ROLES = [
@@ -398,6 +402,12 @@ export default function AssetsPage() {
   // 1Panel inline binding
   const [panelBindOpen, setPanelBindOpen] = useState(false);
   const [panelBindInput, setPanelBindInput] = useState('');
+  // GOST node binding
+  const [gostNodes, setGostNodes] = useState<{ id: number; name: string; ip: string; status: number }[]>([]);
+  const [gostBindOpen, setGostBindOpen] = useState(false);
+  const [gostCreateForm, setGostCreateForm] = useState({ name: '', ip: '', portSta: '10000', portEnd: '20000' });
+  const [gostCreateLoading, setGostCreateLoading] = useState(false);
+  const [gostInstallCmd, setGostInstallCmd] = useState<string | null>(null);
   // Tag input
   const [tagInput, setTagInput] = useState('');
   // Edit modal active tab
@@ -416,7 +426,7 @@ export default function AssetsPage() {
   const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
 
-  useEffect(() => { void loadAssets(); }, []);
+  useEffect(() => { void loadAssets(); void loadGostNodes(); }, []);
 
   // Handle URL params: ?viewId=123 opens detail, ?viewId=123&deploy=1 opens deploy
   useEffect(() => {
@@ -559,6 +569,15 @@ export default function AssetsPage() {
       setAssets(response.data || []);
     } catch { toast.error('加载资产失败'); }
     finally { setLoading(false); }
+  };
+
+  const loadGostNodes = async () => {
+    try {
+      const res = await getNodeList();
+      if (res.code === 0 && res.data) {
+        setGostNodes(res.data.map((n: any) => ({ id: n.id, name: n.name, ip: n.ip || n.serverIp, status: n.status })));
+      }
+    } catch { /* ignore */ }
   };
 
   const loadAssetDetail = async (assetId: number) => {
@@ -749,7 +768,7 @@ export default function AssetsPage() {
     }
     setIsEdit(true); setErrors({});
     setXuiBindOpen(false); setXuiBindForm({ addr: '', user: '', pass: '' }); setXuiBindLoading(false);
-    setPanelBindOpen(false); setTagInput('');
+    setPanelBindOpen(false); setGostBindOpen(false); setGostInstallCmd(null); setTagInput('');
     setEditTab(tab || 'basic');
     setForm({
       id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
@@ -765,7 +784,7 @@ export default function AssetsPage() {
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
       swapTotalMb: asset.swapTotalMb?.toString() || '', remark: asset.remark || '',
-      panelUrl: asset.panelUrl || '',
+      panelUrl: asset.panelUrl || '', gostNodeId: asset.gostNodeId?.toString() || '',
     });
     onFormOpen();
   };
@@ -819,6 +838,7 @@ export default function AssetsPage() {
         swapTotalMb: form.swapTotalMb ? parseInt(form.swapTotalMb) : null,
         remark: form.remark.trim() || null,
         panelUrl: form.panelUrl.trim() || null,
+        gostNodeId: form.gostNodeId ? parseInt(form.gostNodeId) : null,
       };
       const response = isEdit ? await updateAsset(payload) : await createAsset(payload);
       if (response.code !== 0) { toast.error(response.msg || '操作失败'); return; }
@@ -1550,6 +1570,11 @@ export default function AssetsPage() {
                     action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
                     color: 'secondary',
                   });
+                  if (!selectedAsset.gostNodeId) hints.push({
+                    label: '未绑定 GOST',
+                    action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
+                    color: 'secondary',
+                  });
                   if (hints.length === 0) return null;
                   return (
                     <div className="rounded-lg border border-warning/30 bg-warning-50/40 dark:bg-warning-50/10 px-3 py-2 flex items-center gap-2 flex-wrap">
@@ -1895,7 +1920,8 @@ export default function AssetsPage() {
               const hasPanel = !!form.panelUrl;
 
               // Count missing services for badge
-              const missingCount = (isEdit ? [!hasKomari || !hasPika, !hasXui, !hasPanel].filter(Boolean).length : 0);
+              const hasGost = !!form.gostNodeId;
+              const missingCount = (isEdit ? [!hasKomari || !hasPika, !hasXui, !hasPanel, !hasGost].filter(Boolean).length : 0);
 
               return (
                 <Tabs
@@ -2274,6 +2300,168 @@ export default function AssetsPage() {
                               </div>
                             )}
                           </>
+                        )}
+                      </div>
+
+                      {/* GOST Node Binding */}
+                      <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-default-700">GOST 节点</span>
+                          {form.gostNodeId ? (
+                            <div className="flex items-center gap-2">
+                              <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">
+                                {gostNodes.find(n => n.id === parseInt(form.gostNodeId))?.name || `ID: ${form.gostNodeId}`}
+                              </Chip>
+                              {(() => {
+                                const node = gostNodes.find(n => n.id === parseInt(form.gostNodeId));
+                                return node ? (
+                                  <Chip size="sm" variant="dot" color={node.status === 1 ? 'success' : 'danger'} className="h-5 text-[10px]">
+                                    {node.status === 1 ? '在线' : '离线'}
+                                  </Chip>
+                                ) : null;
+                              })()}
+                              {canManageAssets && (
+                                <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
+                                  onPress={() => setForm(p => ({ ...p, gostNodeId: '' }))}>
+                                  解绑
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定</Chip>
+                          )}
+                        </div>
+                        {canManageAssets && !form.gostNodeId && editingAsset && (
+                          <>
+                            {!gostBindOpen ? (
+                              <Button size="sm" variant="flat" color="primary"
+                                onPress={() => { setGostBindOpen(true); void loadGostNodes(); }}>
+                                绑定 GOST 节点
+                              </Button>
+                            ) : (
+                              <div className="space-y-3">
+                                {/* Select from existing nodes */}
+                                {gostNodes.filter(n => !assets.some(a => a.gostNodeId === n.id && a.id !== editingAsset.id)).length > 0 ? (
+                                  <div className="space-y-2">
+                                    <p className="text-[11px] text-default-400">选择已有节点绑定：</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {gostNodes
+                                        .filter(n => !assets.some(a => a.gostNodeId === n.id && a.id !== editingAsset.id))
+                                        .map(n => (
+                                          <button key={n.id} type="button"
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-divider hover:border-primary/60 hover:bg-primary-50/30 dark:hover:bg-primary/10 transition-all text-xs cursor-pointer"
+                                            onClick={() => {
+                                              setForm(p => ({ ...p, gostNodeId: n.id.toString() }));
+                                              setGostBindOpen(false);
+                                              toast.success(`已选择节点 "${n.name}"，保存后生效`);
+                                            }}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${n.status === 1 ? 'bg-success' : 'bg-danger'}`} />
+                                            <span className="font-medium">{n.name}</span>
+                                            <span className="text-default-400">{n.ip}</span>
+                                          </button>
+                                        ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-default-400">暂无可用的 GOST 节点，请先创建一个。</p>
+                                )}
+                                {/* Quick create new node */}
+                                <div className="rounded-lg border border-primary/20 bg-primary-50/20 dark:bg-primary-50/5 p-3 space-y-3">
+                                  <p className="text-[11px] font-medium text-default-600">或快速创建新节点：</p>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <Input size="sm" label="节点名称" placeholder={editingAsset.name || '节点名称'}
+                                      value={gostCreateForm.name}
+                                      onValueChange={(v) => setGostCreateForm(p => ({ ...p, name: v }))} />
+                                    <Input size="sm" label="节点 IP" placeholder={editingAsset.primaryIp || '1.2.3.4'}
+                                      value={gostCreateForm.ip}
+                                      onValueChange={(v) => setGostCreateForm(p => ({ ...p, ip: v }))} />
+                                    <Input size="sm" label="端口范围起始" placeholder="10000"
+                                      value={gostCreateForm.portSta}
+                                      onValueChange={(v) => setGostCreateForm(p => ({ ...p, portSta: v }))} />
+                                    <Input size="sm" label="端口范围结束" placeholder="20000"
+                                      value={gostCreateForm.portEnd}
+                                      onValueChange={(v) => setGostCreateForm(p => ({ ...p, portEnd: v }))} />
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button size="sm" color="primary" isLoading={gostCreateLoading}
+                                      isDisabled={!gostCreateForm.name && !editingAsset.name}
+                                      onPress={async () => {
+                                        setGostCreateLoading(true);
+                                        try {
+                                          const nodeName = gostCreateForm.name || editingAsset.name;
+                                          const nodeIp = gostCreateForm.ip || editingAsset.primaryIp;
+                                          if (!nodeIp) { toast.error('请填写节点 IP'); return; }
+                                          const res = await createNode({
+                                            name: nodeName,
+                                            ip: nodeIp,
+                                            portSta: parseInt(gostCreateForm.portSta) || 10000,
+                                            portEnd: parseInt(gostCreateForm.portEnd) || 20000,
+                                            assetId: editingAsset.id,
+                                          });
+                                          if (res.code === 0 && res.data) {
+                                            toast.success('GOST 节点创建成功');
+                                            setForm(p => ({ ...p, gostNodeId: res.data.id?.toString() || res.data.toString() }));
+                                            setGostBindOpen(false);
+                                            void loadGostNodes();
+                                            // Try to get install command
+                                            try {
+                                              const cmdRes = await getNodeInstallCommand(typeof res.data === 'object' ? res.data.id : res.data);
+                                              if (cmdRes.code === 0 && cmdRes.data) {
+                                                setGostInstallCmd(cmdRes.data);
+                                              }
+                                            } catch { /* ignore */ }
+                                          } else {
+                                            toast.error(res.msg || '创建失败');
+                                          }
+                                        } catch { toast.error('创建请求失败'); }
+                                        finally { setGostCreateLoading(false); }
+                                      }}>
+                                      创建并绑定
+                                    </Button>
+                                    <Button size="sm" variant="flat" onPress={() => setGostBindOpen(false)}>取消</Button>
+                                  </div>
+                                </div>
+                                {/* Show install command if just created */}
+                                {gostInstallCmd && (
+                                  <div className="rounded-lg border border-success/30 bg-success-50/20 dark:bg-success-50/5 p-3 space-y-2">
+                                    <p className="text-[11px] font-medium text-success-700 dark:text-success-400">节点创建成功！请在目标服务器上执行以下命令安装 GOST：</p>
+                                    <div className="relative">
+                                      <pre className="text-[10px] bg-default-100 dark:bg-default-50/10 rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed">{gostInstallCmd}</pre>
+                                      <Button size="sm" variant="flat" className="absolute top-1 right-1 h-6 text-[10px] min-w-0 px-2"
+                                        onPress={() => { navigator.clipboard.writeText(gostInstallCmd); toast.success('已复制安装命令'); }}>
+                                        复制
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {/* Show install command for bound node */}
+                        {canManageAssets && form.gostNodeId && (
+                          <Button size="sm" variant="flat" color="secondary" className="h-7 text-[11px]"
+                            onPress={async () => {
+                              try {
+                                const res = await getNodeInstallCommand(parseInt(form.gostNodeId));
+                                if (res.code === 0 && res.data) {
+                                  setGostInstallCmd(res.data);
+                                } else {
+                                  toast.error(res.msg || '获取安装命令失败');
+                                }
+                              } catch { toast.error('获取安装命令失败'); }
+                            }}>
+                            查看安装命令
+                          </Button>
+                        )}
+                        {form.gostNodeId && gostInstallCmd && (
+                          <div className="relative">
+                            <pre className="text-[10px] bg-default-100 dark:bg-default-50/10 rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed">{gostInstallCmd}</pre>
+                            <Button size="sm" variant="flat" className="absolute top-1 right-1 h-6 text-[10px] min-w-0 px-2"
+                              onPress={() => { navigator.clipboard.writeText(gostInstallCmd!); toast.success('已复制安装命令'); }}>
+                              复制
+                            </Button>
+                          </div>
                         )}
                       </div>
 

@@ -426,13 +426,13 @@ export default function AdminLayout({
   );
 
   // Primary nav items (always visible in pill bar)
-  const primaryPaths = ['/dashboard', '/forward', '/tunnel', '/node'];
+  const primaryPaths = ['/dashboard', '/forward', '/tunnel'];
   const primaryMenuItems = primaryPaths
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));
 
   // Grouped dropdown menus
-  const serverGroupPaths = ['/server-dashboard', '/assets', '/cost', '/traffic'];
+  const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic'];
   const monitorGroupPaths = ['/monitor', '/probe', '/alert'];
   const systemGroupPaths = ['/xui', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag'];
 

@@ -673,6 +673,8 @@ export interface AlertRule {
   cooldownMinutes: number;
   lastTriggeredAt?: number | null;
   probeCondition?: string | null;
+  severity?: string | null;
+  escalateAfterMinutes?: number | null;
   createdTime: number;
   updatedTime: number;
 }

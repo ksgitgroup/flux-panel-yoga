@@ -63,7 +63,7 @@ trap cleanup_on_exit EXIT
 TAG=${1:-local}
 REGISTRY=${2:-flux-panel}
 APP_VERSION="$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json 2>/dev/null || echo '0.0.0')"
-GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo 'local')"
+GIT_SHA="$(git rev-parse --short=8 HEAD 2>/dev/null || echo 'local')"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'local')"
 BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 

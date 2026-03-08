@@ -519,6 +519,8 @@ public class DatabaseInitService {
             jdbcTemplate.execute(createAlertLogTable);
 
             updateColumn("monitor_alert_rule", "probe_condition", "varchar(20) DEFAULT 'any' COMMENT '探针条件: any, komari, pika, both'");
+            updateColumn("monitor_alert_rule", "severity", "varchar(20) DEFAULT 'warning' COMMENT '严重等级: info, warning, critical'");
+            updateColumn("monitor_alert_rule", "escalate_after_minutes", "int DEFAULT NULL COMMENT '升级间隔分钟: 持续触发后自动升级等级'");
 
             log.info("[DatabaseInit] 告警规则/日志表校验成功");
         } catch (Exception e) {

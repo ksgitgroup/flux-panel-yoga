@@ -26,12 +26,16 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  AssetHost,
+  MonitorInstance,
   getDiagnosisHistory,
   getDiagnosisRuntimeStatus,
   getDiagnosisSummary,
   getDiagnosisTrend,
   getForwardList,
   getNodeList,
+  getAssetList,
+  getMonitorList,
   getUserPackageInfo,
   runDiagnosisNow,
 } from '@/api';
@@ -580,6 +584,9 @@ export default function MonitorPage() {
   const [filter, setFilter] = useState<'all' | 'success' | 'fail'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'tunnel' | 'forward'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [assets, setAssets] = useState<AssetHost[]>([]);
+  const [probeInstances, setProbeInstances] = useState<MonitorInstance[]>([]);
 
   const websocketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -593,13 +600,15 @@ export default function MonitorPage() {
   const loadBoard = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [summaryResp, trendResp, runtimeResp, packageResp, forwardResp, nodeResp] = await Promise.all([
+      const [summaryResp, trendResp, runtimeResp, packageResp, forwardResp, nodeResp, assetResp, monitorResp] = await Promise.all([
         getDiagnosisSummary(),
         getDiagnosisTrend({ hours: 24 }),
         getDiagnosisRuntimeStatus().catch(() => null),
         getUserPackageInfo().catch(() => null),
         getForwardList().catch(() => null),
         canViewNodes ? getNodeList().catch(() => null) : Promise.resolve(null),
+        getAssetList().catch(() => null),
+        getMonitorList().catch(() => null),
       ]);
 
       if (summaryResp.code === 0) {
@@ -636,6 +645,8 @@ export default function MonitorPage() {
           };
         }));
       }
+      if (assetResp?.code === 0) setAssets(Array.isArray(assetResp.data) ? assetResp.data : []);
+      if (monitorResp?.code === 0) setProbeInstances(Array.isArray(monitorResp.data) ? monitorResp.data : []);
     } catch (err) {
       console.error('Diagnosis load error:', err);
       setError('网络请求失败，请检查后端服务');
@@ -904,6 +915,62 @@ export default function MonitorPage() {
       .slice(0, 8)
   ), [forwardList]);
 
+  // ==================== Server Health Diagnostics ====================
+  const serverHealth = useMemo(() => {
+    const now = Date.now();
+    const probeNodeTotal = probeInstances.reduce((s, i) => s + (i.nodeCount || 0), 0);
+    const probeNodeOnline = probeInstances.reduce((s, i) => s + (i.onlineNodeCount || 0), 0);
+    const offlineNodes = probeNodeTotal - probeNodeOnline;
+
+    // Asset issues
+    const expired: AssetHost[] = [];
+    const expiringSoon: AssetHost[] = [];
+    const missingRegion: AssetHost[] = [];
+    const missingProvider: AssetHost[] = [];
+    const missingCost: AssetHost[] = [];
+    const noProbe: AssetHost[] = [];
+    const trafficWarnings: (AssetHost & { pct: number })[] = [];
+
+    assets.forEach(a => {
+      if (a.expireDate) {
+        const days = (a.expireDate - now) / 86400000;
+        if (days < 0) expired.push(a);
+        else if (days <= 30) expiringSoon.push(a);
+      }
+      if (!a.region) missingRegion.push(a);
+      if (!a.provider) missingProvider.push(a);
+      if (!a.monthlyCost) missingCost.push(a);
+      if (!a.monitorNodeUuid && !a.pikaNodeId) noProbe.push(a);
+      if (a.probeTrafficLimit && a.probeTrafficLimit > 0 && a.probeTrafficUsed) {
+        const pct = (a.probeTrafficUsed / a.probeTrafficLimit) * 100;
+        if (pct >= 80) trafficWarnings.push({ ...a, pct });
+      }
+    });
+    trafficWarnings.sort((a, b) => b.pct - a.pct);
+
+    const totalIssues = expired.length + expiringSoon.length + offlineNodes +
+      trafficWarnings.length + missingRegion.length + missingProvider.length + noProbe.length;
+
+    // Compute overall server health score (0-100)
+    let score = 100;
+    if (assets.length > 0) {
+      score -= (expired.length / assets.length) * 30;
+      score -= (offlineNodes / Math.max(probeNodeTotal, 1)) * 25;
+      score -= (trafficWarnings.length / assets.length) * 15;
+      score -= (noProbe.length / assets.length) * 10;
+      score -= (expiringSoon.length / assets.length) * 10;
+      score -= (missingRegion.length / assets.length) * 5;
+      score -= (missingProvider.length / assets.length) * 5;
+    }
+    score = Math.max(0, Math.min(100, score));
+
+    return {
+      score, totalIssues,
+      probeNodeTotal, probeNodeOnline, offlineNodes,
+      expired, expiringSoon, missingRegion, missingProvider, missingCost, noProbe, trafficWarnings,
+    };
+  }, [assets, probeInstances]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[420px]">
@@ -1043,12 +1110,99 @@ export default function MonitorPage() {
         </CardBody>
       </Card>
 
-      {!noData && trend.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <TrendChart data={trend} />
-          <LatencyTrendChart data={trend} />
-        </div>
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <Tabs selectedKey={activeTab} onSelectionChange={(key) => setActiveTab(key as string)} size="sm" variant="underlined" color="primary">
+          <Tab key="overview" title="总览" />
+          <Tab key="network" title="网络诊断" />
+          <Tab key="server" title="服务器健康" />
+          <Tab key="audit" title="资产审计" />
+        </Tabs>
+      </div>
+
+      {/* ==================== Overview Tab ==================== */}
+      {activeTab === 'overview' && (
+        <>
+          {!noData && trend.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <TrendChart data={trend} />
+              <LatencyTrendChart data={trend} />
+            </div>
+          )}
+
+          {/* Server Health Overview */}
+          {assets.length > 0 && (
+            <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+              <StatCard label="服务器健康" value={`${serverHealth.score.toFixed(0)}分`}
+                subtitle={serverHealth.totalIssues > 0 ? `${serverHealth.totalIssues} 个问题` : '全部正常'}
+                tone={serverHealth.score >= 85 ? 'success' : serverHealth.score >= 60 ? 'warning' : 'danger'} />
+              <StatCard label="探针节点" value={`${serverHealth.probeNodeOnline}/${serverHealth.probeNodeTotal}`}
+                subtitle={serverHealth.offlineNodes > 0 ? `${serverHealth.offlineNodes} 个离线` : '全部在线'}
+                tone={serverHealth.offlineNodes > 0 ? 'warning' : 'success'} />
+              <StatCard label="流量预警" value={`${serverHealth.trafficWarnings.length}`}
+                subtitle={serverHealth.trafficWarnings.length > 0 ? '超过80%配额' : '无预警'}
+                tone={serverHealth.trafficWarnings.length > 0 ? 'warning' : 'success'} />
+              <StatCard label="到期预警" value={`${serverHealth.expired.length + serverHealth.expiringSoon.length}`}
+                subtitle={serverHealth.expired.length > 0 ? `${serverHealth.expired.length} 已过期` : '30天内到期'}
+                tone={serverHealth.expired.length > 0 ? 'danger' : serverHealth.expiringSoon.length > 0 ? 'warning' : 'success'} />
+              <StatCard label="资产完整度" value={`${assets.length > 0 ? ((1 - serverHealth.noProbe.length / assets.length) * 100).toFixed(0) : 100}%`}
+                subtitle={serverHealth.noProbe.length > 0 ? `${serverHealth.noProbe.length} 无探针` : '全部绑定'}
+                tone={serverHealth.noProbe.length > 0 ? 'warning' : 'success'} />
+            </div>
+          )}
+
+          {/* Quick issue list */}
+          {serverHealth.totalIssues > 0 && (
+            <Card className="border border-default-200 shadow-sm">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold mb-3">待处理问题</p>
+                <div className="space-y-1.5">
+                  {serverHealth.expired.map(a => (
+                    <div key={`exp-${a.id}`} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-danger-50/40 dark:bg-danger-50/10 text-sm">
+                      <Chip size="sm" variant="flat" color="danger" className="h-5 text-[10px]">已过期</Chip>
+                      <span className="flex-1 truncate font-medium">{a.name}</span>
+                      <span className="text-xs text-default-400">{a.provider || '-'}</span>
+                    </div>
+                  ))}
+                  {serverHealth.trafficWarnings.slice(0, 3).map(a => (
+                    <div key={`traf-${a.id}`} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-warning-50/40 dark:bg-warning-50/10 text-sm">
+                      <Chip size="sm" variant="flat" color="warning" className="h-5 text-[10px]">流量</Chip>
+                      <span className="flex-1 truncate font-medium">{a.name}</span>
+                      <span className="text-xs font-mono text-warning">{a.pct.toFixed(0)}%</span>
+                    </div>
+                  ))}
+                  {serverHealth.expiringSoon.slice(0, 3).map(a => {
+                    const days = Math.ceil(((a.expireDate || 0) - Date.now()) / 86400000);
+                    return (
+                      <div key={`soon-${a.id}`} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-warning-50/40 dark:bg-warning-50/10 text-sm">
+                        <Chip size="sm" variant="flat" color="warning" className="h-5 text-[10px]">{days}天到期</Chip>
+                        <span className="flex-1 truncate font-medium">{a.name}</span>
+                        <span className="text-xs text-default-400">{a.provider || '-'}</span>
+                      </div>
+                    );
+                  })}
+                  {serverHealth.offlineNodes > 0 && (
+                    <div className="flex items-center gap-3 rounded-lg px-3 py-2 bg-danger-50/40 dark:bg-danger-50/10 text-sm">
+                      <Chip size="sm" variant="flat" color="danger" className="h-5 text-[10px]">离线</Chip>
+                      <span className="flex-1 font-medium">{serverHealth.offlineNodes} 个探针节点离线</span>
+                    </div>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+        </>
       )}
+
+      {/* ==================== Network Diagnosis Tab ==================== */}
+      {activeTab === 'network' && (
+        <>
+          {!noData && trend.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <TrendChart data={trend} />
+              <LatencyTrendChart data={trend} />
+            </div>
+          )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.2fr)]">
         <Card className="border border-default-200 shadow-sm">
@@ -1321,6 +1475,231 @@ export default function MonitorPage() {
           )}
         </CardBody>
       </Card>
+        </>
+      )}
+
+      {/* ==================== Server Health Tab ==================== */}
+      {activeTab === 'server' && (
+        <>
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <StatCard label="健康评分" value={`${serverHealth.score.toFixed(0)}`}
+              subtitle={serverHealth.score >= 85 ? '状态良好' : serverHealth.score >= 60 ? '需要关注' : '需要处理'}
+              tone={serverHealth.score >= 85 ? 'success' : serverHealth.score >= 60 ? 'warning' : 'danger'} />
+            <StatCard label="探针在线率" value={serverHealth.probeNodeTotal > 0 ? `${((serverHealth.probeNodeOnline / serverHealth.probeNodeTotal) * 100).toFixed(0)}%` : '-'}
+              subtitle={`${serverHealth.probeNodeOnline}/${serverHealth.probeNodeTotal} 在线`}
+              tone={serverHealth.offlineNodes > 0 ? 'danger' : 'success'} />
+            <StatCard label="探针实例" value={`${probeInstances.length}`}
+              subtitle={probeInstances.map(i => i.type || 'probe').join(' + ') || '无'}
+              tone="primary" />
+            <StatCard label="服务器总数" value={`${assets.length}`}
+              subtitle={`${serverHealth.noProbe.length} 无探针绑定`}
+              tone={serverHealth.noProbe.length > 0 ? 'warning' : 'success'} />
+          </div>
+
+          {/* Probe instances */}
+          <Card className="border border-default-200 shadow-sm">
+            <CardBody className="p-4">
+              <p className="text-sm font-semibold mb-3">探针实例状态</p>
+              {probeInstances.length > 0 ? (
+                <div className="space-y-2">
+                  {probeInstances.map(inst => (
+                    <div key={inst.id} className="flex items-center gap-3 rounded-lg border border-divider/60 px-4 py-3">
+                      <Chip size="sm" variant="dot" color={inst.onlineNodeCount === inst.nodeCount ? 'success' : 'warning'} className="h-5 text-[10px]">
+                        {inst.type || 'probe'}
+                      </Chip>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{inst.name}</p>
+                        <p className="text-xs text-default-400">{inst.baseUrl || '-'}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-mono font-bold">{inst.onlineNodeCount}/{inst.nodeCount}</p>
+                        <p className="text-[10px] text-default-400">在线/总数</p>
+                      </div>
+                      <Progress size="sm" value={inst.nodeCount ? (inst.onlineNodeCount || 0) / inst.nodeCount * 100 : 0}
+                        color={inst.onlineNodeCount === inst.nodeCount ? 'success' : 'warning'} className="w-20" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-default-400 text-center py-6">暂无配置探针实例</p>
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Offline nodes warning */}
+          {serverHealth.offlineNodes > 0 && (
+            <Card className="border border-danger/30 shadow-sm">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold text-danger mb-3">离线节点 ({serverHealth.offlineNodes})</p>
+                <p className="text-sm text-default-500">
+                  共有 {serverHealth.offlineNodes} 个探针节点处于离线状态。请检查对应服务器的探针进程和网络连接。
+                </p>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Traffic warnings */}
+          {serverHealth.trafficWarnings.length > 0 && (
+            <Card className="border border-warning/30 shadow-sm">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold text-warning mb-3">流量配额预警 ({serverHealth.trafficWarnings.length})</p>
+                <div className="space-y-2">
+                  {serverHealth.trafficWarnings.map(a => (
+                    <div key={a.id} className="flex items-center gap-3 text-sm">
+                      <span className="w-36 truncate font-medium">{a.name}</span>
+                      <Progress size="sm" value={Math.min(a.pct, 100)} color={a.pct >= 100 ? 'danger' : 'warning'} className="flex-1" />
+                      <span className="text-xs font-mono w-24 text-right text-default-500">
+                        {formatFlow(a.probeTrafficUsed || 0)} / {formatFlow(a.probeTrafficLimit || 0)}
+                      </span>
+                      <span className={`text-xs font-bold font-mono w-12 text-right ${a.pct >= 100 ? 'text-danger' : 'text-warning'}`}>
+                        {a.pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* No issues */}
+          {serverHealth.offlineNodes === 0 && serverHealth.trafficWarnings.length === 0 && (
+            <Card className="border border-success/30 shadow-sm">
+              <CardBody className="flex items-center justify-center py-8 text-sm text-success gap-2">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                服务器和探针状态正常，无需处理
+              </CardBody>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* ==================== Asset Audit Tab ==================== */}
+      {activeTab === 'audit' && (
+        <>
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+            <StatCard label="已过期" value={`${serverHealth.expired.length}`}
+              subtitle="需要续费或清理" tone={serverHealth.expired.length > 0 ? 'danger' : 'success'} />
+            <StatCard label="即将到期" value={`${serverHealth.expiringSoon.length}`}
+              subtitle="30天内到期" tone={serverHealth.expiringSoon.length > 0 ? 'warning' : 'success'} />
+            <StatCard label="缺少地区" value={`${serverHealth.missingRegion.length}`}
+              subtitle={`共 ${assets.length} 台`} tone={serverHealth.missingRegion.length > 0 ? 'warning' : 'success'} />
+            <StatCard label="缺少供应商" value={`${serverHealth.missingProvider.length}`}
+              subtitle={`共 ${assets.length} 台`} tone={serverHealth.missingProvider.length > 0 ? 'warning' : 'success'} />
+            <StatCard label="未绑定探针" value={`${serverHealth.noProbe.length}`}
+              subtitle="缺少监控覆盖" tone={serverHealth.noProbe.length > 0 ? 'warning' : 'success'} />
+          </div>
+
+          {/* Expired servers */}
+          {serverHealth.expired.length > 0 && (
+            <Card className="border border-danger/30 shadow-sm">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold text-danger mb-3">已过期服务器</p>
+                <div className="space-y-1.5">
+                  {serverHealth.expired.map(a => {
+                    const days = Math.abs(Math.ceil((Date.now() - (a.expireDate || 0)) / 86400000));
+                    return (
+                      <div key={a.id} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-danger-50/40 dark:bg-danger-50/10 text-sm">
+                        <span className="w-16 text-right font-mono font-bold text-danger">{days}天前</span>
+                        <span className="flex-1 font-medium truncate">{a.name}</span>
+                        {a.provider && <Chip size="sm" variant="flat" className="h-5 text-[10px]">{a.provider}</Chip>}
+                        {a.region && <span className="text-xs text-default-400">{a.region}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Expiring soon */}
+          {serverHealth.expiringSoon.length > 0 && (
+            <Card className="border border-warning/30 shadow-sm">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold text-warning mb-3">即将到期 (30天内)</p>
+                <div className="space-y-1.5">
+                  {serverHealth.expiringSoon.map(a => {
+                    const days = Math.ceil(((a.expireDate || 0) - Date.now()) / 86400000);
+                    return (
+                      <div key={a.id} className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${days <= 7 ? 'bg-danger-50/40 dark:bg-danger-50/10' : 'bg-warning-50/40 dark:bg-warning-50/10'}`}>
+                        <span className={`w-16 text-right font-mono font-bold ${days <= 7 ? 'text-danger' : 'text-warning'}`}>{days}天</span>
+                        <span className="flex-1 font-medium truncate">{a.name}</span>
+                        {a.provider && <Chip size="sm" variant="flat" className="h-5 text-[10px]">{a.provider}</Chip>}
+                        {a.monthlyCost && <span className="text-xs text-default-400 font-mono">{a.currency || ''}${a.monthlyCost}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Missing data audit */}
+          {(serverHealth.noProbe.length > 0 || serverHealth.missingRegion.length > 0 || serverHealth.missingProvider.length > 0 || serverHealth.missingCost.length > 0) && (
+            <Card className="border border-default-200 shadow-sm">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold mb-3">数据完整性审计</p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {serverHealth.noProbe.length > 0 && (
+                    <div className="rounded-xl border border-warning/30 bg-warning-50/20 p-3">
+                      <p className="text-xs font-bold text-warning uppercase tracking-wider">未绑定探针</p>
+                      <p className="text-lg font-bold font-mono mt-1">{serverHealth.noProbe.length}</p>
+                      <p className="text-[10px] text-default-400 mt-1 truncate">
+                        {serverHealth.noProbe.slice(0, 3).map(a => a.name).join(', ')}
+                        {serverHealth.noProbe.length > 3 && ` +${serverHealth.noProbe.length - 3}`}
+                      </p>
+                    </div>
+                  )}
+                  {serverHealth.missingRegion.length > 0 && (
+                    <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                      <p className="text-xs font-bold text-default-400 uppercase tracking-wider">缺少地区</p>
+                      <p className="text-lg font-bold font-mono mt-1">{serverHealth.missingRegion.length}</p>
+                      <p className="text-[10px] text-default-400 mt-1 truncate">
+                        {serverHealth.missingRegion.slice(0, 3).map(a => a.name).join(', ')}
+                        {serverHealth.missingRegion.length > 3 && ` +${serverHealth.missingRegion.length - 3}`}
+                      </p>
+                    </div>
+                  )}
+                  {serverHealth.missingProvider.length > 0 && (
+                    <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                      <p className="text-xs font-bold text-default-400 uppercase tracking-wider">缺少供应商</p>
+                      <p className="text-lg font-bold font-mono mt-1">{serverHealth.missingProvider.length}</p>
+                      <p className="text-[10px] text-default-400 mt-1 truncate">
+                        {serverHealth.missingProvider.slice(0, 3).map(a => a.name).join(', ')}
+                        {serverHealth.missingProvider.length > 3 && ` +${serverHealth.missingProvider.length - 3}`}
+                      </p>
+                    </div>
+                  )}
+                  {serverHealth.missingCost.length > 0 && (
+                    <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                      <p className="text-xs font-bold text-default-400 uppercase tracking-wider">缺少成本</p>
+                      <p className="text-lg font-bold font-mono mt-1">{serverHealth.missingCost.length}</p>
+                      <p className="text-[10px] text-default-400 mt-1 truncate">
+                        {serverHealth.missingCost.slice(0, 3).map(a => a.name).join(', ')}
+                        {serverHealth.missingCost.length > 3 && ` +${serverHealth.missingCost.length - 3}`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* All clear */}
+          {serverHealth.expired.length === 0 && serverHealth.expiringSoon.length === 0 &&
+           serverHealth.noProbe.length === 0 && serverHealth.missingRegion.length === 0 && (
+            <Card className="border border-success/30 shadow-sm">
+              <CardBody className="flex items-center justify-center py-8 text-sm text-success gap-2">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                资产数据完整，无待处理问题
+              </CardBody>
+            </Card>
+          )}
+        </>
+      )}
     </div>
   );
 }

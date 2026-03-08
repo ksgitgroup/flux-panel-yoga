@@ -60,6 +60,12 @@ const PROBE_CONDITIONS = [
   { value: 'both', label: '双探针节点' },
 ];
 
+const SEVERITIES = [
+  { value: 'info', label: '提示', color: 'primary' as const },
+  { value: 'warning', label: '警告', color: 'warning' as const },
+  { value: 'critical', label: '严重', color: 'danger' as const },
+];
+
 function formatTime(ts?: number | null): string {
   if (!ts) return '-';
   return new Date(ts).toLocaleString('zh-CN', { hour12: false });
@@ -167,7 +173,7 @@ export default function AlertPage() {
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
       durationSeconds: 0, scopeType: 'all', notifyType: 'log',
-      cooldownMinutes: 5, enabled: 1,
+      cooldownMinutes: 5, enabled: 1, severity: 'warning',
     });
     onOpen();
   };
@@ -225,6 +231,9 @@ export default function AlertPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
+                      <Chip size="sm" variant="flat" color={SEVERITIES.find(s => s.value === rule.severity)?.color || 'warning'} className="h-5 text-[10px]">
+                        {SEVERITIES.find(s => s.value === rule.severity)?.label || '警告'}
+                      </Chip>
                       <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : 'primary'} className="h-5 text-[10px]">
                         {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
                       </Chip>
@@ -245,6 +254,7 @@ export default function AlertPage() {
                       {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
                       {rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
                       {' · '}冷却: {rule.cooldownMinutes}分钟
+                      {rule.escalateAfterMinutes ? ` · 升级: ${rule.escalateAfterMinutes}分钟后` : ''}
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
                   </div>
@@ -398,9 +408,20 @@ export default function AlertPage() {
                   {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
                 </Select>
 
+                <Select label="严重等级" size="sm" description="影响通知标题和升级逻辑"
+                  selectedKeys={editRule.severity ? [editRule.severity] : ['warning']}
+                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, severity: v }); }}>
+                  {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
+                </Select>
+
                 <Input label="冷却时间 (分钟)" size="sm" type="number"
                   value={String(editRule.cooldownMinutes ?? 5)}
                   onValueChange={v => setEditRule({ ...editRule, cooldownMinutes: parseInt(v) || 5 })} />
+
+                <Input label="升级间隔 (分钟)" size="sm" type="number" placeholder="留空不升级"
+                  description="告警持续触发时，经过此间隔自动升级严重等级并重新通知"
+                  value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
+                  onValueChange={v => setEditRule({ ...editRule, escalateAfterMinutes: v ? parseInt(v) : undefined })} />
               </ModalBody>
               <ModalFooter>
                 <Button variant="flat" onPress={onClose}>取消</Button>

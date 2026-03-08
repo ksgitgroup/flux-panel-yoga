@@ -36,4 +36,8 @@ public class AlertRuleDto {
     private Integer enabled;
 
     private String probeCondition;
+
+    private String severity;
+
+    private Integer escalateAfterMinutes;
 }

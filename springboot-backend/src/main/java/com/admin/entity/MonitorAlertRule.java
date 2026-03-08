@@ -41,4 +41,10 @@ public class MonitorAlertRule extends BaseEntity {
 
     /** 探针条件: any, komari, pika, both */
     private String probeCondition;
+
+    /** 严重等级: info, warning, critical */
+    private String severity;
+
+    /** 升级间隔（分钟）：若持续触发，经过此间隔后自动升级严重等级并重新通知 */
+    private Integer escalateAfterMinutes;
 }

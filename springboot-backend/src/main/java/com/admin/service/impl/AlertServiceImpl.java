@@ -76,6 +76,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         if (rule.getNotifyType() == null) rule.setNotifyType("log");
         if (rule.getCooldownMinutes() == null) rule.setCooldownMinutes(5);
         if (rule.getDurationSeconds() == null) rule.setDurationSeconds(0);
+        if (rule.getSeverity() == null) rule.setSeverity("warning");
         alertRuleMapper.insert(rule);
         return R.ok(rule);
     }
@@ -151,10 +152,24 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         long now = System.currentTimeMillis();
 
         for (MonitorAlertRule rule : rules) {
-            // Check cooldown
+            // Check cooldown with escalation support
+            boolean isEscalation = false;
             if (rule.getLastTriggeredAt() != null) {
                 int cooldownMs = (rule.getCooldownMinutes() != null ? rule.getCooldownMinutes() : 5) * 60 * 1000;
-                if (now - rule.getLastTriggeredAt() < cooldownMs) continue;
+                long elapsed = now - rule.getLastTriggeredAt();
+                if (elapsed < cooldownMs) {
+                    // Within cooldown - check if escalation applies
+                    if (rule.getEscalateAfterMinutes() != null && rule.getEscalateAfterMinutes() > 0) {
+                        long escalateMs = rule.getEscalateAfterMinutes() * 60 * 1000L;
+                        if (elapsed >= escalateMs) {
+                            isEscalation = true;
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                }
             }
 
             // Determine which nodes to check
@@ -211,6 +226,14 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 }
 
                 if (triggered) {
+                    // Determine effective severity (escalate if applicable)
+                    String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
+                    String effectiveSeverity = baseSeverity;
+                    if (isEscalation) {
+                        effectiveSeverity = escalateSeverity(baseSeverity);
+                        message = "[升级] " + message;
+                    }
+
                     // Create log
                     MonitorAlertLog logEntry = new MonitorAlertLog();
                     logEntry.setRuleId(rule.getId());
@@ -220,13 +243,13 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                     logEntry.setMetric(rule.getMetric());
                     logEntry.setCurrentValue(currentValue);
                     logEntry.setThreshold(rule.getThreshold());
-                    logEntry.setMessage(message);
+                    logEntry.setMessage(String.format("[%s] %s", effectiveSeverity.toUpperCase(), message));
                     logEntry.setCreatedTime(now);
                     logEntry.setUpdatedTime(now);
                     logEntry.setStatus(0);
 
                     // Send notification
-                    String notifyStatus = sendNotification(rule, message, node);
+                    String notifyStatus = sendNotification(rule, effectiveSeverity, message, node);
                     logEntry.setNotifyStatus(notifyStatus);
                     alertLogMapper.insert(logEntry);
 
@@ -390,9 +413,15 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
     }
 
-    private String sendNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {
+    private String escalateSeverity(String severity) {
+        if ("info".equals(severity)) return "warning";
+        if ("warning".equals(severity)) return "critical";
+        return "critical"; // already critical stays critical
+    }
+
+    private String sendNotification(MonitorAlertRule rule, String severity, String message, MonitorNodeSnapshot node) {
         if ("wechat".equals(rule.getNotifyType())) {
-            return sendWeChatNotification(rule, message, node);
+            return sendWeChatNotification(rule, severity, message, node);
         }
 
         if (!"webhook".equals(rule.getNotifyType()) || !StringUtils.hasText(rule.getNotifyTarget())) {
@@ -402,6 +431,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("ruleName", rule.getName());
+            payload.put("severity", severity);
             payload.put("metric", rule.getMetric());
             payload.put("nodeName", node.getName());
             payload.put("nodeIp", node.getIp());
@@ -430,7 +460,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         }
     }
 
-    private String sendWeChatNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {
+    private String sendWeChatNotification(MonitorAlertRule rule, String severity, String message, MonitorNodeSnapshot node) {
         try {
             // Read webhook URL from config
             ViteConfig config = viteConfigMapper.selectOne(
@@ -441,14 +471,15 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 return "failed";
             }
 
-            // Build markdown message
+            // Build markdown message with severity
+            String severityIcon = "critical".equals(severity) ? "\uD83D\uDD34" : "warning".equals(severity) ? "⚠️" : "\u2139\uFE0F";
             String markdown = String.format(
-                    "## ⚠️ 告警: %s\n" +
+                    "## %s [%s] 告警: %s\n" +
                     "> **节点**: %s (%s)\n" +
                     "> **指标**: %s\n" +
                     "> **详情**: %s\n" +
                     "> **时间**: %s",
-                    rule.getName(),
+                    severityIcon, severity.toUpperCase(), rule.getName(),
                     node.getName(), node.getIp() != null ? node.getIp() : "-",
                     rule.getMetric(),
                     message,

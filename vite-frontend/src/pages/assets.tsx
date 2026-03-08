@@ -202,6 +202,8 @@ export default function AssetsPage() {
   const [provisionLoading, setProvisionLoading] = useState(false);
   const [provisionResult, setProvisionResult] = useState<MonitorProvisionResult | null>(null);
   const [filterRole, setFilterRole] = useState<string | null>(null);
+  const [filterTag, setFilterTag] = useState<string>('');
+  const [filterProbe, setFilterProbe] = useState<string>('');
 
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
@@ -228,6 +230,19 @@ export default function AssetsPage() {
     };
   }, [assets]);
 
+  const allAssetTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    assets.forEach(a => {
+      for (const src of [a.probeTags, a.tags]) {
+        if (!src) continue;
+        try { JSON.parse(src).forEach((t: string) => tagSet.add(t)); } catch {
+          src.split(/[;,]/).filter(Boolean).forEach(t => tagSet.add(t.trim()));
+        }
+      }
+    });
+    return Array.from(tagSet).sort();
+  }, [assets]);
+
   const roleFilters = useMemo(() => {
     const counts: Record<string, number> = {};
     assets.forEach(a => {
@@ -242,15 +257,29 @@ export default function AssetsPage() {
     if (filterRole) {
       list = list.filter(a => (filterRole === 'none' ? !a.role : a.role === filterRole));
     }
+    if (filterProbe) {
+      list = list.filter(a => (a.probeSource || 'local') === filterProbe || (filterProbe === 'dual' && a.probeSource === 'dual'));
+    }
+    if (filterTag) {
+      list = list.filter(a => {
+        for (const src of [a.probeTags, a.tags]) {
+          if (!src) continue;
+          try { if (JSON.parse(src).includes(filterTag)) return true; } catch {
+            if (src.split(/[;,]/).map((t: string) => t.trim()).includes(filterTag)) return true;
+          }
+        }
+        return false;
+      });
+    }
     const kw = normalizeKeyword(searchKeyword);
     if (kw) {
       list = list.filter((item) =>
-        [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark, item.tags]
+        [item.name, item.label, item.primaryIp, item.environment, item.provider, item.region, item.role, item.remark, item.tags, item.probeTags]
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
     return list;
-  }, [assets, searchKeyword, filterRole]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -541,6 +570,24 @@ export default function AssetsPage() {
             );
           })}
         </div>
+        {/* Probe type + Tag filters */}
+        <div className="flex gap-2 ml-auto">
+          <select value={filterProbe} onChange={e => setFilterProbe(e.target.value)}
+            className="h-7 rounded-lg border border-divider/60 bg-content1 text-[11px] px-2">
+            <option value="">全部探针</option>
+            <option value="local">本地</option>
+            <option value="komari">Komari</option>
+            <option value="pika">Pika</option>
+            <option value="dual">双探针</option>
+          </select>
+          {allAssetTags.length > 0 && (
+            <select value={filterTag} onChange={e => setFilterTag(e.target.value)}
+              className="h-7 rounded-lg border border-divider/60 bg-content1 text-[11px] px-2 max-w-[120px]">
+              <option value="">全部标签</option>
+              {allAssetTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* Main Server Table (desktop) / Card Grid (mobile) */}
@@ -560,11 +607,11 @@ export default function AssetsPage() {
                 <thead>
                   <tr className="border-b border-divider/60 bg-default-50/80">
                     <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[220px]">服务器</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[200px]">遥测</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">网络</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[140px]">厂商</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">到期</th>
-                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[100px]">关联</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[80px]">探针</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[180px]">遥测</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[130px]">流量/到期</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[130px]">标签</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-default-400 uppercase w-[80px]">关联</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -574,7 +621,6 @@ export default function AssetsPage() {
                     const cpu = asset.monitorCpuUsage || 0;
                     const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
                     const roleChip = getRoleChip(asset.role);
-                    const isExpiringSoon = asset.expireDate && asset.expireDate < Date.now() + 30 * 86400000;
 
                     return (
                       <tr
@@ -608,12 +654,39 @@ export default function AssetsPage() {
                           </div>
                         </td>
 
-                        {/* Telemetry - CPU/MEM bars */}
+                        {/* Probe source + sync time */}
+                        <td className="px-3 py-2.5">
+                          <div className="space-y-0.5">
+                            {asset.probeSource === 'dual' ? (
+                              <div className="flex gap-1">
+                                <Chip size="sm" variant="flat" color="primary" className="h-4 text-[8px]">K</Chip>
+                                <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[8px]">P</Chip>
+                              </div>
+                            ) : asset.probeSource === 'komari' ? (
+                              <Chip size="sm" variant="flat" color="primary" className="h-4 text-[8px]">Komari</Chip>
+                            ) : asset.probeSource === 'pika' ? (
+                              <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[8px]">Pika</Chip>
+                            ) : (
+                              <span className="text-[10px] text-default-300">本地</span>
+                            )}
+                            {asset.monitorLastSyncAt && (
+                              <p className="text-[9px] text-default-400 font-mono">
+                                {new Date(asset.monitorLastSyncAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Telemetry - CPU/MEM bars + Net */}
                         <td className="px-3 py-2.5">
                           {hasMonitor && isOnline ? (
                             <div className="space-y-0.5">
                               <ResourceBar label="CPU" value={cpu} color={barColorClass(cpu)} />
                               <ResourceBar label="MEM" value={memPct} color={barColorClass(memPct)} />
+                              <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
+                                <span className="text-success">&#x2193;{formatSpeed(asset.monitorNetIn)}</span>
+                                <span className="text-primary">&#x2191;{formatSpeed(asset.monitorNetOut)}</span>
+                              </div>
                             </div>
                           ) : hasMonitor ? (
                             <span className="text-[11px] text-danger font-mono">离线</span>
@@ -622,50 +695,65 @@ export default function AssetsPage() {
                           )}
                         </td>
 
-                        {/* Network speed */}
+                        {/* Traffic & Expire */}
                         <td className="px-3 py-2.5">
-                          {hasMonitor && isOnline ? (
-                            <div className="space-y-0.5 font-mono text-[11px]">
-                              <div className="flex items-center gap-1">
-                                <span className="text-success">&#x2193;</span>
-                                <span>{formatSpeed(asset.monitorNetIn)}</span>
+                          <div className="space-y-0.5">
+                            {asset.probeTrafficLimit && asset.probeTrafficLimit > 0 ? (
+                              <div className="text-[10px] font-mono">
+                                <span className="text-default-500">{formatFlow(asset.probeTrafficUsed)}</span>
+                                <span className="text-default-300"> / {formatFlow(asset.probeTrafficLimit)}</span>
                               </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-primary">&#x2191;</span>
-                                <span>{formatSpeed(asset.monitorNetOut)}</span>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-[11px] text-default-300 font-mono">-</span>
-                          )}
+                            ) : null}
+                            {(asset.probeExpiredAt && asset.probeExpiredAt > 0) || asset.expireDate ? (() => {
+                              const expiry = (asset.probeExpiredAt && asset.probeExpiredAt > 0) ? asset.probeExpiredAt : asset.expireDate;
+                              if (!expiry) return null;
+                              const days = Math.ceil((expiry - Date.now()) / 86400000);
+                              const isExpired = days < 0;
+                              const isSoon = days >= 0 && days <= 30;
+                              return (
+                                <p className={`text-[10px] font-mono ${isExpired ? 'text-danger' : isSoon ? 'text-warning' : 'text-default-500'}`}>
+                                  {new Date(expiry).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                                  {isExpired ? ' 已过期' : ` ${days}天`}
+                                </p>
+                              );
+                            })() : (
+                              <span className="text-[10px] text-default-300">-</span>
+                            )}
+                          </div>
                         </td>
 
-                        {/* Provider & Cost */}
+                        {/* Tags */}
                         <td className="px-3 py-2.5">
-                          <p className="truncate text-xs">{asset.provider || '-'}</p>
-                          {asset.monthlyCost && (
-                            <p className="text-[11px] text-default-400 font-mono">{asset.monthlyCost} {asset.currency || ''}/月</p>
-                          )}
-                        </td>
-
-                        {/* Expire */}
-                        <td className="px-3 py-2.5">
-                          <span className={`text-xs font-mono ${isExpiringSoon ? 'text-warning font-semibold' : 'text-default-500'}`}>
-                            {formatDateShort(asset.expireDate)}
-                          </span>
+                          <div className="flex flex-wrap gap-0.5">
+                            {(() => {
+                              const tagSrc = asset.probeTags || asset.tags;
+                              if (!tagSrc) return <span className="text-[10px] text-default-300">-</span>;
+                              try {
+                                const arr = JSON.parse(tagSrc);
+                                if (Array.isArray(arr) && arr.length > 0) {
+                                  return arr.slice(0, 3).map((t: string) => (
+                                    <span key={t} className="px-1 py-0.5 rounded bg-default-100 text-[9px] text-default-500">{t}</span>
+                                  ));
+                                }
+                              } catch { /* not JSON */ }
+                              return tagSrc.split(/[;,]/).filter(Boolean).slice(0, 3).map((t: string) => (
+                                <span key={t} className="px-1 py-0.5 rounded bg-default-100 text-[9px] text-default-500">{t.trim()}</span>
+                              ));
+                            })()}
+                          </div>
                         </td>
 
                         {/* Integration links */}
                         <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1.5 text-[11px] font-mono text-default-400">
+                          <div className="flex items-center gap-1 text-[11px] font-mono text-default-400">
                             {asset.totalXuiInstances > 0 && (
-                              <span className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10">
-                                {asset.totalXuiInstances} XUI
+                              <span className="px-1 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[9px]">
+                                {asset.totalXuiInstances}XUI
                               </span>
                             )}
                             {asset.totalForwards > 0 && (
-                              <span className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10">
-                                {asset.totalForwards} 转发
+                              <span className="px-1 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[9px]">
+                                {asset.totalForwards}转发
                               </span>
                             )}
                             {!asset.totalXuiInstances && !asset.totalForwards && '-'}

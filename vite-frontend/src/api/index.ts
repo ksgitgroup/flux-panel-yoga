@@ -232,6 +232,12 @@ export interface AssetHost {
   monitorMemTotal?: number | null;
   monitorNetIn?: number | null;
   monitorNetOut?: number | null;
+  probeSource?: string | null;
+  monitorLastSyncAt?: number | null;
+  probeTrafficLimit?: number | null;
+  probeTrafficUsed?: number | null;
+  probeExpiredAt?: number | null;
+  probeTags?: string | null;
 }
 
 export interface AssetForwardLink {

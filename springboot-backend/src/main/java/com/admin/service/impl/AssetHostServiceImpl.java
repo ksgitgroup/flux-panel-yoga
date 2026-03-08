@@ -140,6 +140,14 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         if (forwardCount != null && forwardCount > 0) {
             return R.err("该资产仍被转发配置引用，无法删除");
         }
+        // Unlink monitor node snapshots referencing this asset
+        List<MonitorNodeSnapshot> linkedNodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>().eq(MonitorNodeSnapshot::getAssetId, id));
+        for (MonitorNodeSnapshot node : linkedNodes) {
+            node.setAssetId(null);
+            monitorNodeSnapshotMapper.updateById(node);
+        }
+
         this.removeById(asset.getId());
         return R.ok();
     }
@@ -368,6 +376,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
                 if (bestSnapshot != null) {
                     dto.setMonitorOnline(bestSnapshot.getOnline());
+                    dto.setMonitorLastSyncAt(bestSnapshot.getLastSyncAt());
                 }
                 if (bestMetric != null) {
                     dto.setMonitorCpuUsage(bestMetric.getCpuUsage());
@@ -376,6 +385,41 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                     dto.setMonitorNetIn(bestMetric.getNetIn());
                     dto.setMonitorNetOut(bestMetric.getNetOut());
                 }
+
+                // Aggregate probe traffic/expiry/tags from all linked probes
+                Long maxSyncAt = null;
+                for (String uuid : new String[]{asset.getMonitorNodeUuid(), asset.getPikaNodeId()}) {
+                    if (!StringUtils.hasText(uuid)) continue;
+                    MonitorNodeSnapshot snap = nodeSnapshotByUuid.get(uuid);
+                    if (snap == null) continue;
+                    if (maxSyncAt == null || (snap.getLastSyncAt() != null && snap.getLastSyncAt() > maxSyncAt)) {
+                        maxSyncAt = snap.getLastSyncAt();
+                    }
+                    // Traffic: take the one with a limit configured
+                    if (snap.getTrafficLimit() != null && snap.getTrafficLimit() > 0) {
+                        dto.setProbeTrafficLimit(snap.getTrafficLimit());
+                        dto.setProbeTrafficUsed(snap.getTrafficUsed());
+                    }
+                    // Expiry: take the latest (most relevant)
+                    if (snap.getExpiredAt() != null && snap.getExpiredAt() > 0) {
+                        if (dto.getProbeExpiredAt() == null || snap.getExpiredAt() > dto.getProbeExpiredAt()) {
+                            dto.setProbeExpiredAt(snap.getExpiredAt());
+                        }
+                    }
+                    // Tags: merge from probes
+                    if (StringUtils.hasText(snap.getTags())) {
+                        dto.setProbeTags(snap.getTags());
+                    }
+                }
+                if (maxSyncAt != null) dto.setMonitorLastSyncAt(maxSyncAt);
+
+                // Probe source
+                boolean hasKomari = StringUtils.hasText(asset.getMonitorNodeUuid());
+                boolean hasPika = StringUtils.hasText(asset.getPikaNodeId());
+                if (hasKomari && hasPika) dto.setProbeSource("dual");
+                else if (hasKomari) dto.setProbeSource("komari");
+                else if (hasPika) dto.setProbeSource("pika");
+                else dto.setProbeSource("local");
             }
 
             result.add(dto);

@@ -85,9 +85,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 .orderByAsc(MonitorNodeSnapshot::getName));
 
         List<MonitorNodeSnapshotViewDto> nodeViews = buildNodeViews(nodes, instance.getName());
-        Map<String, Object> detail = new LinkedHashMap<>();
-        detail.put("instance", view);
-        detail.put("nodes", nodeViews);
+        MonitorInstanceDetailDto detail = new MonitorInstanceDetailDto();
+        detail.setInstance(view);
+        detail.setNodes(nodeViews);
+        try {
+            detail.setProviderSummary(buildProviderSummary(instance, nodes));
+        } catch (Exception e) {
+            detail.setProviderSummaryError(shortenError(e.getMessage()));
+            log.warn("[MonitorDetail] Failed to build provider summary for {}: {}", instance.getName(), e.getMessage());
+        }
         return R.ok(detail);
     }
 
@@ -1000,9 +1006,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             throw new RuntimeException("Pika password (API Key field) is not configured");
         }
 
-        try {
+        try (CloseableHttpClient client = buildHttpClient(instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1)) {
             String loginBody = JSON.toJSONString(Map.of("username", username, "password", password));
-            CloseableHttpClient client = buildHttpClient(instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1);
             HttpPost request = new HttpPost(baseUrl + "/api/login");
             request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
             request.setHeader("Content-Type", "application/json");
@@ -1039,10 +1044,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
      * HTTP GET with explicit JWT Bearer token (used for Pika where token is obtained per-sync).
      */
     private String httpGetWithToken(String url, String token, Integer allowInsecureTls) {
-        try {
-            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
             HttpGet request = new HttpGet(url);
-            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(30_000).build());
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
             request.setHeader("Authorization", "Bearer " + token);
             request.setHeader("Accept", "application/json");
 
@@ -1631,8 +1635,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     private String httpGet(MonitorInstance instance, String path, Integer allowInsecureTls) {
         String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
-        try {
-            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
             HttpGet request = new HttpGet(url);
             request.setConfig(RequestConfig.custom()
                     .setConnectTimeout(10_000)
@@ -1661,8 +1664,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     private String httpPost(MonitorInstance instance, String path, String jsonBody, Integer allowInsecureTls) {
         String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
-        try {
-            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
             HttpPost request = new HttpPost(url);
             request.setConfig(RequestConfig.custom()
                     .setConnectTimeout(10_000)
@@ -1798,6 +1800,508 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }).collect(Collectors.toList());
     }
 
+    private MonitorProviderSummaryViewDto buildProviderSummary(MonitorInstance instance, List<MonitorNodeSnapshot> nodes) {
+        MonitorProviderSummaryViewDto summary = new MonitorProviderSummaryViewDto();
+        summary.setType(instance.getType());
+        summary.setTotalNodes(nodes == null ? 0 : nodes.size());
+        summary.setOnlineNodes((int) (nodes == null ? 0 : nodes.stream()
+                .filter(node -> node.getOnline() != null && node.getOnline() == 1)
+                .count()));
+
+        if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+            summary.setPikaSecurity(loadPikaSecuritySummary(instance, nodes));
+        } else if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            summary.setKomariOperations(loadKomariOperationsSummary(instance, nodes));
+        }
+        return summary;
+    }
+
+    private PikaSecuritySummaryViewDto loadPikaSecuritySummary(MonitorInstance instance, List<MonitorNodeSnapshot> nodes) {
+        PikaSecuritySummaryViewDto summary = new PikaSecuritySummaryViewDto();
+        List<MonitorProviderHighlightViewDto> highlights = new ArrayList<>();
+        summary.setHighlights(highlights);
+
+        String jwt;
+        try {
+            jwt = loginPika(instance);
+        } catch (Exception e) {
+            log.warn("[MonitorDetail] Pika login failed for {}: {}", instance.getName(), e.getMessage());
+            summary.setLoginError(shortenError(e.getMessage()));
+            return summary;
+        }
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        Integer tls = instance.getAllowInsecureTls();
+
+        Map<String, String> agentNames = new HashMap<>();
+        if (nodes != null) {
+            for (MonitorNodeSnapshot node : nodes) {
+                agentNames.put(node.getRemoteNodeUuid(), StringUtils.hasText(node.getName()) ? node.getName() : node.getRemoteNodeUuid());
+            }
+        }
+
+        JSONObject monitorsPayload = parseFlexiblePayload(httpGetWithToken(
+                baseUrl + "/api/admin/monitors?pageIndex=1&pageSize=200&sortOrder=asc&sortField=name",
+                jwt,
+                tls));
+        JSONArray monitorItems = extractItemsArray(monitorsPayload);
+        summary.setTotalMonitors(extractTotalCount(monitorsPayload, monitorItems));
+        summary.setEnabledMonitors((int) monitorItems.stream()
+                .filter(item -> item instanceof JSONObject && ((JSONObject) item).getBooleanValue("enabled"))
+                .count());
+        summary.setPublicMonitors((int) monitorItems.stream()
+                .filter(item -> item instanceof JSONObject && "public".equalsIgnoreCase(((JSONObject) item).getString("visibility")))
+                .count());
+        for (int i = 0; i < Math.min(3, monitorItems.size()); i++) {
+            JSONObject item = monitorItems.getJSONObject(i);
+            addHighlight(highlights,
+                    item.getString("name"),
+                    "service-monitor",
+                    buildPikaMonitorDetail(item),
+                    item.getBooleanValue("enabled") ? "info" : "muted",
+                    item.getJSONArray("agentIds") == null ? null : item.getJSONArray("agentIds").size(),
+                    item.getLong("updatedAt"));
+        }
+
+        JSONObject alertPayload = parseFlexiblePayload(httpGetWithToken(
+                baseUrl + "/api/admin/alert-records?pageIndex=1&pageSize=10&sortOrder=desc&sortField=fired_at",
+                jwt,
+                tls));
+        JSONArray alertItems = extractItemsArray(alertPayload);
+        summary.setAlertRecordCount(extractTotalCount(alertPayload, alertItems));
+        for (int i = 0; i < Math.min(3, alertItems.size()); i++) {
+            JSONObject item = alertItems.getJSONObject(i);
+            addHighlight(highlights,
+                    firstNonBlank(item.getString("configName"), item.getString("alertType"), "Pika Alert"),
+                    "alert-record",
+                    firstNonBlank(item.getString("message"), item.getString("agentName")),
+                    normalizeSeverity(item.getString("level")),
+                    null,
+                    firstPositive(item.getLong("firedAt"), item.getLong("createdAt")));
+        }
+
+        int protectedNodes = 0;
+        int tamperEventCount = 0;
+        int tamperAlertCount = 0;
+        int auditCoverage = 0;
+        int publicPortCount = 0;
+        int suspiciousProcessCount = 0;
+
+        // Limit per-node detail fetching to avoid N+1 HTTP latency (4 requests per node)
+        int maxNodeDetail = 5;
+        int nodeDetailCount = 0;
+        if (nodes != null) {
+            for (MonitorNodeSnapshot node : nodes) {
+                String agentId = node.getRemoteNodeUuid();
+                if (!StringUtils.hasText(agentId) || !isSafePathSegment(agentId)) {
+                    continue;
+                }
+                if (++nodeDetailCount > maxNodeDetail) {
+                    break;
+                }
+
+                try {
+                    JSONObject tamperConfig = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
+                            baseUrl + "/api/admin/agents/" + agentId + "/tamper/config",
+                            jwt,
+                            tls)));
+                    if (tamperConfig.getBooleanValue("enabled")) {
+                        protectedNodes++;
+                        JSONArray paths = tamperConfig.getJSONArray("paths");
+                        addHighlight(highlights,
+                                agentNames.get(agentId),
+                                "tamper-config",
+                                "防篡改已启用" + (paths == null || paths.isEmpty() ? "" : " · 路径 " + paths.size()),
+                                "success",
+                                paths == null ? null : paths.size(),
+                                tamperConfig.getLong("updatedAt"));
+                    }
+                } catch (Exception e) {
+                    log.debug("[MonitorDetail] Pika tamper config skipped for {}: {}", agentId, e.getMessage());
+                }
+
+                try {
+                    JSONObject tamperEvents = parseFlexiblePayload(httpGetWithToken(
+                            baseUrl + "/api/admin/agents/" + agentId + "/tamper/events?pageIndex=1&pageSize=3",
+                            jwt,
+                            tls));
+                    JSONArray items = extractItemsArray(tamperEvents);
+                    tamperEventCount += extractTotalCount(tamperEvents, items);
+                    if (!items.isEmpty()) {
+                        JSONObject event = items.getJSONObject(0);
+                        addHighlight(highlights,
+                                agentNames.get(agentId),
+                                "tamper-event",
+                                firstNonBlank(event.getString("path"), event.getString("details"), "检测到文件变化"),
+                                "warning",
+                                extractTotalCount(tamperEvents, items),
+                                firstPositive(event.getLong("timestamp"), event.getLong("createdAt")));
+                    }
+                } catch (Exception e) {
+                    log.debug("[MonitorDetail] Pika tamper events skipped for {}: {}", agentId, e.getMessage());
+                }
+
+                try {
+                    JSONObject tamperAlerts = parseFlexiblePayload(httpGetWithToken(
+                            baseUrl + "/api/admin/agents/" + agentId + "/tamper/alerts?pageIndex=1&pageSize=3",
+                            jwt,
+                            tls));
+                    JSONArray items = extractItemsArray(tamperAlerts);
+                    tamperAlertCount += extractTotalCount(tamperAlerts, items);
+                    if (!items.isEmpty()) {
+                        JSONObject event = items.getJSONObject(0);
+                        addHighlight(highlights,
+                                agentNames.get(agentId),
+                                "tamper-alert",
+                                firstNonBlank(event.getString("path"), event.getString("details"), "存在未恢复篡改告警"),
+                                event.getBooleanValue("restored") ? "info" : "danger",
+                                extractTotalCount(tamperAlerts, items),
+                                firstPositive(event.getLong("timestamp"), event.getLong("createdAt")));
+                    }
+                } catch (Exception e) {
+                    log.debug("[MonitorDetail] Pika tamper alerts skipped for {}: {}", agentId, e.getMessage());
+                }
+
+                try {
+                    JSONObject auditResult = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
+                            baseUrl + "/api/admin/agents/" + agentId + "/audit/result",
+                            jwt,
+                            tls)));
+                    int nodePublicPorts = countPublicListeningPorts(auditResult);
+                    int nodeSuspiciousProcesses = countSuspiciousProcesses(auditResult);
+                    auditCoverage++;
+                    publicPortCount += nodePublicPorts;
+                    suspiciousProcessCount += nodeSuspiciousProcesses;
+                    if (nodePublicPorts > 0 || nodeSuspiciousProcesses > 0) {
+                        addHighlight(highlights,
+                                agentNames.get(agentId),
+                                "audit",
+                                "公开监听端口 " + nodePublicPorts + " · 可疑进程 " + nodeSuspiciousProcesses,
+                                nodePublicPorts > 0 || nodeSuspiciousProcesses > 0 ? "warning" : "info",
+                                nodePublicPorts + nodeSuspiciousProcesses,
+                                firstPositive(auditResult.getLong("endTime"), auditResult.getLong("startTime")));
+                    }
+                } catch (Exception e) {
+                    log.debug("[MonitorDetail] Pika audit result skipped for {}: {}", agentId, e.getMessage());
+                }
+            }
+        }
+
+        summary.setTamperProtectedNodes(protectedNodes);
+        summary.setTamperEventCount(tamperEventCount);
+        summary.setTamperAlertCount(tamperAlertCount);
+        summary.setAuditCoverageNodes(auditCoverage);
+        summary.setPublicListeningPortCount(publicPortCount);
+        summary.setSuspiciousProcessCount(suspiciousProcessCount);
+        return summary;
+    }
+
+    private KomariOperationsSummaryViewDto loadKomariOperationsSummary(MonitorInstance instance, List<MonitorNodeSnapshot> nodes) {
+        KomariOperationsSummaryViewDto summary = new KomariOperationsSummaryViewDto();
+        List<MonitorProviderHighlightViewDto> highlights = new ArrayList<>();
+        summary.setHighlights(highlights);
+
+        Set<String> boundNodeIds = nodes == null
+                ? Collections.emptySet()
+                : nodes.stream()
+                .map(MonitorNodeSnapshot::getRemoteNodeUuid)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+
+        JSONObject publicNodesPayload = parseFlexiblePayload(httpGet(instance, "/api/nodes", instance.getAllowInsecureTls()));
+        JSONArray publicNodeItems = extractItemsArray(publicNodesPayload);
+        summary.setPublicNodeCount(publicNodeItems.size());
+        int publicBoundNodes = 0;
+        for (int i = 0; i < publicNodeItems.size(); i++) {
+            JSONObject item = publicNodeItems.getJSONObject(i);
+            if (boundNodeIds.contains(item.getString("uuid"))) {
+                publicBoundNodes++;
+            }
+            if (i < 3) {
+                addHighlight(highlights,
+                        firstNonBlank(item.getString("name"), item.getString("uuid"), "Public Node"),
+                        "public-node",
+                        firstNonBlank(item.getString("region"), item.getString("os"), "公开节点"),
+                        "info",
+                        null,
+                        null);
+            }
+        }
+        summary.setPublicBoundNodeCount(publicBoundNodes);
+        summary.setHiddenBoundNodeCount(Math.max(0, boundNodeIds.size() - publicBoundNodes));
+
+        JSONObject pingPayload = parseFlexiblePayload(httpGet(instance, "/api/admin/ping/", instance.getAllowInsecureTls()));
+        JSONArray pingItems = extractItemsArray(pingPayload);
+        int relevantPingTasks = 0;
+        for (int i = 0; i < pingItems.size(); i++) {
+            JSONObject item = pingItems.getJSONObject(i);
+            if (!matchesKomariClients(item.get("clients"), boundNodeIds)) {
+                continue;
+            }
+            relevantPingTasks++;
+            if (relevantPingTasks <= 3) {
+                addHighlight(highlights,
+                        item.getString("name"),
+                        "ping-task",
+                        firstNonBlank(item.getString("target"), item.getString("type"), "Ping Task"),
+                        "info",
+                        item.getJSONArray("clients") == null ? null : item.getJSONArray("clients").size(),
+                        null);
+            }
+        }
+        summary.setPingTaskCount(relevantPingTasks);
+
+        JSONObject loadPayload = parseFlexiblePayload(httpGet(instance, "/api/admin/notification/load/", instance.getAllowInsecureTls()));
+        JSONArray loadItems = extractItemsArray(loadPayload);
+        int relevantLoadNotifications = 0;
+        for (int i = 0; i < loadItems.size(); i++) {
+            JSONObject item = loadItems.getJSONObject(i);
+            if (!matchesKomariClients(item.get("clients"), boundNodeIds)) {
+                continue;
+            }
+            relevantLoadNotifications++;
+            if (relevantLoadNotifications <= 2) {
+                addHighlight(highlights,
+                        firstNonBlank(item.getString("name"), "负载告警"),
+                        "load-notification",
+                        "指标 " + firstNonBlank(item.getString("metric"), "cpu") + " > " + item.getString("threshold"),
+                        "warning",
+                        item.getJSONArray("clients") == null ? null : item.getJSONArray("clients").size(),
+                        null);
+            }
+        }
+        summary.setLoadNotificationCount(relevantLoadNotifications);
+
+        JSONObject offlinePayload = parseFlexiblePayload(httpGet(instance, "/api/admin/notification/offline", instance.getAllowInsecureTls()));
+        JSONArray offlineItems = extractItemsArray(offlinePayload);
+        int relevantOfflineNotifications = 0;
+        for (int i = 0; i < offlineItems.size(); i++) {
+            JSONObject item = offlineItems.getJSONObject(i);
+            if (!boundNodeIds.contains(item.getString("client"))) {
+                continue;
+            }
+            relevantOfflineNotifications++;
+            if (relevantOfflineNotifications <= 2) {
+                addHighlight(highlights,
+                        firstNonBlank(item.getJSONObject("client_info") == null ? null : item.getJSONObject("client_info").getString("name"),
+                                item.getString("client")),
+                        "offline-notification",
+                        "离线宽限期 " + firstPositiveInteger(item.getInteger("grace_period"), 180) + " 秒",
+                        item.getBooleanValue("enable") ? "warning" : "muted",
+                        null,
+                        null);
+            }
+        }
+        summary.setOfflineNotificationCount(relevantOfflineNotifications);
+        return summary;
+    }
+
+    private JSONObject parseFlexiblePayload(String responseJson) {
+        if (!StringUtils.hasText(responseJson)) {
+            return new JSONObject();
+        }
+        String trimmed = responseJson.trim();
+        if (trimmed.startsWith("[")) {
+            JSONObject wrapper = new JSONObject();
+            JSONArray items = JSON.parseArray(trimmed);
+            wrapper.put("items", items);
+            wrapper.put("total", items == null ? 0 : items.size());
+            return wrapper;
+        }
+        JSONObject object = JSON.parseObject(trimmed);
+        return object == null ? new JSONObject() : object;
+    }
+
+    private JSONObject unwrapDataObject(JSONObject payload) {
+        if (payload == null) {
+            return new JSONObject();
+        }
+        Object data = payload.get("data");
+        if (data instanceof JSONObject) {
+            return (JSONObject) data;
+        }
+        return payload;
+    }
+
+    private JSONArray extractItemsArray(JSONObject payload) {
+        if (payload == null) {
+            return new JSONArray();
+        }
+        Object data = payload.get("data");
+        if (data instanceof JSONArray) {
+            return (JSONArray) data;
+        }
+        if (data instanceof JSONObject) {
+            JSONObject dataObject = (JSONObject) data;
+            JSONArray items = dataObject.getJSONArray("items");
+            if (items != null) {
+                return items;
+            }
+        }
+        JSONArray items = payload.getJSONArray("items");
+        if (items != null) {
+            return items;
+        }
+        items = payload.getJSONArray("data");
+        return items == null ? new JSONArray() : items;
+    }
+
+    private int extractTotalCount(JSONObject payload, JSONArray fallbackItems) {
+        if (payload == null) {
+            return fallbackItems == null ? 0 : fallbackItems.size();
+        }
+        Object data = payload.get("data");
+        if (data instanceof JSONObject) {
+            JSONObject dataObject = (JSONObject) data;
+            Integer total = dataObject.getInteger("total");
+            if (total != null) {
+                return total;
+            }
+        }
+        Integer total = payload.getInteger("total");
+        if (total != null) {
+            return total;
+        }
+        return fallbackItems == null ? 0 : fallbackItems.size();
+    }
+
+    private boolean matchesKomariClients(Object rawClients, Set<String> boundNodeIds) {
+        if (boundNodeIds == null || boundNodeIds.isEmpty()) {
+            return false;
+        }
+        JSONArray clients = null;
+        if (rawClients instanceof JSONArray) {
+            clients = (JSONArray) rawClients;
+        } else if (rawClients instanceof Collection) {
+            clients = new JSONArray();
+            clients.addAll((Collection<?>) rawClients);
+        } else if (rawClients instanceof String && StringUtils.hasText((String) rawClients)) {
+            try {
+                clients = JSON.parseArray((String) rawClients);
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+        if (clients == null || clients.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < clients.size(); i++) {
+            if (boundNodeIds.contains(clients.getString(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int countPublicListeningPorts(JSONObject auditResult) {
+        JSONObject inventory = auditResult.getJSONObject("assetInventory");
+        if (inventory == null) {
+            return 0;
+        }
+        JSONObject networkAssets = inventory.getJSONObject("networkAssets");
+        if (networkAssets == null) {
+            return 0;
+        }
+        JSONArray listeningPorts = networkAssets.getJSONArray("listeningPorts");
+        if (listeningPorts == null || listeningPorts.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i < listeningPorts.size(); i++) {
+            JSONObject port = listeningPorts.getJSONObject(i);
+            if (port.getBooleanValue("isPublic")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int countSuspiciousProcesses(JSONObject auditResult) {
+        JSONObject inventory = auditResult.getJSONObject("assetInventory");
+        if (inventory == null) {
+            return 0;
+        }
+        JSONObject processAssets = inventory.getJSONObject("processAssets");
+        if (processAssets == null) {
+            return 0;
+        }
+        JSONArray suspiciousProcesses = processAssets.getJSONArray("suspiciousProcesses");
+        return suspiciousProcesses == null ? 0 : suspiciousProcesses.size();
+    }
+
+    private void addHighlight(List<MonitorProviderHighlightViewDto> highlights,
+                              String title,
+                              String category,
+                              String detail,
+                              String severity,
+                              Integer count,
+                              Long timestamp) {
+        if (highlights == null || highlights.size() >= 8 || !StringUtils.hasText(title)) {
+            return;
+        }
+        MonitorProviderHighlightViewDto item = new MonitorProviderHighlightViewDto();
+        item.setTitle(title);
+        item.setCategory(category);
+        item.setDetail(trimToNull(detail));
+        item.setSeverity(trimToNull(severity));
+        item.setCount(count);
+        item.setTimestamp(timestamp);
+        highlights.add(item);
+    }
+
+    private String buildPikaMonitorDetail(JSONObject item) {
+        String target = firstNonBlank(item.getString("target"), item.getString("description"));
+        String type = firstNonBlank(item.getString("type"), "monitor");
+        if (!StringUtils.hasText(target)) {
+            return type;
+        }
+        return type + " -> " + target;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private Long firstPositive(Long... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Long value : values) {
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private int firstPositiveInteger(Integer value, int fallback) {
+        return value != null && value > 0 ? value : fallback;
+    }
+
+    private String normalizeSeverity(String level) {
+        if (!StringUtils.hasText(level)) {
+            return "info";
+        }
+        String normalized = level.trim().toLowerCase(Locale.ROOT);
+        if ("critical".equals(normalized) || "high".equals(normalized) || "error".equals(normalized)) {
+            return "danger";
+        }
+        if ("medium".equals(normalized) || "warn".equals(normalized) || "warning".equals(normalized)) {
+            return "warning";
+        }
+        if ("success".equals(normalized) || "resolved".equals(normalized)) {
+            return "success";
+        }
+        return normalized;
+    }
+
     // ==================== Terminal Access ====================
 
     @Override
@@ -1863,6 +2367,23 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
         result.put("combinedCommand", String.join("\n\n", installCommands));
         return R.ok(result);
+    }
+
+    private static final java.util.regex.Pattern SAFE_PATH_SEGMENT = java.util.regex.Pattern.compile("^[a-zA-Z0-9._-]{1,128}$");
+
+    private boolean isSafePathSegment(String value) {
+        return value != null && SAFE_PATH_SEGMENT.matcher(value).matches();
+    }
+
+    private String trimToNull(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private String shortenError(String value) {
+        return truncate(value, 240);
     }
 
     private String truncate(String value, int maxLen) {

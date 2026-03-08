@@ -65,6 +65,7 @@ export interface DingtalkAuthorizeResponse {
 export interface XuiInstance {
   id: number;
   name: string;
+  provider: 'x-ui' | '3x-ui' | string;
   baseUrl: string;
   webBasePath: string;
   username: string;
@@ -87,6 +88,8 @@ export interface XuiInstance {
   lastTestStatus?: string | null;
   lastTestError?: string | null;
   lastTrafficPushAt?: number | null;
+  lastApiFlavor?: string | null;
+  lastResolvedBasePath?: string | null;
   inboundCount: number;
   clientCount: number;
 }
@@ -376,6 +379,54 @@ export interface MonitorInstance {
   updatedTime?: number | null;
 }
 
+export interface MonitorProviderHighlight {
+  title: string;
+  category?: string | null;
+  detail?: string | null;
+  severity?: string | null;
+  count?: number | null;
+  timestamp?: number | null;
+}
+
+export interface PikaSecuritySummary {
+  totalMonitors?: number | null;
+  enabledMonitors?: number | null;
+  publicMonitors?: number | null;
+  alertRecordCount?: number | null;
+  tamperProtectedNodes?: number | null;
+  tamperEventCount?: number | null;
+  tamperAlertCount?: number | null;
+  auditCoverageNodes?: number | null;
+  publicListeningPortCount?: number | null;
+  suspiciousProcessCount?: number | null;
+  highlights?: MonitorProviderHighlight[] | null;
+}
+
+export interface KomariOperationsSummary {
+  publicNodeCount?: number | null;
+  publicBoundNodeCount?: number | null;
+  hiddenBoundNodeCount?: number | null;
+  pingTaskCount?: number | null;
+  loadNotificationCount?: number | null;
+  offlineNotificationCount?: number | null;
+  highlights?: MonitorProviderHighlight[] | null;
+}
+
+export interface MonitorProviderSummary {
+  type: string;
+  totalNodes?: number | null;
+  onlineNodes?: number | null;
+  pikaSecurity?: PikaSecuritySummary | null;
+  komariOperations?: KomariOperationsSummary | null;
+}
+
+export interface MonitorInstanceDetail {
+  instance: MonitorInstance;
+  nodes: MonitorNodeSnapshot[];
+  providerSummary?: MonitorProviderSummary | null;
+  providerSummaryError?: string | null;
+}
+
 export interface AssetHostDetail {
   asset: AssetHost;
   xuiInstances: XuiInstance[];
@@ -552,7 +603,7 @@ export const savePortalLinks = (items: PortalLink[]) => Network.post<PortalLink[
 
 // Monitor (Komari/Pika probe integration)
 export const getMonitorList = () => Network.post<MonitorInstance[]>("/monitor/list");
-export const getMonitorDetail = (id: number) => Network.post("/monitor/detail", { id });
+export const getMonitorDetail = (id: number) => Network.post<MonitorInstanceDetail>("/monitor/detail", { id });
 export const createMonitorInstance = (data: any) => Network.post<MonitorInstance>("/monitor/create", data);
 export const updateMonitorInstance = (data: any) => Network.post<MonitorInstance>("/monitor/update", data);
 export const deleteMonitorInstance = (id: number) => Network.post("/monitor/delete", { id });

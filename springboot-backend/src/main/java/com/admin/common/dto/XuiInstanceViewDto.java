@@ -9,6 +9,8 @@ public class XuiInstanceViewDto {
 
     private String name;
 
+    private String provider;
+
     private String baseUrl;
 
     private String webBasePath;
@@ -52,6 +54,10 @@ public class XuiInstanceViewDto {
     private String lastTestError;
 
     private Long lastTrafficPushAt;
+
+    private String lastApiFlavor;
+
+    private String lastResolvedBasePath;
 
     private Long inboundCount;
 

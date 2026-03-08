@@ -45,6 +45,7 @@ import { hasPermission } from '@/utils/auth';
 interface XuiInstanceForm {
   id?: number;
   name: string;
+  provider: string;
   baseUrl: string;
   webBasePath: string;
   username: string;
@@ -64,8 +65,14 @@ const MANAGEMENT_MODES = [
   { key: 'flux_managed', label: 'Flux Managed', description: '后续可由 Flux 作为主控，向远端 x-ui 下发修改。' },
 ];
 
+const PROVIDER_OPTIONS = [
+  { key: 'x-ui', label: 'x-ui', description: '经典 x-ui 面板' },
+  { key: '3x-ui', label: '3x-ui', description: '3x-ui 面板，后端会继续自动探测具体 API 风格' },
+];
+
 const emptyForm = (): XuiInstanceForm => ({
   name: '',
+  provider: 'x-ui',
   baseUrl: '',
   webBasePath: '',
   username: '',
@@ -291,6 +298,11 @@ export default function XuiPage() {
     totalClients: instances.reduce((sum, item) => sum + (item.clientCount || 0), 0),
   }), [instances]);
 
+  const providerBreakdown = useMemo(() => ({
+    xui: instances.filter((item) => (item.provider || 'x-ui') !== '3x-ui').length,
+    threeXui: instances.filter((item) => item.provider === '3x-ui').length,
+  }), [instances]);
+
   const filteredInstances = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
     if (!keyword) {
@@ -301,6 +313,7 @@ export default function XuiPage() {
         instance.name,
         instance.assetName,
         instance.hostLabel,
+        instance.provider,
         instance.baseUrl,
         instance.webBasePath,
         instance.username,
@@ -433,6 +446,7 @@ export default function XuiPage() {
     setForm({
       id: instance.id,
       name: instance.name,
+      provider: instance.provider || 'x-ui',
       baseUrl: instance.baseUrl,
       webBasePath: instance.webBasePath || '/',
       username: instance.username,
@@ -474,6 +488,7 @@ export default function XuiPage() {
       const payload: Record<string, unknown> = {
         ...(isEdit ? { id: form.id } : {}),
         name: form.name.trim(),
+        provider: form.provider,
         baseUrl: form.baseUrl.trim(),
         webBasePath: form.webBasePath.trim(),
         username: form.username.trim(),
@@ -668,7 +683,7 @@ export default function XuiPage() {
           <CardBody className="gap-2 p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-default-400">Instances</p>
             <p className="text-3xl font-semibold">{summary.totalInstances}</p>
-            <p className="text-sm text-default-500">已登记的 x-ui 面板实例数</p>
+            <p className="text-sm text-default-500">x-ui {providerBreakdown.xui} / 3x-ui {providerBreakdown.threeXui}</p>
           </CardBody>
         </Card>
         <Card className="border border-divider/80">
@@ -736,6 +751,9 @@ export default function XuiPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-base font-semibold">{instance.name}</p>
+                          <Chip size="sm" color={instance.provider === '3x-ui' ? 'secondary' : 'default'} variant="flat">
+                            {instance.provider === '3x-ui' ? '3x-ui' : 'x-ui'}
+                          </Chip>
                           {instance.assetName ? (
                             <Chip size="sm" color="primary" variant="flat">{instance.assetName}</Chip>
                           ) : null}
@@ -755,6 +773,9 @@ export default function XuiPage() {
                         {instance.syncEnabled === 1 ? '自动同步' : '手动同步'}
                       </Chip>
                       <Chip size="sm" variant="flat">{modeMeta.label}</Chip>
+                      {instance.lastApiFlavor ? (
+                        <Chip size="sm" color="secondary" variant="flat">{instance.lastApiFlavor}</Chip>
+                      ) : null}
                       <Chip size="sm" color={instance.passwordConfigured ? 'success' : 'danger'} variant="flat">
                         {instance.passwordConfigured ? '密码已配置' : '缺少密码'}
                       </Chip>
@@ -804,6 +825,9 @@ export default function XuiPage() {
                       {selectedInstance.assetName ? (
                         <Chip size="sm" color="primary" variant="flat">{selectedInstance.assetName}</Chip>
                       ) : null}
+                      <Chip size="sm" color={selectedInstance.provider === '3x-ui' ? 'secondary' : 'default'} variant="flat">
+                        {selectedInstance.provider === '3x-ui' ? '3x-ui' : 'x-ui'}
+                      </Chip>
                       <Chip size="sm" variant="flat">{getManagementModeMeta(selectedInstance.managementMode).label}</Chip>
                       <Chip size="sm" color={selectedInstance.syncEnabled === 1 ? 'success' : 'default'} variant="flat">
                         {selectedInstance.syncEnabled === 1 ? '自动同步' : '手动同步'}
@@ -900,6 +924,8 @@ export default function XuiPage() {
                         <p><span className="text-default-500">最近测试：</span>{formatDate(selectedInstance.lastTestAt)}</p>
                         <p><span className="text-default-500">最近同步：</span>{formatDate(selectedInstance.lastSyncAt)}</p>
                         <p><span className="text-default-500">最近流量上报：</span>{formatDate(selectedInstance.lastTrafficPushAt)}</p>
+                        <p><span className="text-default-500">识别 API：</span>{selectedInstance.lastApiFlavor || '-'}</p>
+                        <p><span className="text-default-500">识别 Base Path：</span><span className="font-mono">{selectedInstance.lastResolvedBasePath || selectedInstance.webBasePath || '/'}</span></p>
                       </div>
                     </div>
                     <div className="rounded-3xl border border-divider/80 bg-default-50/80 p-4">
@@ -927,6 +953,7 @@ export default function XuiPage() {
                     <div className="rounded-3xl border border-divider/80 bg-content1 p-4">
                       <p className="text-xs uppercase tracking-[0.16em] text-default-400">面板层</p>
                       <div className="mt-3 space-y-2 text-sm">
+                        <p><span className="text-default-500">实例类型：</span>{selectedInstance.provider === '3x-ui' ? '3x-ui' : 'x-ui'}</p>
                         <p><span className="text-default-500">实例地址：</span><span className="break-all">{buildInstanceAddress(selectedInstance)}</span></p>
                         <p><span className="text-default-500">同步模式：</span>{selectedInstance.syncEnabled === 1 ? '自动轮询' : '手动同步'}</p>
                         <p><span className="text-default-500">最近同步：</span>{formatDate(selectedInstance.lastSyncAt)}</p>
@@ -1263,6 +1290,20 @@ export default function XuiPage() {
 
             <p className="mt-2 text-xs font-medium uppercase tracking-widest text-default-400">实例信息</p>
             <div className="grid gap-4 md:grid-cols-2">
+              <Select
+                label="面板类型"
+                selectedKeys={[form.provider]}
+                onSelectionChange={(keys) => {
+                  const value = Array.from(keys)[0] as string;
+                  if (value) setForm((prev) => ({ ...prev, provider: value }));
+                }}
+              >
+                {PROVIDER_OPTIONS.map((item) => (
+                  <SelectItem key={item.key} description={item.description}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </Select>
               <Input
                 label="实例名称"
                 placeholder={form.assetId ? '已从资产自动填充' : '例如 HK-3X-01'}

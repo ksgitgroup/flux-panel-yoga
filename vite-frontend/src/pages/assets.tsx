@@ -393,6 +393,7 @@ export default function AssetsPage() {
   const [xuiBindLoading, setXuiBindLoading] = useState(false);
   // 1Panel inline binding
   const [panelBindOpen, setPanelBindOpen] = useState(false);
+  const [panelBindInput, setPanelBindInput] = useState('');
   // Tag input
   const [tagInput, setTagInput] = useState('');
   // Batch selection
@@ -2236,7 +2237,7 @@ export default function AssetsPage() {
                         <>
                           <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
-                            onPress={() => setPanelBindOpen(!panelBindOpen)}>
+                            onPress={() => { if (!panelBindOpen) setPanelBindInput(''); setPanelBindOpen(!panelBindOpen); }}>
                             {panelBindOpen ? '收起' : '绑定地址'}
                           </Button>
                         </>
@@ -2247,14 +2248,14 @@ export default function AssetsPage() {
                       <div className="ml-18 flex items-end gap-2">
                         <Input size="sm" label="1Panel 地址" className="flex-1"
                           placeholder={`https://${editingAsset.primaryIp || '1.2.3.4'}:19382`}
-                          value={form.panelUrl}
-                          onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))}
+                          value={panelBindInput}
+                          onValueChange={setPanelBindInput}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); }
                           }} />
                         <Button size="sm" color="primary" className="flex-shrink-0" type="button"
-                          isDisabled={!form.panelUrl || form.panelUrl.length < 10}
-                          onPress={() => { setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
+                          isDisabled={!panelBindInput || panelBindInput.length < 10}
+                          onPress={() => { setForm(p => ({ ...p, panelUrl: panelBindInput })); setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
                           确定
                         </Button>
                       </div>

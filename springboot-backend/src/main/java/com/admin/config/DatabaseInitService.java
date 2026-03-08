@@ -657,6 +657,56 @@ public class DatabaseInitService {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM登录审计表'";
             jdbcTemplate.execute(createSysLoginAuditTable);
 
+            String createOnePanelInstanceTable = "CREATE TABLE IF NOT EXISTS `onepanel_instance` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(120) NOT NULL COMMENT '实例名称'," +
+                    "`asset_id` bigint(20) DEFAULT NULL COMMENT '绑定资产ID'," +
+                    "`panel_url` varchar(255) DEFAULT NULL COMMENT '1Panel访问地址'," +
+                    "`instance_key` varchar(120) NOT NULL COMMENT 'exporter实例Key'," +
+                    "`exporter_token_hash` varchar(128) NOT NULL COMMENT 'exporter token哈希'," +
+                    "`report_enabled` tinyint(1) DEFAULT 1 COMMENT '是否允许上报'," +
+                    "`remark` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`token_issued_at` bigint(20) DEFAULT NULL COMMENT 'token签发时间'," +
+                    "`last_report_at` bigint(20) DEFAULT NULL COMMENT '最近上报时间'," +
+                    "`last_report_status` varchar(40) DEFAULT NULL COMMENT '最近上报状态'," +
+                    "`last_report_error` varchar(255) DEFAULT NULL COMMENT '最近上报错误'," +
+                    "`last_report_remote_ip` varchar(80) DEFAULT NULL COMMENT '最近上报来源IP'," +
+                    "`exporter_version` varchar(80) DEFAULT NULL COMMENT 'exporter版本'," +
+                    "`panel_version` varchar(80) DEFAULT NULL COMMENT '1Panel版本'," +
+                    "`panel_edition` varchar(80) DEFAULT NULL COMMENT '1Panel版本类型'," +
+                    "`app_count` int(10) DEFAULT 0 COMMENT '应用数量'," +
+                    "`website_count` int(10) DEFAULT 0 COMMENT '站点数量'," +
+                    "`container_count` int(10) DEFAULT 0 COMMENT '容器数量'," +
+                    "`cronjob_count` int(10) DEFAULT 0 COMMENT '任务数量'," +
+                    "`backup_count` int(10) DEFAULT 0 COMMENT '备份数量'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_onepanel_instance_key` (`instance_key`)," +
+                    "KEY `idx_onepanel_instance_asset_id` (`asset_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1Panel exporter实例表'";
+            jdbcTemplate.execute(createOnePanelInstanceTable);
+
+            String createOnePanelSnapshotLatestTable = "CREATE TABLE IF NOT EXISTS `onepanel_snapshot_latest` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`instance_id` bigint(20) NOT NULL COMMENT '实例ID'," +
+                    "`asset_id` bigint(20) DEFAULT NULL COMMENT '绑定资产ID'," +
+                    "`report_time` bigint(20) DEFAULT NULL COMMENT '上报时间'," +
+                    "`remote_ip` varchar(80) DEFAULT NULL COMMENT '上报来源IP'," +
+                    "`exporter_version` varchar(80) DEFAULT NULL COMMENT 'exporter版本'," +
+                    "`panel_version` varchar(80) DEFAULT NULL COMMENT '1Panel版本'," +
+                    "`panel_edition` varchar(80) DEFAULT NULL COMMENT '1Panel版本类型'," +
+                    "`payload_json` longtext DEFAULT NULL COMMENT '最新摘要快照JSON'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_onepanel_snapshot_instance_id` (`instance_id`)," +
+                    "KEY `idx_onepanel_snapshot_asset_id` (`asset_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1Panel exporter最新快照表'";
+            jdbcTemplate.execute(createOnePanelSnapshotLatestTable);
+
             ensureConfig("iam_auth_mode", "hybrid", "企业IAM认证模式：local_only/dingtalk_only/hybrid");
             ensureConfig("iam_local_admin_enabled", "true", "是否保留本地超级管理员登录入口");
             ensureConfig("dingtalk_oauth_enabled", "false", "是否启用钉钉OAuth登录");
@@ -707,6 +757,8 @@ public class DatabaseInitService {
             ensureIamPermission("iam_user.write", "管理组织用户", "iam_user", "允许维护企业IAM用户", 161, 1);
             ensureIamPermission("iam_role.read", "查看角色", "iam_role", "允许查看企业IAM角色", 170, 1);
             ensureIamPermission("iam_role.write", "管理角色", "iam_role", "允许维护企业IAM角色与授权", 171, 1);
+            ensureIamPermission("onepanel.read", "查看1Panel摘要", "onepanel", "允许查看1Panel exporter汇总信息", 180, 1);
+            ensureIamPermission("onepanel.write", "管理1Panel实例", "onepanel", "允许维护1Panel exporter实例与token", 181, 1);
 
             ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
             ensureIamRolePermission("SUPER_ADMIN", "asset.read");
@@ -743,6 +795,8 @@ public class DatabaseInitService {
             ensureIamRolePermission("SUPER_ADMIN", "iam_user.write");
             ensureIamRolePermission("SUPER_ADMIN", "iam_role.read");
             ensureIamRolePermission("SUPER_ADMIN", "iam_role.write");
+            ensureIamRolePermission("SUPER_ADMIN", "onepanel.read");
+            ensureIamRolePermission("SUPER_ADMIN", "onepanel.write");
 
             ensureIamRolePermission("DEV_ADMIN", "dashboard.read");
             ensureIamRolePermission("DEV_ADMIN", "asset.read");
@@ -772,6 +826,8 @@ public class DatabaseInitService {
             ensureIamRolePermission("DEV_ADMIN", "biz_user.read");
             ensureIamRolePermission("DEV_ADMIN", "iam_user.read");
             ensureIamRolePermission("DEV_ADMIN", "iam_role.read");
+            ensureIamRolePermission("DEV_ADMIN", "onepanel.read");
+            ensureIamRolePermission("DEV_ADMIN", "onepanel.write");
 
             ensureIamRolePermission("DEVELOPER", "dashboard.read");
             ensureIamRolePermission("DEVELOPER", "asset.read");
@@ -784,6 +840,7 @@ public class DatabaseInitService {
             ensureIamRolePermission("DEVELOPER", "alert.read");
             ensureIamRolePermission("DEVELOPER", "portal.read");
             ensureIamRolePermission("DEVELOPER", "server_dashboard.read");
+            ensureIamRolePermission("DEVELOPER", "onepanel.read");
 
             ensureIamRolePermission("HR", "dashboard.read");
             ensureIamRolePermission("HR", "iam_user.read");

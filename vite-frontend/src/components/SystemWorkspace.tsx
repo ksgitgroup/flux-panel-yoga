@@ -179,6 +179,19 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
+    key: 'onepanel',
+    label: '1Panel 摘要',
+    path: '/onepanel',
+    group: '外部集成',
+    requiredPermissions: ['onepanel.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h6M10 18v2M14 18v2" />
+      </svg>
+    ),
+  },
+  {
     key: 'portal-config',
     label: '导航配置',
     path: '/portal/config',

@@ -13,6 +13,8 @@ public interface XuiService extends IService<XuiInstance> {
 
     R getInstanceDetail(Long id);
 
+    R getInboundDirectory();
+
     R createInstance(XuiInstanceDto dto);
 
     R updateInstance(XuiInstanceUpdateDto dto);

@@ -32,9 +32,13 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import com.admin.entity.DiagnosisRecord;
+import com.admin.mapper.DiagnosisRecordMapper;
+
 import javax.annotation.Resource;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -52,6 +56,15 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     private MonitorInstanceMapper monitorInstanceMapper;
     @Resource
     private ViteConfigMapper viteConfigMapper;
+    @Resource
+    private DiagnosisRecordMapper diagnosisRecordMapper;
+
+    /**
+     * 持续时间防抖缓存: key = "ruleId:nodeId/targetId", value = 首次触发时间戳
+     * 只有当条件从首次触发持续超过 durationSeconds 后才真正告警
+     * 条件恢复正常时自动清除
+     */
+    private final ConcurrentHashMap<String, Long> durationTracker = new ConcurrentHashMap<>();
 
     @Override
     public R listRules() {
@@ -76,6 +89,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         if (rule.getNotifyType() == null) rule.setNotifyType("log");
         if (rule.getCooldownMinutes() == null) rule.setCooldownMinutes(5);
         if (rule.getDurationSeconds() == null) rule.setDurationSeconds(0);
+        if (rule.getSeverity() == null) rule.setSeverity("warning");
         alertRuleMapper.insert(rule);
         return R.ok(rule);
     }
@@ -151,10 +165,30 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         long now = System.currentTimeMillis();
 
         for (MonitorAlertRule rule : rules) {
-            // Check cooldown
+            // Check cooldown with escalation support
+            boolean isEscalation = false;
             if (rule.getLastTriggeredAt() != null) {
                 int cooldownMs = (rule.getCooldownMinutes() != null ? rule.getCooldownMinutes() : 5) * 60 * 1000;
-                if (now - rule.getLastTriggeredAt() < cooldownMs) continue;
+                long elapsed = now - rule.getLastTriggeredAt();
+                if (elapsed < cooldownMs) {
+                    // Within cooldown - check if escalation applies
+                    if (rule.getEscalateAfterMinutes() != null && rule.getEscalateAfterMinutes() > 0) {
+                        long escalateMs = rule.getEscalateAfterMinutes() * 60 * 1000L;
+                        if (elapsed >= escalateMs) {
+                            isEscalation = true;
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+            }
+
+            // ===== Forward health metric: separate evaluation path =====
+            if ("forward_health".equals(rule.getMetric())) {
+                evaluateForwardHealthRule(rule, now, isEscalation);
+                continue;
             }
 
             // Determine which nodes to check
@@ -210,7 +244,35 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                             rule.getOperator(), formatValue(rule.getThreshold(), rule.getMetric()));
                 }
 
+                // Duration debounce: require condition to persist for durationSeconds
+                String durationKey = rule.getId() + ":" + node.getId();
+                if (!triggered) {
+                    // Condition cleared — remove from tracker
+                    durationTracker.remove(durationKey);
+                }
+
                 if (triggered) {
+                    // Check duration requirement
+                    int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
+                    if (requiredDuration > 0) {
+                        long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
+                        long elapsedSec = (now - firstTriggeredAt) / 1000;
+                        if (elapsedSec < requiredDuration) {
+                            // Not yet sustained long enough — skip this alert
+                            continue;
+                        }
+                        // Sustained long enough — clear tracker and proceed with alert
+                        durationTracker.remove(durationKey);
+                    }
+
+                    // Determine effective severity (escalate if applicable)
+                    String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
+                    String effectiveSeverity = baseSeverity;
+                    if (isEscalation) {
+                        effectiveSeverity = escalateSeverity(baseSeverity);
+                        message = "[升级] " + message;
+                    }
+
                     // Create log
                     MonitorAlertLog logEntry = new MonitorAlertLog();
                     logEntry.setRuleId(rule.getId());
@@ -220,13 +282,13 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                     logEntry.setMetric(rule.getMetric());
                     logEntry.setCurrentValue(currentValue);
                     logEntry.setThreshold(rule.getThreshold());
-                    logEntry.setMessage(message);
+                    logEntry.setMessage(String.format("[%s] %s", effectiveSeverity.toUpperCase(), message));
                     logEntry.setCreatedTime(now);
                     logEntry.setUpdatedTime(now);
                     logEntry.setStatus(0);
 
                     // Send notification
-                    String notifyStatus = sendNotification(rule, message, node);
+                    String notifyStatus = sendNotification(rule, effectiveSeverity, message, node);
                     logEntry.setNotifyStatus(notifyStatus);
                     alertLogMapper.insert(logEntry);
 
@@ -390,9 +452,117 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
     }
 
-    private String sendNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {
+    /**
+     * 转发健康度告警评估。
+     * 查询最近的 DiagnosisRecord，计算健康分 = 100 - packetLoss - (avgTime > 500 ? 30 : avgTime > 200 ? 15 : 0) - (失败 ? 50 : 0)
+     * threshold: 低于此分数触发（如 60）
+     * durationSeconds: 持续低于阈值多久才真正告警
+     */
+    private void evaluateForwardHealthRule(MonitorAlertRule rule, long now, boolean isEscalation) {
+        try {
+            // Get all recent diagnosis records (latest per forward)
+            List<DiagnosisRecord> records = diagnosisRecordMapper.selectList(
+                    new LambdaQueryWrapper<DiagnosisRecord>()
+                            .eq(DiagnosisRecord::getTargetType, "forward")
+                            .orderByDesc(DiagnosisRecord::getCreatedTime));
+
+            // Group by targetId, keep only latest
+            Map<Integer, DiagnosisRecord> latestByForward = new LinkedHashMap<>();
+            for (DiagnosisRecord r : records) {
+                latestByForward.putIfAbsent(r.getTargetId(), r);
+            }
+
+            for (Map.Entry<Integer, DiagnosisRecord> entry : latestByForward.entrySet()) {
+                DiagnosisRecord rec = entry.getValue();
+                // Skip stale records (older than 1 hour)
+                if (rec.getCreatedTime() != null && now - rec.getCreatedTime() > 3600_000) continue;
+
+                // Calculate health score
+                double healthScore = 100.0;
+                if (rec.getOverallSuccess() == null || !rec.getOverallSuccess()) {
+                    healthScore -= 50;
+                }
+                if (rec.getPacketLoss() != null) {
+                    healthScore -= rec.getPacketLoss(); // e.g. 20% loss → -20
+                }
+                if (rec.getAverageTime() != null) {
+                    if (rec.getAverageTime() > 500) healthScore -= 30;
+                    else if (rec.getAverageTime() > 200) healthScore -= 15;
+                    else if (rec.getAverageTime() > 100) healthScore -= 5;
+                }
+                healthScore = Math.max(0, Math.min(100, healthScore));
+
+                boolean triggered = healthScore < (rule.getThreshold() != null ? rule.getThreshold() : 60);
+                String durationKey = rule.getId() + ":fwd:" + rec.getTargetId();
+
+                if (!triggered) {
+                    durationTracker.remove(durationKey);
+                    continue;
+                }
+
+                // Duration debounce
+                int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
+                if (requiredDuration > 0) {
+                    long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
+                    long elapsedSec = (now - firstTriggeredAt) / 1000;
+                    if (elapsedSec < requiredDuration) continue;
+                    durationTracker.remove(durationKey);
+                }
+
+                String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
+                String effectiveSeverity = isEscalation ? escalateSeverity(baseSeverity) : baseSeverity;
+
+                String forwardName = rec.getTargetName() != null ? rec.getTargetName() : "ID:" + rec.getTargetId();
+                String message = String.format("%s转发「%s」健康度 %.0f%% 低于阈值 %.0f%%（丢包:%.1f%% 延迟:%.0fms 连通:%s）",
+                        isEscalation ? "[升级] " : "",
+                        forwardName, healthScore, rule.getThreshold(),
+                        rec.getPacketLoss() != null ? rec.getPacketLoss() : 0,
+                        rec.getAverageTime() != null ? rec.getAverageTime() : 0,
+                        (rec.getOverallSuccess() != null && rec.getOverallSuccess()) ? "正常" : "异常");
+
+                // Create alert log (use targetId as nodeId for forward alerts)
+                MonitorAlertLog logEntry = new MonitorAlertLog();
+                logEntry.setRuleId(rule.getId());
+                logEntry.setRuleName(rule.getName());
+                logEntry.setNodeId(rec.getTargetId() != null ? rec.getTargetId().longValue() : null);
+                logEntry.setNodeName(forwardName);
+                logEntry.setMetric("forward_health");
+                logEntry.setCurrentValue(healthScore);
+                logEntry.setThreshold(rule.getThreshold());
+                logEntry.setMessage(String.format("[%s] %s", effectiveSeverity.toUpperCase(), message));
+                logEntry.setCreatedTime(now);
+                logEntry.setUpdatedTime(now);
+                logEntry.setStatus(0);
+
+                // Send notification (use a dummy node for compatibility)
+                MonitorNodeSnapshot dummyNode = new MonitorNodeSnapshot();
+                dummyNode.setName(forwardName);
+                String notifyStatus = sendNotification(rule, effectiveSeverity, message, dummyNode);
+                logEntry.setNotifyStatus(notifyStatus);
+                alertLogMapper.insert(logEntry);
+
+                // Update cooldown
+                rule.setLastTriggeredAt(now);
+                rule.setUpdatedTime(now);
+                alertRuleMapper.updateById(rule);
+
+                log.info("[Alert] {} - {}", rule.getName(), message);
+                break; // One trigger per rule per cycle
+            }
+        } catch (Exception e) {
+            log.error("[Alert] evaluateForwardHealthRule error: {}", e.getMessage(), e);
+        }
+    }
+
+    private String escalateSeverity(String severity) {
+        if ("info".equals(severity)) return "warning";
+        if ("warning".equals(severity)) return "critical";
+        return "critical"; // already critical stays critical
+    }
+
+    private String sendNotification(MonitorAlertRule rule, String severity, String message, MonitorNodeSnapshot node) {
         if ("wechat".equals(rule.getNotifyType())) {
-            return sendWeChatNotification(rule, message, node);
+            return sendWeChatNotification(rule, severity, message, node);
         }
 
         if (!"webhook".equals(rule.getNotifyType()) || !StringUtils.hasText(rule.getNotifyTarget())) {
@@ -402,6 +572,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("ruleName", rule.getName());
+            payload.put("severity", severity);
             payload.put("metric", rule.getMetric());
             payload.put("nodeName", node.getName());
             payload.put("nodeIp", node.getIp());
@@ -430,7 +601,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         }
     }
 
-    private String sendWeChatNotification(MonitorAlertRule rule, String message, MonitorNodeSnapshot node) {
+    private String sendWeChatNotification(MonitorAlertRule rule, String severity, String message, MonitorNodeSnapshot node) {
         try {
             // Read webhook URL from config
             ViteConfig config = viteConfigMapper.selectOne(
@@ -441,14 +612,15 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 return "failed";
             }
 
-            // Build markdown message
+            // Build markdown message with severity
+            String severityIcon = "critical".equals(severity) ? "\uD83D\uDD34" : "warning".equals(severity) ? "⚠️" : "\u2139\uFE0F";
             String markdown = String.format(
-                    "## ⚠️ 告警: %s\n" +
+                    "## %s [%s] 告警: %s\n" +
                     "> **节点**: %s (%s)\n" +
                     "> **指标**: %s\n" +
                     "> **详情**: %s\n" +
                     "> **时间**: %s",
-                    rule.getName(),
+                    severityIcon, severity.toUpperCase(), rule.getName(),
                     node.getName(), node.getIp() != null ? node.getIp() : "-",
                     rule.getMetric(),
                     message,

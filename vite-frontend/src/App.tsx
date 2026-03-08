@@ -19,6 +19,8 @@ import MonitorPage from "@/pages/monitor";
 import ProtocolPage from "@/pages/protocol";
 import TagPage from "@/pages/tag";
 import XuiPage from "@/pages/xui";
+import XuiProtocolsPage from "@/pages/xui-protocols";
+import OnePanelPage from "@/pages/onepanel";
 import AssetsPage from "@/pages/assets";
 import PortalPage from "@/pages/portal";
 import PortalConfigPage from "@/pages/portal-config";
@@ -27,6 +29,11 @@ import AlertPage from "@/pages/alert";
 import ServerDashboardPage from "@/pages/server-dashboard";
 import CostAnalysisPage from "@/pages/cost-analysis";
 import TrafficAnalysisPage from "@/pages/traffic-analysis";
+import AuditPage from "@/pages/audit";
+import NotificationPage from "@/pages/notification";
+import TopologyPage from "@/pages/topology";
+import BackupPage from "@/pages/backup";
+import IpQualityPage from "@/pages/ip-quality";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
@@ -390,6 +397,26 @@ function App() {
         }
       />
       <Route
+        path="/xui-protocols"
+        element={
+          <ProtectedRoute requiredPermissions={['xui.read']}>
+            <SystemWorkspace>
+              <XuiProtocolsPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/onepanel"
+        element={
+          <ProtectedRoute requiredPermissions={['onepanel.read']}>
+            <SystemWorkspace>
+              <OnePanelPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/portal/config"
         element={
           <ProtectedRoute requiredPermissions={['portal.write']}>
@@ -468,6 +495,54 @@ function App() {
         element={
           <ProtectedRoute requiredPermissions={['server_dashboard.read']}>
             <TrafficAnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/audit"
+        element={
+          <ProtectedRoute requiredPermissions={['audit.read']}>
+            <SystemWorkspace>
+              <AuditPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/notification"
+        element={
+          <ProtectedRoute requiredPermissions={['notification.read']}>
+            <SystemWorkspace>
+              <NotificationPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/topology"
+        element={
+          <ProtectedRoute requiredPermissions={['topology.read']}>
+            <TopologyPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/backup"
+        element={
+          <ProtectedRoute requiredPermissions={['backup.read']}>
+            <SystemWorkspace>
+              <BackupPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ip-quality"
+        element={
+          <ProtectedRoute requiredPermissions={['ip_quality.read']}>
+            <SystemWorkspace>
+              <IpQualityPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />

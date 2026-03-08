@@ -147,6 +147,52 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     }
 
     @Override
+    public R getInboundDirectory() {
+        List<XuiInstance> instances = this.list(new LambdaQueryWrapper<XuiInstance>()
+                .orderByDesc(XuiInstance::getUpdatedTime, XuiInstance::getId));
+        if (instances.isEmpty()) {
+            XuiProtocolDirectoryDto empty = new XuiProtocolDirectoryDto();
+            empty.setInstanceCount(0);
+            empty.setAssetCount(0);
+            empty.setProtocolSummaries(Collections.emptyList());
+            empty.setItems(Collections.emptyList());
+            return R.ok(empty);
+        }
+
+        Map<Long, XuiInstance> instanceMap = instances.stream()
+                .collect(Collectors.toMap(XuiInstance::getId, item -> item, (left, right) -> left, LinkedHashMap::new));
+        Map<Long, AssetHost> assetMap = loadAssetHostMap(instances.stream()
+                .map(XuiInstance::getAssetId)
+                .collect(Collectors.toSet()));
+
+        List<XuiInboundSnapshot> snapshots = xuiInboundSnapshotMapper.selectList(new LambdaQueryWrapper<XuiInboundSnapshot>()
+                .in(XuiInboundSnapshot::getInstanceId, instanceMap.keySet())
+                .orderByAsc(XuiInboundSnapshot::getStatus)
+                .orderByDesc(XuiInboundSnapshot::getOnlineClientCount)
+                .orderByDesc(XuiInboundSnapshot::getAllTime)
+                .orderByAsc(XuiInboundSnapshot::getProtocol, XuiInboundSnapshot::getPort));
+
+        List<XuiInboundDirectoryItemViewDto> items = snapshots.stream()
+                .map(snapshot -> toInboundDirectoryItem(snapshot, instanceMap.get(snapshot.getInstanceId()), assetMap))
+                .collect(Collectors.toList());
+
+        List<XuiInboundSnapshotViewDto> inboundViews = snapshots.stream()
+                .map(item -> {
+                    XuiInboundSnapshotViewDto dto = new XuiInboundSnapshotViewDto();
+                    BeanUtils.copyProperties(item, dto);
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+        XuiProtocolDirectoryDto dto = new XuiProtocolDirectoryDto();
+        dto.setInstanceCount(instances.size());
+        dto.setAssetCount((int) instances.stream().map(XuiInstance::getAssetId).filter(Objects::nonNull).distinct().count());
+        dto.setProtocolSummaries(buildProtocolSummaries(inboundViews));
+        dto.setItems(items);
+        return R.ok(dto);
+    }
+
+    @Override
     public R createInstance(XuiInstanceDto dto) {
         String duplicateError = checkDuplicateName(dto.getName(), null);
         if (duplicateError != null) {
@@ -1287,6 +1333,33 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
                     return dto;
                 })
                 .collect(Collectors.toList());
+    }
+
+    private XuiInboundDirectoryItemViewDto toInboundDirectoryItem(XuiInboundSnapshot snapshot,
+                                                                  XuiInstance instance,
+                                                                  Map<Long, AssetHost> assetMap) {
+        XuiInboundDirectoryItemViewDto dto = new XuiInboundDirectoryItemViewDto();
+        BeanUtils.copyProperties(snapshot, dto);
+        if (instance != null) {
+            dto.setInstanceId(instance.getId());
+            dto.setInstanceName(instance.getName());
+            dto.setInstanceProvider(normalizeProvider(instance.getProvider()));
+            dto.setInstanceBaseUrl(instance.getBaseUrl());
+            dto.setInstanceWebBasePath(instance.getWebBasePath());
+            dto.setInstanceLastSyncStatus(instance.getLastSyncStatus());
+            dto.setInstanceLastSyncAt(instance.getLastSyncAt());
+            dto.setHostLabel(trimToNull(instance.getHostLabel()));
+            dto.setAssetId(instance.getAssetId());
+        }
+        AssetHost asset = instance == null ? null : assetMap.get(instance.getAssetId());
+        if (asset != null) {
+            dto.setAssetName(asset.getName());
+            dto.setAssetPrimaryIp(trimToNull(asset.getPrimaryIp()));
+            dto.setAssetRegion(trimToNull(asset.getRegion()));
+            dto.setAssetProvider(trimToNull(asset.getProvider()));
+            dto.setAssetEnvironment(trimToNull(asset.getEnvironment()));
+        }
+        return dto;
     }
 
     private List<XuiClientSnapshotViewDto> loadClientViews(Long instanceId) {

@@ -22,7 +22,7 @@ const readGitMetadata = (command: string, fallback: string) => {
 };
 
 const appVersion = process.env.VITE_APP_VERSION || packageJson.version || "0.0.0";
-const gitSha = process.env.VITE_GIT_SHA || readGitMetadata("git rev-parse --short HEAD", "local");
+const gitSha = process.env.VITE_GIT_SHA || readGitMetadata("git rev-parse --short=8 HEAD", "local");
 const gitBranch =
   process.env.VITE_GIT_BRANCH || readGitMetadata("git rev-parse --abbrev-ref HEAD", "local");
 const buildTime = process.env.VITE_BUILD_TIME || new Date().toISOString();

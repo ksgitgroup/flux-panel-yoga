@@ -31,6 +31,7 @@ const METRICS = [
   { value: 'offline', label: '节点离线' },
   { value: 'expiry', label: '到期提醒 (剩余天数)' },
   { value: 'traffic_quota', label: '流量配额 (已用%)' },
+  { value: 'forward_health', label: '转发健康度 (低于阈值告警)' },
 ];
 
 const OPERATORS = [
@@ -58,6 +59,12 @@ const PROBE_CONDITIONS = [
   { value: 'komari', label: '仅 Komari' },
   { value: 'pika', label: '仅 Pika' },
   { value: 'both', label: '双探针节点' },
+];
+
+const SEVERITIES = [
+  { value: 'info', label: '提示', color: 'primary' as const },
+  { value: 'warning', label: '警告', color: 'warning' as const },
+  { value: 'critical', label: '严重', color: 'danger' as const },
 ];
 
 function formatTime(ts?: number | null): string {
@@ -167,7 +174,7 @@ export default function AlertPage() {
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
       durationSeconds: 0, scopeType: 'all', notifyType: 'log',
-      cooldownMinutes: 5, enabled: 1,
+      cooldownMinutes: 5, enabled: 1, severity: 'warning',
     });
     onOpen();
   };
@@ -225,13 +232,18 @@ export default function AlertPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
-                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : 'primary'} className="h-5 text-[10px]">
+                      <Chip size="sm" variant="flat" color={SEVERITIES.find(s => s.value === rule.severity)?.color || 'warning'} className="h-5 text-[10px]">
+                        {SEVERITIES.find(s => s.value === rule.severity)?.label || '警告'}
+                      </Chip>
+                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : rule.metric === 'forward_health' ? 'danger' : 'primary'} className="h-5 text-[10px]">
                         {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
                       </Chip>
                       {rule.metric === 'expiry' ? (
                         <span className="text-xs font-mono text-default-500">&le; {rule.threshold} 天</span>
                       ) : rule.metric === 'traffic_quota' ? (
                         <span className="text-xs font-mono text-default-500">&ge; {rule.threshold}%</span>
+                      ) : rule.metric === 'forward_health' ? (
+                        <span className="text-xs font-mono text-default-500">&lt; {rule.threshold}%</span>
                       ) : rule.metric !== 'offline' ? (
                         <span className="text-xs font-mono text-default-500">
                           {OPERATORS.find(o => o.value === rule.operator)?.label || rule.operator} {rule.threshold}
@@ -245,6 +257,7 @@ export default function AlertPage() {
                       {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
                       {rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
                       {' · '}冷却: {rule.cooldownMinutes}分钟
+                      {rule.escalateAfterMinutes ? ` · 升级: ${rule.escalateAfterMinutes}分钟后` : ''}
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
                   </div>
@@ -339,6 +352,11 @@ export default function AlertPage() {
                     description="当流量已用百分比 >= 此值时触发告警"
                     value={String(editRule.threshold ?? 80)}
                     onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 80, operator: 'gte' })} />
+                ) : editRule.metric === 'forward_health' ? (
+                  <Input label="健康度阈值 (%)" size="sm" type="number" placeholder="60"
+                    description="当转发健康度低于此值时触发告警（100=完美，0=完全不可用）"
+                    value={String(editRule.threshold ?? 60)}
+                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 60, operator: 'lt' })} />
                 ) : editRule.metric !== 'offline' ? (
                   <div className="flex gap-2">
                     <Select label="操作符" size="sm" className="w-28" selectedKeys={editRule.operator ? [editRule.operator] : ['gt']}
@@ -398,9 +416,20 @@ export default function AlertPage() {
                   {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
                 </Select>
 
+                <Select label="严重等级" size="sm" description="影响通知标题和升级逻辑"
+                  selectedKeys={editRule.severity ? [editRule.severity] : ['warning']}
+                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, severity: v }); }}>
+                  {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
+                </Select>
+
                 <Input label="冷却时间 (分钟)" size="sm" type="number"
                   value={String(editRule.cooldownMinutes ?? 5)}
                   onValueChange={v => setEditRule({ ...editRule, cooldownMinutes: parseInt(v) || 5 })} />
+
+                <Input label="升级间隔 (分钟)" size="sm" type="number" placeholder="留空不升级"
+                  description="告警持续触发时，经过此间隔自动升级严重等级并重新通知"
+                  value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
+                  onValueChange={v => setEditRule({ ...editRule, escalateAfterMinutes: v ? parseInt(v) : undefined })} />
               </ModalBody>
               <ModalFooter>
                 <Button variant="flat" onPress={onClose}>取消</Button>

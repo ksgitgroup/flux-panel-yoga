@@ -390,7 +390,7 @@ export default function DashboardPage() {
                     { to: '/server-dashboard', label: '服务器看板', count: probeSummary.total || nodes.length, color: 'success' as const },
                     { to: '/monitor', label: '诊断看板', count: summary?.totalCount ?? 0, color: 'warning' as const },
                     { to: '/assets', label: '服务器资产', count: assetStats.total, color: 'primary' as const },
-                    { to: '/node', label: '节点监控', count: nodes.length, color: 'success' as const },
+                    { to: '/node', label: 'GOST 节点', count: nodes.length, color: 'success' as const },
                     { to: '/cost', label: '成本分析', count: null, color: 'warning' as const },
                     { to: '/traffic', label: '流量分析', count: null, color: 'secondary' as const },
                   ] : [

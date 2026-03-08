@@ -34,6 +34,9 @@ public class IamPermissionResolver {
         if (path.startsWith("/api/v1/monitor/")) {
             return isReadAction(action) ? "monitor.read" : "monitor.write";
         }
+        if (path.startsWith("/api/v1/onepanel/")) {
+            return isReadAction(action) ? "onepanel.read" : "onepanel.write";
+        }
         if (path.startsWith("/api/v1/node/")) {
             return "list".equals(action) ? "node.read" : "node.write";
         }

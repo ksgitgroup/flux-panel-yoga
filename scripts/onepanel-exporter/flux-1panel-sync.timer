@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Flux 1Panel summary sync every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=flux-1panel-sync.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

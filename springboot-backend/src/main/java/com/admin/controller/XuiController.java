@@ -37,6 +37,13 @@ public class XuiController extends BaseController {
 
     @LogAnnotation
     @RequireRole
+    @PostMapping("/protocol-directory")
+    public R protocolDirectory() {
+        return xuiService.getInboundDirectory();
+    }
+
+    @LogAnnotation
+    @RequireRole
     @PostMapping("/create")
     public R create(@Validated @RequestBody XuiInstanceDto dto) {
         return xuiService.createInstance(dto);

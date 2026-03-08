@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
@@ -31,7 +31,7 @@ export default function TagPage() {
     const [loading, setLoading] = useState(true);
     const [tags, setTags] = useState<Tag[]>([]);
     const [assets, setAssets] = useState<AssetHost[]>([]);
-    const [activeTab, setActiveTab] = useState('forward');
+    const [activeTab, setActiveTab] = useState('asset');
 
     // 模态框状态
     const [modalOpen, setModalOpen] = useState(false);
@@ -193,56 +193,10 @@ export default function TagPage() {
                     cursor: "rounded-lg",
                 }}
             >
-                <Tab key="forward" title={
-                    <div className="flex items-center gap-1.5">
-                        <span>转发标签</span>
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 text-[9px] font-bold text-primary px-1">{tags.length}</span>
-                    </div>
-                }>
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                            <p className="text-xs text-default-400">用于转发规则分类的全局标签，支持颜色标记。</p>
-                            <Button size="sm" color="primary" onPress={handleOpenAddModal}>
-                                添加标签
-                            </Button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                            {tags.map((tag) => (
-                                <Card key={tag.id} className="w-full">
-                                    <CardHeader className="flex justify-center px-4 pt-6 pb-2">
-                                        <Chip color={tag.color as any} variant="flat" size="lg" className="px-4">
-                                            {tag.name}
-                                        </Chip>
-                                    </CardHeader>
-                                    <CardBody className="px-4 pb-4 pt-2">
-                                        <div className="text-center text-xs text-default-400 mb-4">
-                                            {tag.createdTime ? new Date(tag.createdTime).toLocaleString() : '-'}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <Button size="sm" color="default" variant="flat" onPress={() => handleOpenEditModal(tag)} className="flex-1">
-                                                编辑
-                                            </Button>
-                                            <Button size="sm" color="danger" variant="flat" onPress={() => handleOpenDeleteModal(tag)} className="flex-1">
-                                                删除
-                                            </Button>
-                                        </div>
-                                    </CardBody>
-                                </Card>
-                            ))}
-                            {tags.length === 0 && (
-                                <div className="col-span-full text-center py-10 text-default-500">
-                                    暂无转发标签，请先添加
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </Tab>
-
                 <Tab key="asset" title={
                     <div className="flex items-center gap-1.5">
                         <span>资产标签</span>
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary/20 text-[9px] font-bold text-secondary px-1">{assetTagStats.length}</span>
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 text-[9px] font-bold text-primary px-1">{assetTagStats.length}</span>
                     </div>
                 }>
                     <div className="space-y-4">
@@ -319,6 +273,52 @@ export default function TagPage() {
                                 暂无资产标签数据
                             </div>
                         )}
+                    </div>
+                </Tab>
+
+                <Tab key="forward" title={
+                    <div className="flex items-center gap-1.5">
+                        <span>转发标签</span>
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-default-200 text-[9px] font-bold text-default-600 px-1">{tags.length}</span>
+                    </div>
+                }>
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <p className="text-xs text-default-400">用于转发规则分类的全局标签，支持颜色标记。</p>
+                            <Button size="sm" color="primary" onPress={handleOpenAddModal}>
+                                添加标签
+                            </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                            {tags.map((tag) => (
+                                <Card key={tag.id} className="w-full shadow-sm hover:shadow-md transition-shadow">
+                                    <CardBody className="p-4">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <Chip color={tag.color as any} variant="flat" size="md">
+                                                {tag.name}
+                                            </Chip>
+                                        </div>
+                                        <div className="text-[10px] text-default-400 mb-3">
+                                            {tag.createdTime ? new Date(tag.createdTime).toLocaleString('zh-CN') : '-'}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" color="default" variant="flat" onPress={() => handleOpenEditModal(tag)} className="flex-1 h-7 text-xs">
+                                                编辑
+                                            </Button>
+                                            <Button size="sm" color="danger" variant="flat" onPress={() => handleOpenDeleteModal(tag)} className="flex-1 h-7 text-xs">
+                                                删除
+                                            </Button>
+                                        </div>
+                                    </CardBody>
+                                </Card>
+                            ))}
+                            {tags.length === 0 && (
+                                <div className="col-span-full text-center py-10 text-default-500">
+                                    暂无转发标签，请先添加
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </Tab>
             </Tabs>

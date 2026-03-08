@@ -439,18 +439,13 @@ export default function ProbePage() {
                     <p className="text-xs text-default-400 truncate">{inst.remark}</p>
                   )}
 
-                  {/* Actions */}
+                  {/* Actions - 点击进入详情，操作集中在详情弹窗中 */}
                   <div className="flex gap-1.5 pt-1 border-t border-divider">
-                    <Button size="sm" variant="light" onPress={() => openDetailModal(inst)}>
-                      详情
+                    <Button size="sm" variant="light" color="primary" className="flex-1" onPress={() => openDetailModal(inst)}>
+                      查看详情
                     </Button>
                     {canManageProbe && (
-                      <>
-                        <Button size="sm" variant="light" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
-                        <Button size="sm" variant="light" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>
-                        <Button size="sm" variant="light" onPress={() => openEditModal(inst)}>编辑</Button>
-                        <Button size="sm" variant="light" color="danger" className="ml-auto" onPress={() => confirmDelete(inst)}>删除</Button>
-                      </>
+                      <Button size="sm" variant="light" color="danger" onPress={() => confirmDelete(inst)}>删除</Button>
                     )}
                   </div>
                 </CardBody>
@@ -472,12 +467,23 @@ export default function ProbePage() {
       }} size="5xl" scrollBehavior="inside">
         <ModalContent>
           <ModalHeader className="flex flex-col gap-1">
-            {detail?.instance?.name || '探针实例详情'}
-            {detail?.instance && (
-              <p className="text-xs font-normal text-default-500">
-                {(detail.instance.type || 'komari').toUpperCase()} · {detail.instance.baseUrl}
-              </p>
-            )}
+            <div className="flex items-center justify-between w-full pr-8">
+              <div>
+                <span>{detail?.instance?.name || '探针实例详情'}</span>
+                {detail?.instance && (
+                  <p className="text-xs font-normal text-default-500">
+                    {(detail.instance.type || 'komari').toUpperCase()} · {detail.instance.baseUrl}
+                  </p>
+                )}
+              </div>
+              {detail?.instance && canManageProbe && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="flat" color="primary" isLoading={actionLoading === 'test-' + detail.instance.id} onPress={() => handleTest(detail.instance.id)}>测试</Button>
+                  <Button size="sm" variant="flat" color="success" isLoading={actionLoading === 'sync-' + detail.instance.id} onPress={() => handleSync(detail.instance.id)}>同步</Button>
+                  <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(detail.instance); }}>编辑</Button>
+                </div>
+              )}
+            </div>
           </ModalHeader>
           <ModalBody className="space-y-5">
             {detailLoading && !detail ? (

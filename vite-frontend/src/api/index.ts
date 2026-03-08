@@ -602,6 +602,130 @@ export interface MonitorInstanceDetail {
   providerSummaryError?: string | null;
 }
 
+export interface PikaListeningPort {
+  protocol?: string | null;
+  address?: string | null;
+  port?: number | null;
+  processName?: string | null;
+  processPid?: number | null;
+  isPublic?: boolean | null;
+}
+
+export interface PikaProcess {
+  pid?: number | null;
+  name?: string | null;
+  username?: string | null;
+  cpuPercent?: number | null;
+  memPercent?: number | null;
+  exeDeleted?: boolean | null;
+  cmdline?: string | null;
+}
+
+export interface PikaTamperEvent {
+  path?: string | null;
+  operation?: string | null;
+  details?: string | null;
+  timestamp?: number | null;
+}
+
+export interface PikaTamperAlert {
+  path?: string | null;
+  details?: string | null;
+  restored?: boolean | null;
+  timestamp?: number | null;
+}
+
+export interface PikaAuditRun {
+  startTime?: number | null;
+  endTime?: number | null;
+  passCount?: number | null;
+  failCount?: number | null;
+  warnCount?: number | null;
+  totalCount?: number | null;
+  system?: string | null;
+}
+
+export interface PikaNodeSecurityDetail {
+  tamperEnabled?: boolean | null;
+  tamperProtectedPaths?: string[] | null;
+  tamperApplyStatus?: string | null;
+  tamperApplyMessage?: string | null;
+  publicListeningPortCount?: number | null;
+  suspiciousProcessCount?: number | null;
+  auditStartTime?: number | null;
+  auditEndTime?: number | null;
+  auditWarnings?: string[] | null;
+  publicListeningPorts?: PikaListeningPort[] | null;
+  suspiciousProcesses?: PikaProcess[] | null;
+  recentTamperEvents?: PikaTamperEvent[] | null;
+  recentTamperAlerts?: PikaTamperAlert[] | null;
+  recentAuditRuns?: PikaAuditRun[] | null;
+}
+
+export interface KomariPingTask {
+  taskId: number;
+  name?: string | null;
+  target?: string | null;
+  type?: string | null;
+  interval?: number | null;
+  clientCount?: number | null;
+}
+
+export interface KomariLoadNotification {
+  name?: string | null;
+  metric?: string | null;
+  threshold?: number | null;
+  ratio?: number | null;
+  interval?: number | null;
+}
+
+export interface KomariOfflineNotification {
+  enabled?: boolean | null;
+  gracePeriod?: number | null;
+}
+
+export interface KomariNodeOperationsDetail {
+  publicVisible?: boolean | null;
+  publicNodeName?: string | null;
+  publicNodeRegion?: string | null;
+  publicNodeOs?: string | null;
+  pingTasks?: KomariPingTask[] | null;
+  loadNotifications?: KomariLoadNotification[] | null;
+  offlineNotifications?: KomariOfflineNotification[] | null;
+}
+
+export interface KomariPingRecord {
+  time?: number | null;
+  value?: number | null;
+  loss?: boolean | null;
+}
+
+export interface KomariPingTaskDetail {
+  taskId: number;
+  name?: string | null;
+  target?: string | null;
+  type?: string | null;
+  interval?: number | null;
+  clientCount?: number | null;
+  recordCount?: number | null;
+  lossCount?: number | null;
+  lossPercent?: number | null;
+  minLatency?: number | null;
+  maxLatency?: number | null;
+  avgLatency?: number | null;
+  lastRecordAt?: number | null;
+  records?: KomariPingRecord[] | null;
+}
+
+export interface MonitorNodeProviderDetail {
+  nodeId: number;
+  nodeName?: string | null;
+  instanceType?: string | null;
+  pikaSecurity?: PikaNodeSecurityDetail | null;
+  komariOperations?: KomariNodeOperationsDetail | null;
+  error?: string | null;
+}
+
 export interface AssetHostDetail {
   asset: AssetHost;
   xuiInstances: XuiInstance[];
@@ -786,6 +910,10 @@ export const deleteMonitorInstance = (id: number) => Network.post("/monitor/dele
 export const testMonitorInstance = (id: number) => Network.post("/monitor/test", { id });
 export const syncMonitorInstance = (id: number) => Network.post("/monitor/sync", { id });
 export const getMonitorUnboundNodes = () => Network.post<MonitorNodeSnapshot[]>("/monitor/unbound-nodes");
+export const getMonitorNodeProviderDetail = (id: number) =>
+  Network.post<MonitorNodeProviderDetail>("/monitor/node-provider-detail", { id });
+export const getKomariPingTaskDetail = (nodeId: number, taskId: number, hours: number = 12) =>
+  Network.post<KomariPingTaskDetail>("/monitor/komari-ping-task-detail", { nodeId, taskId, hours });
 
 export interface MonitorProvisionResult {
   uuid: string;

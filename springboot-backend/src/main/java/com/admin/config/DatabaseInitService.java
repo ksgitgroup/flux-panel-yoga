@@ -463,6 +463,54 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] Monitor 探针集成表创建失败: {}", e.getMessage());
         }
 
+        // 10. Alert rules and logs
+        try {
+            String createAlertRuleTable = "CREATE TABLE IF NOT EXISTS `monitor_alert_rule` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(120) NOT NULL COMMENT '规则名称'," +
+                    "`enabled` tinyint(1) DEFAULT 1 COMMENT '是否启用'," +
+                    "`metric` varchar(40) NOT NULL COMMENT '指标: cpu, mem, disk, net_in, net_out, offline'," +
+                    "`operator` varchar(10) NOT NULL DEFAULT 'gt' COMMENT '操作符: gt, lt, eq'," +
+                    "`threshold` double NOT NULL DEFAULT 0 COMMENT '阈值'," +
+                    "`duration_seconds` int(10) DEFAULT 0 COMMENT '持续时间(秒) 0=立即'," +
+                    "`scope_type` varchar(20) DEFAULT 'all' COMMENT '范围: all, tag, node'," +
+                    "`scope_value` varchar(255) DEFAULT NULL COMMENT '范围值: 标签名/节点ID'," +
+                    "`notify_type` varchar(20) DEFAULT 'webhook' COMMENT '通知方式: webhook, log'," +
+                    "`notify_target` text DEFAULT NULL COMMENT '通知目标: webhook URL'," +
+                    "`cooldown_minutes` int(10) DEFAULT 5 COMMENT '冷却时间(分钟)'," +
+                    "`last_triggered_at` bigint(20) DEFAULT NULL COMMENT '上次触发时间'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态'," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警规则表'";
+            jdbcTemplate.execute(createAlertRuleTable);
+
+            String createAlertLogTable = "CREATE TABLE IF NOT EXISTS `monitor_alert_log` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`rule_id` bigint(20) NOT NULL COMMENT '规则 ID'," +
+                    "`rule_name` varchar(120) DEFAULT NULL COMMENT '规则名称'," +
+                    "`node_id` bigint(20) DEFAULT NULL COMMENT '节点 ID'," +
+                    "`node_name` varchar(120) DEFAULT NULL COMMENT '节点名称'," +
+                    "`metric` varchar(40) DEFAULT NULL COMMENT '告警指标'," +
+                    "`current_value` double DEFAULT NULL COMMENT '当前值'," +
+                    "`threshold` double DEFAULT NULL COMMENT '阈值'," +
+                    "`message` text DEFAULT NULL COMMENT '告警消息'," +
+                    "`notify_status` varchar(20) DEFAULT 'pending' COMMENT '通知状态: pending, sent, failed'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态'," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_alert_log_rule` (`rule_id`)," +
+                    "KEY `idx_alert_log_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警日志表'";
+            jdbcTemplate.execute(createAlertLogTable);
+
+            log.info("[DatabaseInit] 告警规则/日志表校验成功");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] 告警表创建失败: {}", e.getMessage());
+        }
+
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }
 

@@ -1,0 +1,26 @@
+package com.admin.service;
+
+import com.admin.common.dto.AlertRuleDto;
+import com.admin.common.lang.R;
+import com.admin.entity.MonitorAlertRule;
+import com.baomidou.mybatisplus.extension.service.IService;
+
+public interface AlertService extends IService<MonitorAlertRule> {
+
+    R listRules();
+
+    R createRule(AlertRuleDto dto);
+
+    R updateRule(AlertRuleDto dto);
+
+    R deleteRule(Long id);
+
+    R toggleRule(Long id);
+
+    R listLogs(int page, int size);
+
+    R clearLogs();
+
+    /** Evaluate all enabled rules against current metrics. Called after each sync. */
+    void evaluateAlerts();
+}

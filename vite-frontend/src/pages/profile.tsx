@@ -478,7 +478,7 @@ export default function ProfilePage() {
 
         <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
           <CardBody className="p-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {isAdmin && adminMenuItems.map((item) => (
                 <button
                   key={item.path}

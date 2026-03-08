@@ -841,7 +841,7 @@ export default function NodePage() {
                   description="支持多个IP，每行一个地址"
                 />
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     label="起始端口"
                     type="number"

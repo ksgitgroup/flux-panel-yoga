@@ -6,6 +6,7 @@ import com.admin.common.dto.MonitorInstanceDto;
 import com.admin.common.dto.MonitorInstanceIdDto;
 import com.admin.common.dto.MonitorInstanceUpdateDto;
 import com.admin.common.dto.MonitorProvisionDto;
+import com.admin.common.dto.MonitorRecordsDto;
 import com.admin.common.lang.R;
 import com.admin.service.MonitorService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,5 +95,28 @@ public class MonitorController extends BaseController {
     @PostMapping("/delete-node")
     public R deleteNode(@Validated @RequestBody MonitorInstanceIdDto dto) {
         return monitorService.deleteNodeSnapshot(dto.getId());
+    }
+
+    @RequireRole
+    @PostMapping("/records")
+    public R records(@Validated @RequestBody MonitorRecordsDto dto) {
+        return monitorService.getNodeRecords(dto);
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/terminal-access")
+    public R terminalAccess(@RequestBody java.util.Map<String, Long> body) {
+        return monitorService.getTerminalAccessUrl(body.get("nodeId"));
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/provision-dual")
+    public R provisionDual(@RequestBody java.util.Map<String, Object> body) {
+        Long komariInstanceId = body.get("komariInstanceId") != null ? ((Number) body.get("komariInstanceId")).longValue() : null;
+        Long pikaInstanceId = body.get("pikaInstanceId") != null ? ((Number) body.get("pikaInstanceId")).longValue() : null;
+        String name = body.get("name") != null ? body.get("name").toString() : null;
+        return monitorService.provisionDualAgent(komariInstanceId, pikaInstanceId, name);
     }
 }

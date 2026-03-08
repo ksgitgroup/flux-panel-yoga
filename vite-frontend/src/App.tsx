@@ -20,6 +20,7 @@ import AssetsPage from "@/pages/assets";
 import PortalPage from "@/pages/portal";
 import PortalConfigPage from "@/pages/portal-config";
 import ProbePage from "@/pages/probe";
+import AlertPage from "@/pages/alert";
 import ServerDashboardPage from "@/pages/server-dashboard";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
@@ -390,6 +391,16 @@ function App() {
         element={
           <ProtectedRoute useSimpleLayout={true}>
             <MonitorPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/alert"
+        element={
+          <ProtectedRoute>
+            <SystemWorkspace>
+              <AlertPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />

@@ -2,6 +2,7 @@ package com.admin.service.impl;
 
 import com.admin.entity.ViteConfig;
 import com.admin.mapper.ViteConfigMapper;
+import com.admin.service.RuntimeConfigService;
 import com.admin.service.ViteConfigService;
 import com.admin.common.lang.R;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -9,6 +10,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import javax.annotation.Resource;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,6 +28,9 @@ import java.util.Set;
  */
 @Service
 public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteConfig> implements ViteConfigService {
+
+    @Resource
+    private RuntimeConfigService runtimeConfigService;
 
     // ========== 常量定义 ==========
     
@@ -61,8 +66,8 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         for (ViteConfig config : configList) {
             configMap.put(config.getName(), config.getValue());
         }
-        
-        return R.ok(configMap);
+
+        return R.ok(runtimeConfigService.applyEffectiveValues(configMap));
     }
 
     /**
@@ -107,6 +112,13 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         try {
             for (Map.Entry<String, String> entry : configMap.entrySet()) {
                 String name = entry.getKey();
+                if (!StringUtils.hasText(name)) {
+                    continue;
+                }
+                runtimeConfigService.ensureWritable(name);
+            }
+            for (Map.Entry<String, String> entry : configMap.entrySet()) {
+                String name = entry.getKey();
                 String value = entry.getValue();
                 
                 if (!StringUtils.hasText(name)) {
@@ -116,6 +128,8 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
                 updateOrCreateConfig(name, value);
             }
             return R.ok(SUCCESS_UPDATE_MSG);
+        } catch (IllegalStateException e) {
+            return R.err(e.getMessage());
         } catch (Exception e) {
             return R.err(ERROR_UPDATE_MSG + ": " + e.getMessage());
         }
@@ -139,8 +153,11 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         }
 
         try {
+            runtimeConfigService.ensureWritable(name);
             updateOrCreateConfig(name, value);
             return R.ok(SUCCESS_UPDATE_MSG);
+        } catch (IllegalStateException e) {
+            return R.err(e.getMessage());
         } catch (Exception e) {
             return R.err(ERROR_UPDATE_MSG + ": " + e.getMessage());
         }

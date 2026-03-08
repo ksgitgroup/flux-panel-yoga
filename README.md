@@ -328,7 +328,23 @@ git pull origin dev
   - 生产：`latest`
 - 可追踪版本标签只做辅助追踪，不改变已有部署入口
 - GitLab shell runner 不依赖 `node`、`jq` 等额外工具
-- CI 日志自动打印提交摘要，不再强依赖手工 MR 模板
+
+### 9.4 DingTalk 配置来源
+
+- B / C 环境的 DingTalk 基础配置建议写入 `.env`
+- 后端运行时按“环境变量优先、数据库兼容回退”读取
+- 详细步骤见 [docs/DINGTALK_ENV_DEPLOYMENT.md](docs/DINGTALK_ENV_DEPLOYMENT.md)
+- 推荐环境变量：
+  - `IAM_AUTH_MODE`
+  - `IAM_LOCAL_ADMIN_ENABLED`
+  - `DINGTALK_OAUTH_ENABLED`
+  - `DINGTALK_CLIENT_ID`
+  - `DINGTALK_CLIENT_SECRET`
+  - `DINGTALK_CORP_ID`
+- `DINGTALK_REDIRECT_URI`
+- `DINGTALK_ALLOWED_ORG_IDS`
+- `DINGTALK_REQUIRED_EMAIL_DOMAIN`
+- 一旦某个键已由环境变量接管，后台配置接口不会再允许改写对应数据库配置
 
 ## 10. 本地磁盘清理逻辑
 

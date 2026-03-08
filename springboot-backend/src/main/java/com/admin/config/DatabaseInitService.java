@@ -446,6 +446,9 @@ public class DatabaseInitService {
             updateColumn("monitor_node_snapshot", "traffic_used", "bigint(20) DEFAULT NULL COMMENT '已用流量 (bytes)'");
             updateColumn("monitor_node_snapshot", "traffic_reset_day", "int(10) DEFAULT NULL COMMENT '流量重置日(1-31)'");
 
+            // Sync control: prevent re-creation after user deletes asset/node
+            updateColumn("monitor_node_snapshot", "asset_unlinked", "tinyint(1) DEFAULT 0 COMMENT '用户已取消关联资产(1=跳过自动创建)'");
+
             // Add new columns to monitor_metric_latest (v2 expansion)
             updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");
             updateColumn("monitor_metric_latest", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");

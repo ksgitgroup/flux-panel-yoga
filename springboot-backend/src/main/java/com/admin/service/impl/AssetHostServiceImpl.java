@@ -140,11 +140,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         if (forwardCount != null && forwardCount > 0) {
             return R.err("该资产仍被转发配置引用，无法删除");
         }
-        // Unlink monitor node snapshots referencing this asset
+        // Unlink monitor node snapshots referencing this asset + mark as user-unlinked
         List<MonitorNodeSnapshot> linkedNodes = monitorNodeSnapshotMapper.selectList(
                 new LambdaQueryWrapper<MonitorNodeSnapshot>().eq(MonitorNodeSnapshot::getAssetId, id));
         for (MonitorNodeSnapshot node : linkedNodes) {
             node.setAssetId(null);
+            node.setAssetUnlinked(1); // Prevent auto-recreation on next sync
             monitorNodeSnapshotMapper.updateById(node);
         }
 

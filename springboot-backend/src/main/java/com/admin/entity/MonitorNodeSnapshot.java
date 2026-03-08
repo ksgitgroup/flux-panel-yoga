@@ -76,4 +76,7 @@ public class MonitorNodeSnapshot extends BaseEntity {
     private Long lastActiveAt;
 
     private Long lastSyncAt;
+
+    /** 0=normal, 1=user-unlinked from asset (skip auto-create/link on sync) */
+    private Integer assetUnlinked;
 }

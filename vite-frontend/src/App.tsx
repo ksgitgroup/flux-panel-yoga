@@ -20,6 +20,7 @@ import ProtocolPage from "@/pages/protocol";
 import TagPage from "@/pages/tag";
 import XuiPage from "@/pages/xui";
 import XuiProtocolsPage from "@/pages/xui-protocols";
+import OnePanelPage from "@/pages/onepanel";
 import AssetsPage from "@/pages/assets";
 import PortalPage from "@/pages/portal";
 import PortalConfigPage from "@/pages/portal-config";
@@ -396,6 +397,16 @@ function App() {
           <ProtectedRoute requiredPermissions={['xui.read']}>
             <SystemWorkspace>
               <XuiProtocolsPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/onepanel"
+        element={
+          <ProtectedRoute requiredPermissions={['onepanel.read']}>
+            <SystemWorkspace>
+              <OnePanelPage />
             </SystemWorkspace>
           </ProtectedRoute>
         }

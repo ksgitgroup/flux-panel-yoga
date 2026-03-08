@@ -61,6 +61,7 @@
 最小配置：
 
 - `FLUX_URL`
+- `FLUX_INSTANCE_KEY`
 - `FLUX_NODE_TOKEN`
 - `PANEL_BASE_URL`
 - `PANEL_API_KEY`
@@ -92,6 +93,13 @@
 - Flux 后台生成节点注册命令
 - 目标服务器执行一条命令
 - 自动完成安装、注册、测试、首次上报
+
+建议同时提供以下本地文件：
+
+- `flux-1panel-sync.sh`
+- `flux-1panel-sync.service`
+- `flux-1panel-sync.timer`
+- `/etc/flux-1panel-sync/.env`
 
 ## Flux 侧只接什么
 

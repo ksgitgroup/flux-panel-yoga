@@ -235,6 +235,139 @@ export interface XuiProtocolDirectory {
   items: XuiInboundDirectoryItem[];
 }
 
+export interface OnePanelSystemSummary {
+  hostName?: string | null;
+  os?: string | null;
+  kernelVersion?: string | null;
+  architecture?: string | null;
+  dockerRunning?: boolean | null;
+  openrestyRunning?: boolean | null;
+  installedAppCount?: number | null;
+  websiteCount?: number | null;
+  containerCount?: number | null;
+  cronjobCount?: number | null;
+  backupRecordCount?: number | null;
+}
+
+export interface OnePanelAuditSummary {
+  loginFailedCount24h?: number | null;
+  operationCount24h?: number | null;
+  riskyOperationCount24h?: number | null;
+  lastLoginAt?: number | null;
+  lastOperationAt?: number | null;
+}
+
+export interface OnePanelAppSummary {
+  appKey?: string | null;
+  name?: string | null;
+  version?: string | null;
+  status?: string | null;
+  accessUrl?: string | null;
+  portSummary?: string | null;
+  upgradeAvailable?: boolean | null;
+  updatedAt?: number | null;
+}
+
+export interface OnePanelWebsiteSummary {
+  websiteId?: number | null;
+  name?: string | null;
+  primaryDomain?: string | null;
+  status?: string | null;
+  httpsEnabled?: boolean | null;
+  certExpireAt?: number | null;
+  proxyCount?: number | null;
+  runtimeName?: string | null;
+}
+
+export interface OnePanelContainerSummary {
+  containerId?: string | null;
+  name?: string | null;
+  image?: string | null;
+  composeProject?: string | null;
+  status?: string | null;
+  cpuPercent?: number | null;
+  memoryPercent?: number | null;
+  portSummary?: string | null;
+}
+
+export interface OnePanelCronjobSummary {
+  cronjobId?: number | null;
+  name?: string | null;
+  type?: string | null;
+  status?: string | null;
+  schedule?: string | null;
+  lastRecordStatus?: string | null;
+  lastRecordAt?: number | null;
+}
+
+export interface OnePanelBackupSummary {
+  backupType?: string | null;
+  sourceName?: string | null;
+  lastRecordStatus?: string | null;
+  lastBackupAt?: number | null;
+  snapshotCount?: number | null;
+  latestSnapshotAt?: number | null;
+}
+
+export interface OnePanelExporterReport {
+  schemaVersion?: number | null;
+  instanceKey?: string | null;
+  assetId?: number | null;
+  exporterVersion?: string | null;
+  reportTime?: number | null;
+  panelVersion?: string | null;
+  panelEdition?: string | null;
+  panelBaseUrl?: string | null;
+  system?: OnePanelSystemSummary | null;
+  audit?: OnePanelAuditSummary | null;
+  apps?: OnePanelAppSummary[] | null;
+  websites?: OnePanelWebsiteSummary[] | null;
+  containers?: OnePanelContainerSummary[] | null;
+  cronjobs?: OnePanelCronjobSummary[] | null;
+  backups?: OnePanelBackupSummary[] | null;
+}
+
+export interface OnePanelInstance {
+  id: number;
+  name: string;
+  assetId?: number | null;
+  assetName?: string | null;
+  assetPrimaryIp?: string | null;
+  assetEnvironment?: string | null;
+  assetRegion?: string | null;
+  panelUrl?: string | null;
+  instanceKey: string;
+  reportEnabled: number;
+  remark?: string | null;
+  tokenIssuedAt?: number | null;
+  lastReportAt?: number | null;
+  lastReportStatus?: string | null;
+  lastReportError?: string | null;
+  lastReportRemoteIp?: string | null;
+  exporterVersion?: string | null;
+  panelVersion?: string | null;
+  panelEdition?: string | null;
+  appCount?: number | null;
+  websiteCount?: number | null;
+  containerCount?: number | null;
+  cronjobCount?: number | null;
+  backupCount?: number | null;
+}
+
+export interface OnePanelInstanceDetail {
+  instance: OnePanelInstance;
+  latestReport?: OnePanelExporterReport | null;
+  latestReportTime?: number | null;
+  latestReportRemoteIp?: string | null;
+}
+
+export interface OnePanelBootstrap {
+  instance: OnePanelInstance;
+  nodeToken: string;
+  envTemplate: string;
+  installSnippet: string;
+}
+
 export interface XuiSyncResult {
   instanceId: number;
   instanceName: string;
@@ -673,6 +806,14 @@ export interface DashboardNodesResponse {
 }
 export const getMonitorDashboard = () => Network.post<DashboardNodesResponse>("/monitor/dashboard");
 export const deleteMonitorNode = (id: number) => Network.post("/monitor/delete-node", { id });
+
+// 1Panel exporter integration
+export const getOnePanelList = () => Network.post<OnePanelInstance[]>("/onepanel/list");
+export const getOnePanelDetail = (id: number) => Network.post<OnePanelInstanceDetail>("/onepanel/detail", { id });
+export const createOnePanelInstance = (data: any) => Network.post<OnePanelBootstrap>("/onepanel/create", data);
+export const updateOnePanelInstance = (data: any) => Network.post<OnePanelInstance>("/onepanel/update", data);
+export const deleteOnePanelInstance = (id: number) => Network.post("/onepanel/delete", { id });
+export const rotateOnePanelToken = (id: number) => Network.post<OnePanelBootstrap>("/onepanel/rotate-token", { id });
 
 // Historical records / charts
 export interface MonitorRecordPoint {

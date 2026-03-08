@@ -1,0 +1,14 @@
+[Unit]
+Description=Flux 1Panel one-shot summary sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/flux-1panel-sync/.env
+ExecStart=/usr/local/bin/flux-1panel-sync /etc/flux-1panel-sync/.env
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

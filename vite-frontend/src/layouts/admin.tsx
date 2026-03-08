@@ -105,6 +105,22 @@ export default function AdminLayout({
       requiredPermissions: ['xui.read']
     },
     {
+      path: '/onepanel',
+      label: '1Panel 摘要',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="14" rx="2" ry="2" />
+          <path d="M7 8h10" />
+          <path d="M7 12h6" />
+          <path d="M10 18v2" />
+          <path d="M14 18v2" />
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['onepanel.read']
+    },
+    {
       path: '/forward',
       label: '转发管理',
       icon: (
@@ -449,7 +465,7 @@ export default function AdminLayout({
   // Grouped dropdown menus
   const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic'];
   const monitorGroupPaths = ['/monitor', '/probe', '/alert'];
-  const systemGroupPaths = ['/xui', '/xui-protocols', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag'];
+  const systemGroupPaths = ['/xui', '/xui-protocols', '/onepanel', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag'];
 
   const serverGroup = serverGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
   const monitorGroup = monitorGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));

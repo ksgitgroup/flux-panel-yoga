@@ -1,74 +1,71 @@
-# 镜像管理：纯本地，不推送任何 Registry
+# Flux Panel Yoga — CI/CD 配置
+#
+# 架构: GitLab CI → push to GitHub → GitHub Actions 构建 Docker → Docker Hub → 部署
 #
 # 版本日志 / Version Log:
 # -------------------------------------------------------------
+# v1.4.8 [2026-03-08]
+#   - deploy:dev 改为按 TRACE_TAG 拉取镜像，解决版本竞态（拉到旧镜像）
+#   - 增加 [skip ci] 支持，Claude/Codex 中间 push 不触发远程构建
+#   - 删除冗余 sync:github（build:prod 已包含 push）
+#   - 删除已不存在的 print_ci_commit_summary.sh 引用
+#   - deploy 轮询改为先等 60s 再开始（给 GitHub Actions 启动时间）
 # v1.4.3 [2026-03-06]
-#   - 收敛 UI / CI / 镜像版本号显示，统一到 release version + git short SHA
+#   - 收敛版本号显示，统一到 release version + git short SHA
 #   - dev / main 镜像标签改为可追溯的版本化 tag，并保留 latest 别名
-#   - ship_dev 流程改为真实本地构建成功后再推送
-#   - 转发管理筛选区、仪表盘流量趋势与版本展示进一步优化
-# v1.4.2 [2026-03-06]
-#   - 修复 diagnosis_record 表缺失导致的致命错误
-#   - 实现转发管理批量配置协议、批量打标签、批量删除功能
-#   - 优化标签筛选交互，将资源标签移至顶层工具栏
-#   - 修复诊断看板潜在 NPE 白屏问题
-#   - 增强手动诊断结果的实时同步与状态更新
-# v1.4.1 [2026-03-05]
-#   - 修复生产环境手动诊断 NPE 崩溃
-#   - 增加诊断历史色块条预览
-# v1.4.0 [2026-03-01]
-#   - 引入动态协议与标签管理系统
 # =============================================================
 
 variables:
-  IMAGE_BASE: "flux-panel-local"             # 本地镜像命名空间（无需 Registry）
-  DEV_TAG: "dev-latest"                      # 保持开发环境现有部署入口不变
-  PROD_TAG: "latest"                         # 保持生产环境现有部署入口不变
-  DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"  # 服务器 B 部署目录
+  DEV_TAG: "dev-latest"                      # 兜底部署入口（始终指向最新 dev 构建）
+  PROD_TAG: "latest"                         # 生产环境部署入口
+  DEPLOY_DIR: "/opt/1panel/apps/local/flux-panel"
+  GITHUB_REPO: "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git"
 
 stages:
   - build
   - deploy
-  - sync        # 同步到 GitHub，让安装脚本从公开 URL 下载到最新代码
+
+# ── 全局：跳过包含 [skip ci] 的提交 ─────────────────────────
+workflow:
+  rules:
+    - if: $CI_COMMIT_MESSAGE =~ /\[skip ci\]/
+      when: never
+    - when: always
 
 # ──────────────────────────────────────────────────────────────
-# dev 分支同步：将 dev 分支推送到 GitHub 触发 Actions 构建
-# （原始在本地 Server B 上的 docker build 步骤已注释保留在下方，
-#   若未来 Server B 升级大内存，可恢复使用本地构建）
+# dev 分支：推送到 GitHub 触发 Actions 构建
 # ──────────────────────────────────────────────────────────────
 build:dev:
   stage: build
   tags:
     - Rn1-Runner-General-01
   variables:
-    GIT_DEPTH: "50"  # 避免全量拉取(0)导致卡死，50 层足够让 GitHub 识别并接受 Push
+    GIT_DEPTH: "50"
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
   script:
     - |
-      bash scripts/print_ci_commit_summary.sh
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="dev-${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
       echo "🧬 追踪标识: ${TRACE_TAG}"
       echo "🏷️ 部署入口标签: ${DEV_TAG}"
-      echo "ℹ️ dev 镜像构建已移交给 GitHub Actions（解决服务器 B 内存不足）"
-      echo "🔄 正在同步 dev 代码到 GitHub 以触发构建..."
+      echo "📝 提交: ${CI_COMMIT_SHORT_SHA} - ${CI_COMMIT_TITLE}"
+      echo "🔄 推送 dev 代码到 GitHub 触发 Actions 构建..."
       git config --global user.email "ci@gitlab.kingsungsz.com"
       git config --global user.name "GitLab CI"
-      git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/dev" --force
-      echo "✅ dev 代码已推送到 GitHub，GitHub Actions 将构建 ${DEV_TAG} 与 ${TRACE_TAG}"
+      git push "${GITHUB_REPO}" "HEAD:refs/heads/dev" --force
+      echo "✅ 已推送，GitHub Actions 将构建 ${DEV_TAG} + ${TRACE_TAG}"
 
     # ========= 【历史保留】原始 Server B 本地编译脚本 =========
-    # - echo "🔨 构建前端镜像 $IMAGE_BASE/vite-frontend:$DEV_TAG ..."
-    # - docker build -t "$IMAGE_BASE/vite-frontend:$DEV_TAG" ./vite-frontend
-    # - echo "🔨 构建后端镜像 $IMAGE_BASE/springboot-backend:$DEV_TAG ..."
-    # - docker build -t "$IMAGE_BASE/springboot-backend:$DEV_TAG" ./springboot-backend
-    # - echo "🧹 清理 dangling 镜像以节省空间"
+    # 若未来 Server B 升级大内存，可恢复使用本地构建
+    # - docker build -t "flux-panel-local/vite-frontend:$DEV_TAG" ./vite-frontend
+    # - docker build -t "flux-panel-local/springboot-backend:$DEV_TAG" ./springboot-backend
     # - docker image prune -f
     # ========================================================
 
 # ──────────────────────────────────────────────────────────────
-# prod 分支构建：推送到 GitHub 触发 Actions 构建 latest 镜像
+# prod 分支：推送到 GitHub 触发 Actions 构建 + 同步代码
+# （合并了原来的 build:prod 和 sync:github，避免重复 push）
 # ──────────────────────────────────────────────────────────────
 build:prod:
   stage: build
@@ -80,20 +77,23 @@ build:prod:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
     - |
-      bash scripts/print_ci_commit_summary.sh
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
       echo "🧬 追踪标识: ${TRACE_TAG}"
       echo "🏷️ 部署入口标签: ${PROD_TAG}"
-      echo "ℹ️ 镜像构建由 GitHub Actions 负责，正在推送代码以触发构建..."
+      echo "📝 提交: ${CI_COMMIT_SHORT_SHA} - ${CI_COMMIT_TITLE}"
+      echo "🔄 推送 main 代码到 GitHub（触发构建 + 代码同步）..."
       git config --global user.email "ci@gitlab.kingsungsz.com"
       git config --global user.name "GitLab CI"
-      git push "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" "HEAD:refs/heads/main" --force
-      echo "✅ 已推送到 GitHub，GitHub Actions 将自动构建 ${PROD_TAG}、v${APP_VERSION} 与 ${TRACE_TAG}"
-
+      git push "${GITHUB_REPO}" "HEAD:refs/heads/main" --force
+      echo "✅ 已推送，GitHub Actions 将构建 ${PROD_TAG}、v${APP_VERSION}、${TRACE_TAG}"
 
 # ──────────────────────────────────────────────────────────────
-# dev 部署：Runner 在服务器 B，拉取 Docker Hub dev-latest 镜像
+# dev 部署：等待 GitHub Actions 构建完成后拉取精确版本镜像
+#
+# 改进：先尝试拉取 TRACE_TAG（精确到 commit SHA），
+#       确保部署的是本次提交对应的镜像，而非上一次构建的残留。
+#       拉取成功后再 tag 为 DEV_TAG 以兼容 docker-compose 配置。
 # ──────────────────────────────────────────────────────────────
 deploy:dev:
   stage: deploy
@@ -109,87 +109,95 @@ deploy:dev:
     - |
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="dev-${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
+      BACKEND_IMAGE="amerluya/flux-panel-yoga-backend"
+      FRONTEND_IMAGE="amerluya/flux-panel-yoga-frontend"
+
       mkdir -p "$DEPLOY_DIR"
       [ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true
       cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
       cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
       cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
       chmod +x "$DEPLOY_DIR/remote_deploy.sh"
-      echo "⏳ 等待 GitHub Actions 编译后端镜像 (部署入口: amerluya/flux-panel-yoga-backend:${DEV_TAG}, 追踪标签: ${TRACE_TAG}) ..."
-      for i in {1..30}; do
-        if docker pull "amerluya/flux-panel-yoga-backend:${DEV_TAG}" >/dev/null 2>&1; then
-          echo "✅ 后端镜像拉取成功！"
+
+      echo "⏳ 等待 GitHub Actions 构建镜像..."
+      echo "   后端: ${BACKEND_IMAGE}:${TRACE_TAG}"
+      echo "   前端: ${FRONTEND_IMAGE}:${TRACE_TAG}"
+
+      # 先等 60s 给 GitHub Actions 启动时间，避免前 3 轮都是无意义的 pull
+      echo "⏳ 预等待 60s（GitHub Actions 冷启动）..."
+      sleep 60
+
+      # 用 TRACE_TAG 精确拉取本次 commit 对应的镜像
+      PULLED=0
+      for i in $(seq 1 24); do
+        if docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" >/dev/null 2>&1; then
+          echo "✅ 后端镜像 ${TRACE_TAG} 拉取成功！"
+          # 同时尝试拉取前端（如果有的话）
+          docker pull "${FRONTEND_IMAGE}:${TRACE_TAG}" >/dev/null 2>&1 || true
+          PULLED=1
           break
         fi
-        echo "⏳ 等待编译中... ($i/30)"
+        echo "⏳ 等待编译中... ($i/24, 每次等 20s)"
         sleep 20
-        if [ "$i" -eq 30 ]; then
-          echo "❌ 等待超时，请检查 GitHub Actions 日志！"
+      done
+
+      if [ "$PULLED" -eq 0 ]; then
+        echo "⚠️ TRACE_TAG ${TRACE_TAG} 拉取超时，回退到 ${DEV_TAG}..."
+        if docker pull "${BACKEND_IMAGE}:${DEV_TAG}" >/dev/null 2>&1; then
+          echo "✅ 回退拉取 ${DEV_TAG} 成功（注意：可能不是本次提交的版本）"
+        else
+          echo "❌ 镜像拉取失败，请检查 GitHub Actions 日志！"
           exit 1
         fi
-      done
+      fi
+
       bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "${DEV_TAG}" "$DEPLOY_DIR"
 
 # ──────────────────────────────────────────────────────────────
-# prod 部署：Runner 在服务器 C（Rn2-US-Runner-Gereral），本地部署
-#
-# 和 dev 部署完全一样的模式：Runner 就在目标机器上，直接操作
-# Runner 的 config.toml 已配置 clone_url = SSH，自动通过 SSH 拉取代码
+# prod 部署：Runner 在服务器 C，手动确认后部署
 # ──────────────────────────────────────────────────────────────
 deploy:prod:
   stage: deploy
   tags:
-    - Rn2-US-Runner-Gereral        # 🖥️ Server C 上的 Runner
+    - Rn2-US-Runner-Gereral
   needs:
     - build:prod
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
-      when: manual                  # ⚠️ 生产部署需要手动确认
+      when: manual
   environment:
     name: production
   script:
     - |
       APP_VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' vite-frontend/package.json)
       TRACE_TAG="${APP_VERSION}-${CI_COMMIT_SHORT_SHA}"
+      BACKEND_IMAGE="amerluya/flux-panel-yoga-backend"
       DEPLOY_DIR="/opt/1panel/apps/local/flux-panel"
+
       mkdir -p "$DEPLOY_DIR"
       [ -d "$DEPLOY_DIR/gost.sql" ] && rm -rf "$DEPLOY_DIR/gost.sql" || true
       cp "$CI_PROJECT_DIR/docker-compose-v6.yml" "$DEPLOY_DIR/docker-compose-v6.yml"
       cp "$CI_PROJECT_DIR/gost.sql" "$DEPLOY_DIR/gost.sql"
       cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
       chmod +x "$DEPLOY_DIR/remote_deploy.sh"
-      echo "⏳ 等待 GitHub Actions 编译 (部署入口: amerluya/flux-panel-yoga-backend:${PROD_TAG}, 追踪标签: ${TRACE_TAG}) ..."
-      for i in {1..30}; do
-        if docker pull "amerluya/flux-panel-yoga-backend:${PROD_TAG}" >/dev/null 2>&1; then
-          echo "✅ 镜像拉取成功！"
+
+      echo "⏳ 等待 GitHub Actions 构建 ${TRACE_TAG} ..."
+      sleep 60
+
+      PULLED=0
+      for i in $(seq 1 24); do
+        if docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" >/dev/null 2>&1; then
+          echo "✅ 镜像 ${TRACE_TAG} 拉取成功！"
+          PULLED=1
           break
         fi
-        echo "⏳ 等待编译中... ($i/30)"
+        echo "⏳ 等待编译中... ($i/24)"
         sleep 20
-        if [ "$i" -eq 30 ]; then
-          echo "❌ 等待超时，请检查 GitHub Actions 日志！"
-          exit 1
-        fi
       done
-      bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "${PROD_TAG}" "$DEPLOY_DIR"
 
-# ──────────────────────────────────────────────────────────────
-# 同步到 GitHub（main 分支）
-# ──────────────────────────────────────────────────────────────
-sync:github:
-  stage: sync
-  tags:
-    - Rn1-Runner-General-01
-  variables:
-    GIT_DEPTH: "50"
-  needs:
-    - build:prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-  script:
-    - echo "🔄 同步代码到 GitHub ksgitgroup/flux-panel-yoga ..."
-    - git config --global user.email "ci@gitlab.kingsungsz.com"
-    - git config --global user.name "GitLab CI"
-    - git remote add github "https://${GITHUB_TOKEN}@github.com/ksgitgroup/flux-panel-yoga.git" || true
-    - git push github "HEAD:main" --force
-    - echo "✅ 已同步到 GitHub"
+      if [ "$PULLED" -eq 0 ]; then
+        echo "⚠️ 回退到 ${PROD_TAG}..."
+        docker pull "${BACKEND_IMAGE}:${PROD_TAG}" >/dev/null 2>&1 || { echo "❌ 拉取失败！"; exit 1; }
+      fi
+
+      bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "${PROD_TAG}" "$DEPLOY_DIR"

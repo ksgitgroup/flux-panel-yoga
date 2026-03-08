@@ -1178,6 +1178,13 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 boolean created = autoCreateOrLinkAssetFromNode(existing, instance);
                 if (created) newAssets++;
             } else if (existing.getAssetId() != null) {
+                // If metrics fetch failed and OS is still empty, try to derive osCategory from asset's existing OS
+                if (!StringUtils.hasText(existing.getOs())) {
+                    AssetHost existingAsset = assetHostMapper.selectById(existing.getAssetId());
+                    if (existingAsset != null && StringUtils.hasText(existingAsset.getOs())) {
+                        existing.setOs(existingAsset.getOs());
+                    }
+                }
                 refreshAssetFromProbe(existing);
             }
         }

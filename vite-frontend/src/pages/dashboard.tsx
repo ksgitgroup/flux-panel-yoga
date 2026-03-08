@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from 'react-hot-toast';
-import { Button } from "@heroui/button";
-import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Progress } from "@heroui/progress";
-import { getDiagnosisRuntimeStatus, getDiagnosisSummary, getMonitorList, getNodeList, getUserPackageInfo, MonitorInstance } from "@/api";
+import { Spinner } from "@heroui/spinner";
+import {
+  AssetHost,
+  getAssetList,
+  getDiagnosisRuntimeStatus,
+  getDiagnosisSummary,
+  getMonitorList,
+  getNodeList,
+  getUserPackageInfo,
+  MonitorInstance,
+} from "@/api";
+import { formatFlow, formatRelativeTime, getRegionFlag, barColor } from '@/utils/formatters';
 import { siteConfig } from "@/config/site";
 
 interface UserInfo {
@@ -13,19 +23,6 @@ interface UserInfo {
   inFlow: number;
   outFlow: number;
   num: number;
-  expTime?: string;
-  flowResetTime?: number;
-}
-
-interface DiagnosisBatchItem {
-  id: number;
-  targetType: string;
-  targetId: number;
-  targetName: string;
-  overallSuccess: boolean;
-  averageTime?: number;
-  packetLoss?: number;
-  createdTime: number;
 }
 
 interface DiagnosisSummary {
@@ -35,34 +32,15 @@ interface DiagnosisSummary {
   healthRate: number;
   avgLatency?: number;
   lastRunTime?: number;
-  recentFailures: DiagnosisBatchItem[];
-}
-
-interface DiagnosisRuntimeItem {
-  targetType: string;
-  targetId: number;
-  targetName: string;
-  success: boolean;
-  averageTime?: number;
-  packetLoss?: number;
-  errorMessage?: string;
-  finishedAt: number;
+  recentFailures: { id: number; targetType: string; targetName: string; averageTime?: number; packetLoss?: number; createdTime: number }[];
 }
 
 interface DiagnosisRuntimeStatus {
   running: boolean;
-  triggerSource: string;
-  startedAt?: number;
-  finishedAt?: number;
   totalCount: number;
   completedCount: number;
-  successCount: number;
-  failCount: number;
-  currentTargetType?: string;
-  currentTargetId?: number;
-  currentTargetName?: string;
   progressPercent: number;
-  recentItems: DiagnosisRuntimeItem[];
+  currentTargetName?: string;
 }
 
 interface DashboardNode {
@@ -70,30 +48,6 @@ interface DashboardNode {
   name: string;
   status: number;
 }
-
-const formatFlow = (value: number, unit: string = 'bytes'): string => {
-  if (value === 99999) return '无限制';
-  if (unit === 'gb') return `${value || 0} GB`;
-  if (!value) return '0 B';
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(2)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`;
-  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-};
-
-const formatDateTime = (ts?: number) => {
-  if (!ts) return '—';
-  return new Date(ts).toLocaleString('zh-CN', { hour12: false });
-};
-
-const formatRelativeTime = (ts?: number) => {
-  if (!ts) return '—';
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
-};
 
 const normalizeSummary = (data: any): DiagnosisSummary => ({
   totalCount: Number(data?.totalCount ?? 0),
@@ -107,69 +61,11 @@ const normalizeSummary = (data: any): DiagnosisSummary => ({
 
 const normalizeRuntime = (data: any): DiagnosisRuntimeStatus => ({
   running: Boolean(data?.running),
-  triggerSource: data?.triggerSource || 'idle',
-  startedAt: data?.startedAt ?? undefined,
-  finishedAt: data?.finishedAt ?? undefined,
   totalCount: Number(data?.totalCount ?? 0),
   completedCount: Number(data?.completedCount ?? 0),
-  successCount: Number(data?.successCount ?? 0),
-  failCount: Number(data?.failCount ?? 0),
-  currentTargetType: data?.currentTargetType ?? undefined,
-  currentTargetId: data?.currentTargetId ?? undefined,
-  currentTargetName: data?.currentTargetName ?? undefined,
   progressPercent: Number(data?.progressPercent ?? 0),
-  recentItems: Array.isArray(data?.recentItems) ? data.recentItems : [],
+  currentTargetName: data?.currentTargetName ?? undefined,
 });
-
-const OverviewCard = ({
-  label,
-  value,
-  subtitle,
-  tone = 'default',
-}: {
-  label: string;
-  value: string;
-  subtitle: string;
-  tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
-}) => (
-  <Card className="border border-default-200 bg-white/85 shadow-sm dark:bg-black/20">
-    <CardBody className="gap-3 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs uppercase tracking-[0.18em] text-default-400">{label}</p>
-        <Chip size="sm" variant="flat" color={tone}>{label}</Chip>
-      </div>
-      <div>
-        <p className="text-2xl font-semibold text-foreground">{value}</p>
-        <p className="mt-1 text-xs leading-5 text-default-500">{subtitle}</p>
-      </div>
-    </CardBody>
-  </Card>
-);
-
-const QuickEntry = ({
-  title,
-  description,
-  to,
-  tone = 'default',
-}: {
-  title: string;
-  description: string;
-  to: string;
-  tone?: 'default' | 'primary' | 'success' | 'warning';
-}) => (
-  <Card className="border border-default-200 bg-white/85 shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md dark:bg-black/20">
-    <CardBody className="gap-4 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-base font-semibold text-foreground">{title}</p>
-        <Chip size="sm" variant="flat" color={tone}>{title}</Chip>
-      </div>
-      <p className="text-sm leading-6 text-default-500">{description}</p>
-      <Button as={Link} to={to} size="sm" variant="flat" color="primary">
-        打开
-      </Button>
-    </CardBody>
-  </Card>
-);
 
 export default function DashboardPage() {
   const admin = localStorage.getItem('admin') === 'true';
@@ -179,333 +75,423 @@ export default function DashboardPage() {
   const [tunnelCount, setTunnelCount] = useState(0);
   const [summary, setSummary] = useState<DiagnosisSummary | null>(null);
   const [runtime, setRuntime] = useState<DiagnosisRuntimeStatus | null>(null);
-  const [nodeCount, setNodeCount] = useState(0);
-  const [onlineNodeCount, setOnlineNodeCount] = useState(0);
+  const [nodes, setNodes] = useState<DashboardNode[]>([]);
   const [probeInstances, setProbeInstances] = useState<MonitorInstance[]>([]);
-  const probeSummary = useMemo(() => {
-    const total = probeInstances.reduce((s, i) => s + (i.nodeCount || 0), 0);
-    const online = probeInstances.reduce((s, i) => s + (i.onlineNodeCount || 0), 0);
-    return { total, online, instances: probeInstances.length };
-  }, [probeInstances]);
+  const [assets, setAssets] = useState<AssetHost[]>([]);
 
   const loadHome = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [packageResp, summaryResp, runtimeResp, nodeResp, monitorResp] = await Promise.all([
+      const promises: Promise<any>[] = [
         getUserPackageInfo(),
         getDiagnosisSummary().catch(() => null),
         getDiagnosisRuntimeStatus().catch(() => null),
-        admin ? getNodeList().catch(() => null) : Promise.resolve(null),
-        admin ? getMonitorList().catch(() => null) : Promise.resolve(null),
-      ]);
+      ];
+      if (admin) {
+        promises.push(getNodeList().catch(() => null));
+        promises.push(getMonitorList().catch(() => null));
+        promises.push(getAssetList().catch(() => null));
+      }
+      const [packageResp, summaryResp, runtimeResp, nodeResp, monitorResp, assetResp] = await Promise.all(promises);
 
       if (packageResp.code !== 0) {
-        if (!silent) toast.error(packageResp.msg || '加载首页失败');
+        if (!silent) toast.error(packageResp.msg || '加载失败');
         return;
       }
 
-      const packageData = packageResp.data || {};
-      setUserInfo(packageData.userInfo || ({} as UserInfo));
-      setForwardCount(Array.isArray(packageData.forwards) ? packageData.forwards.length : 0);
-      setTunnelCount(Array.isArray(packageData.tunnelPermissions) ? packageData.tunnelPermissions.length : 0);
+      const pkg = packageResp.data || {};
+      setUserInfo(pkg.userInfo || ({} as UserInfo));
+      setForwardCount(Array.isArray(pkg.forwards) ? pkg.forwards.length : 0);
+      setTunnelCount(Array.isArray(pkg.tunnelPermissions) ? pkg.tunnelPermissions.length : 0);
 
-      if (summaryResp?.code === 0) {
-        setSummary(normalizeSummary(summaryResp.data));
-      }
-      if (runtimeResp?.code === 0) {
-        setRuntime(normalizeRuntime(runtimeResp.data));
-      }
-      if (admin && nodeResp?.code === 0) {
-        const nodes: DashboardNode[] = Array.isArray(nodeResp.data) ? nodeResp.data : [];
-        setNodeCount(nodes.length);
-        setOnlineNodeCount(nodes.filter((node) => node.status === 1).length);
-      }
-      if (admin && monitorResp?.code === 0) {
-        setProbeInstances(Array.isArray(monitorResp.data) ? monitorResp.data : []);
-      }
-    } catch (error) {
-      console.error('load home error', error);
+      if (summaryResp?.code === 0) setSummary(normalizeSummary(summaryResp.data));
+      if (runtimeResp?.code === 0) setRuntime(normalizeRuntime(runtimeResp.data));
+      if (admin && nodeResp?.code === 0) setNodes(Array.isArray(nodeResp.data) ? nodeResp.data : []);
+      if (admin && monitorResp?.code === 0) setProbeInstances(Array.isArray(monitorResp.data) ? monitorResp.data : []);
+      if (admin && assetResp?.code === 0) setAssets(Array.isArray(assetResp.data) ? assetResp.data : []);
+    } catch {
       if (!silent) toast.error('加载首页失败');
     } finally {
       if (!silent) setLoading(false);
     }
   }, [admin]);
 
+  useEffect(() => { void loadHome(); }, [loadHome]);
   useEffect(() => {
-    void loadHome();
-  }, [loadHome]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void loadHome(true);
-    }, runtime?.running ? 2500 : 60000);
+    const interval = window.setInterval(() => void loadHome(true), runtime?.running ? 2500 : 60000);
     return () => window.clearInterval(interval);
   }, [loadHome, runtime?.running]);
 
-  const usedFlow = useMemo(() => (userInfo.inFlow || 0) + (userInfo.outFlow || 0), [userInfo.inFlow, userInfo.outFlow]);
-  const flowUsage = useMemo(() => {
+  // Computed
+  const onlineNodes = useMemo(() => nodes.filter(n => n.status === 1).length, [nodes]);
+  const probeSummary = useMemo(() => {
+    const total = probeInstances.reduce((s, i) => s + (i.nodeCount || 0), 0);
+    const online = probeInstances.reduce((s, i) => s + (i.onlineNodeCount || 0), 0);
+    return { total, online, instances: probeInstances.length };
+  }, [probeInstances]);
+
+  const usedFlow = useMemo(() => (userInfo.inFlow || 0) + (userInfo.outFlow || 0), [userInfo]);
+  const flowPct = useMemo(() => {
     if (!userInfo.flow || userInfo.flow === 99999) return 0;
-    const totalBytes = userInfo.flow * 1024 * 1024 * 1024;
-    return totalBytes > 0 ? Math.min((usedFlow / totalBytes) * 100, 100) : 0;
+    return Math.min((usedFlow / (userInfo.flow * 1024 * 1024 * 1024)) * 100, 100);
   }, [usedFlow, userInfo.flow]);
+
+  // Asset stats
+  const assetStats = useMemo(() => {
+    const now = Date.now();
+    let expiringSoon = 0, expired = 0, totalMonthly = 0;
+    const regionMap: Record<string, number> = {};
+    assets.forEach(a => {
+      if (a.expireDate) {
+        const days = (a.expireDate - now) / 86400000;
+        if (days < 0) expired++;
+        else if (days <= 30) expiringSoon++;
+      }
+      const region = a.region || '未设置';
+      regionMap[region] = (regionMap[region] || 0) + 1;
+      if (a.monthlyCost) {
+        const v = parseFloat(a.monthlyCost);
+        if (!isNaN(v)) totalMonthly += v;
+      }
+    });
+    // Top 5 regions
+    const topRegions = Object.entries(regionMap)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5);
+    return { total: assets.length, expiringSoon, expired, totalMonthly, topRegions };
+  }, [assets]);
+
+  // Traffic warning assets
+  const trafficWarnings = useMemo(() =>
+    assets
+      .filter(a => a.probeTrafficLimit && a.probeTrafficLimit > 0 && a.probeTrafficUsed)
+      .map(a => ({ ...a, pct: ((a.probeTrafficUsed || 0) / a.probeTrafficLimit!) * 100 }))
+      .filter(a => a.pct >= 80)
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 5),
+    [assets]
+  );
+
   const healthRate = summary?.healthRate ?? 100;
 
-  const overviewCards = admin
-    ? [
-        {
-          label: '诊断健康率',
-          value: `${healthRate.toFixed(1)}%`,
-          subtitle: summary?.failCount ? `${summary.failCount} 个资源需要排查` : '当前未发现告警资源',
-          tone: summary?.failCount ? 'warning' as const : 'success' as const,
-        },
-        {
-          label: '最近诊断',
-          value: summary?.lastRunTime ? formatRelativeTime(summary.lastRunTime) : '未执行',
-          subtitle: summary?.lastRunTime ? formatDateTime(summary.lastRunTime) : '请到诊断看板手动触发',
-          tone: 'primary' as const,
-        },
-        {
-          label: '探针节点',
-          value: probeSummary.total > 0 ? `${probeSummary.online}/${probeSummary.total}` : `${onlineNodeCount}/${nodeCount}`,
-          subtitle: probeSummary.total > 0
-            ? `${probeSummary.instances} 个探针实例，${probeSummary.online} 在线`
-            : (nodeCount > 0 ? 'GOST 节点在线状态' : '未检测到节点数据'),
-          tone: (probeSummary.total > 0
-            ? (probeSummary.online === probeSummary.total ? 'success' : 'warning')
-            : (onlineNodeCount === nodeCount && nodeCount > 0 ? 'success' : 'warning')) as 'success' | 'warning',
-        },
-        {
-          label: '纳入诊断资源',
-          value: `${summary?.totalCount ?? 0}`,
-          subtitle: `${forwardCount} 条转发，${tunnelCount} 条隧道`,
-          tone: 'default' as const,
-        },
-      ]
-    : [
-        {
-          label: '诊断健康率',
-          value: `${healthRate.toFixed(1)}%`,
-          subtitle: summary?.failCount ? `${summary.failCount} 个资源需要排查` : '当前未发现告警资源',
-          tone: summary?.failCount ? 'warning' as const : 'success' as const,
-        },
-        {
-          label: '流量使用',
-          value: userInfo.flow === 99999 ? '无限制' : `${flowUsage.toFixed(1)}%`,
-          subtitle: `${formatFlow(usedFlow)} / ${formatFlow(userInfo.flow || 0, 'gb')}`,
-          tone: flowUsage >= 85 ? 'warning' as const : 'primary' as const,
-        },
-        {
-          label: '当前转发',
-          value: `${forwardCount}`,
-          subtitle: `${tunnelCount} 条隧道正在承载`,
-          tone: 'default' as const,
-        },
-        {
-          label: '最近诊断',
-          value: summary?.lastRunTime ? formatRelativeTime(summary.lastRunTime) : '未执行',
-          subtitle: summary?.lastRunTime ? formatDateTime(summary.lastRunTime) : '请到诊断看板查看详情',
-          tone: 'primary' as const,
-        },
-      ];
-
   if (loading) {
-    return (
-      <div className="flex min-h-[420px] items-center justify-center">
-        <div className="flex items-center gap-3 text-default-500">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-default-200 border-t-default-500" />
-          <span>正在加载首页...</span>
-        </div>
-      </div>
-    );
+    return <div className="flex min-h-[420px] items-center justify-center"><Spinner size="lg" /></div>;
   }
 
   return (
-    <div className="space-y-5 py-2">
-      <Card className="overflow-hidden border border-default-200 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.12),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.12),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,252,0.96))] shadow-sm dark:bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.18),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.16),transparent_26%),linear-gradient(180deg,rgba(9,9,11,0.96),rgba(15,23,42,0.94))]">
-        <CardBody className="gap-5 p-5 lg:p-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip size="sm" variant="flat" color="primary">{siteConfig.environment_name}</Chip>
-                <Chip size="sm" variant="flat" color={summary?.failCount ? 'warning' : 'success'}>
-                  {summary?.failCount ? `${summary.failCount} 个异常待处理` : '系统整体稳定'}
-                </Chip>
-                <Chip size="sm" variant="flat">{siteConfig.release_version} · {siteConfig.build_revision}</Chip>
-              </div>
-              <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">首页</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-default-600">
-                这里只保留最核心的信息和入口：系统是否稳定、最近一次诊断何时完成、有没有异常需要立刻处理。所有详细图表、流量曲线和链路诊断都放到诊断看板，避免首页继续膨胀。
-              </p>
-              <div className="mt-5 flex flex-wrap gap-3">
-                <Button as={Link} to="/monitor" color="primary">进入诊断看板</Button>
-                <Button as={Link} to="/forward" variant="flat" color="primary">转发管理</Button>
-                <Button as={Link} to={admin ? '/node' : '/tunnel'} variant="light">
-                  {admin ? '节点监控' : '隧道管理'}
-                </Button>
-                <Button as={Link} to={admin ? '/config?section=basic' : '/profile'} variant="light">
-                  {admin ? '系统配置' : '个人中心'}
-                </Button>
-              </div>
+    <div className="space-y-4">
+      {/* Diagnosis running banner */}
+      {runtime?.running && (
+        <Card className="border border-primary/30 bg-primary-50/30 dark:bg-primary-900/10">
+          <CardBody className="flex flex-row items-center gap-4 p-3">
+            <Spinner size="sm" color="primary" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">诊断执行中 · {runtime.completedCount}/{runtime.totalCount}</p>
+              {runtime.currentTargetName && <p className="text-xs text-default-500 truncate">正在诊断: {runtime.currentTargetName}</p>}
             </div>
+            <Progress size="sm" value={runtime.progressPercent} color="primary" className="w-32" />
+            <Link to="/monitor" className="text-xs text-primary font-semibold hover:underline flex-shrink-0">查看详情</Link>
+          </CardBody>
+        </Card>
+      )}
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:w-[420px]">
-              <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <p className="text-xs uppercase tracking-[0.2em] text-default-400">当前版本</p>
-                <p className="mt-3 text-lg font-semibold text-foreground">{siteConfig.release_version}</p>
-                <p className="mt-1 text-xs text-default-500">{siteConfig.build_revision}</p>
-              </div>
-              <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <p className="text-xs uppercase tracking-[0.2em] text-default-400">最近诊断</p>
-                <p className="mt-3 text-lg font-semibold text-foreground">{summary?.lastRunTime ? formatRelativeTime(summary.lastRunTime) : '暂未执行'}</p>
-                <p className="mt-1 text-xs text-default-500">{summary?.lastRunTime ? formatDateTime(summary.lastRunTime) : '去诊断看板手动触发'}</p>
-              </div>
-              <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/5 sm:col-span-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-default-400">首页职责</p>
-                <p className="mt-3 text-sm leading-7 text-default-600">
-                  首页只负责回答“现在稳不稳、要不要马上处理、应该点去哪里”；真正的图表、诊断执行进度和流量拆分都在诊断看板里。
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {runtime?.running && (
-            <div className="rounded-[28px] border border-primary/20 bg-primary/5 p-4 shadow-sm">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Chip size="sm" variant="flat" color="primary">手动诊断执行中</Chip>
-                    <Chip size="sm" variant="flat" color="default">{runtime.completedCount}/{runtime.totalCount || '--'}</Chip>
-                  </div>
-                  <p className="mt-2 text-lg font-semibold text-foreground">
-                    {runtime.currentTargetName ? `当前正在诊断：${runtime.currentTargetName}` : '正在准备诊断队列'}
-                  </p>
-                  <p className="mt-1 text-xs text-default-500">
-                    详细执行过程和最近完成的资源，直接到诊断看板查看。
-                  </p>
-                </div>
-                <Button as={Link} to="/monitor" size="sm" color="primary">查看执行详情</Button>
-              </div>
-              <Progress aria-label="诊断进度" value={runtime.progressPercent} color="primary" className="mt-4" />
-            </div>
-          )}
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {overviewCards.map((item) => (
-              <OverviewCard key={item.label} {...item} />
-            ))}
-          </div>
-        </CardBody>
-      </Card>
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.95fr)]">
-        <Card className="border border-default-200 shadow-sm">
-          <CardHeader className="pb-0">
-            <div>
-              <p className="text-sm font-semibold text-foreground">当前待处理项</p>
-              <p className="text-xs text-default-500">这里只保留最新异常摘要，详细链路、趋势和流量图都在诊断看板。</p>
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-3 pt-5">
-            {summary?.recentFailures?.length ? summary.recentFailures.slice(0, 4).map((record) => (
-              <div key={record.id} className="rounded-3xl border border-danger-200 bg-danger-50/60 p-4 shadow-sm dark:border-danger-800/40 dark:bg-danger-900/10">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Chip size="sm" variant="flat" color="danger">{record.targetType === 'tunnel' ? '隧道异常' : '转发异常'}</Chip>
-                      <span className="text-sm font-semibold text-foreground">{record.targetName}</span>
-                    </div>
-                    <p className="mt-2 text-xs text-default-500">
-                      {formatDateTime(record.createdTime)} · 最近更新 {formatRelativeTime(record.createdTime)}
-                    </p>
-                  </div>
-                  <div className="grid min-w-[190px] grid-cols-2 gap-3 lg:max-w-[220px]">
-                    <div className="rounded-2xl border border-danger-200 bg-white/80 px-3 py-3 dark:bg-black/20">
-                      <p className="text-xs text-default-400">延迟</p>
-                      <p className="mt-1 text-sm font-semibold text-foreground">{record.averageTime ? `${record.averageTime} ms` : '--'}</p>
-                    </div>
-                    <div className="rounded-2xl border border-danger-200 bg-white/80 px-3 py-3 dark:bg-black/20">
-                      <p className="text-xs text-default-400">丢包</p>
-                      <p className="mt-1 text-sm font-semibold text-foreground">{record.packetLoss !== undefined && record.packetLoss !== null ? `${record.packetLoss}%` : '--'}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )) : (
-              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-[28px] border border-dashed border-success-300 bg-success-50/50 text-center dark:border-success-800/50 dark:bg-success-900/10">
-                <div className="rounded-full bg-success-100 p-4 text-success dark:bg-success-900/20">
-                  <svg className="h-10 w-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <p className="mt-4 text-lg font-medium text-foreground">当前没有待处理异常</p>
-                <p className="mt-2 text-sm text-default-500">如果需要确认趋势和流量热点，去诊断看板看详细图表。</p>
-              </div>
-            )}
+      {/* Key metrics row */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+        {/* Health */}
+        <Card className={`border ${summary?.failCount ? 'border-warning/40 bg-warning-50/20' : 'border-success/30 bg-success-50/20'}`}>
+          <CardBody className="p-3">
+            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">诊断健康率</p>
+            <p className={`text-2xl font-bold font-mono mt-1 ${summary?.failCount ? 'text-warning' : 'text-success'}`}>{healthRate.toFixed(1)}%</p>
+            <p className="text-[11px] text-default-500 mt-0.5">
+              {summary?.failCount ? `${summary.failCount} 个异常` : '系统稳定'}
+              {summary?.lastRunTime ? ` · ${formatRelativeTime(summary.lastRunTime)}` : ''}
+            </p>
           </CardBody>
         </Card>
 
-        <div className="space-y-5">
-          <Card className="border border-default-200 shadow-sm">
-            <CardHeader className="pb-0">
-              <div>
-                <p className="text-sm font-semibold text-foreground">快捷入口</p>
-                <p className="text-xs text-default-500">首页只保留操作入口，不再重复堆详细看板。</p>
+        {/* Forwards & Tunnels */}
+        <Card className="border border-divider/60">
+          <CardBody className="p-3">
+            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">转发 / 隧道</p>
+            <p className="text-2xl font-bold font-mono mt-1">{forwardCount} <span className="text-sm text-default-400">/</span> {tunnelCount}</p>
+            <p className="text-[11px] text-default-500 mt-0.5">
+              {summary?.totalCount ?? 0} 个纳入诊断
+            </p>
+          </CardBody>
+        </Card>
+
+        {/* Nodes */}
+        {admin && (
+          <Card className="border border-divider/60">
+            <CardBody className="p-3">
+              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">
+                {probeSummary.total > 0 ? '探针节点' : 'GOST 节点'}
+              </p>
+              <p className="text-2xl font-bold font-mono mt-1">
+                {probeSummary.total > 0
+                  ? <><span className="text-success">{probeSummary.online}</span> <span className="text-sm text-default-400">/</span> {probeSummary.total}</>
+                  : <><span className={onlineNodes === nodes.length && nodes.length > 0 ? 'text-success' : 'text-warning'}>{onlineNodes}</span> <span className="text-sm text-default-400">/</span> {nodes.length}</>
+                }
+              </p>
+              <p className="text-[11px] text-default-500 mt-0.5">
+                {probeSummary.total > 0 ? `${probeSummary.instances} 个探针实例` : '节点在线状态'}
+              </p>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Flow usage (non-admin) */}
+        {!admin && (
+          <Card className="border border-divider/60">
+            <CardBody className="p-3">
+              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">流量使用</p>
+              <p className="text-2xl font-bold font-mono mt-1">
+                {userInfo.flow === 99999 ? '不限' : `${flowPct.toFixed(1)}%`}
+              </p>
+              <p className="text-[11px] text-default-500 mt-0.5">{formatFlow(usedFlow)} / {userInfo.flow === 99999 ? '无限制' : `${userInfo.flow || 0} GB`}</p>
+              {userInfo.flow !== 99999 && <Progress size="sm" value={flowPct} color={barColor(flowPct)} className="mt-1.5" />}
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Assets */}
+        {admin && assets.length > 0 && (
+          <Card className="border border-divider/60">
+            <CardBody className="p-3">
+              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器资产</p>
+              <p className="text-2xl font-bold font-mono mt-1">{assetStats.total}</p>
+              <p className="text-[11px] text-default-500 mt-0.5">
+                {assetStats.expiringSoon > 0 && <span className="text-warning">{assetStats.expiringSoon} 即将到期 · </span>}
+                {assetStats.expired > 0 && <span className="text-danger">{assetStats.expired} 已过期 · </span>}
+                {assetStats.topRegions.length > 0 && `${assetStats.topRegions.length} 个地区`}
+              </p>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Monthly cost */}
+        {admin && assetStats.totalMonthly > 0 && (
+          <Card className="border border-divider/60">
+            <CardBody className="p-3">
+              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">月度成本</p>
+              <p className="text-2xl font-bold font-mono mt-1">¥{assetStats.totalMonthly.toFixed(0)}</p>
+              <p className="text-[11px] text-default-500 mt-0.5">
+                平均 ¥{assetStats.total > 0 ? (assetStats.totalMonthly / assetStats.total).toFixed(0) : 0}/台
+              </p>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Version */}
+        <Card className="border border-divider/60">
+          <CardBody className="p-3">
+            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">版本</p>
+            <p className="text-lg font-bold mt-1">{siteConfig.release_version}</p>
+            <p className="text-[11px] text-default-500 mt-0.5">{siteConfig.environment_name} · {siteConfig.build_revision}</p>
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* Main content: two columns */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+        {/* Left: failures + region overview */}
+        <div className="space-y-4">
+          {/* Recent failures */}
+          <Card className="border border-divider/60">
+            <CardBody className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold">异常资源</p>
+                <Link to="/monitor" className="text-xs text-primary font-medium hover:underline">诊断看板</Link>
               </div>
-            </CardHeader>
-            <CardBody className="grid gap-3 pt-5 sm:grid-cols-2 xl:grid-cols-1">
-              <QuickEntry title="诊断看板" description="查看实时诊断进度、节点流量、隧道/转发流量排行与链路明细。" to="/monitor" tone="primary" />
-              {admin && probeSummary.total > 0 ? (
-                <QuickEntry title="探针管理" description={`${probeSummary.instances} 个探针实例，${probeSummary.online}/${probeSummary.total} 节点在线。查看 CPU、内存、磁盘等实时指标。`} to="/probe" tone="success" />
-              ) : null}
-              {admin ? (
-                <QuickEntry title="自定义导航" description="集中打开探针、x-ui、服务器后台等常用外部入口，后续会继续扩展统一运维入口。" to="/portal" tone="warning" />
-              ) : null}
-              <QuickEntry title="转发管理" description="集中处理筛选、列表/卡片视图、批量操作和单条诊断。" to="/forward" tone="success" />
-              <QuickEntry title={admin ? '节点监控' : '隧道管理'} description={admin ? '查看节点在线状态和节点侧信息。' : '查看隧道资源和最近诊断结果。'} to={admin ? '/node' : '/tunnel'} tone="warning" />
-              <QuickEntry title={admin ? '系统工作台' : '个人中心'} description={admin ? '网站配置、安全登录、诊断配置与告警通知都在系统工作台左侧导航内。' : '查看个人资料、密码与二步验证。'} to={admin ? '/config?section=basic' : '/profile'} tone="default" />
+              {summary?.recentFailures?.length ? (
+                <div className="space-y-2">
+                  {summary.recentFailures.slice(0, 5).map(r => (
+                    <div key={r.id} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-danger-50/40 dark:bg-danger-50/10 text-sm">
+                      <Chip size="sm" variant="flat" color="danger" className="h-5 text-[10px]">
+                        {r.targetType === 'tunnel' ? '隧道' : '转发'}
+                      </Chip>
+                      <span className="flex-1 font-medium truncate">{r.targetName}</span>
+                      {r.averageTime != null && <span className="text-xs text-default-500 font-mono">{r.averageTime}ms</span>}
+                      {r.packetLoss != null && <span className="text-xs text-danger font-mono">{r.packetLoss}%丢包</span>}
+                      <span className="text-[11px] text-default-400">{formatRelativeTime(r.createdTime)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-8 text-sm text-success">
+                  <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  当前没有异常资源
+                </div>
+              )}
             </CardBody>
           </Card>
 
-          <Card className="border border-default-200 shadow-sm">
-            <CardHeader className="pb-0">
-              <div>
-                <p className="text-sm font-semibold text-foreground">当前快照</p>
-                <p className="text-xs text-default-500">这块只留最必要的解释，避免首页继续失控变成第二个监控页。</p>
-              </div>
-            </CardHeader>
-            <CardBody className="space-y-3 pt-5">
-              <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
-                <p className="text-xs uppercase tracking-[0.18em] text-default-400">版本与环境</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{siteConfig.release_version}</p>
-                <p className="mt-1 text-xs text-default-500">{siteConfig.environment_name} · {siteConfig.build_revision}</p>
-              </div>
-              <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
-                <p className="text-xs uppercase tracking-[0.18em] text-default-400">资源规模</p>
-                <p className="mt-2 text-sm leading-7 text-default-600">
-                  当前纳入首页摘要的资源共有 {summary?.totalCount ?? 0} 个，其中 {forwardCount} 条转发、{tunnelCount} 条隧道。详细图表和流量拆解已统一迁移到诊断看板。
-                </p>
-              </div>
-              {!admin && (
-                <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
-                  <p className="text-xs uppercase tracking-[0.18em] text-default-400">套餐使用</p>
-                  <p className="mt-2 text-sm leading-7 text-default-600">
-                    已使用 {formatFlow(usedFlow)}，{userInfo.flow === 99999 ? '当前套餐不限流量。' : `占总额度 ${flowUsage.toFixed(1)}%。`}
-                  </p>
+          {/* Traffic warnings */}
+          {admin && trafficWarnings.length > 0 && (
+            <Card className="border border-warning/30">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold">流量预警</p>
+                  <Link to="/traffic" className="text-xs text-primary font-medium hover:underline">流量分析</Link>
                 </div>
-              )}
-              {admin && (
-                <div className="rounded-3xl border border-default-200 bg-white/80 p-4 shadow-sm dark:bg-black/20">
-                  <p className="text-xs uppercase tracking-[0.18em] text-default-400">节点概览</p>
-                  <p className="mt-2 text-sm leading-7 text-default-600">
-                    {probeSummary.total > 0
-                      ? `探针监控 ${probeSummary.online}/${probeSummary.total} 节点在线（${probeSummary.instances} 个实例）。详细监控数据请前往探针管理查看。`
-                      : `当前在线 ${onlineNodeCount}/${nodeCount} 个节点。实时带宽和节点走势已集中放到诊断看板。`
-                    }
-                  </p>
+                <div className="space-y-2">
+                  {trafficWarnings.map(a => (
+                    <div key={a.id} className="flex items-center gap-3 text-sm">
+                      <span className="w-32 truncate font-medium">{getRegionFlag(a.region)}{a.name}</span>
+                      <Progress size="sm" value={Math.min(a.pct, 100)} color={a.pct >= 100 ? 'danger' : 'warning'} className="flex-1" />
+                      <span className="text-xs font-mono text-default-500 w-24 text-right">
+                        {formatFlow(a.probeTrafficUsed || 0)} / {formatFlow(a.probeTrafficLimit || 0)}
+                      </span>
+                      <span className={`text-xs font-bold font-mono w-12 text-right ${a.pct >= 100 ? 'text-danger' : 'text-warning'}`}>
+                        {a.pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              )}
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Region distribution */}
+          {admin && assetStats.topRegions.length > 0 && (
+            <Card className="border border-divider/60">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold">地区分布</p>
+                  <Link to="/assets" className="text-xs text-primary font-medium hover:underline">服务器资产</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {assetStats.topRegions.map(([region, count]) => (
+                    <div key={region} className="flex items-center gap-3 text-sm">
+                      <span className="w-32 truncate">{getRegionFlag(region)}{region}</span>
+                      <Progress size="sm" value={(count / assetStats.total) * 100} color="primary" className="flex-1" />
+                      <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+        </div>
+
+        {/* Right sidebar: quick nav */}
+        <div className="space-y-4">
+          {/* Quick nav grid */}
+          <Card className="border border-divider/60">
+            <CardBody className="p-4">
+              <p className="text-sm font-semibold mb-3">快捷导航</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { to: '/forward', label: '转发管理', count: forwardCount, color: 'primary' as const },
+                  { to: '/tunnel', label: '隧道管理', count: tunnelCount, color: 'secondary' as const },
+                  ...(admin ? [
+                    { to: '/server-dashboard', label: '服务器看板', count: probeSummary.total || nodes.length, color: 'success' as const },
+                    { to: '/monitor', label: '诊断看板', count: summary?.totalCount ?? 0, color: 'warning' as const },
+                    { to: '/assets', label: '服务器资产', count: assetStats.total, color: 'primary' as const },
+                    { to: '/node', label: '节点监控', count: nodes.length, color: 'success' as const },
+                    { to: '/cost', label: '成本分析', count: null, color: 'warning' as const },
+                    { to: '/traffic', label: '流量分析', count: null, color: 'secondary' as const },
+                  ] : [
+                    { to: '/profile', label: '个人中心', count: null, color: 'secondary' as const },
+                  ]),
+                ].map(item => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className="flex items-center gap-2 rounded-xl border border-divider/60 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-default-100 dark:hover:bg-default-100/10"
+                  >
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.count != null && (
+                      <Chip size="sm" variant="flat" color={item.color} className="h-5 text-[10px] min-w-[24px]">{item.count}</Chip>
+                    )}
+                  </Link>
+                ))}
+              </div>
             </CardBody>
           </Card>
+
+          {/* Probe instances */}
+          {admin && probeInstances.length > 0 && (
+            <Card className="border border-divider/60">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold">探针实例</p>
+                  <Link to="/probe" className="text-xs text-primary font-medium hover:underline">探针配置</Link>
+                </div>
+                <div className="space-y-2">
+                  {probeInstances.map(inst => (
+                    <div key={inst.id} className="flex items-center gap-2 text-sm">
+                      <Chip size="sm" variant="dot" color={inst.onlineNodeCount === inst.nodeCount ? 'success' : 'warning'} className="h-5 text-[10px]">
+                        {inst.type || 'probe'}
+                      </Chip>
+                      <span className="flex-1 truncate font-medium">{inst.name}</span>
+                      <span className="text-xs font-mono text-default-500">
+                        {inst.onlineNodeCount}/{inst.nodeCount}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Non-admin flow card */}
+          {!admin && (
+            <Card className="border border-divider/60">
+              <CardBody className="p-4">
+                <p className="text-sm font-semibold mb-3">套餐信息</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-default-500">已用流量</span>
+                    <span className="font-mono">{formatFlow(usedFlow)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-default-500">总额度</span>
+                    <span className="font-mono">{userInfo.flow === 99999 ? '无限制' : `${userInfo.flow || 0} GB`}</span>
+                  </div>
+                  {userInfo.flow !== 99999 && <Progress size="sm" value={flowPct} color={barColor(flowPct)} />}
+                  <div className="flex justify-between">
+                    <span className="text-default-500">转发数</span>
+                    <span className="font-mono">{forwardCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-default-500">隧道数</span>
+                    <span className="font-mono">{tunnelCount}</span>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Expiring soon */}
+          {admin && assetStats.expiringSoon > 0 && (
+            <Card className="border border-warning/30">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-warning">即将到期</p>
+                  <Link to="/cost" className="text-xs text-primary font-medium hover:underline">成本分析</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {assets
+                    .filter(a => a.expireDate && (a.expireDate - Date.now()) / 86400000 <= 30 && (a.expireDate - Date.now()) / 86400000 >= 0)
+                    .sort((a, b) => (a.expireDate || 0) - (b.expireDate || 0))
+                    .slice(0, 5)
+                    .map(a => {
+                      const days = Math.ceil(((a.expireDate || 0) - Date.now()) / 86400000);
+                      return (
+                        <div key={a.id} className="flex items-center gap-2 text-sm">
+                          <span className={`w-10 text-right font-mono font-bold ${days <= 7 ? 'text-danger' : 'text-warning'}`}>{days}天</span>
+                          <span className="flex-1 truncate">{getRegionFlag(a.region)}{a.name}</span>
+                          {a.provider && <span className="text-[11px] text-default-400">{a.provider}</span>}
+                        </div>
+                      );
+                    })}
+                </div>
+              </CardBody>
+            </Card>
+          )}
         </div>
       </div>
     </div>

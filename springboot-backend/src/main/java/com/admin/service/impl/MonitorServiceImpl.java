@@ -541,8 +541,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
                 // Fetch API keys to get the first enabled key for agent install
                 String keysJson = httpGetWithToken(baseUrl + "/api/admin/api-keys", jwt, instance.getAllowInsecureTls());
-                JSONObject keysResp = JSON.parseObject(keysJson);
-                JSONArray keys = keysResp.getJSONArray("data");
+                // Pika may return raw JSON array or {data:[...]}
+                JSONArray keys;
+                String trimmedKeys = keysJson.trim();
+                if (trimmedKeys.startsWith("[")) {
+                    keys = JSON.parseArray(trimmedKeys);
+                } else {
+                    JSONObject keysResp = JSON.parseObject(trimmedKeys);
+                    keys = keysResp.getJSONArray("data");
+                }
                 String apiKey = null;
                 if (keys != null) {
                     for (int i = 0; i < keys.size(); i++) {
@@ -643,11 +650,17 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     throw new RuntimeException("Pika login HTTP " + statusCode + ": " + truncate(body, 200));
                 }
                 JSONObject resp = JSON.parseObject(body);
-                JSONObject data = resp.getJSONObject("data");
-                if (data == null || !StringUtils.hasText(data.getString("token"))) {
-                    throw new RuntimeException("Pika login response missing token");
+                // Pika returns {token, expiresAt, user} at top level
+                String token = resp.getString("token");
+                if (!StringUtils.hasText(token)) {
+                    // Fallback: check nested {data:{token}} for compatibility
+                    JSONObject data = resp.getJSONObject("data");
+                    if (data != null) token = data.getString("token");
                 }
-                return data.getString("token");
+                if (!StringUtils.hasText(token)) {
+                    throw new RuntimeException("Pika login failed: " + truncate(body, 200));
+                }
+                return token;
             }
         } catch (RuntimeException e) {
             throw e;
@@ -688,10 +701,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
         Integer tls = instance.getAllowInsecureTls();
 
-        // 2. Fetch agent list
+        // 2. Fetch agent list (Pika returns raw JSON array [...])
         String agentsJson = httpGetWithToken(baseUrl + "/api/admin/agents", jwt, tls);
-        JSONObject agentsResp = JSON.parseObject(agentsJson);
-        JSONArray agents = agentsResp.getJSONArray("data");
+        JSONArray agents;
+        String trimmedAgents = agentsJson.trim();
+        if (trimmedAgents.startsWith("[")) {
+            agents = JSON.parseArray(trimmedAgents);
+        } else {
+            JSONObject agentsResp = JSON.parseObject(trimmedAgents);
+            agents = agentsResp.getJSONArray("data");
+        }
         if (agents == null) {
             agents = new JSONArray();
         }
@@ -755,12 +774,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setUpdatedTime(now);
             monitorNodeSnapshotMapper.updateById(existing);
 
-            // 3. Fetch per-agent latest metrics (Pika has no batch endpoint)
+            // 3. Fetch per-agent latest metrics (Pika returns {cpu:{...}, memory:{...}, ...} directly)
             try {
                 String metricsJson = httpGetWithToken(baseUrl + "/api/admin/agents/" + agentId + "/metrics/latest", jwt, tls);
-                JSONObject metricsResp = JSON.parseObject(metricsJson);
-                JSONObject metricsData = metricsResp.getJSONObject("data");
-                if (metricsData != null) {
+                JSONObject metricsData = JSON.parseObject(metricsJson);
+                // If wrapped in {data:{...}}, unwrap; otherwise use as-is
+                if (metricsData.containsKey("data") && metricsData.getJSONObject("data") != null && metricsData.getJSONObject("data").containsKey("cpu")) {
+                    metricsData = metricsData.getJSONObject("data");
+                }
+                if (metricsData != null && metricsData.containsKey("cpu")) {
                     applyPikaMetrics(instance, existing, agentId, metricsData, now);
                 }
             } catch (Exception e) {

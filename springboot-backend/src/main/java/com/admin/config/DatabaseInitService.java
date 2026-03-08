@@ -418,6 +418,14 @@ public class DatabaseInitService {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='探针最新指标表'";
             jdbcTemplate.execute(createMonitorMetricLatestTable);
 
+            // Fix: ensure updated_time has a default value to prevent insert failures
+            try {
+                jdbcTemplate.execute("ALTER TABLE `monitor_node_snapshot` MODIFY COLUMN `updated_time` bigint(20) NOT NULL DEFAULT 0 COMMENT '更新时间'");
+                jdbcTemplate.execute("ALTER TABLE `monitor_metric_latest` MODIFY COLUMN `updated_time` bigint(20) NOT NULL DEFAULT 0 COMMENT '更新时间'");
+            } catch (Exception e) {
+                log.debug("[DatabaseInit] updated_time default migration: {}", e.getMessage());
+            }
+
             // Add new columns to monitor_node_snapshot (v2 expansion)
             updateColumn("monitor_node_snapshot", "virtualization", "varchar(50) DEFAULT NULL COMMENT '虚拟化类型'");
             updateColumn("monitor_node_snapshot", "arch", "varchar(50) DEFAULT NULL COMMENT 'CPU 架构'");

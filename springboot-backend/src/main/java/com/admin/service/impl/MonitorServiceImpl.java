@@ -147,7 +147,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 }
             }
             instance.setLastSyncStatus(STATUS_SUCCESS);
-            instance.setLastSyncError(null);
+            instance.setLastSyncError("");
             instance.setLastSyncAt(now);
             instance.setUpdatedTime(now);
             this.updateById(instance);
@@ -273,7 +273,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 throw new RuntimeException("Unsupported probe type: " + instance.getType());
             }
             instance.setLastSyncStatus(STATUS_SUCCESS);
-            instance.setLastSyncError(null);
+            instance.setLastSyncError("");
         } catch (Exception e) {
             instance.setLastSyncStatus(STATUS_FAILED);
             instance.setLastSyncError(e.getMessage());
@@ -1173,10 +1173,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         instance.setName(name != null ? name.trim() : null);
         instance.setType(type != null ? type.trim().toLowerCase(Locale.ROOT) : TYPE_KOMARI);
         instance.setBaseUrl(baseUrl != null ? baseUrl.trim().replaceAll("/+$", "") : null);
-        if (apiKey != null) {
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
             instance.setApiKey(apiKey.trim());
         }
-        if (username != null) {
+        if (username != null && !username.trim().isEmpty()) {
             instance.setUsername(username.trim());
         }
         instance.setSyncEnabled(syncEnabled != null ? syncEnabled : 1);

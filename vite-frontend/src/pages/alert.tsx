@@ -162,7 +162,7 @@ export default function AlertPage() {
 
   return (
     <div className="w-full max-w-[1400px] mx-auto space-y-4">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">告警管理</h1>
           <p className="mt-0.5 text-sm text-default-500">配置监控告警规则，查看告警日志</p>
@@ -189,10 +189,10 @@ export default function AlertPage() {
           ) : (
             <div className="space-y-2">
               {rules.map(rule => (
-                <div key={rule.id} className={`rounded-xl border p-3 flex items-center gap-3 ${rule.enabled ? 'border-divider/60 bg-content1' : 'border-divider/40 bg-default-50 opacity-60'}`}>
+                <div key={rule.id} className={`rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center gap-3 ${rule.enabled ? 'border-divider/60 bg-content1' : 'border-divider/40 bg-default-50 opacity-60'}`}>
                   <Switch size="sm" isSelected={rule.enabled === 1} onValueChange={() => handleToggle(rule.id)} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
                       <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : 'primary'} className="h-5 text-[10px]">
                         {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
@@ -215,7 +215,7 @@ export default function AlertPage() {
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 ml-auto sm:ml-0">
                     <Button size="sm" variant="flat" onPress={() => openEdit(rule)}>编辑</Button>
                     <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>
                   </div>
@@ -228,7 +228,7 @@ export default function AlertPage() {
 
       {tab === 'logs' && (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-default-500">共 {logsTotal} 条告警记录</p>
             <div className="flex gap-2">
               <Button size="sm" variant="flat" onPress={() => fetchLogs(logsPage)}>刷新</Button>

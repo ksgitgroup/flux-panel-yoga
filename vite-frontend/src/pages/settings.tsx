@@ -136,10 +136,10 @@ export const SettingsPage = () => {
                 <div className="space-y-3">
                   {panelAddresses.map((panel, index) => (
                     <div key={index} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900 dark:text-white">{panel.name}</span>
+                            <span className="font-medium text-gray-900 dark:text-white truncate">{panel.name}</span>
                             {panel.inx && (
                               <span className="px-2 py-1 bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 text-xs rounded">
                                 当前

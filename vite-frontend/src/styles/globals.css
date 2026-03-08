@@ -33,9 +33,18 @@ html, body {
   * {
     -webkit-overflow-scrolling: touch;
   }
-  
+
   body {
     overscroll-behavior-y: none;
+  }
+}
+
+/* Modal 移动端自适应：大尺寸 Modal 在小屏幕上全宽显示 */
+@media (max-width: 640px) {
+  section[role="dialog"] {
+    max-width: calc(100vw - 1rem) !important;
+    margin-left: 0.5rem !important;
+    margin-right: 0.5rem !important;
   }
 }
 

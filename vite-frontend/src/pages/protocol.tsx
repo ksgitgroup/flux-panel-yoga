@@ -149,8 +149,8 @@ export default function ProtocolPage() {
     }
 
     return (
-        <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
+        <div className="p-3 sm:p-6">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">协议管理</h1>
                     <p className="text-default-500 text-sm mt-1">管理支持的转发协议及其配置模板</p>

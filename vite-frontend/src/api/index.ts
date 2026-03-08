@@ -317,6 +317,7 @@ export interface MonitorNodeSnapshot {
   lastActiveAt?: number | null;
   lastSyncAt?: number | null;
   latestMetric?: MonitorMetricLatest | null;
+  instanceBaseUrl?: string | null;
   peerNodeId?: number | null;
   peerInstanceType?: string | null;
 }
@@ -560,6 +561,14 @@ export interface MonitorRecordsResponse {
 }
 export const getMonitorRecords = (nodeId: number, range: string, type?: string) =>
   Network.post<MonitorRecordsResponse>("/monitor/records", { nodeId, range, type: type || 'all' });
+
+// Terminal access
+export const getTerminalAccessUrl = (nodeId: number) =>
+  Network.post<{ terminalUrl: string; nodeName: string; nodeIp: string; instanceName: string }>("/monitor/terminal-access", { nodeId });
+
+// Dual-probe provision
+export const provisionDualAgent = (komariInstanceId: number | null, pikaInstanceId: number | null, name?: string) =>
+  Network.post<{ komari?: MonitorProvisionResult; pika?: MonitorProvisionResult; komariError?: string; pikaError?: string; combinedCommand: string }>("/monitor/provision-dual", { komariInstanceId, pikaInstanceId, name });
 
 // Alert system
 export interface AlertRule {

@@ -1565,6 +1565,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             if (inst != null) {
                 dto.setInstanceName(instanceName != null ? instanceName : inst.getName());
                 dto.setInstanceType(inst.getType());
+                dto.setInstanceBaseUrl(inst.getBaseUrl());
             } else {
                 dto.setInstanceName(instanceName);
             }
@@ -1577,6 +1578,73 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
             return dto;
         }).collect(Collectors.toList());
+    }
+
+    // ==================== Terminal Access ====================
+
+    @Override
+    public R getTerminalAccessUrl(Long nodeId) {
+        if (nodeId == null) return R.err("节点 ID 不能为空");
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) return R.err("探针节点不存在");
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) return R.err("探针实例不存在");
+        if (!TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            return R.err("远程终端仅支持 Komari 探针");
+        }
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        String terminalUrl = baseUrl + "/terminal/" + node.getRemoteNodeUuid();
+        log.info("[Terminal] Access requested for node {} ({}), URL: {}", node.getName(), node.getIp(), terminalUrl);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("terminalUrl", terminalUrl);
+        result.put("nodeName", node.getName());
+        result.put("nodeIp", node.getIp());
+        result.put("instanceName", instance.getName());
+        return R.ok(result);
+    }
+
+    // ==================== Dual-Probe Provision ====================
+
+    @Override
+    public R provisionDualAgent(Long komariInstanceId, Long pikaInstanceId, String name) {
+        if (komariInstanceId == null && pikaInstanceId == null) {
+            return R.err("至少需要选择一个探针实例");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<String> installCommands = new ArrayList<>();
+
+        // Provision Komari
+        if (komariInstanceId != null) {
+            MonitorProvisionDto komariDto = new MonitorProvisionDto();
+            komariDto.setInstanceId(komariInstanceId);
+            komariDto.setName(name);
+            R komariResult = provisionAgent(komariDto);
+            if (komariResult.getCode() == 0) {
+                Map<String, Object> data = (Map<String, Object>) komariResult.getData();
+                result.put("komari", data);
+                installCommands.add("# Komari 探针\n" + data.get("installCommand"));
+            } else {
+                result.put("komariError", komariResult.getMsg());
+            }
+        }
+
+        // Provision Pika
+        if (pikaInstanceId != null) {
+            MonitorProvisionDto pikaDto = new MonitorProvisionDto();
+            pikaDto.setInstanceId(pikaInstanceId);
+            pikaDto.setName(name);
+            R pikaResult = provisionAgent(pikaDto);
+            if (pikaResult.getCode() == 0) {
+                Map<String, Object> data = (Map<String, Object>) pikaResult.getData();
+                result.put("pika", data);
+                installCommands.add("# Pika 探针\n" + data.get("installCommand"));
+            } else {
+                result.put("pikaError", pikaResult.getMsg());
+            }
+        }
+
+        result.put("combinedCommand", String.join("\n\n", installCommands));
+        return R.ok(result);
     }
 
     private String truncate(String value, int maxLen) {

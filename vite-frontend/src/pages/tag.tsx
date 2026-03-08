@@ -158,8 +158,8 @@ export default function TagPage() {
     ];
 
     return (
-        <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
+        <div className="p-3 sm:p-6">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">标签管理</h1>
                     <p className="text-default-500 text-sm mt-1">管理可应用于转发的全局标签系统</p>
@@ -169,7 +169,7 @@ export default function TagPage() {
                 </Button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                 {tags.map((tag) => (
                     <Card key={tag.id} className="w-full">
                         <CardHeader className="flex justify-center px-4 pt-6 pb-2">

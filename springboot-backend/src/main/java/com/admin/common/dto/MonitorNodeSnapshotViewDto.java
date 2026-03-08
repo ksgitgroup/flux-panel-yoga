@@ -81,6 +81,9 @@ public class MonitorNodeSnapshotViewDto {
 
     private MonitorMetricLatestViewDto latestMetric;
 
+    /** Base URL of the probe instance (e.g. https://komari.example.com). */
+    private String instanceBaseUrl;
+
     /** Peer probe node ID (same server, different probe type). Null if no peer. */
     private Long peerNodeId;
 

@@ -37,4 +37,8 @@ public interface MonitorService extends IService<MonitorInstance> {
     R deleteNodeSnapshot(Long nodeId);
 
     R getNodeRecords(MonitorRecordsDto dto);
+
+    R getTerminalAccessUrl(Long nodeId);
+
+    R provisionDualAgent(Long komariInstanceId, Long pikaInstanceId, String name);
 }

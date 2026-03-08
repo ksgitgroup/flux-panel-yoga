@@ -20,6 +20,7 @@ import {
   getMonitorDashboard,
   getMonitorRecords,
   deleteMonitorNode,
+  getTerminalAccessUrl,
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -858,7 +859,7 @@ export default function ServerDashboardPage() {
                     </div>
                   )}
                 </ModalBody>
-                <ModalFooter>
+                <ModalFooter className="flex-wrap gap-1">
                   <Button size="sm" variant="flat" color="danger"
                     onPress={async () => {
                       if (!confirm(`确定删除探针节点「${selectedNode.name || selectedNode.remoteNodeUuid?.slice(0, 8)}」？此操作会同时解除与资产的绑定。`)) return;
@@ -875,6 +876,22 @@ export default function ServerDashboardPage() {
                     }}>
                     删除此节点
                   </Button>
+                  {(selectedNode.instanceType || 'komari') === 'komari' && isOnline && (
+                    <Button size="sm" variant="flat" color="secondary"
+                      onPress={async () => {
+                        if (!confirm(`即将打开「${selectedNode.name || selectedNode.ip}」的远程终端。\n\n注意：这将获得服务器的完整命令行访问权限，请确保操作安全。`)) return;
+                        try {
+                          const res = await getTerminalAccessUrl(selectedNode.id);
+                          if (res.code === 0 && res.data) {
+                            window.open((res.data as any).terminalUrl, '_blank');
+                          } else {
+                            toast.error(res.msg || '获取终端地址失败');
+                          }
+                        } catch { toast.error('获取终端地址失败'); }
+                      }}>
+                      远程终端
+                    </Button>
+                  )}
                   <Button size="sm" variant="flat" onPress={() => { onDetailClose(); navigate('/assets'); }}>资产</Button>
                   <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
                 </ModalFooter>

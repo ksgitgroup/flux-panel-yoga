@@ -421,6 +421,14 @@ export interface AssetHost {
   swapTotalMb?: number | null;
   remark?: string | null;
   panelUrl?: string | null;
+  onePanelInstanceId?: number | null;
+  onePanelInstanceName?: string | null;
+  onePanelReportEnabled?: number | null;
+  onePanelLastReportStatus?: string | null;
+  onePanelLastReportAt?: number | null;
+  onePanelLastReportError?: string | null;
+  onePanelExporterVersion?: string | null;
+  onePanelPanelVersion?: string | null;
   billingCycle?: number | null;
   totalXuiInstances: number;
   totalProtocols: number;
@@ -732,6 +740,7 @@ export interface AssetHostDetail {
   protocolSummaries: XuiProtocolSummary[];
   forwards: AssetForwardLink[];
   monitorNodes?: MonitorNodeSnapshot[];
+  onePanelInstance?: OnePanelInstance | null;
 }
 
 export interface XuiForwardTarget {

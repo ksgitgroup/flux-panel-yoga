@@ -71,6 +71,22 @@ public class AssetHostViewDto {
 
     private String panelUrl;
 
+    private Long onePanelInstanceId;
+
+    private String onePanelInstanceName;
+
+    private Integer onePanelReportEnabled;
+
+    private String onePanelLastReportStatus;
+
+    private Long onePanelLastReportAt;
+
+    private String onePanelLastReportError;
+
+    private String onePanelExporterVersion;
+
+    private String onePanelPanelVersion;
+
     private Integer billingCycle;
 
     private Integer totalXuiInstances;

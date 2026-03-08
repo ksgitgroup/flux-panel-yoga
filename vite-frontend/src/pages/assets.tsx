@@ -26,9 +26,12 @@ import {
   MonitorInstance,
   MonitorNodeSnapshot,
   MonitorProvisionResult,
+  OnePanelBootstrap,
   XuiInstance,
   createAsset,
+  createOnePanelInstance,
   deleteAsset,
+  deleteOnePanelInstance,
   deleteMonitorNode,
   getAssetDetail,
   getAssetList,
@@ -37,6 +40,7 @@ import {
   createXuiInstance,
   provisionDualAgent,
   provisionMonitorAgent,
+  rotateOnePanelToken,
   syncMonitorInstance,
   updateAsset,
   batchUpdateAsset,
@@ -402,6 +406,9 @@ export default function AssetsPage() {
   // 1Panel inline binding
   const [panelBindOpen, setPanelBindOpen] = useState(false);
   const [panelBindInput, setPanelBindInput] = useState('');
+  const [onePanelActionLoading, setOnePanelActionLoading] = useState(false);
+  const [onePanelBootstrap, setOnePanelBootstrap] = useState<OnePanelBootstrap | null>(null);
+  const [onePanelBootstrapOpen, setOnePanelBootstrapOpen] = useState(false);
   // GOST node binding
   const [gostNodes, setGostNodes] = useState<{ id: number; name: string; ip: string; status: number }[]>([]);
   const [gostBindOpen, setGostBindOpen] = useState(false);
@@ -761,6 +768,106 @@ export default function AssetsPage() {
     navigator.clipboard.writeText(text).then(() => toast.success('已复制到剪贴板'));
   };
 
+  const refreshAssetContext = async (assetId?: number) => {
+    await loadAssets();
+    const targetId = assetId || expandedAssetId;
+    if (targetId) {
+      await loadAssetDetail(targetId);
+    }
+  };
+
+  const openOnePanelBootstrap = (bootstrap: OnePanelBootstrap, message?: string) => {
+    setOnePanelBootstrap(bootstrap);
+    setOnePanelBootstrapOpen(true);
+    if (message) {
+      toast.success(message);
+    }
+  };
+
+  const handleCreateOnePanelInstance = async (asset: AssetHost) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法创建 1Panel 摘要实例');
+      return;
+    }
+    if (!asset.panelUrl) {
+      toast.error('请先在服务器资产中录入 1Panel 地址');
+      return;
+    }
+    setOnePanelActionLoading(true);
+    try {
+      const response = await createOnePanelInstance({
+        name: `${asset.name}-1panel`,
+        assetId: asset.id,
+        panelUrl: null,
+        reportEnabled: 1,
+        remark: null,
+      });
+      if (response.code === 0 && response.data) {
+        openOnePanelBootstrap(response.data as OnePanelBootstrap, '1Panel 摘要实例已创建');
+        await refreshAssetContext(asset.id);
+      } else {
+        toast.error(response.msg || '创建 1Panel 摘要实例失败');
+      }
+    } catch {
+      toast.error('创建 1Panel 摘要实例失败');
+    } finally {
+      setOnePanelActionLoading(false);
+    }
+  };
+
+  const handleRotateOnePanelToken = async (asset: AssetHost) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法轮换 1Panel Token');
+      return;
+    }
+    if (!asset.onePanelInstanceId) {
+      toast.error('当前资产还没有 1Panel 摘要实例');
+      return;
+    }
+    setOnePanelActionLoading(true);
+    try {
+      const response = await rotateOnePanelToken(asset.onePanelInstanceId);
+      if (response.code === 0 && response.data) {
+        openOnePanelBootstrap(response.data as OnePanelBootstrap, '新的 1Panel Node Token 已生成');
+        await refreshAssetContext(asset.id);
+      } else {
+        toast.error(response.msg || '轮换 Token 失败');
+      }
+    } catch {
+      toast.error('轮换 Token 失败');
+    } finally {
+      setOnePanelActionLoading(false);
+    }
+  };
+
+  const handleDeleteOnePanelInstance = async (asset: AssetHost) => {
+    if (!canManageAssets) {
+      toast.error('权限不足，无法移除 1Panel 摘要实例');
+      return;
+    }
+    if (!asset.onePanelInstanceId) {
+      toast.error('当前资产还没有 1Panel 摘要实例');
+      return;
+    }
+    if (!window.confirm(`确认移除 ${asset.name} 的 1Panel 摘要实例吗？`)) {
+      return;
+    }
+    setOnePanelActionLoading(true);
+    try {
+      const response = await deleteOnePanelInstance(asset.onePanelInstanceId);
+      if (response.code === 0) {
+        toast.success('1Panel 摘要实例已移除');
+        await refreshAssetContext(asset.id);
+      } else {
+        toast.error(response.msg || '移除失败');
+      }
+    } catch {
+      toast.error('移除 1Panel 摘要实例失败');
+    } finally {
+      setOnePanelActionLoading(false);
+    }
+  };
+
   const openEditModal = (asset: AssetHost, tab?: string) => {
     if (!canManageAssets) {
       toast.error('权限不足，无法编辑资产');
@@ -769,6 +876,7 @@ export default function AssetsPage() {
     setIsEdit(true); setErrors({});
     setXuiBindOpen(false); setXuiBindForm({ addr: '', user: '', pass: '' }); setXuiBindLoading(false);
     setPanelBindOpen(false); setGostBindOpen(false); setGostInstallCmd(null); setTagInput('');
+    setOnePanelBootstrap(null); setOnePanelBootstrapOpen(false); setOnePanelActionLoading(false);
     setEditTab(tab || 'basic');
     setForm({
       id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
@@ -1549,7 +1657,8 @@ export default function AssetsPage() {
                   const hasK = !!selectedAsset.monitorNodeUuid;
                   const hasP = !!selectedAsset.pikaNodeId;
                   const hasXui = (selectedAsset.totalXuiInstances || 0) > 0;
-                  const hasPanel = !!selectedAsset.panelUrl;
+                  const hasPanelUrl = !!selectedAsset.panelUrl;
+                  const hasOnePanelSummary = !!selectedAsset.onePanelInstanceId;
                   const hints: { label: string; action: () => void; color: 'warning' | 'secondary' }[] = [];
                   if (!hasK || !hasP) hints.push({
                     label: `缺少${!hasK && !hasP ? '探针' : !hasK ? 'Komari' : 'Pika'}探针`,
@@ -1565,10 +1674,15 @@ export default function AssetsPage() {
                     action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
                     color: 'warning',
                   });
-                  if (!hasPanel) hints.push({
-                    label: '未绑定 1Panel',
+                  if (!hasPanelUrl) hints.push({
+                    label: '未录入 1Panel 地址',
                     action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
                     color: 'secondary',
+                  });
+                  if (hasPanelUrl && !hasOnePanelSummary) hints.push({
+                    label: '未配置 1Panel 摘要实例',
+                    action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
+                    color: 'warning',
                   });
                   if (!selectedAsset.gostNodeId) hints.push({
                     label: '未绑定 GOST',
@@ -1590,7 +1704,7 @@ export default function AssetsPage() {
                 })()}
 
                 {/* Quick Links - compact horizontal chips */}
-                {((detail?.xuiInstances && detail.xuiInstances.length > 0) || selectedAsset.panelUrl || (detail?.forwards && detail.forwards.length > 0)) && (
+                {((detail?.xuiInstances && detail.xuiInstances.length > 0) || selectedAsset.panelUrl || selectedAsset.onePanelInstanceId || (detail?.forwards && detail.forwards.length > 0)) && (
                   <div className="flex flex-wrap items-center gap-2">
                     {detail?.xuiInstances && detail.xuiInstances.map((inst) => {
                       const syncChip = getStatusChip(inst.lastSyncStatus);
@@ -1611,6 +1725,18 @@ export default function AssetsPage() {
                         <span className="font-semibold text-secondary">1Panel</span>
                         <span className="text-default-400 font-mono truncate max-w-40">{selectedAsset.panelUrl}</span>
                       </a>
+                    )}
+                    {selectedAsset.onePanelInstanceId && (
+                      <button type="button" onClick={() => navigate(`/onepanel?instanceId=${selectedAsset.onePanelInstanceId}`)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1.5 text-[11px] transition-all hover:border-primary/40 hover:shadow-sm">
+                        <span className="font-semibold text-warning">1P 摘要</span>
+                        <Chip size="sm" color={getStatusChip(selectedAsset.onePanelLastReportStatus).color} variant="flat" className="h-4 text-[9px]">
+                          {getStatusChip(selectedAsset.onePanelLastReportStatus).text}
+                        </Chip>
+                        <span className="text-default-400 font-mono">
+                          {selectedAsset.onePanelLastReportAt ? formatDateShort(selectedAsset.onePanelLastReportAt) : '未上报'}
+                        </span>
+                      </button>
                     )}
                     {detail?.forwards && detail.forwards.map((item) => (
                       <button type="button" key={item.id} onClick={() => navigate('/forward')}
@@ -1703,6 +1829,12 @@ export default function AssetsPage() {
                             )}
                             {selectedAsset.gostNodeName && (
                               <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName}</span></p>
+                            )}
+                            {selectedAsset.panelUrl && (
+                              <p className="flex justify-between"><span className="text-default-400">1Panel 地址</span><span className="font-mono truncate max-w-[65%]">{selectedAsset.panelUrl}</span></p>
+                            )}
+                            {selectedAsset.onePanelInstanceId && (
+                              <p className="flex justify-between"><span className="text-default-400">1Panel 摘要</span><span className="font-mono">{selectedAsset.onePanelLastReportStatus === 'success' ? '已上报' : selectedAsset.onePanelLastReportStatus === 'failed' ? '异常' : '待上报'}</span></p>
                             )}
                           </div>
                         </div>
@@ -1883,6 +2015,45 @@ export default function AssetsPage() {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={onePanelBootstrapOpen} onOpenChange={(open) => !open && setOnePanelBootstrapOpen(false)} size="4xl" scrollBehavior="inside">
+        <ModalContent>
+          <ModalHeader>1Panel Exporter 安装参数</ModalHeader>
+          <ModalBody className="space-y-4">
+            <Card className="border border-warning/20 bg-warning-50/50">
+              <CardBody className="gap-2 p-4 text-sm text-warning-800">
+                <p>Node Token 只展示一次。1Panel 管理员 API Key 只保留在服务器本机，不进入 Flux。</p>
+              </CardBody>
+            </Card>
+            <Input
+              label="Node Token"
+              value={onePanelBootstrap?.nodeToken || ''}
+              readOnly
+              endContent={<Button size="sm" variant="light" onPress={() => copyToClipboard(onePanelBootstrap?.nodeToken || '')}>复制</Button>}
+            />
+            <Textarea
+              label="环境变量模板"
+              minRows={12}
+              value={onePanelBootstrap?.envTemplate || ''}
+              readOnly
+            />
+            <div className="flex justify-end">
+              <Button size="sm" variant="flat" onPress={() => copyToClipboard(onePanelBootstrap?.envTemplate || '')}>
+                复制环境变量模板
+              </Button>
+            </div>
+            <Textarea
+              label="安装提示"
+              minRows={7}
+              value={onePanelBootstrap?.installSnippet || ''}
+              readOnly
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={() => setOnePanelBootstrapOpen(false)}>关闭</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
 
@@ -2253,10 +2424,10 @@ export default function AssetsPage() {
                       {/* 1Panel Status */}
                       <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-default-700">1Panel 面板</span>
+                          <span className="text-sm font-semibold text-default-700">1Panel / 摘要实例</span>
                           {hasPanel ? (
                             <div className="flex items-center gap-2">
-                              <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">已绑定</Chip>
+                              <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">已录入地址</Chip>
                               <a href={form.panelUrl} target="_blank" rel="noopener noreferrer"
                                 className="text-[11px] text-primary hover:underline truncate max-w-[200px]">
                                 {form.panelUrl}
@@ -2269,7 +2440,7 @@ export default function AssetsPage() {
                               )}
                             </div>
                           ) : (
-                            <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定</Chip>
+                            <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未录入地址</Chip>
                           )}
                         </div>
                         {canManageAssets && !hasPanel && editingAsset && (
@@ -2300,6 +2471,71 @@ export default function AssetsPage() {
                               </div>
                             )}
                           </>
+                        )}
+                        {editingAsset && hasPanel && (
+                          <div className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2.5 space-y-2">
+                            {editingAsset.onePanelInstanceId ? (
+                              <>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">摘要实例已配置</Chip>
+                                  <Chip size="sm" variant="flat" color={getStatusChip(editingAsset.onePanelLastReportStatus).color} className="h-5 text-[10px]">
+                                    {getStatusChip(editingAsset.onePanelLastReportStatus).text}
+                                  </Chip>
+                                  {editingAsset.onePanelPanelVersion && (
+                                    <span className="text-[11px] text-default-500 font-mono">
+                                      Panel {editingAsset.onePanelPanelVersion}
+                                      {editingAsset.onePanelExporterVersion ? ` · exporter ${editingAsset.onePanelExporterVersion}` : ''}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="space-y-1 text-[11px] text-default-500">
+                                  <p>状态分层：1）地址已录入；2）摘要实例已创建并可上报。</p>
+                                  <p>最近上报：{editingAsset.onePanelLastReportAt ? new Date(editingAsset.onePanelLastReportAt).toLocaleString('zh-CN', { hour12: false }) : '尚未收到 exporter 上报'}</p>
+                                  {editingAsset.onePanelLastReportError && (
+                                    <p className="text-danger">最近错误：{editingAsset.onePanelLastReportError}</p>
+                                  )}
+                                </div>
+                                {canManageAssets && (
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button size="sm" variant="flat" color="primary"
+                                      onPress={() => navigate(`/onepanel?instanceId=${editingAsset.onePanelInstanceId}`)}>
+                                      查看摘要
+                                    </Button>
+                                    <Button size="sm" variant="flat" color="warning" isLoading={onePanelActionLoading}
+                                      onPress={() => void handleRotateOnePanelToken(editingAsset)}>
+                                      轮换 Token
+                                    </Button>
+                                    <Button size="sm" variant="flat" color="danger" isLoading={onePanelActionLoading}
+                                      onPress={() => void handleDeleteOnePanelInstance(editingAsset)}>
+                                      移除摘要实例
+                                    </Button>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Chip size="sm" variant="flat" color="warning" className="h-5 text-[10px]">地址已录入</Chip>
+                                  <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">摘要实例未配置</Chip>
+                                </div>
+                                <p className="text-[11px] text-default-500">
+                                  当前只完成了 1Panel 面板地址录入。下一步可在这里一键创建 1Panel 摘要实例，Flux 会生成本机 exporter 安装参数。
+                                </p>
+                                {canManageAssets && (
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button size="sm" color="primary" isLoading={onePanelActionLoading}
+                                      onPress={() => void handleCreateOnePanelInstance(editingAsset)}>
+                                      一键配置摘要实例
+                                    </Button>
+                                    <Button size="sm" variant="flat"
+                                      onPress={() => navigate('/onepanel')}>
+                                      查看摘要看板
+                                    </Button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
 

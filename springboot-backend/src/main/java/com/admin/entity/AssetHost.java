@@ -74,4 +74,7 @@ public class AssetHost extends BaseEntity {
 
     /** 1Panel 面板地址 (e.g. https://ip:port) */
     private String panelUrl;
+
+    /** 付费周期 (天): 30=月付, 90=季付, 180=半年付, 365=年付 */
+    private Integer billingCycle;
 }

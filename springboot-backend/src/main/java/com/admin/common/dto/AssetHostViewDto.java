@@ -71,6 +71,8 @@ public class AssetHostViewDto {
 
     private String panelUrl;
 
+    private Integer billingCycle;
+
     private Integer totalXuiInstances;
 
     private Integer totalProtocols;

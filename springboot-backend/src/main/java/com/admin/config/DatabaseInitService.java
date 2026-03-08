@@ -458,6 +458,7 @@ public class DatabaseInitService {
             updateColumn("monitor_instance", "username", "varchar(120) DEFAULT NULL COMMENT 'Pika 登录用户名'");
             updateColumn("asset_host", "pika_node_id", "varchar(64) DEFAULT NULL COMMENT 'Pika 探针节点 ID'");
             updateColumn("asset_host", "panel_url", "varchar(255) DEFAULT NULL COMMENT '1Panel 面板地址'");
+            updateColumn("asset_host", "billing_cycle", "int(10) DEFAULT NULL COMMENT '付费周期 (天): 30=月付, 90=季付, 365=年付'");
 
             log.info("[DatabaseInit] Monitor 探针集成表校验成功");
         } catch (Exception e) {

@@ -212,7 +212,10 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setTags(trimToNull(dto.getTags()));
         asset.setGostNodeId(dto.getGostNodeId());
         asset.setMonitorNodeUuid(trimToNull(dto.getMonitorNodeUuid()));
+        asset.setPikaNodeId(trimToNull(dto.getPikaNodeId()));
         asset.setRemark(trimToNull(dto.getRemark()));
+        asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
+        asset.setBillingCycle(dto.getBillingCycle());
     }
 
     private void applyAssetDtoFromUpdate(AssetHost asset, AssetHostUpdateDto dto) {
@@ -238,7 +241,10 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setTags(trimToNull(dto.getTags()));
         asset.setGostNodeId(dto.getGostNodeId());
         asset.setMonitorNodeUuid(trimToNull(dto.getMonitorNodeUuid()));
+        asset.setPikaNodeId(trimToNull(dto.getPikaNodeId()));
         asset.setRemark(trimToNull(dto.getRemark()));
+        asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
+        asset.setBillingCycle(dto.getBillingCycle());
     }
 
     private List<AssetHostViewDto> buildAssetViews(List<AssetHost> assets) {

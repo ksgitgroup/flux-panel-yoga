@@ -62,6 +62,7 @@ interface AssetForm {
   expireDate: string;
   monthlyCost: string;
   currency: string;
+  billingCycle: string;
   tags: string;
   monitorNodeUuid: string;
   pikaNodeId: string;
@@ -79,7 +80,7 @@ const emptyForm = (): AssetForm => ({
   name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
   role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
-  currency: 'CNY', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
+  currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
   kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '',
 });
 
@@ -96,7 +97,72 @@ const CURRENCIES = [
   { key: 'USD', label: 'USD' },
   { key: 'EUR', label: 'EUR' },
   { key: 'JPY', label: 'JPY' },
+  { key: '$', label: '$' },
 ];
+
+const REGIONS = [
+  { key: '', label: '未指定', flag: '' },
+  { key: '香港', label: '香港', flag: '🇭🇰' },
+  { key: '台湾', label: '台湾', flag: '🇹🇼' },
+  { key: '日本', label: '日本', flag: '🇯🇵' },
+  { key: '新加坡', label: '新加坡', flag: '🇸🇬' },
+  { key: '韩国', label: '韩国', flag: '🇰🇷' },
+  { key: '美国', label: '美国', flag: '🇺🇸' },
+  { key: '英国', label: '英国', flag: '🇬🇧' },
+  { key: '德国', label: '德国', flag: '🇩🇪' },
+  { key: '法国', label: '法国', flag: '🇫🇷' },
+  { key: '荷兰', label: '荷兰', flag: '🇳🇱' },
+  { key: '加拿大', label: '加拿大', flag: '🇨🇦' },
+  { key: '澳大利亚', label: '澳大利亚', flag: '🇦🇺' },
+  { key: '印度', label: '印度', flag: '🇮🇳' },
+  { key: '俄罗斯', label: '俄罗斯', flag: '🇷🇺' },
+  { key: '土耳其', label: '土耳其', flag: '🇹🇷' },
+  { key: '巴西', label: '巴西', flag: '🇧🇷' },
+  { key: '马来西亚', label: '马来西亚', flag: '🇲🇾' },
+  { key: '泰国', label: '泰国', flag: '🇹🇭' },
+  { key: '越南', label: '越南', flag: '🇻🇳' },
+  { key: '菲律宾', label: '菲律宾', flag: '🇵🇭' },
+  { key: '印度尼西亚', label: '印度尼西亚', flag: '🇮🇩' },
+  { key: '阿根廷', label: '阿根廷', flag: '🇦🇷' },
+  { key: '南非', label: '南非', flag: '🇿🇦' },
+];
+
+const BILLING_CYCLES = [
+  { key: '', label: '未知' },
+  { key: '30', label: '月付' },
+  { key: '90', label: '季付' },
+  { key: '180', label: '半年付' },
+  { key: '365', label: '年付' },
+  { key: '730', label: '两年付' },
+  { key: '1095', label: '三年付' },
+];
+
+const getRegionFlag = (region?: string | null) => {
+  if (!region) return '';
+  const match = REGIONS.find(r => r.key === region);
+  return match?.flag || '';
+};
+
+const formatBillingCycle = (days?: number | null) => {
+  if (!days) return '';
+  if (days >= 27 && days <= 32) return '月付';
+  if (days >= 87 && days <= 95) return '季付';
+  if (days >= 175 && days <= 185) return '半年付';
+  if (days >= 360 && days <= 370) return '年付';
+  if (days >= 720 && days <= 750) return '两年付';
+  if (days >= 1080 && days <= 1150) return '三年付';
+  return `${days}天`;
+};
+
+/** Calculate remaining value: (remaining days / billing cycle days) * price */
+const calcRemainingValue = (expireDate?: number | null, monthlyCost?: string | null, billingCycle?: number | null, currency?: string | null) => {
+  if (!expireDate || !monthlyCost || !billingCycle || billingCycle <= 0) return null;
+  const price = parseFloat(monthlyCost);
+  if (isNaN(price) || price <= 0) return null;
+  const remainingDays = Math.max(0, Math.ceil((expireDate - Date.now()) / 86400000));
+  const remainingValue = (remainingDays / billingCycle) * price;
+  return { remainingDays, remainingValue: remainingValue.toFixed(2), currency: currency || '' };
+};
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 
@@ -438,6 +504,7 @@ export default function AssetsPage() {
       monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
       purchaseDate: tsToDateInput(asset.purchaseDate), expireDate: tsToDateInput(asset.expireDate),
       monthlyCost: asset.monthlyCost || '', currency: asset.currency || 'CNY',
+      billingCycle: asset.billingCycle?.toString() || '',
       tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', pikaNodeId: asset.pikaNodeId || '',
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
@@ -479,6 +546,7 @@ export default function AssetsPage() {
         expireDate: dateInputToTs(form.expireDate) ?? null,
         monthlyCost: form.monthlyCost.trim() || null,
         currency: form.currency || null,
+        billingCycle: form.billingCycle ? parseInt(form.billingCycle) : null,
         tags: form.tags.trim() || null,
         monitorNodeUuid: form.monitorNodeUuid.trim() || null,
         pikaNodeId: form.pikaNodeId.trim() || null,
@@ -489,6 +557,7 @@ export default function AssetsPage() {
         gpuName: form.gpuName.trim() || null,
         swapTotalMb: form.swapTotalMb ? parseInt(form.swapTotalMb) : null,
         remark: form.remark.trim() || null,
+        panelUrl: form.panelUrl.trim() || null,
       };
       const response = isEdit ? await updateAsset(payload) : await createAsset(payload);
       if (response.code !== 0) { toast.error(response.msg || '操作失败'); return; }
@@ -701,6 +770,7 @@ export default function AssetsPage() {
                             }`} />
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
+                                {getRegionFlag(asset.region) && <span className="text-sm flex-shrink-0">{getRegionFlag(asset.region)}</span>}
                                 <span className="truncate font-semibold text-sm">{asset.name}</span>
                                 {roleChip && (
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
@@ -855,6 +925,7 @@ export default function AssetsPage() {
                         <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${
                           isOnline ? 'bg-success animate-pulse' : hasMonitor ? 'bg-danger' : 'bg-default-300'
                         }`} />
+                        {getRegionFlag(asset.region) && <span className="text-sm flex-shrink-0">{getRegionFlag(asset.region)}</span>}
                         <span className="truncate font-semibold text-sm">{asset.name}</span>
                       </div>
                       <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-3.5">
@@ -900,6 +971,7 @@ export default function AssetsPage() {
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success animate-pulse' : (selectedAsset.monitorNodeUuid || selectedAsset.pikaNodeId) ? 'bg-danger' : 'bg-default-300'}`} />
+                  {getRegionFlag(selectedAsset.region) && <span className="text-lg">{getRegionFlag(selectedAsset.region)}</span>}
                   <span className="text-lg font-bold">{selectedAsset.name}</span>
                   {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
                   {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
@@ -936,8 +1008,8 @@ export default function AssetsPage() {
                     <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">供应商</p>
                     <div className="space-y-1 text-xs">
                       <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{selectedAsset.region || '-'}</span></p>
-                      <p className="flex justify-between"><span className="text-default-400">月费</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.monthlyCost} ${selectedAsset.currency || ''}/月` : '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region || '-'}</span></p>
+                      <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{selectedAsset.monthlyCost ? `${selectedAsset.currency || ''}${selectedAsset.monthlyCost}/${formatBillingCycle(selectedAsset.billingCycle) || '周期'}` : '-'}</span></p>
                       <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb ? `${selectedAsset.monthlyTrafficGb} GB/月` : '-'}</span></p>
                       <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>
                       <p className="flex justify-between">
@@ -946,6 +1018,16 @@ export default function AssetsPage() {
                           {formatDateShort(selectedAsset.expireDate)}
                         </span>
                       </p>
+                      {(() => {
+                        const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
+                        if (!rv) return null;
+                        return (
+                          <p className="flex justify-between pt-1 border-t border-divider/40">
+                            <span className="text-default-400">剩余价值</span>
+                            <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                          </p>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1281,26 +1363,49 @@ export default function AssetsPage() {
                     <div className="grid gap-4 md:grid-cols-4">
                       <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
                         onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
-                      <Input label="地区" placeholder="香港" value={form.region}
-                        onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
+                      <Select label="地区" selectedKeys={form.region ? [form.region] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
+                        {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
+                      </Select>
                       <Input label="环境" placeholder="生产 / 测试" value={form.environment}
                         onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
                       <Input label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
                         onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-4">
+                    <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
                       <Input label="购买日期" type="date" value={form.purchaseDate}
                         onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
                       <Input label="到期日期" type="date" value={form.expireDate}
                         onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
-                      <Input label="月费" value={form.monthlyCost}
+                      <Input label="费用" placeholder="10.00" value={form.monthlyCost}
                         onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
                       <Select label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
                         onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
                         {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
                       </Select>
+                      <Select label="付费周期" selectedKeys={form.billingCycle ? [form.billingCycle] : []}
+                        onSelectionChange={(keys) => setForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
+                        {BILLING_CYCLES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                      </Select>
                     </div>
+
+                    {/* Remaining value hint */}
+                    {(() => {
+                      const rv = calcRemainingValue(
+                        dateInputToTs(form.expireDate),
+                        form.monthlyCost,
+                        form.billingCycle ? parseInt(form.billingCycle) : null,
+                        form.currency,
+                      );
+                      if (!rv) return null;
+                      return (
+                        <div className="rounded-lg bg-default-100/60 dark:bg-default-50/10 px-3 py-1.5 text-xs text-default-500">
+                          剩余 <span className="font-semibold text-default-700">{rv.remainingDays}</span> 天，
+                          剩余价值约 <span className="font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                        </div>
+                      );
+                    })()}
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}

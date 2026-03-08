@@ -966,6 +966,7 @@ export default function AssetsPage() {
                     <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">流量/到期</th>
                     <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">标签</th>
                     <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[90px]">关联</th>
+                    <th className="px-3 py-3 text-right text-[11px] font-bold tracking-widest text-default-400 uppercase w-[100px]">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1121,6 +1122,22 @@ export default function AssetsPage() {
                             {!asset.totalXuiInstances && !asset.totalForwards && '-'}
                           </div>
                         </td>
+
+                        {/* Actions */}
+                        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button type="button"
+                              className="px-2 py-1 rounded text-[11px] text-default-500 hover:bg-default-100 hover:text-default-700 transition-colors cursor-pointer"
+                              onClick={() => openDetailModal(asset.id)}>
+                              查看
+                            </button>
+                            <button type="button"
+                              className="px-2 py-1 rounded text-[11px] text-primary hover:bg-primary-50 hover:text-primary-600 transition-colors cursor-pointer"
+                              onClick={() => openEditModal(asset)}>
+                              编辑
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -1272,6 +1289,97 @@ export default function AssetsPage() {
                   </div>
                 </div>
 
+                {/* Quick Links - XUI / 1Panel / Forwards (first screen for quick access) */}
+                {((detail?.xuiInstances && detail.xuiInstances.length > 0) || selectedAsset.panelUrl || (detail?.forwards && detail.forwards.length > 0)) && (
+                  <div className="rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-3">
+                    <p className="text-[10px] font-bold tracking-widest text-primary-600 dark:text-primary-400 uppercase">快捷入口</p>
+
+                    {/* XUI Instances - clickable to actual backend URL */}
+                    {detail?.xuiInstances && detail.xuiInstances.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-default-500 mb-1.5">X-UI 实例</p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {detail.xuiInstances.map((inst) => {
+                            const syncChip = getStatusChip(inst.lastSyncStatus);
+                            const instUrl = buildInstanceAddress(inst);
+                            return (
+                              <a key={inst.id} href={instUrl} target="_blank" rel="noopener noreferrer"
+                                className="rounded-xl border border-divider/60 bg-content1 p-3 text-left transition-all hover:border-primary/40 hover:shadow-sm block no-underline">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="truncate font-semibold text-sm">{inst.name}</p>
+                                    <p className="truncate text-[11px] text-primary font-mono">{instUrl}</p>
+                                  </div>
+                                  <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
+                                </div>
+                                <div className="mt-2 flex gap-3 text-[11px] text-default-500 font-mono">
+                                  <span>{inst.inboundCount || 0} 入站</span>
+                                  <span>{inst.clientCount || 0} 客户端</span>
+                                </div>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 1Panel + Forwards row */}
+                    <div className="flex flex-wrap gap-2">
+                      {selectedAsset.panelUrl && (
+                        <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-2 text-xs font-medium transition-all hover:border-primary/40 hover:shadow-sm no-underline">
+                          <span className="text-primary font-semibold flex-shrink-0">1Panel</span>
+                          <span className="text-default-400 font-mono break-all">{selectedAsset.panelUrl}</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Forwards */}
+                    {detail?.forwards && detail.forwards.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-default-500 mb-1.5">转发规则</p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {detail.forwards.map((item) => (
+                            <button type="button" key={item.id} onClick={() => navigate('/forward')}
+                              className="rounded-xl border border-divider/60 bg-content1 p-2.5 text-left transition-all hover:border-primary/40 text-xs cursor-pointer">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate font-medium">{item.name}</span>
+                                <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
+                                  {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
+                                </Chip>
+                              </div>
+                              <p className="mt-1 text-[11px] text-default-400 font-mono truncate">
+                                {item.tunnelName ? `${item.tunnelName} -> ` : ''}{item.remoteAddr}
+                              </p>
+                              {item.remoteSourceLabel && (
+                                <Chip size="sm" variant="flat" color="secondary" className="mt-1">{item.remoteSourceLabel}</Chip>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Protocol Summary */}
+                {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">协议</p>
+                    <div className="flex flex-wrap gap-2">
+                      {detail.protocolSummaries.map((p) => (
+                        <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
+                          <span className="font-bold uppercase">{p.protocol}</span>
+                          <span className="ml-2 text-default-400 font-mono">
+                            {p.inboundCount} 入站 / {p.clientCount} 客户端 ({p.onlineClientCount} 在线)
+                          </span>
+                          {p.allTime ? <span className="ml-2 text-default-400 font-mono">{formatFlow(p.allTime)}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {selectedAsset.remark && (
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-xs">
                     <span className="text-default-400 mr-2">备注:</span>{selectedAsset.remark}
@@ -1416,78 +1524,6 @@ export default function AssetsPage() {
                     </div>
                   </div>
                 )}
-
-                {/* X-UI Instances */}
-                {detail?.xuiInstances && detail.xuiInstances.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">X-UI 实例</p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {detail.xuiInstances.map((inst) => {
-                        const syncChip = getStatusChip(inst.lastSyncStatus);
-                        return (
-                          <button type="button" key={inst.id} onClick={() => navigate('/xui')}
-                            className="rounded-xl border border-divider/60 bg-default-50/60 p-3 text-left transition-all hover:border-primary/40">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold text-sm">{inst.name}</p>
-                                <p className="truncate text-[11px] text-default-400 font-mono">{buildInstanceAddress(inst)}</p>
-                              </div>
-                              <Chip size="sm" color={syncChip.color} variant="flat">{syncChip.text}</Chip>
-                            </div>
-                            <div className="mt-2 flex gap-3 text-[11px] text-default-500 font-mono">
-                              <span>{inst.inboundCount || 0} 入站</span>
-                              <span>{inst.clientCount || 0} 客户端</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Protocol Summary */}
-                {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">协议</p>
-                    <div className="flex flex-wrap gap-2">
-                      {detail.protocolSummaries.map((p) => (
-                        <div key={p.protocol} className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
-                          <span className="font-bold uppercase">{p.protocol}</span>
-                          <span className="ml-2 text-default-400 font-mono">
-                            {p.inboundCount} 入站 / {p.clientCount} 客户端 ({p.onlineClientCount} 在线)
-                          </span>
-                          {p.allTime ? <span className="ml-2 text-default-400 font-mono">{formatFlow(p.allTime)}</span> : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Forwards */}
-                {detail?.forwards && detail.forwards.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">转发规则</p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {detail.forwards.map((item) => (
-                        <button type="button" key={item.id} onClick={() => navigate('/forward')}
-                          className="rounded-xl border border-divider/60 bg-default-50/60 p-2.5 text-left transition-all hover:border-primary/40 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-medium">{item.name}</span>
-                            <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat">
-                              {item.status === 1 ? '运行中' : item.status === 0 ? '已暂停' : '异常'}
-                            </Chip>
-                          </div>
-                          <p className="mt-1 text-[11px] text-default-400 font-mono truncate">
-                            {item.tunnelName ? `${item.tunnelName} -> ` : ''}{item.remoteAddr}
-                          </p>
-                          {item.remoteSourceLabel && (
-                            <Chip size="sm" variant="flat" color="secondary" className="mt-1">{item.remoteSourceLabel}</Chip>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 {/* Quick Action Hints */}
                 {(() => {
                   const hasK = !!selectedAsset.monitorNodeUuid;
@@ -1527,9 +1563,6 @@ export default function AssetsPage() {
               <ModalFooter className="flex-wrap gap-1">
                 <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>
                 <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>
-                {selectedAsset.panelUrl && (
-                  <Button size="sm" variant="flat" as="a" href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer">1Panel</Button>
-                )}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
@@ -1945,6 +1978,7 @@ export default function AssetsPage() {
                                   managementMode: 'observe',
                                   syncEnabled: 1,
                                   syncIntervalMinutes: 30,
+                                  allowInsecureTls: 1,
                                 });
                                 if (res.code === 0) {
                                   toast.success('X-UI 绑定成功，将自动同步');

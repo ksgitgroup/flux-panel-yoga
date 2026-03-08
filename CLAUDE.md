@@ -6,6 +6,12 @@
 
 - 只修改 `flux-panel-yoga` 仓库，上游仓库（komari, pika, 3x-ui, 1Panel, homepage, jumpserver, openclaw）不可修改
 - 使用中文回复
+- 任务完成后的默认反馈使用精简格式，只包含：
+  - `result`
+  - `changed files`
+  - `blockers/risk`
+  - `next step`
+- 不做额外 recap；除非用户明确要求展开说明
 - 每次开发完成后自动执行完整流程（无需用户提醒）：
   1. `git add` + `git commit` + `git push origin dev`
   2. `scripts/build_docker.sh`（构建镜像）
@@ -38,7 +44,7 @@ git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 | Agent | 工作目录 | 分支 | 职责 |
 |-------|---------|------|------|
 | Claude Code | `/flux-panel-yoga` (原目录) | `dev` | 监控/资产/看板/前端 |
-| Codex | `/flux-panel-yoga-codex-iam` (worktree) | `codex/iam-rbac-dingtalk` | IAM 权限角色 + 钉钉登录 |
+| Codex | `/flux-panel-yoga-codex-next` (worktree) | `codex/workbench` 基线，实际开发使用 `codex/<topic>` | 独立功能分支开发 |
 
 **规则：**
 - Claude **不要修改** Codex 正在开发的 IAM/RBAC 相关代码（`sys_user`/`sys_role`/`sys_permission` 表、`/api/auth` 端点、钉钉集成、`SecurityConfig`）

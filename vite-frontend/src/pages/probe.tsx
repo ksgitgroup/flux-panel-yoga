@@ -19,11 +19,15 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 
 import {
+  KomariPingTaskDetail,
   MonitorInstanceDetail,
   MonitorProviderHighlight,
   MonitorInstance,
+  MonitorNodeProviderDetail,
+  getKomariPingTaskDetail,
   getMonitorDetail,
   getMonitorList,
+  getMonitorNodeProviderDetail,
   createMonitorInstance,
   updateMonitorInstance,
   deleteMonitorInstance,
@@ -99,6 +103,14 @@ export default function ProbePage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<MonitorInstanceDetail | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
+  const [nodeDetailLoading, setNodeDetailLoading] = useState(false);
+  const [nodeDetail, setNodeDetail] = useState<MonitorNodeProviderDetail | null>(null);
+  const [nodeDetailError, setNodeDetailError] = useState('');
+  const [selectedPingTaskId, setSelectedPingTaskId] = useState<number | null>(null);
+  const [pingTaskLoading, setPingTaskLoading] = useState(false);
+  const [pingTaskDetail, setPingTaskDetail] = useState<KomariPingTaskDetail | null>(null);
+  const [pingTaskError, setPingTaskError] = useState('');
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
 
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -251,8 +263,58 @@ export default function ProbePage() {
 
   const openDetailModal = (inst: MonitorInstance) => {
     setDetail(null);
+    setSelectedNodeId(null);
+    setNodeDetail(null);
+    setNodeDetailError('');
+    setSelectedPingTaskId(null);
+    setPingTaskDetail(null);
+    setPingTaskError('');
     onDetailOpen();
     void loadDetail(inst.id);
+  };
+
+  const loadNodeDetail = async (nodeId: number) => {
+    setSelectedNodeId(nodeId);
+    setSelectedPingTaskId(null);
+    setPingTaskDetail(null);
+    setPingTaskError('');
+    setNodeDetailLoading(true);
+    setNodeDetailError('');
+    try {
+      const res = await getMonitorNodeProviderDetail(nodeId);
+      if (res.code === 0 && res.data) {
+        setNodeDetail(res.data as MonitorNodeProviderDetail);
+        setNodeDetailError((res.data as MonitorNodeProviderDetail)?.error || '');
+      } else {
+        setNodeDetail(null);
+        setNodeDetailError(res.msg || '加载节点专属详情失败');
+      }
+    } catch {
+      setNodeDetail(null);
+      setNodeDetailError('加载节点专属详情失败');
+    } finally {
+      setNodeDetailLoading(false);
+    }
+  };
+
+  const loadNodePingTaskDetail = async (nodeId: number, taskId: number) => {
+    setSelectedPingTaskId(taskId);
+    setPingTaskLoading(true);
+    setPingTaskError('');
+    try {
+      const res = await getKomariPingTaskDetail(nodeId, taskId, 12);
+      if (res.code === 0 && res.data) {
+        setPingTaskDetail(res.data as KomariPingTaskDetail);
+      } else {
+        setPingTaskDetail(null);
+        setPingTaskError(res.msg || '加载 Ping 记录失败');
+      }
+    } catch {
+      setPingTaskDetail(null);
+      setPingTaskError('加载 Ping 记录失败');
+    } finally {
+      setPingTaskLoading(false);
+    }
   };
 
   // ===================== Computed =====================
@@ -398,7 +460,16 @@ export default function ProbePage() {
         </div>
       )}
 
-      <Modal isOpen={isDetailOpen} onClose={() => { setDetail(null); onDetailClose(); }} size="5xl" scrollBehavior="inside">
+      <Modal isOpen={isDetailOpen} onClose={() => {
+        setDetail(null);
+        setSelectedNodeId(null);
+        setNodeDetail(null);
+        setNodeDetailError('');
+        setSelectedPingTaskId(null);
+        setPingTaskDetail(null);
+        setPingTaskError('');
+        onDetailClose();
+      }} size="5xl" scrollBehavior="inside">
         <ModalContent>
           <ModalHeader className="flex flex-col gap-1">
             {detail?.instance?.name || '探针实例详情'}
@@ -601,6 +672,14 @@ export default function ProbePage() {
                             {node.os ? <span>{node.os}</span> : null}
                             {node.assetName ? <span>资产: {node.assetName}</span> : null}
                           </div>
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            <div className="text-[11px] text-default-400">
+                              {node.instanceType === 'pika' ? '查看开放端口 / 防篡改 / 审计' : '查看 Ping 任务 / 通知 / 记录'}
+                            </div>
+                            <Button size="sm" variant={selectedNodeId === node.id ? 'solid' : 'flat'} color={node.instanceType === 'pika' ? 'secondary' : 'primary'} onPress={() => loadNodeDetail(node.id)}>
+                              {selectedNodeId === node.id ? '已展开' : '专属详情'}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -613,6 +692,220 @@ export default function ProbePage() {
                     <p className="text-xs text-default-400">已截取前 12 个节点显示，完整节点列表仍以服务器看板和资产页为主。</p>
                   )}
                 </div>
+
+                {selectedNodeId != null && (
+                  <div className="space-y-4">
+                    <Divider />
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">节点专属下钻</p>
+                        <p className="text-xs text-default-500">按节点查看 Pika 安全细节或 Komari 任务与通知。</p>
+                      </div>
+                      {nodeDetailLoading ? <Spinner size="sm" /> : null}
+                    </div>
+
+                    {nodeDetailError ? (
+                      <div className="rounded-2xl border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-700">
+                        {nodeDetailError}
+                      </div>
+                    ) : nodeDetail?.instanceType === 'pika' && nodeDetail.pikaSecurity ? (
+                      <div className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">公开端口</p>
+                              <p className="text-2xl font-semibold">{nodeDetail.pikaSecurity.publicListeningPortCount ?? 0}</p>
+                            </CardBody>
+                          </Card>
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">可疑进程</p>
+                              <p className="text-2xl font-semibold">{nodeDetail.pikaSecurity.suspiciousProcessCount ?? 0}</p>
+                            </CardBody>
+                          </Card>
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">防篡改</p>
+                              <p className="text-lg font-semibold">{nodeDetail.pikaSecurity.tamperEnabled ? '已启用' : '未启用'}</p>
+                            </CardBody>
+                          </Card>
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">最近审计</p>
+                              <p className="text-sm font-semibold">{formatTime(nodeDetail.pikaSecurity.auditEndTime)}</p>
+                            </CardBody>
+                          </Card>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <p className="text-sm font-semibold text-foreground">公开监听端口</p>
+                            <div className="mt-3 space-y-2">
+                              {nodeDetail.pikaSecurity.publicListeningPorts?.length ? nodeDetail.pikaSecurity.publicListeningPorts.map((port, idx) => (
+                                <div key={`${port.protocol}-${port.port}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                  <p className="font-mono">{port.protocol || 'tcp'}://{port.address || '0.0.0.0'}:{port.port ?? '-'}</p>
+                                  {port.processName ? <p className="mt-1 text-default-500">{port.processName}#{port.processPid ?? '-'}</p> : null}
+                                </div>
+                              )) : <p className="text-sm text-default-500">未发现公开监听端口</p>}
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <p className="text-sm font-semibold text-foreground">可疑进程</p>
+                            <div className="mt-3 space-y-2">
+                              {nodeDetail.pikaSecurity.suspiciousProcesses?.length ? nodeDetail.pikaSecurity.suspiciousProcesses.map((proc, idx) => (
+                                <div key={`${proc.pid}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                  <p className="font-mono">{proc.name || 'unknown'}#{proc.pid ?? '-'}</p>
+                                  <p className="mt-1 text-default-500">{proc.username || '-'} · CPU {proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '0.0'}% · MEM {proc.memPercent != null ? proc.memPercent.toFixed(1) : '0.0'}%</p>
+                                </div>
+                              )) : <p className="text-sm text-default-500">未发现可疑进程</p>}
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <p className="text-sm font-semibold text-foreground">防篡改事件</p>
+                            <div className="mt-3 space-y-2">
+                              {nodeDetail.pikaSecurity.recentTamperEvents?.length ? nodeDetail.pikaSecurity.recentTamperEvents.map((event, idx) => (
+                                <div key={`${event.path}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                  <p className="font-mono">{event.operation || 'change'} · {event.path || '-'}</p>
+                                  {event.timestamp ? <p className="mt-1 text-default-500">{formatTime(event.timestamp)}</p> : null}
+                                </div>
+                              )) : <p className="text-sm text-default-500">暂无防篡改事件</p>}
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <p className="text-sm font-semibold text-foreground">审计批次</p>
+                            <div className="mt-3 space-y-2">
+                              {nodeDetail.pikaSecurity.recentAuditRuns?.length ? nodeDetail.pikaSecurity.recentAuditRuns.map((run, idx) => (
+                                <div key={`${run.startTime}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                  <p className="font-mono">{formatTime(run.endTime)}</p>
+                                  <p className="mt-1 text-default-500">pass {run.passCount ?? 0} / warn {run.warnCount ?? 0} / fail {run.failCount ?? 0}</p>
+                                </div>
+                              )) : <p className="text-sm text-default-500">暂无审计批次</p>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : nodeDetail?.instanceType === 'komari' && nodeDetail.komariOperations ? (
+                      <div className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">公开节点</p>
+                              <p className="text-lg font-semibold">{nodeDetail.komariOperations.publicVisible ? '已公开' : '未公开'}</p>
+                            </CardBody>
+                          </Card>
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">Ping 任务</p>
+                              <p className="text-2xl font-semibold">{nodeDetail.komariOperations.pingTasks?.length ?? 0}</p>
+                            </CardBody>
+                          </Card>
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">负载规则</p>
+                              <p className="text-2xl font-semibold">{nodeDetail.komariOperations.loadNotifications?.length ?? 0}</p>
+                            </CardBody>
+                          </Card>
+                          <Card shadow="none" className="border border-divider">
+                            <CardBody className="gap-2 p-4">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-default-400">离线规则</p>
+                              <p className="text-2xl font-semibold">{nodeDetail.komariOperations.offlineNotifications?.length ?? 0}</p>
+                            </CardBody>
+                          </Card>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <p className="text-sm font-semibold text-foreground">Ping 任务</p>
+                            <div className="mt-3 space-y-2">
+                              {nodeDetail.komariOperations.pingTasks?.length ? nodeDetail.komariOperations.pingTasks.map((task) => (
+                                <div key={task.taskId} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="truncate font-medium">{task.name || `Ping #${task.taskId}`}</p>
+                                      <p className="mt-1 text-default-500">{task.type || 'icmp'} · {task.target || '-'}</p>
+                                    </div>
+                                    <Button size="sm" variant={selectedPingTaskId === task.taskId ? 'solid' : 'flat'} color="primary" onPress={() => loadNodePingTaskDetail(selectedNodeId, task.taskId)}>
+                                      记录
+                                    </Button>
+                                  </div>
+                                </div>
+                              )) : <p className="text-sm text-default-500">该节点未绑定 Ping 任务</p>}
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <p className="text-sm font-semibold text-foreground">通知规则</p>
+                            <div className="mt-3 space-y-3">
+                              <div>
+                                <p className="text-xs font-medium text-default-500">负载规则</p>
+                                <div className="mt-2 space-y-2">
+                                  {nodeDetail.komariOperations.loadNotifications?.length ? nodeDetail.komariOperations.loadNotifications.map((rule, idx) => (
+                                    <div key={`${rule.name}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                      <p className="font-medium">{rule.name || '负载规则'}</p>
+                                      <p className="mt-1 text-default-500">{rule.metric || 'cpu'} &gt; {rule.threshold ?? '-'} · interval {rule.interval ?? '-'}</p>
+                                    </div>
+                                  )) : <p className="text-sm text-default-500">无负载规则</p>}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-default-500">离线规则</p>
+                                <div className="mt-2 space-y-2">
+                                  {nodeDetail.komariOperations.offlineNotifications?.length ? nodeDetail.komariOperations.offlineNotifications.map((rule, idx) => (
+                                    <div key={`${rule.gracePeriod}-${idx}`} className="rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                      <p className="font-medium">{rule.enabled ? 'enabled' : 'disabled'}</p>
+                                      <p className="mt-1 text-default-500">grace {rule.gracePeriod ?? 180}s</p>
+                                    </div>
+                                  )) : <p className="text-sm text-default-500">无离线规则</p>}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {selectedPingTaskId != null && (
+                          <div className="rounded-2xl border border-divider bg-default-50/70 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-foreground">Ping 记录下钻</p>
+                              {pingTaskLoading ? <Spinner size="sm" /> : null}
+                            </div>
+                            <div className="mt-3">
+                              {pingTaskError ? (
+                                <p className="text-sm text-danger">{pingTaskError}</p>
+                              ) : pingTaskDetail ? (
+                                <div className="space-y-3">
+                                  <div className="grid gap-3 md:grid-cols-5">
+                                    <Card shadow="none" className="border border-divider"><CardBody className="gap-1 p-3"><p className="text-[11px] uppercase tracking-[0.16em] text-default-400">目标</p><p className="text-xs font-semibold">{pingTaskDetail.target || '-'}</p></CardBody></Card>
+                                    <Card shadow="none" className="border border-divider"><CardBody className="gap-1 p-3"><p className="text-[11px] uppercase tracking-[0.16em] text-default-400">丢包</p><p className="text-xs font-semibold">{pingTaskDetail.lossPercent?.toFixed(1) ?? '0.0'}%</p></CardBody></Card>
+                                    <Card shadow="none" className="border border-divider"><CardBody className="gap-1 p-3"><p className="text-[11px] uppercase tracking-[0.16em] text-default-400">最小</p><p className="text-xs font-semibold">{pingTaskDetail.minLatency ?? '-'} ms</p></CardBody></Card>
+                                    <Card shadow="none" className="border border-divider"><CardBody className="gap-1 p-3"><p className="text-[11px] uppercase tracking-[0.16em] text-default-400">最大</p><p className="text-xs font-semibold">{pingTaskDetail.maxLatency ?? '-'} ms</p></CardBody></Card>
+                                    <Card shadow="none" className="border border-divider"><CardBody className="gap-1 p-3"><p className="text-[11px] uppercase tracking-[0.16em] text-default-400">平均</p><p className="text-xs font-semibold">{pingTaskDetail.avgLatency?.toFixed(1) ?? '-'} ms</p></CardBody></Card>
+                                  </div>
+                                  <div className="space-y-2 max-h-56 overflow-auto pr-1">
+                                    {pingTaskDetail.records?.length ? pingTaskDetail.records.map((record, idx) => (
+                                      <div key={`${record.time}-${idx}`} className="flex items-center justify-between rounded-xl border border-divider bg-content1 px-3 py-3 text-xs">
+                                        <span className="font-mono text-default-500">{record.time ? new Date(record.time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'}</span>
+                                        <Chip size="sm" variant="flat" color={record.loss ? 'danger' : 'success'}>{record.loss ? 'loss' : `${record.value ?? '-'} ms`}</Chip>
+                                      </div>
+                                    )) : <p className="text-sm text-default-500">暂无记录</p>}
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-default-500">点击任务右侧按钮查看最近记录。</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-divider px-3 py-5 text-sm text-default-500">
+                        当前节点暂无可展示的专属详情。
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <div className="rounded-2xl border border-dashed border-divider px-4 py-8 text-center text-sm text-default-500">
@@ -621,7 +914,16 @@ export default function ProbePage() {
             )}
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={() => { setDetail(null); onDetailClose(); }}>关闭</Button>
+            <Button variant="flat" onPress={() => {
+              setDetail(null);
+              setSelectedNodeId(null);
+              setNodeDetail(null);
+              setNodeDetailError('');
+              setSelectedPingTaskId(null);
+              setPingTaskDetail(null);
+              setPingTaskError('');
+              onDetailClose();
+            }}>关闭</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

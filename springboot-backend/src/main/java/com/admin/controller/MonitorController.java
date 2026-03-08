@@ -5,8 +5,10 @@ import com.admin.common.aop.LogAnnotation;
 import com.admin.common.dto.MonitorInstanceDto;
 import com.admin.common.dto.MonitorInstanceIdDto;
 import com.admin.common.dto.MonitorInstanceUpdateDto;
+import com.admin.common.dto.MonitorNodeIdDto;
 import com.admin.common.dto.MonitorProvisionDto;
 import com.admin.common.dto.MonitorRecordsDto;
+import com.admin.common.dto.KomariPingTaskDetailQueryDto;
 import com.admin.common.lang.R;
 import com.admin.service.MonitorService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -101,6 +103,18 @@ public class MonitorController extends BaseController {
     @PostMapping("/records")
     public R records(@Validated @RequestBody MonitorRecordsDto dto) {
         return monitorService.getNodeRecords(dto);
+    }
+
+    @RequireRole
+    @PostMapping("/node-provider-detail")
+    public R nodeProviderDetail(@Validated @RequestBody MonitorNodeIdDto dto) {
+        return monitorService.getNodeProviderDetail(dto.getId());
+    }
+
+    @RequireRole
+    @PostMapping("/komari-ping-task-detail")
+    public R komariPingTaskDetail(@Validated @RequestBody KomariPingTaskDetailQueryDto dto) {
+        return monitorService.getKomariPingTaskDetail(dto.getNodeId(), dto.getTaskId(), dto.getHours());
     }
 
     @LogAnnotation

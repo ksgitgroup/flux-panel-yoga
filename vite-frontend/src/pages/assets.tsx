@@ -217,6 +217,15 @@ export default function AssetsPage() {
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
 
+  // XUI inline binding form
+  const [xuiBindOpen, setXuiBindOpen] = useState(false);
+  const [xuiBindForm, setXuiBindForm] = useState({ addr: '', user: '', pass: '' });
+  const [xuiBindLoading, setXuiBindLoading] = useState(false);
+  // 1Panel inline binding
+  const [panelBindOpen, setPanelBindOpen] = useState(false);
+  // Tag input
+  const [tagInput, setTagInput] = useState('');
+
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
@@ -418,6 +427,8 @@ export default function AssetsPage() {
 
   const openEditModal = (asset: AssetHost) => {
     setIsEdit(true); setErrors({});
+    setXuiBindOpen(false); setXuiBindForm({ addr: '', user: '', pass: '' }); setXuiBindLoading(false);
+    setPanelBindOpen(false); setTagInput('');
     setForm({
       id: asset.id, name: asset.name, label: asset.label || '', primaryIp: asset.primaryIp || '',
       ipv6: asset.ipv6 || '', environment: asset.environment || '', provider: asset.provider || '',
@@ -1253,9 +1264,12 @@ export default function AssetsPage() {
                       <span className="text-[11px] text-default-400">可直接编辑</span>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                       <Input label="名称" placeholder="HK-VPS-01" value={form.name}
                         onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
+                      <Input label="标识 (Label)" placeholder="唯一标识符" value={form.label}
+                        onValueChange={(v) => setForm(p => ({ ...p, label: v }))}
+                        description="服务器唯一别名，用于跨系统识别" />
                       <Input label="主 IP / 域名" value={form.primaryIp}
                         onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
                       <Select label="角色" selectedKeys={form.role ? [form.role] : []}
@@ -1264,16 +1278,20 @@ export default function AssetsPage() {
                       </Select>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                       <Input label="供应商" placeholder="DMIT / Vultr" value={form.provider}
                         onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
                       <Input label="地区" placeholder="香港" value={form.region}
                         onValueChange={(v) => setForm(p => ({ ...p, region: v }))} />
                       <Input label="环境" placeholder="生产 / 测试" value={form.environment}
                         onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+                      <Input label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
+                        onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <Input label="购买日期" type="date" value={form.purchaseDate}
+                        onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
                       <Input label="到期日期" type="date" value={form.expireDate}
                         onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
                       <Input label="月费" value={form.monthlyCost}
@@ -1284,14 +1302,64 @@ export default function AssetsPage() {
                       </Select>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-2">
                       <Input label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
                         onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
                       <Input label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
                         onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
-                      <Input label="标签 (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
-                        onValueChange={(v) => setForm(p => ({ ...p, tags: v }))}
-                        description="手动标签，JSON 数组格式" />
+                    </div>
+
+                    {/* Tag chip input */}
+                    <div>
+                      <p className="text-xs font-medium text-default-600 mb-1.5">标签</p>
+                      <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-lg border border-default-200 bg-default-100/50 dark:bg-default-50/10 p-2">
+                        {(() => {
+                          let tags: string[] = [];
+                          try { tags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                            tags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                          }
+                          return tags.map((tag, idx) => (
+                            <Chip key={`${tag}-${idx}`} size="sm" variant="flat" color="primary"
+                              onClose={() => {
+                                const newTags = tags.filter((_, i) => i !== idx);
+                                setForm(p => ({ ...p, tags: newTags.length > 0 ? JSON.stringify(newTags) : '' }));
+                              }}>
+                              {tag}
+                            </Chip>
+                          ));
+                        })()}
+                        <input
+                          className="flex-1 min-w-[80px] bg-transparent text-sm outline-none placeholder:text-default-300"
+                          placeholder={(() => { try { return (JSON.parse(form.tags || '[]')).length > 0 ? '' : '输入标签后按回车添加'; } catch { return '输入标签后按回车添加'; } })()}
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && tagInput.trim()) {
+                              e.preventDefault();
+                              let tags: string[] = [];
+                              try { tags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                                tags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                              }
+                              if (!tags.includes(tagInput.trim())) {
+                                tags.push(tagInput.trim());
+                                setForm(p => ({ ...p, tags: JSON.stringify(tags) }));
+                              }
+                              setTagInput('');
+                            }
+                            if (e.key === 'Backspace' && !tagInput) {
+                              let tags: string[] = [];
+                              try { tags = form.tags ? JSON.parse(form.tags) : []; } catch {
+                                tags = form.tags ? form.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean) : [];
+                              }
+                              if (tags.length > 0) {
+                                tags.pop();
+                                setForm(p => ({ ...p, tags: tags.length > 0 ? JSON.stringify(tags) : '' }));
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-default-400 mt-1">回车添加，Backspace 删除末尾</p>
                     </div>
 
                     <Textarea label="备注" value={form.remark}
@@ -1471,19 +1539,40 @@ export default function AssetsPage() {
                         <>
                           <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => {
+                              setXuiBindOpen(!xuiBindOpen);
+                              setXuiBindForm({ addr: `https://${editingAsset.primaryIp || ''}:54321`, user: '', pass: '' });
+                            }}>
+                            {xuiBindOpen ? '收起' : '快速绑定'}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {/* XUI inline binding form */}
+                    {!hasXui && xuiBindOpen && (
+                      <div className="ml-18 rounded-lg border border-primary/20 bg-primary-50/20 dark:bg-primary-50/5 p-3 space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <Input size="sm" label="面板地址" placeholder="https://ip:54321"
+                            value={xuiBindForm.addr}
+                            onValueChange={(v) => setXuiBindForm(p => ({ ...p, addr: v }))} />
+                          <Input size="sm" label="用户名" placeholder="admin"
+                            value={xuiBindForm.user}
+                            onValueChange={(v) => setXuiBindForm(p => ({ ...p, user: v }))} />
+                          <Input size="sm" label="密码" type="password" placeholder="登录密码"
+                            value={xuiBindForm.pass}
+                            onValueChange={(v) => setXuiBindForm(p => ({ ...p, pass: v }))} />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" color="primary" isLoading={xuiBindLoading}
+                            isDisabled={!xuiBindForm.addr || !xuiBindForm.user || !xuiBindForm.pass}
                             onPress={async () => {
-                              const addr = prompt('请输入 X-UI 面板地址\n例如: https://1.2.3.4:54321');
-                              if (!addr) return;
-                              const user = prompt('X-UI 登录用户名');
-                              if (!user) return;
-                              const pass = prompt('X-UI 登录密码');
-                              if (!pass) return;
+                              setXuiBindLoading(true);
                               try {
                                 const res = await createXuiInstance({
                                   name: `${editingAsset.name}-xui`,
-                                  baseUrl: addr,
-                                  username: user,
-                                  password: pass,
+                                  baseUrl: xuiBindForm.addr,
+                                  username: xuiBindForm.user,
+                                  password: xuiBindForm.pass,
                                   assetId: editingAsset.id,
                                   managementMode: 'observe',
                                   syncEnabled: 1,
@@ -1491,17 +1580,20 @@ export default function AssetsPage() {
                                 });
                                 if (res.code === 0) {
                                   toast.success('X-UI 绑定成功，将自动同步');
+                                  setXuiBindOpen(false);
                                   void loadAssets();
                                 } else {
                                   toast.error(res.msg || '绑定失败');
                                 }
                               } catch { toast.error('绑定请求失败'); }
+                              finally { setXuiBindLoading(false); }
                             }}>
-                            快速绑定
+                            绑定
                           </Button>
-                        </>
-                      )}
-                    </div>
+                          <Button size="sm" variant="flat" onPress={() => setXuiBindOpen(false)}>取消</Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* 1Panel Status */}
@@ -1524,49 +1616,41 @@ export default function AssetsPage() {
                         <>
                           <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
-                            onPress={() => {
-                              const url = prompt(`请输入 1Panel 面板地址\n例如: https://${editingAsset.primaryIp || '1.2.3.4'}:19382`);
-                              if (url) setForm(p => ({ ...p, panelUrl: url }));
-                            }}>
-                            绑定地址
+                            onPress={() => setPanelBindOpen(!panelBindOpen)}>
+                            {panelBindOpen ? '收起' : '绑定地址'}
                           </Button>
                         </>
                       )}
                     </div>
+                    {/* 1Panel inline binding */}
+                    {!hasPanel && panelBindOpen && (
+                      <div className="ml-18 flex items-end gap-2">
+                        <Input size="sm" label="1Panel 地址" className="flex-1"
+                          placeholder={`https://${editingAsset.primaryIp || '1.2.3.4'}:19382`}
+                          value={form.panelUrl}
+                          onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))} />
+                        <Button size="sm" color="primary" className="flex-shrink-0"
+                          isDisabled={!form.panelUrl}
+                          onPress={() => { setPanelBindOpen(false); toast.success('1Panel 地址已设置，保存后生效'); }}>
+                          确定
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })()}
 
-            {/* Section: Advanced / Linking */}
+            {/* Section: Advanced - Probe UUID manual binding (rarely used) */}
             <Accordion variant="light" className="-mx-1">
-              <AccordionItem key="advanced" title="更多配置" classNames={{ title: "text-xs text-default-400" }}>
-                <div className="space-y-4">
-                  <p className="text-xs font-medium text-default-400">网络与接入</p>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <Input label="标签" placeholder="可选标识" value={form.label}
-                      onValueChange={(v) => setForm(p => ({ ...p, label: v }))} />
-                    <Input label="SSH 端口" type="number" value={form.sshPort}
-                      onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
-                    <Input label="购买日期" type="date" value={form.purchaseDate}
-                      onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
-                  </div>
-
-                  <p className="text-xs font-medium text-default-400">关联探针</p>
+              <AccordionItem key="advanced" title="手动关联探针 (高级)" classNames={{ title: "text-xs text-default-400" }}>
+                <div className="space-y-3">
+                  <p className="text-[11px] text-default-400">通常由系统自动关联，仅在手动修复绑定关系时使用。</p>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="Komari 节点 UUID" placeholder="绑定后自动同步指标" value={form.monitorNodeUuid}
-                      onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))}
-                      description="Komari 探针 UUID" />
-                    <Input label="Pika 节点 ID" placeholder="绑定后自动同步指标" value={form.pikaNodeId}
-                      onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))}
-                      description="Pika 探针 Agent ID" />
-                  </div>
-
-                  <p className="text-xs font-medium text-default-400">面板绑定</p>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="1Panel 地址" placeholder="https://ip:19382" value={form.panelUrl}
-                      onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))}
-                      description="1Panel 面板访问地址" />
+                    <Input size="sm" label="Komari 节点 UUID" placeholder="自动同步时填入" value={form.monitorNodeUuid}
+                      onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))} />
+                    <Input size="sm" label="Pika 节点 ID" placeholder="自动同步时填入" value={form.pikaNodeId}
+                      onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))} />
                   </div>
                 </div>
               </AccordionItem>

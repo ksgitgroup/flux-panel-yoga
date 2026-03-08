@@ -192,13 +192,14 @@ export default function AdminLayout({
       adminOnly: true
     },
     {
-      path: '/probe',
-      label: '探针管理',
+      path: '/server-dashboard',
+      label: '服务器看板',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
           strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 6v6l4 2" />
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
         </svg>
       ),
       adminOnly: true
@@ -210,6 +211,18 @@ export default function AdminLayout({
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
           strokeLinecap="round" strokeLinejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+      ),
+      adminOnly: true
+    },
+    {
+      path: '/probe',
+      label: '探针配置',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 6v6l4 2" />
         </svg>
       ),
       adminOnly: true
@@ -340,7 +353,7 @@ export default function AdminLayout({
     !item.adminOnly || isAdmin
   );
 
-  const primaryMenuOrder = ['/dashboard', '/assets', '/xui', '/forward', '/probe', '/portal', '/monitor', '/tunnel', '/node'];
+  const primaryMenuOrder = ['/dashboard', '/server-dashboard', '/assets', '/xui', '/forward', '/portal', '/monitor', '/tunnel', '/node'];
   const primaryMenuItems = primaryMenuOrder
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));

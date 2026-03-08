@@ -53,6 +53,20 @@ public class AssetHostViewDto {
 
     private String monitorNodeUuid;
 
+    private String pikaNodeId;
+
+    private String cpuName;
+
+    private String arch;
+
+    private String virtualization;
+
+    private String kernelVersion;
+
+    private String gpuName;
+
+    private Integer swapTotalMb;
+
     private String remark;
 
     private Integer totalXuiInstances;
@@ -80,4 +94,22 @@ public class AssetHostViewDto {
     private Long monitorNetIn;
 
     private Long monitorNetOut;
+
+    /** 数据来源: "local" / "komari" / "pika" / "dual" */
+    private String probeSource;
+
+    /** 最近一次探针同步时间 */
+    private Long monitorLastSyncAt;
+
+    /** 探针流量配额 (bytes) */
+    private Long probeTrafficLimit;
+
+    /** 探针已用流量 (bytes) */
+    private Long probeTrafficUsed;
+
+    /** 探针到期时间 (ms) */
+    private Long probeExpiredAt;
+
+    /** 探针标签 (逗号分隔或JSON数组) */
+    private String probeTags;
 }

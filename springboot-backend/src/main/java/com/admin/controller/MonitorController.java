@@ -5,6 +5,7 @@ import com.admin.common.aop.LogAnnotation;
 import com.admin.common.dto.MonitorInstanceDto;
 import com.admin.common.dto.MonitorInstanceIdDto;
 import com.admin.common.dto.MonitorInstanceUpdateDto;
+import com.admin.common.dto.MonitorProvisionDto;
 import com.admin.common.lang.R;
 import com.admin.service.MonitorService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,5 +74,25 @@ public class MonitorController extends BaseController {
     @PostMapping("/unbound-nodes")
     public R unboundNodes() {
         return monitorService.getAllUnboundNodes();
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/provision")
+    public R provision(@Validated @RequestBody MonitorProvisionDto dto) {
+        return monitorService.provisionAgent(dto);
+    }
+
+    @RequireRole
+    @PostMapping("/dashboard")
+    public R dashboard() {
+        return monitorService.getDashboardNodes();
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/delete-node")
+    public R deleteNode(@Validated @RequestBody MonitorInstanceIdDto dto) {
+        return monitorService.deleteNodeSnapshot(dto.getId());
     }
 }

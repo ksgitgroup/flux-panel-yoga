@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from "@heroui/button";
-import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input, Textarea } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Switch } from "@heroui/switch";
 import { Spinner } from "@heroui/spinner";
-import { Progress } from "@heroui/progress";
 import { Divider } from "@heroui/divider";
-import { Tooltip } from "@heroui/tooltip";
 import {
   Modal,
   ModalContent,
@@ -17,21 +15,12 @@ import {
   ModalFooter,
   useDisclosure
 } from "@heroui/modal";
-import {
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell
-} from "@heroui/table";
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 
 import {
   MonitorInstance,
-  MonitorNodeSnapshot,
   getMonitorList,
-  getMonitorDetail,
   createMonitorInstance,
   updateMonitorInstance,
   deleteMonitorInstance,
@@ -39,7 +28,6 @@ import {
   syncMonitorInstance,
 } from '@/api';
 import { isAdmin } from '@/utils/auth';
-import { useNavigate } from 'react-router-dom';
 
 // ===================== Types =====================
 
@@ -49,92 +37,46 @@ interface InstanceForm {
   type: string;
   baseUrl: string;
   apiKey: string;
+  username: string;
   syncEnabled: number;
   syncIntervalMinutes: number;
   allowInsecureTls: number;
   remark: string;
 }
 
-interface DetailData {
-  instance: MonitorInstance;
-  nodes: MonitorNodeSnapshot[];
-}
-
 const defaultForm: InstanceForm = {
-  name: '', type: 'komari', baseUrl: '', apiKey: '',
+  name: '', type: 'komari', baseUrl: '', apiKey: '', username: '',
   syncEnabled: 1, syncIntervalMinutes: 5, allowInsecureTls: 0, remark: '',
 };
 
 // ===================== Helpers =====================
-
-function formatBytes(bytes?: number | null): string {
-  if (bytes == null || bytes === 0) return '-';
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-}
-
-function formatSpeed(bytesPerSec?: number | null): string {
-  if (bytesPerSec == null || bytesPerSec === 0) return '-';
-  const bits = bytesPerSec * 8;
-  if (bits < 1000) return bits.toFixed(0) + ' bps';
-  if (bits < 1_000_000) return (bits / 1000).toFixed(1) + ' Kbps';
-  if (bits < 1_000_000_000) return (bits / 1_000_000).toFixed(1) + ' Mbps';
-  return (bits / 1_000_000_000).toFixed(2) + ' Gbps';
-}
-
-function formatUptime(seconds?: number | null): string {
-  if (seconds == null || seconds === 0) return '-';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d}d ${h}h`;
-  const m = Math.floor((seconds % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
 
 function formatTime(ts?: number | null): string {
   if (!ts) return '-';
   return new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function cpuColor(usage?: number | null): "success" | "warning" | "danger" | "default" {
-  if (usage == null) return "default";
-  if (usage < 50) return "success";
-  if (usage < 80) return "warning";
-  return "danger";
-}
-
-function memPercent(used?: number | null, total?: number | null): number | null {
-  if (used == null || total == null || total === 0) return null;
-  return (used / total) * 100;
-}
+const SYNC_STATUS_MAP: Record<string, { label: string; color: "success" | "danger" | "default" }> = {
+  success: { label: '正常', color: 'success' },
+  failed: { label: '失败', color: 'danger' },
+  never: { label: '未同步', color: 'default' },
+};
 
 // ===================== Component =====================
 
 export default function ProbePage() {
-  const navigate = useNavigate();
   const admin = isAdmin();
 
-  // Data
   const [instances, setInstances] = useState<MonitorInstance[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Form
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [form, setForm] = useState<InstanceForm>({ ...defaultForm });
   const [isEdit, setIsEdit] = useState(false);
 
-  // Delete confirm
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const [deleteTarget, setDeleteTarget] = useState<MonitorInstance | null>(null);
-
-  // Search
-  const [search, setSearch] = useState('');
 
   // ===================== Data Loading =====================
 
@@ -142,42 +84,11 @@ export default function ProbePage() {
     setLoading(true);
     try {
       const res = await getMonitorList();
-      if (res.code === 0) {
-        setInstances(res.data || []);
-      }
-    } catch { /* ignore */ } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadDetail = async (id: number) => {
-    setDetailLoading(true);
-    try {
-      const res = await getMonitorDetail(id);
-      if (res.code === 0) {
-        setDetail(res.data as DetailData);
-      }
-    } catch { /* ignore */ } finally {
-      setDetailLoading(false);
-    }
+      if (res.code === 0) setInstances(res.data || []);
+    } catch { /* ignore */ } finally { setLoading(false); }
   };
 
   useEffect(() => { loadInstances(); }, []);
-
-  useEffect(() => {
-    if (selectedId != null) {
-      loadDetail(selectedId);
-    } else {
-      setDetail(null);
-    }
-  }, [selectedId]);
-
-  // Auto-refresh every 30s when detail is open
-  useEffect(() => {
-    if (selectedId == null) return;
-    const timer = setInterval(() => loadDetail(selectedId), 30_000);
-    return () => clearInterval(timer);
-  }, [selectedId]);
 
   // ===================== Actions =====================
 
@@ -185,16 +96,9 @@ export default function ProbePage() {
     setActionLoading('test-' + id);
     try {
       const res = await testMonitorInstance(id);
-      if (res.code === 0) {
-        toast.success('Connection successful');
-      } else {
-        toast.error(res.msg || 'Connection failed');
-      }
+      res.code === 0 ? toast.success('连接成功') : toast.error(res.msg || '连接失败');
       loadInstances();
-      if (selectedId === id) loadDetail(id);
-    } catch { toast.error('Connection failed'); } finally {
-      setActionLoading(null);
-    }
+    } catch { toast.error('连接失败'); } finally { setActionLoading(null); }
   };
 
   const handleSync = async (id: number) => {
@@ -202,45 +106,42 @@ export default function ProbePage() {
     try {
       const res = await syncMonitorInstance(id);
       if (res.code === 0) {
-        toast.success('Sync completed');
+        const s = res.data as any;
+        if (s && typeof s.total === 'number') {
+          toast.success(
+            `同步完成: ${s.total} 节点 (${s.online} 在线, ${s.offline} 离线)` +
+            (s.newNodes > 0 ? ` / 新增 ${s.newNodes}` : '') +
+            (s.removedNodes > 0 ? ` / 移除 ${s.removedNodes}` : '') +
+            (s.newAssets > 0 ? ` / 自动创建 ${s.newAssets} 资产` : ''),
+            { duration: 5000 }
+          );
+        } else {
+          toast.success('同步完成');
+        }
       } else {
-        toast.error(res.msg || 'Sync failed');
+        toast.error(res.msg || '同步失败');
       }
       loadInstances();
-      if (selectedId === id) loadDetail(id);
-    } catch { toast.error('Sync failed'); } finally {
-      setActionLoading(null);
-    }
+    } catch { toast.error('同步失败'); } finally { setActionLoading(null); }
   };
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.baseUrl.trim()) {
-      toast.error('Name and Base URL are required');
+      toast.error('请填写实例名称和地址');
       return;
     }
     setActionLoading('save');
     try {
-      const payload = {
-        ...form,
-        name: form.name.trim(),
-        baseUrl: form.baseUrl.trim(),
-        apiKey: form.apiKey.trim(),
-        remark: form.remark.trim(),
-      };
-      const res = isEdit
-        ? await updateMonitorInstance(payload)
-        : await createMonitorInstance(payload);
+      const payload = { ...form, name: form.name.trim(), baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), username: form.username.trim(), remark: form.remark.trim() };
+      const res = isEdit ? await updateMonitorInstance(payload) : await createMonitorInstance(payload);
       if (res.code === 0) {
-        toast.success(isEdit ? 'Updated' : 'Created');
+        toast.success(isEdit ? '已更新' : '已创建');
         onClose();
         loadInstances();
-        if (isEdit && selectedId === form.id) loadDetail(form.id!);
       } else {
-        toast.error(res.msg || 'Save failed');
+        toast.error(res.msg || '保存失败');
       }
-    } catch { toast.error('Save failed'); } finally {
-      setActionLoading(null);
-    }
+    } catch { toast.error('保存失败'); } finally { setActionLoading(null); }
   };
 
   const handleDelete = async () => {
@@ -249,477 +150,193 @@ export default function ProbePage() {
     try {
       const res = await deleteMonitorInstance(deleteTarget.id);
       if (res.code === 0) {
-        toast.success('Deleted');
+        toast.success('已删除');
         onDeleteClose();
-        if (selectedId === deleteTarget.id) {
-          setSelectedId(null);
-          setDetail(null);
-        }
         loadInstances();
-      } else {
-        toast.error(res.msg || 'Delete failed');
-      }
-    } catch { toast.error('Delete failed'); } finally {
-      setActionLoading(null);
-    }
+      } else { toast.error(res.msg || '删除失败'); }
+    } catch { toast.error('删除失败'); } finally { setActionLoading(null); }
   };
 
-  const openCreateModal = () => {
-    setForm({ ...defaultForm });
-    setIsEdit(false);
-    onOpen();
-  };
-
+  const openCreateModal = () => { setForm({ ...defaultForm }); setIsEdit(false); onOpen(); };
   const openEditModal = (inst: MonitorInstance) => {
     setForm({
-      id: inst.id,
-      name: inst.name || '',
-      type: inst.type || 'komari',
-      baseUrl: inst.baseUrl || '',
-      apiKey: '',
-      syncEnabled: inst.syncEnabled ?? 1,
-      syncIntervalMinutes: inst.syncIntervalMinutes ?? 5,
-      allowInsecureTls: inst.allowInsecureTls ?? 0,
-      remark: inst.remark || '',
+      id: inst.id, name: inst.name || '', type: inst.type || 'komari', baseUrl: inst.baseUrl || '',
+      apiKey: '', username: inst.username || '', syncEnabled: inst.syncEnabled ?? 1, syncIntervalMinutes: inst.syncIntervalMinutes ?? 5,
+      allowInsecureTls: inst.allowInsecureTls ?? 0, remark: inst.remark || '',
     });
-    setIsEdit(true);
-    onOpen();
+    setIsEdit(true); onOpen();
   };
-
-  const confirmDelete = (inst: MonitorInstance) => {
-    setDeleteTarget(inst);
-    onDeleteOpen();
-  };
+  const confirmDelete = (inst: MonitorInstance) => { setDeleteTarget(inst); onDeleteOpen(); };
 
   // ===================== Computed =====================
 
-  const filteredInstances = useMemo(() => {
-    if (!search.trim()) return instances;
-    const q = search.toLowerCase();
-    return instances.filter(i =>
-      (i.name || '').toLowerCase().includes(q) ||
-      (i.baseUrl || '').toLowerCase().includes(q) ||
-      (i.type || '').toLowerCase().includes(q)
-    );
-  }, [instances, search]);
-
-  const summary = useMemo(() => {
-    const total = instances.length;
-    const totalNodes = instances.reduce((s, i) => s + (i.nodeCount || 0), 0);
-    const onlineNodes = instances.reduce((s, i) => s + (i.onlineNodeCount || 0), 0);
-    const syncOk = instances.filter(i => i.lastSyncStatus === 'success').length;
-    const syncFail = instances.filter(i => i.lastSyncStatus === 'failed').length;
-    return { total, totalNodes, onlineNodes, syncOk, syncFail };
-  }, [instances]);
+  const summary = useMemo(() => ({
+    total: instances.length,
+    totalNodes: instances.reduce((s, i) => s + (i.nodeCount || 0), 0),
+    onlineNodes: instances.reduce((s, i) => s + (i.onlineNodeCount || 0), 0),
+    syncOk: instances.filter(i => i.lastSyncStatus === 'success').length,
+    syncFail: instances.filter(i => i.lastSyncStatus === 'failed').length,
+  }), [instances]);
 
   // ===================== Render =====================
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto px-3 md:px-6 py-4 md:py-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Probe Management</h1>
-          <p className="text-sm text-default-500 mt-0.5">
-            Manage Komari/Pika monitoring probes. Sync server metrics from external probe instances.
-          </p>
+    <div className="space-y-5">
+      {/* Header with summary */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Chip size="sm" variant="flat" color="primary">{summary.total} 个实例</Chip>
+          <Chip size="sm" variant="flat" color="success">{summary.onlineNodes}/{summary.totalNodes} 节点在线</Chip>
+          {summary.syncFail > 0 && <Chip size="sm" variant="flat" color="danger">{summary.syncFail} 同步异常</Chip>}
         </div>
-        {admin && (
-          <Button color="primary" size="sm" onPress={openCreateModal}>
-            Add Probe
+        <div className="flex items-center gap-2">
+          <Button as={Link} to="/server-dashboard" size="sm" variant="flat" color="secondary" startContent={
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          }>
+            服务器看板
           </Button>
-        )}
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-5">
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">Probe Instances</p>
-          <p className="text-xl font-bold">{summary.total}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">Total Nodes</p>
-          <p className="text-xl font-bold">{summary.totalNodes}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">Online Nodes</p>
-          <p className="text-xl font-bold text-success">{summary.onlineNodes}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">Sync OK</p>
-          <p className="text-xl font-bold text-success">{summary.syncOk}</p>
-        </CardBody></Card>
-        <Card shadow="sm"><CardBody className="p-3 text-center">
-          <p className="text-xs text-default-500">Sync Failed</p>
-          <p className="text-xl font-bold text-danger">{summary.syncFail}</p>
-        </CardBody></Card>
-      </div>
-
-      {/* Two-panel layout */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Left: Instance list */}
-        <div className="w-full lg:w-[340px] xl:w-[380px] flex-shrink-0 space-y-3">
-          <Input
-            size="sm"
-            placeholder="Search probes..."
-            value={search}
-            onValueChange={setSearch}
-            isClearable
-            onClear={() => setSearch('')}
-          />
-
-          {loading ? (
-            <div className="flex justify-center py-8"><Spinner size="lg" /></div>
-          ) : filteredInstances.length === 0 ? (
-            <Card shadow="sm"><CardBody className="py-8 text-center text-default-400">
-              {instances.length === 0 ? 'No probe instances yet. Click "Add Probe" to get started.' : 'No matches found.'}
-            </CardBody></Card>
-          ) : (
-            filteredInstances.map(inst => (
-              <Card
-                key={inst.id}
-                shadow="sm"
-                isPressable
-                onPress={() => setSelectedId(inst.id)}
-                className={`transition-all ${selectedId === inst.id ? 'ring-2 ring-primary' : 'hover:shadow-md'}`}
-              >
-                <CardBody className="p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${inst.lastSyncStatus === 'success' ? 'bg-success' : inst.lastSyncStatus === 'failed' ? 'bg-danger' : 'bg-default-300'}`} />
-                      <span className="font-semibold text-sm truncate">{inst.name}</span>
-                    </div>
-                    <Chip size="sm" variant="flat" color="secondary">{inst.type || 'komari'}</Chip>
-                  </div>
-                  <p className="text-xs text-default-400 truncate">{inst.baseUrl}</p>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className="text-default-500">
-                      Nodes: <span className="font-medium text-foreground">{inst.onlineNodeCount || 0}</span>
-                      <span className="text-default-300">/{inst.nodeCount || 0}</span>
-                    </span>
-                    {inst.syncEnabled === 1 && (
-                      <Chip size="sm" variant="dot" color="success">Auto</Chip>
-                    )}
-                    {inst.lastSyncAt && (
-                      <span className="text-default-400 ml-auto">{formatTime(inst.lastSyncAt)}</span>
-                    )}
-                  </div>
-                  {/* Quick actions */}
-                  {admin && (
-                    <div className="flex gap-1.5 pt-1">
-                      <Button size="sm" variant="flat" color="primary"
-                        isLoading={actionLoading === 'test-' + inst.id}
-                        onPress={() => handleTest(inst.id)}>
-                        Test
-                      </Button>
-                      <Button size="sm" variant="flat" color="success"
-                        isLoading={actionLoading === 'sync-' + inst.id}
-                        onPress={() => handleSync(inst.id)}>
-                        Sync
-                      </Button>
-                      <Button size="sm" variant="flat"
-                        onPress={() => openEditModal(inst)}>
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="flat" color="danger"
-                        onPress={() => confirmDelete(inst)}>
-                        Del
-                      </Button>
-                    </div>
-                  )}
-                </CardBody>
-              </Card>
-            ))
+          {admin && (
+            <Button color="primary" size="sm" onPress={openCreateModal} startContent={
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            }>
+              添加探针
+            </Button>
           )}
         </div>
-
-        {/* Right: Detail panel */}
-        <div className="flex-1 min-w-0">
-          {selectedId == null ? (
-            <Card shadow="sm" className="h-full min-h-[400px]">
-              <CardBody className="flex items-center justify-center text-default-400">
-                Select a probe instance to view its nodes and metrics.
-              </CardBody>
-            </Card>
-          ) : detailLoading && !detail ? (
-            <Card shadow="sm" className="h-full min-h-[400px]">
-              <CardBody className="flex items-center justify-center">
-                <Spinner size="lg" />
-              </CardBody>
-            </Card>
-          ) : detail ? (
-            <div className="space-y-4">
-              {/* Instance overview */}
-              <Card shadow="sm">
-                <CardHeader className="pb-1 px-4 pt-3 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold">{detail.instance.name}</h2>
-                    <p className="text-xs text-default-400">{(detail.instance as any).baseUrl || ''}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Chip size="sm" color={detail.instance.lastSyncStatus === 'success' ? 'success' : detail.instance.lastSyncStatus === 'failed' ? 'danger' : 'default'} variant="flat">
-                      {detail.instance.lastSyncStatus || 'never'}
-                    </Chip>
-                    {detail.instance.lastSyncAt && (
-                      <span className="text-xs text-default-400">Last sync: {formatTime(detail.instance.lastSyncAt)}</span>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardBody className="px-4 pb-3 pt-2">
-                  {detail.instance.lastSyncError && (
-                    <div className="bg-danger-50 dark:bg-danger-50/10 text-danger text-xs p-2 rounded-lg mb-3">
-                      {detail.instance.lastSyncError}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-default-400">Type</p>
-                      <p className="font-medium">{detail.instance.type || 'komari'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-default-400">Nodes</p>
-                      <p className="font-medium">{detail.instance.onlineNodeCount || 0} / {detail.instance.nodeCount || 0}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-default-400">Auto Sync</p>
-                      <p className="font-medium">{detail.instance.syncEnabled === 1 ? `Every ${detail.instance.syncIntervalMinutes || 5} min` : 'Disabled'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-default-400">TLS</p>
-                      <p className="font-medium">{detail.instance.allowInsecureTls === 1 ? 'Insecure' : 'Verify'}</p>
-                    </div>
-                  </div>
-                </CardBody>
-              </Card>
-
-              {/* Node list */}
-              <Card shadow="sm">
-                <CardHeader className="px-4 pt-3 pb-1 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Monitored Nodes ({detail.nodes?.length || 0})</h2>
-                  <Button size="sm" variant="flat" color="success"
-                    isLoading={actionLoading === 'sync-' + selectedId}
-                    onPress={() => handleSync(selectedId!)}>
-                    Sync Now
-                  </Button>
-                </CardHeader>
-                <CardBody className="px-4 pb-4 pt-2">
-                  {!detail.nodes || detail.nodes.length === 0 ? (
-                    <p className="text-default-400 text-sm py-4 text-center">
-                      No nodes synced yet. Click "Sync Now" or wait for auto-sync.
-                    </p>
-                  ) : (
-                    <>
-                      {/* Desktop table */}
-                      <div className="hidden md:block overflow-x-auto -mx-4 px-4">
-                        <Table aria-label="Nodes" removeWrapper isCompact>
-                          <TableHeader>
-                            <TableColumn>Status</TableColumn>
-                            <TableColumn>Name</TableColumn>
-                            <TableColumn>IP</TableColumn>
-                            <TableColumn>CPU</TableColumn>
-                            <TableColumn>Memory</TableColumn>
-                            <TableColumn>Disk</TableColumn>
-                            <TableColumn>Network</TableColumn>
-                            <TableColumn>Uptime</TableColumn>
-                            <TableColumn>Asset</TableColumn>
-                          </TableHeader>
-                          <TableBody>
-                            {detail.nodes.map(node => {
-                              const m = node.latestMetric;
-                              const mp = memPercent(m?.memUsed, m?.memTotal);
-                              const dp = memPercent(m?.diskUsed, m?.diskTotal);
-                              return (
-                                <TableRow key={node.id}>
-                                  <TableCell>
-                                    <Chip size="sm" color={node.online === 1 ? 'success' : 'default'} variant="dot">
-                                      {node.online === 1 ? 'Online' : 'Offline'}
-                                    </Chip>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div>
-                                      <p className="font-medium text-sm">{node.name || node.remoteNodeUuid?.slice(0, 8)}</p>
-                                      {node.os && <p className="text-xs text-default-400">{node.os}</p>}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <p className="text-xs font-mono">{node.ip || '-'}</p>
-                                  </TableCell>
-                                  <TableCell>
-                                    {m?.cpuUsage != null ? (
-                                      <div className="w-20">
-                                        <p className="text-xs font-medium mb-0.5">{m.cpuUsage.toFixed(1)}%</p>
-                                        <Progress size="sm" value={m.cpuUsage} color={cpuColor(m.cpuUsage)} aria-label="CPU" />
-                                      </div>
-                                    ) : <span className="text-default-300">-</span>}
-                                  </TableCell>
-                                  <TableCell>
-                                    {mp != null ? (
-                                      <div className="w-20">
-                                        <p className="text-xs font-medium mb-0.5">{mp.toFixed(0)}%</p>
-                                        <Progress size="sm" value={mp} color={cpuColor(mp)} aria-label="MEM" />
-                                      </div>
-                                    ) : <span className="text-default-300">-</span>}
-                                  </TableCell>
-                                  <TableCell>
-                                    {dp != null ? (
-                                      <Tooltip content={`${formatBytes(m?.diskUsed)} / ${formatBytes(m?.diskTotal)}`}>
-                                        <div className="w-20">
-                                          <p className="text-xs font-medium mb-0.5">{dp.toFixed(0)}%</p>
-                                          <Progress size="sm" value={dp} color={cpuColor(dp)} aria-label="Disk" />
-                                        </div>
-                                      </Tooltip>
-                                    ) : <span className="text-default-300">-</span>}
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="text-xs">
-                                      <p>Up: {formatSpeed(m?.netIn)}</p>
-                                      <p>Dn: {formatSpeed(m?.netOut)}</p>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className="text-xs">{formatUptime(m?.uptime)}</span>
-                                  </TableCell>
-                                  <TableCell>
-                                    {node.assetName ? (
-                                      <Chip size="sm" variant="flat" color="primary"
-                                        className="cursor-pointer"
-                                        onClick={() => navigate('/assets')}>
-                                        {node.assetName}
-                                      </Chip>
-                                    ) : (
-                                      <span className="text-xs text-default-300">Unbound</span>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-
-                      {/* Mobile cards */}
-                      <div className="md:hidden space-y-3">
-                        {detail.nodes.map(node => {
-                          const m = node.latestMetric;
-                          const mp = memPercent(m?.memUsed, m?.memTotal);
-                          return (
-                            <Card key={node.id} shadow="none" className="border border-default-200">
-                              <CardBody className="p-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${node.online === 1 ? 'bg-success' : 'bg-default-300'}`} />
-                                    <span className="font-medium text-sm">{node.name || node.remoteNodeUuid?.slice(0, 8)}</span>
-                                  </div>
-                                  {node.assetName ? (
-                                    <Chip size="sm" variant="flat" color="primary">{node.assetName}</Chip>
-                                  ) : (
-                                    <span className="text-xs text-default-300">Unbound</span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-default-400">
-                                  <span className="font-mono">{node.ip || '-'}</span>
-                                  {node.os && <><span>|</span><span>{node.os}</span></>}
-                                </div>
-                                {node.online === 1 && m && (
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div>
-                                      <p className="text-[10px] text-default-400">CPU</p>
-                                      <p className="text-sm font-semibold">{m.cpuUsage?.toFixed(1) || '-'}%</p>
-                                      {m.cpuUsage != null && <Progress size="sm" value={m.cpuUsage} color={cpuColor(m.cpuUsage)} className="mt-0.5" aria-label="CPU" />}
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">MEM</p>
-                                      <p className="text-sm font-semibold">{mp != null ? mp.toFixed(0) + '%' : '-'}</p>
-                                      {mp != null && <Progress size="sm" value={mp} color={cpuColor(mp)} className="mt-0.5" aria-label="MEM" />}
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">Uptime</p>
-                                      <p className="text-sm font-semibold">{formatUptime(m.uptime)}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">Upload</p>
-                                      <p className="text-xs font-medium">{formatSpeed(m.netIn)}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">Download</p>
-                                      <p className="text-xs font-medium">{formatSpeed(m.netOut)}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] text-default-400">Conns</p>
-                                      <p className="text-xs font-medium">{m.connections ?? '-'}</p>
-                                    </div>
-                                  </div>
-                                )}
-                              </CardBody>
-                            </Card>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </CardBody>
-              </Card>
-            </div>
-          ) : null}
-        </div>
       </div>
+
+      {/* Instance cards grid */}
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+      ) : instances.length === 0 ? (
+        <Card shadow="sm">
+          <CardBody className="py-12 text-center">
+            <div className="text-default-300 mb-3">
+              <svg className="h-12 w-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6l4 2" />
+              </svg>
+            </div>
+            <p className="text-default-500 text-sm">暂无探针实例</p>
+            <p className="text-default-400 text-xs mt-1">添加 Komari 或 Pika 探针服务器，自动同步服务器节点和监控数据</p>
+            {admin && (
+              <Button color="primary" size="sm" className="mt-4" onPress={openCreateModal}>添加第一个探针</Button>
+            )}
+          </CardBody>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {instances.map(inst => {
+            const syncInfo = SYNC_STATUS_MAP[inst.lastSyncStatus || 'never'] || SYNC_STATUS_MAP.never;
+            return (
+              <Card key={inst.id} shadow="sm" className="transition-shadow hover:shadow-md">
+                <CardBody className="p-4 space-y-3">
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-base truncate">{inst.name}</span>
+                        <Chip size="sm" variant="flat" color="secondary">{(inst.type || 'komari').toUpperCase()}</Chip>
+                      </div>
+                      <p className="text-xs text-default-400 mt-0.5 truncate font-mono">{inst.baseUrl}</p>
+                    </div>
+                    <Chip size="sm" variant="flat" color={syncInfo.color}>{syncInfo.label}</Chip>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-default-400 uppercase tracking-wide">节点</p>
+                      <p className="text-lg font-bold mt-0.5">
+                        <span className="text-success">{inst.onlineNodeCount || 0}</span>
+                        <span className="text-default-300 text-sm font-normal">/{inst.nodeCount || 0}</span>
+                      </p>
+                    </div>
+                    <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-default-400 uppercase tracking-wide">同步间隔</p>
+                      <p className="text-lg font-bold mt-0.5">
+                        {inst.syncEnabled === 1 ? `${inst.syncIntervalMinutes || 5}m` : <span className="text-default-300 text-sm">禁用</span>}
+                      </p>
+                    </div>
+                    <div className="bg-default-50 dark:bg-default-100/5 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-default-400 uppercase tracking-wide">上次同步</p>
+                      <p className="text-xs font-medium mt-1.5">{formatTime(inst.lastSyncAt)}</p>
+                    </div>
+                  </div>
+
+                  {/* Error message if any */}
+                  {inst.lastSyncError && (
+                    <div className="bg-danger-50 dark:bg-danger-50/10 text-danger text-xs p-2 rounded-lg truncate">
+                      {inst.lastSyncError}
+                    </div>
+                  )}
+
+                  {/* Remark */}
+                  {inst.remark && (
+                    <p className="text-xs text-default-400 truncate">{inst.remark}</p>
+                  )}
+
+                  {/* Actions */}
+                  {admin && (
+                    <div className="flex gap-1.5 pt-1 border-t border-divider">
+                      <Button size="sm" variant="light" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
+                      <Button size="sm" variant="light" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>
+                      <Button size="sm" variant="light" onPress={() => openEditModal(inst)}>编辑</Button>
+                      <Button size="sm" variant="light" color="danger" className="ml-auto" onPress={() => confirmDelete(inst)}>删除</Button>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside">
         <ModalContent>
-          <ModalHeader>{isEdit ? 'Edit Probe Instance' : 'Add Probe Instance'}</ModalHeader>
+          <ModalHeader>{isEdit ? '编辑探针实例' : '添加探针实例'}</ModalHeader>
           <ModalBody className="space-y-4">
-            <div className="text-xs text-default-500 font-medium uppercase tracking-wide">Basic Info</div>
-            <Input label="Instance Name" placeholder="e.g. My Komari" isRequired
-              value={form.name}
-              onValueChange={(v) => setForm(p => ({ ...p, name: v }))} />
-            <Select label="Probe Type" selectedKeys={[form.type]}
-              onSelectionChange={(keys) => {
-                const val = Array.from(keys)[0] as string;
-                if (val) setForm(p => ({ ...p, type: val }));
-              }}>
+            <div className="text-xs text-default-500 font-medium tracking-wide">基本信息</div>
+            <Input label="实例名称" placeholder="例如：我的 Komari" isRequired value={form.name} onValueChange={(v) => setForm(p => ({ ...p, name: v }))} />
+            <Select label="探针类型" selectedKeys={[form.type]} onSelectionChange={(keys) => { const val = Array.from(keys)[0] as string; if (val) setForm(p => ({ ...p, type: val })); }}>
               <SelectItem key="komari">Komari</SelectItem>
-              <SelectItem key="pika">Pika (coming soon)</SelectItem>
+              <SelectItem key="pika">Pika</SelectItem>
             </Select>
 
             <Divider />
-            <div className="text-xs text-default-500 font-medium uppercase tracking-wide">Connection</div>
-            <Input label="Base URL" placeholder="https://komari.example.com:25774" isRequired
-              value={form.baseUrl}
-              onValueChange={(v) => setForm(p => ({ ...p, baseUrl: v }))}
-              description="The base URL of the Komari server (including port)" />
-            <Input label="API Key" placeholder="Komari admin API key"
-              type="password"
-              value={form.apiKey}
-              onValueChange={(v) => setForm(p => ({ ...p, apiKey: v }))}
-              description={isEdit ? "Leave empty to keep existing key" : "From Komari Settings page"} />
-            <Switch isSelected={form.allowInsecureTls === 1}
-              onValueChange={(v) => setForm(p => ({ ...p, allowInsecureTls: v ? 1 : 0 }))}>
-              <span className="text-sm">Allow Insecure TLS (self-signed certs)</span>
+            <div className="text-xs text-default-500 font-medium tracking-wide">连接配置</div>
+            <Input label="服务器地址" placeholder={form.type === 'pika' ? 'https://your-pika.com:8080' : 'https://your-komari.com:25774'} isRequired value={form.baseUrl}
+              onValueChange={(v) => setForm(p => ({ ...p, baseUrl: v }))} description={form.type === 'pika' ? 'Pika 服务端的完整地址（含端口）' : 'Komari 服务端的完整地址（含端口）'} />
+            {form.type === 'pika' && (
+              <Input label="用户名" placeholder="admin" value={form.username}
+                onValueChange={(v) => setForm(p => ({ ...p, username: v }))} description="Pika 管理员用户名（默认 admin）" />
+            )}
+            <Input label={form.type === 'pika' ? '密码' : 'API Key'} placeholder={form.type === 'pika' ? 'Pika 管理员密码' : 'Komari 管理员 API 密钥'} type="password" value={form.apiKey}
+              onValueChange={(v) => setForm(p => ({ ...p, apiKey: v }))} description={isEdit ? '留空则保持原有凭证' : (form.type === 'pika' ? '在 Pika 管理面板中设置的密码' : '在 Komari 后台「设置」中生成')} />
+            <Switch isSelected={form.allowInsecureTls === 1} onValueChange={(v) => setForm(p => ({ ...p, allowInsecureTls: v ? 1 : 0 }))}>
+              <span className="text-sm">跳过 TLS 证书验证（自签名证书）</span>
             </Switch>
 
             <Divider />
-            <div className="text-xs text-default-500 font-medium uppercase tracking-wide">Sync Settings</div>
-            <Switch isSelected={form.syncEnabled === 1}
-              onValueChange={(v) => setForm(p => ({ ...p, syncEnabled: v ? 1 : 0 }))}>
-              <span className="text-sm">Enable Auto Sync</span>
+            <div className="text-xs text-default-500 font-medium tracking-wide">同步设置</div>
+            <Switch isSelected={form.syncEnabled === 1} onValueChange={(v) => setForm(p => ({ ...p, syncEnabled: v ? 1 : 0 }))}>
+              <span className="text-sm">启用自动同步</span>
             </Switch>
             {form.syncEnabled === 1 && (
-              <Input label="Sync Interval (minutes)" type="number"
-                value={String(form.syncIntervalMinutes)}
+              <Input label="同步间隔（分钟）" type="number" value={String(form.syncIntervalMinutes)}
                 onValueChange={(v) => setForm(p => ({ ...p, syncIntervalMinutes: Math.max(1, parseInt(v) || 5) }))}
-                description="How often to pull metrics from the probe server" />
+                description="自动从探针服务器拉取节点数据的频率" />
             )}
-
-            <Textarea label="Remark" placeholder="Optional notes"
-              value={form.remark}
-              onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} />
+            <Textarea label="备注" placeholder="可选备注" value={form.remark} onValueChange={(v) => setForm(p => ({ ...p, remark: v }))} />
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={onClose}>Cancel</Button>
-            <Button color="primary" isLoading={actionLoading === 'save'} onPress={handleSave}>
-              {isEdit ? 'Save' : 'Create'}
-            </Button>
+            <Button variant="flat" onPress={onClose}>取消</Button>
+            <Button color="primary" isLoading={actionLoading === 'save'} onPress={handleSave}>{isEdit ? '保存' : '创建'}</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -727,18 +344,13 @@ export default function ProbePage() {
       {/* Delete Confirmation */}
       <Modal isOpen={isDeleteOpen} onClose={onDeleteClose} size="sm">
         <ModalContent>
-          <ModalHeader>Confirm Delete</ModalHeader>
+          <ModalHeader>确认删除</ModalHeader>
           <ModalBody>
-            <p className="text-sm">
-              Delete probe instance <strong>{deleteTarget?.name}</strong>?
-              This will also remove all synced node data and metrics.
-            </p>
+            <p className="text-sm">确定要删除探针实例 <strong>{deleteTarget?.name}</strong> 吗？该操作会同时移除所有已同步的节点数据和指标记录。</p>
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={onDeleteClose}>Cancel</Button>
-            <Button color="danger" isLoading={actionLoading === 'delete'} onPress={handleDelete}>
-              Delete
-            </Button>
+            <Button variant="flat" onPress={onDeleteClose}>取消</Button>
+            <Button color="danger" isLoading={actionLoading === 'delete'} onPress={handleDelete}>删除</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

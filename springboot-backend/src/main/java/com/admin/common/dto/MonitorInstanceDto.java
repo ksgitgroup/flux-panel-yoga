@@ -18,6 +18,8 @@ public class MonitorInstanceDto {
 
     private String apiKey;
 
+    private String username;
+
     private Integer syncEnabled;
 
     private Integer syncIntervalMinutes;

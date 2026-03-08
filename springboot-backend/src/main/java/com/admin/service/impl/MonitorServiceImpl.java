@@ -2,9 +2,11 @@ package com.admin.service.impl;
 
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
+import com.admin.entity.AssetHost;
 import com.admin.entity.MonitorInstance;
 import com.admin.entity.MonitorMetricLatest;
 import com.admin.entity.MonitorNodeSnapshot;
+import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.MonitorInstanceMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
 import com.admin.mapper.MonitorNodeSnapshotMapper;
@@ -18,7 +20,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.ssl.SSLContexts;
@@ -42,6 +46,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     private static final String STATUS_SUCCESS = "success";
     private static final String STATUS_FAILED = "failed";
     private static final String TYPE_KOMARI = "komari";
+    private static final String TYPE_PIKA = "pika";
 
     @Resource
     private MonitorInstanceMapper monitorInstanceMapper;
@@ -51,6 +56,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private MonitorMetricLatestMapper monitorMetricLatestMapper;
+
+    @Resource
+    private AssetHostMapper assetHostMapper;
 
     // ==================== CRUD ====================
 
@@ -85,7 +93,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         long now = System.currentTimeMillis();
         MonitorInstance instance = new MonitorInstance();
         applyDto(instance, dto.getName(), dto.getType(), dto.getBaseUrl(), dto.getApiKey(),
-                dto.getSyncEnabled(), dto.getSyncIntervalMinutes(), dto.getAllowInsecureTls(), dto.getRemark());
+                dto.getUsername(), dto.getSyncEnabled(), dto.getSyncIntervalMinutes(), dto.getAllowInsecureTls(), dto.getRemark());
         instance.setLastSyncStatus(STATUS_NEVER);
         instance.setNodeCount(0);
         instance.setOnlineNodeCount(0);
@@ -101,7 +109,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         MonitorInstance instance = getRequiredInstance(dto.getId());
         validateDuplicateName(dto.getName(), dto.getId());
         applyDto(instance, dto.getName(), dto.getType(), dto.getBaseUrl(), dto.getApiKey(),
-                dto.getSyncEnabled(), dto.getSyncIntervalMinutes(), dto.getAllowInsecureTls(), dto.getRemark());
+                dto.getUsername(), dto.getSyncEnabled(), dto.getSyncIntervalMinutes(), dto.getAllowInsecureTls(), dto.getRemark());
         instance.setUpdatedTime(System.currentTimeMillis());
         this.updateById(instance);
         return R.ok(toInstanceView(instance));
@@ -125,12 +133,21 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         MonitorInstance instance = getRequiredInstance(id);
         long now = System.currentTimeMillis();
         try {
-            String response = httpGet(instance, "/api/version", instance.getAllowInsecureTls());
-            if (response == null) {
-                throw new RuntimeException("Empty response from monitor server");
+            if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                // Pika: test by logging in with username/password
+                String jwt = loginPika(instance);
+                if (jwt == null) {
+                    throw new RuntimeException("Pika login failed - check username/password");
+                }
+            } else {
+                // Komari: test by calling /api/version
+                String response = httpGet(instance, "/api/version", instance.getAllowInsecureTls());
+                if (response == null) {
+                    throw new RuntimeException("Empty response from monitor server");
+                }
             }
             instance.setLastSyncStatus(STATUS_SUCCESS);
-            instance.setLastSyncError(null);
+            instance.setLastSyncError("");
             instance.setLastSyncAt(now);
             instance.setUpdatedTime(now);
             this.updateById(instance);
@@ -149,8 +166,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     public R syncInstance(Long id) {
         MonitorInstance instance = getRequiredInstance(id);
         try {
-            performSync(instance);
-            return R.ok("Sync completed successfully");
+            Map<String, Object> summary = performSync(instance);
+            return R.ok(summary);
         } catch (Exception e) {
             log.error("[MonitorSync] Manual sync failed for instance {}: {}", instance.getName(), e.getMessage());
             return R.err("Sync failed: " + e.getMessage());
@@ -190,19 +207,100 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return R.ok(buildNodeViews(nodes, null));
     }
 
+    @Override
+    public R getDashboardNodes() {
+        // Return ALL nodes across all instances with latest metrics + instance name
+        List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .orderByDesc(MonitorNodeSnapshot::getOnline)
+                        .orderByAsc(MonitorNodeSnapshot::getName));
+        if (allNodes.isEmpty()) {
+            return R.ok(Collections.emptyMap());
+        }
+
+        // Build instance name map
+        List<MonitorInstance> instances = this.list();
+        Map<Long, String> instanceNameMap = instances.stream()
+                .collect(Collectors.toMap(MonitorInstance::getId, MonitorInstance::getName, (a, b) -> a));
+
+        // Build node views with metrics
+        List<MonitorNodeSnapshotViewDto> nodeViews = buildNodeViews(allNodes, null);
+        for (MonitorNodeSnapshotViewDto nv : nodeViews) {
+            if (nv.getInstanceName() == null) {
+                nv.setInstanceName(instanceNameMap.get(nv.getInstanceId()));
+            }
+        }
+
+        // Build asset name map for nodes with assetId
+        Set<Long> assetIds = allNodes.stream()
+                .map(MonitorNodeSnapshot::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> assetNameMap = new HashMap<>();
+        if (!assetIds.isEmpty()) {
+            List<AssetHost> assets = assetHostMapper.selectBatchIds(assetIds);
+            for (AssetHost a : assets) {
+                assetNameMap.put(a.getId(), a.getName());
+            }
+        }
+        for (MonitorNodeSnapshotViewDto nv : nodeViews) {
+            if (nv.getAssetId() != null && nv.getAssetName() == null) {
+                nv.setAssetName(assetNameMap.get(nv.getAssetId()));
+            }
+        }
+
+        long online = allNodes.stream().filter(n -> n.getOnline() != null && n.getOnline() == 1).count();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("nodes", nodeViews);
+        result.put("total", allNodes.size());
+        result.put("online", online);
+        result.put("offline", allNodes.size() - online);
+        return R.ok(result);
+    }
+
+    @Override
+    public R deleteNodeSnapshot(Long nodeId) {
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) {
+            return R.err("探针节点不存在");
+        }
+        // Unlink from asset if bound
+        if (node.getAssetId() != null) {
+            AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+            if (asset != null) {
+                if (node.getRemoteNodeUuid() != null && node.getRemoteNodeUuid().equals(asset.getMonitorNodeUuid())) {
+                    asset.setMonitorNodeUuid("");
+                    assetHostMapper.updateById(asset);
+                }
+                if (node.getRemoteNodeUuid() != null && node.getRemoteNodeUuid().equals(asset.getPikaNodeId())) {
+                    asset.setPikaNodeId("");
+                    assetHostMapper.updateById(asset);
+                }
+            }
+        }
+        // Delete metrics then node
+        monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
+                .eq(MonitorMetricLatest::getNodeSnapshotId, nodeId));
+        monitorNodeSnapshotMapper.deleteById(nodeId);
+        return R.ok("已删除探针节点");
+    }
+
     // ==================== Core Sync Logic (Komari) ====================
 
-    private void performSync(MonitorInstance instance) {
+    private Map<String, Object> performSync(MonitorInstance instance) {
         long now = System.currentTimeMillis();
+        Map<String, Object> summary = new LinkedHashMap<>();
         try {
             if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
-                syncKomari(instance);
+                summary = syncKomari(instance);
+            } else if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                summary = syncPika(instance);
             } else {
                 log.warn("[MonitorSync] Unsupported probe type: {}", instance.getType());
                 throw new RuntimeException("Unsupported probe type: " + instance.getType());
             }
             instance.setLastSyncStatus(STATUS_SUCCESS);
-            instance.setLastSyncError(null);
+            instance.setLastSyncError("");
         } catch (Exception e) {
             instance.setLastSyncStatus(STATUS_FAILED);
             instance.setLastSyncError(e.getMessage());
@@ -212,32 +310,44 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             instance.setUpdatedTime(now);
             this.updateById(instance);
         }
+        return summary;
     }
 
-    private void syncKomari(MonitorInstance instance) {
-        // 1. Fetch node list from komari API
-        String clientsJson = httpGet(instance, "/api/clients", instance.getAllowInsecureTls());
+    private Map<String, Object> syncKomari(MonitorInstance instance) {
+        // 1. Fetch node list from komari admin API (returns full data including IP/version)
+        String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
         if (clientsJson == null) {
             throw new RuntimeException("Failed to fetch clients from komari");
         }
 
-        JSONObject clientsResponse = JSON.parseObject(clientsJson);
+        // /api/admin/client/list returns raw JSON array: [{...}, ...]
         JSONArray clients;
-        if (clientsResponse.containsKey("data")) {
-            clients = clientsResponse.getJSONArray("data");
-        } else if (clientsResponse.containsKey("clients")) {
-            clients = clientsResponse.getJSONArray("clients");
+        String trimmed = clientsJson.trim();
+        if (trimmed.startsWith("[")) {
+            clients = JSON.parseArray(trimmed);
         } else {
-            clients = JSON.parseArray(clientsJson);
+            JSONObject clientsResponse = JSON.parseObject(trimmed);
+            if (clientsResponse.containsKey("data")) {
+                clients = clientsResponse.getJSONArray("data");
+            } else {
+                clients = new JSONArray();
+            }
         }
 
         if (clients == null) {
             clients = new JSONArray();
         }
 
+        // 2. Fetch ALL metrics + online status in ONE call via JSON-RPC getNodesLatestStatus
+        // Uses ws.GetLatestReport() (no TTL) + ws.GetAllOnlineUUIDs() - same data source as Komari's own dashboard
+        JSONObject allMetrics = fetchAllMetricsViaRpc(instance);
+
         long now = System.currentTimeMillis();
         Set<String> seenUuids = new HashSet<>();
         int onlineCount = 0;
+        int newNodes = 0;
+        int updatedNodes = 0;
+        int newAssets = 0;
 
         for (int i = 0; i < clients.size(); i++) {
             JSONObject client = clients.getJSONObject(i);
@@ -252,19 +362,22 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
                     .eq(MonitorNodeSnapshot::getRemoteNodeUuid, uuid));
 
-            boolean isOnline = !client.getBooleanValue("hidden") && isNodeOnline(client);
-            if (isOnline) {
-                onlineCount++;
-            }
-
-            if (existing == null) {
+            boolean isNew = (existing == null);
+            if (isNew) {
                 existing = new MonitorNodeSnapshot();
                 existing.setInstanceId(instance.getId());
                 existing.setRemoteNodeUuid(uuid);
                 existing.setCreatedTime(now);
+                existing.setUpdatedTime(now);
                 existing.setStatus(0);
+                existing.setOnline(0);
+                monitorNodeSnapshotMapper.insert(existing);
+                newNodes++;
+            } else {
+                updatedNodes++;
             }
 
+            // Static client info
             existing.setName(client.getString("name"));
             existing.setIp(client.getString("ipv4"));
             existing.setIpv6(client.getString("ipv6"));
@@ -272,27 +385,59 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setCpuName(client.getString("cpu_name"));
             existing.setCpuCores(client.getInteger("cpu_cores"));
             existing.setMemTotal(client.getLong("mem_total"));
+            existing.setSwapTotal(client.getLong("swap_total"));
             existing.setDiskTotal(client.getLong("disk_total"));
             existing.setRegion(client.getString("region"));
             existing.setVersion(client.getString("version"));
+            existing.setVirtualization(client.getString("virtualization"));
+            existing.setArch(client.getString("arch"));
+            existing.setKernelVersion(client.getString("kernel_version"));
+            existing.setGpuName(client.getString("gpu_name"));
+            existing.setHidden(client.getBooleanValue("hidden") ? 1 : 0);
+            existing.setTags(client.getString("tags"));
+            existing.setNodeGroup(client.getString("group"));
+            existing.setWeight(client.getInteger("weight"));
+            existing.setPrice(client.getDouble("price"));
+            existing.setBillingCycle(client.getInteger("billing_cycle"));
+            existing.setCurrency(client.getString("currency"));
+            existing.setTrafficLimit(client.getLong("traffic_limit"));
+            existing.setTrafficLimitType(client.getString("traffic_limit_type"));
+
+            // Parse expired_at timestamp
+            String expiredAtStr = client.getString("expired_at");
+            if (StringUtils.hasText(expiredAtStr) && !"0001-01-01T00:00:00Z".equals(expiredAtStr)) {
+                try {
+                    existing.setExpiredAt(java.time.Instant.parse(expiredAtStr).toEpochMilli());
+                } catch (Exception ignored) {}
+            }
+
+            // Apply metrics + online status from batch RPC result
+            JSONObject nodeMetric = allMetrics != null ? allMetrics.getJSONObject(uuid) : null;
+            boolean isOnline = nodeMetric != null && nodeMetric.getBooleanValue("online");
+            if (isOnline) onlineCount++;
+
             existing.setOnline(isOnline ? 1 : 0);
-            existing.setLastActiveAt(isOnline ? now : existing.getLastActiveAt());
+            Long prevActive = existing.getLastActiveAt();
+            existing.setLastActiveAt(isOnline ? now : (prevActive != null ? prevActive : 0L));
             existing.setLastSyncAt(now);
             existing.setUpdatedTime(now);
 
-            if (existing.getId() == null) {
-                monitorNodeSnapshotMapper.insert(existing);
-            } else {
-                monitorNodeSnapshotMapper.updateById(existing);
+            monitorNodeSnapshotMapper.updateById(existing);
+
+            // Upsert latest metrics if data available
+            if (nodeMetric != null) {
+                applyNodeMetric(instance, existing, uuid, nodeMetric, now);
             }
 
-            // 2. Fetch latest metrics for each online node
-            if (isOnline) {
-                syncKomariNodeMetrics(instance, existing, uuid);
+            // Auto-create asset for new nodes
+            if (existing.getAssetId() == null) {
+                boolean created = autoCreateAssetFromNode(existing, instance);
+                if (created) newAssets++;
             }
         }
 
-        // 3. Mark removed nodes
+        // Mark removed nodes
+        int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId()));
         for (MonitorNodeSnapshot node : allNodes) {
@@ -301,30 +446,64 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 node.setStatus(1);
                 node.setUpdatedTime(now);
                 monitorNodeSnapshotMapper.updateById(node);
+                removedNodes++;
             }
         }
 
-        // 4. Update instance counters
+        // Update instance counters
         instance.setNodeCount(seenUuids.size());
         instance.setOnlineNodeCount(onlineCount);
+
+        // Build sync summary
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", seenUuids.size());
+        summary.put("online", onlineCount);
+        summary.put("offline", seenUuids.size() - onlineCount);
+        summary.put("newNodes", newNodes);
+        summary.put("updatedNodes", updatedNodes);
+        summary.put("removedNodes", removedNodes);
+        summary.put("newAssets", newAssets);
+        return summary;
     }
 
-    private void syncKomariNodeMetrics(MonitorInstance instance, MonitorNodeSnapshot nodeSnapshot, String uuid) {
+    /**
+     * Fetch all nodes' latest metrics + online status via JSON-RPC getNodesLatestStatus.
+     * This uses ws.GetLatestReport() (no TTL) + ws.GetAllOnlineUUIDs() internally,
+     * the same data source as Komari's own dashboard WebSocket.
+     * Returns: {"uuid1": {cpu, ram, ram_total, online, ...}, "uuid2": {...}}
+     */
+    private JSONObject fetchAllMetricsViaRpc(MonitorInstance instance) {
         try {
-            String recentJson = httpGet(instance, "/api/recent/" + uuid, instance.getAllowInsecureTls());
-            if (recentJson == null) {
-                return;
+            String rpcBody = "{\"jsonrpc\":\"2.0\",\"method\":\"common:getNodesLatestStatus\",\"id\":1}";
+            String rpcJson = httpPost(instance, "/api/rpc2", rpcBody, instance.getAllowInsecureTls());
+            if (rpcJson == null) {
+                return null;
             }
-
-            JSONObject recentResponse = JSON.parseObject(recentJson);
-            JSONObject data = recentResponse.containsKey("data") ? recentResponse.getJSONObject("data") : recentResponse;
-            if (data == null || data.isEmpty()) {
-                return;
+            JSONObject rpcResponse = JSON.parseObject(rpcJson);
+            if (rpcResponse.containsKey("error")) {
+                log.warn("[MonitorSync] RPC getNodesLatestStatus error: {}", rpcResponse.get("error"));
+                return null;
             }
+            JSONObject result = rpcResponse.getJSONObject("result");
+            if (result != null) {
+                log.info("[MonitorSync] RPC getNodesLatestStatus returned {} nodes", result.size());
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Failed to fetch metrics via RPC: {}", e.getMessage());
+            return null;
+        }
+    }
 
-            long now = System.currentTimeMillis();
-
-            // Upsert latest metric
+    /**
+     * Apply flat metric data from getNodesLatestStatus RPC result to a metric record.
+     * Fields: cpu, gpu, ram, ram_total, swap, swap_total, load, load5, load15, temp,
+     * disk, disk_total, net_in, net_out, net_total_up, net_total_down,
+     * process, connections, connections_udp, online, uptime
+     */
+    private void applyNodeMetric(MonitorInstance instance, MonitorNodeSnapshot nodeSnapshot,
+                                  String uuid, JSONObject data, long now) {
+        try {
             MonitorMetricLatest metric = monitorMetricLatestMapper.selectOne(new LambdaQueryWrapper<MonitorMetricLatest>()
                     .eq(MonitorMetricLatest::getInstanceId, instance.getId())
                     .eq(MonitorMetricLatest::getRemoteNodeUuid, uuid));
@@ -338,19 +517,27 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 metric.setStatus(0);
             }
 
+            // Flat fields from getNodesLatestStatus RPC response
             metric.setCpuUsage(data.getDouble("cpu"));
+            metric.setGpuUsage(data.getDouble("gpu"));
             metric.setMemUsed(data.getLong("ram"));
             metric.setMemTotal(data.getLong("ram_total"));
+            metric.setSwapUsed(data.getLong("swap"));
+            metric.setSwapTotal(data.getLong("swap_total"));
+            metric.setLoad1(data.getDouble("load"));
+            metric.setLoad5(data.getDouble("load5"));
+            metric.setLoad15(data.getDouble("load15"));
+            metric.setTemperature(data.getDouble("temp"));
             metric.setDiskUsed(data.getLong("disk"));
             metric.setDiskTotal(data.getLong("disk_total"));
             metric.setNetIn(data.getLong("net_in"));
             metric.setNetOut(data.getLong("net_out"));
             metric.setNetTotalUp(data.getLong("net_total_up"));
             metric.setNetTotalDown(data.getLong("net_total_down"));
-            metric.setLoad1(data.getDouble("load") != null ? data.getDouble("load") : data.getDouble("load1"));
-            metric.setUptime(data.getLong("uptime"));
-            metric.setConnections(data.getInteger("connections"));
             metric.setProcessCount(data.getInteger("process"));
+            metric.setConnections(data.getInteger("connections"));
+            metric.setConnectionsUdp(data.getInteger("connections_udp"));
+            metric.setUptime(data.getLong("uptime"));
             metric.setSampledAt(now);
             metric.setUpdatedTime(now);
 
@@ -360,19 +547,559 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 monitorMetricLatestMapper.updateById(metric);
             }
         } catch (Exception e) {
-            log.debug("[MonitorSync] Failed to fetch metrics for node {}: {}", uuid, e.getMessage());
+            log.debug("[MonitorSync] Failed to apply metrics for node {}: {}", uuid, e.getMessage());
         }
     }
 
-    private boolean isNodeOnline(JSONObject client) {
-        if (client.containsKey("online")) {
-            return client.getBooleanValue("online");
+    // ==================== Provision Agent (Komari Admin API) ====================
+
+    @Override
+    public R provisionAgent(MonitorProvisionDto dto) {
+        MonitorInstance instance = getRequiredInstance(dto.getInstanceId());
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+
+        if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+            // Pika: generate install command using API key from Pika's key management
+            // The user needs to create an API key in Pika's admin panel first
+            try {
+                String jwt = loginPika(instance);
+                if (jwt == null) {
+                    return R.err("Pika 登录失败，无法获取安装信息");
+                }
+
+                // Fetch API keys to get the first enabled key for agent install
+                String keysJson = httpGetWithToken(baseUrl + "/api/admin/api-keys", jwt, instance.getAllowInsecureTls());
+                // Pika may return raw JSON array or {data:[...]}
+                JSONArray keys;
+                String trimmedKeys = keysJson.trim();
+                if (trimmedKeys.startsWith("[")) {
+                    keys = JSON.parseArray(trimmedKeys);
+                } else {
+                    JSONObject keysResp = JSON.parseObject(trimmedKeys);
+                    keys = keysResp.getJSONArray("data");
+                }
+                String apiKey = null;
+                if (keys != null) {
+                    for (int i = 0; i < keys.size(); i++) {
+                        JSONObject k = keys.getJSONObject(i);
+                        if (k.getBooleanValue("enabled")) {
+                            apiKey = k.getString("key");
+                            break;
+                        }
+                    }
+                }
+                if (apiKey == null) {
+                    return R.err("Pika 中没有可用的 API Key，请在 Pika 管理面板中创建一个");
+                }
+
+                String name = dto.getName() != null ? dto.getName().trim() : "";
+                String installCmd = String.format(
+                        "curl -fsSL %s/api/agent/install.sh?token=%s%s | bash",
+                        baseUrl, apiKey, name.isEmpty() ? "" : "&name=" + name);
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("instanceId", instance.getId());
+                result.put("instanceName", instance.getName());
+                result.put("endpoint", baseUrl);
+                result.put("installCommand", installCmd);
+                return R.ok(result);
+            } catch (Exception e) {
+                log.error("[MonitorProvision] Pika provision failed for {}: {}", instance.getName(), e.getMessage());
+                return R.err("Pika 安装命令生成失败: " + e.getMessage());
+            }
         }
-        String updatedAt = client.getString("updated_at");
-        if (StringUtils.hasText(updatedAt)) {
+
+        // Komari provision
+        if (!TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            return R.err("不支持的探针类型: " + instance.getType());
+        }
+        if (!StringUtils.hasText(instance.getApiKey())) {
+            return R.err("该探针实例未配置 API Key，无法创建客户端");
+        }
+
+        try {
+            String bodyJson = dto.getName() != null ? "{\"name\":\"" + dto.getName().trim() + "\"}" : "{}";
+            String responseJson = httpPost(instance, "/api/admin/client/add", bodyJson, instance.getAllowInsecureTls());
+            JSONObject resp = JSON.parseObject(responseJson);
+
+            if (!"success".equals(resp.getString("status"))) {
+                return R.err("Komari 返回错误: " + resp.getString("message"));
+            }
+
+            String uuid = resp.getString("uuid");
+            String token = resp.getString("token");
+
+            String installCmd = String.format(
+                    "curl -fsSL https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | " +
+                    "bash -s -- --endpoint %s --token %s", baseUrl, token);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("uuid", uuid);
+            result.put("token", token);
+            result.put("instanceId", instance.getId());
+            result.put("instanceName", instance.getName());
+            result.put("endpoint", baseUrl);
+            result.put("installCommand", installCmd);
+
+            return R.ok(result);
+        } catch (Exception e) {
+            log.error("[MonitorProvision] Failed to provision agent on {}: {}", instance.getName(), e.getMessage());
+            return R.err("创建探针客户端失败: " + e.getMessage());
+        }
+    }
+
+    // ==================== Pika Sync ====================
+
+    /**
+     * Login to Pika admin API to get a JWT token.
+     * Uses username + apiKey(password) from the instance config.
+     */
+    private String loginPika(MonitorInstance instance) {
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        String username = StringUtils.hasText(instance.getUsername()) ? instance.getUsername() : "admin";
+        String password = instance.getApiKey();
+        if (!StringUtils.hasText(password)) {
+            throw new RuntimeException("Pika password (API Key field) is not configured");
+        }
+
+        try {
+            String loginBody = JSON.toJSONString(Map.of("username", username, "password", password));
+            CloseableHttpClient client = buildHttpClient(instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1);
+            HttpPost request = new HttpPost(baseUrl + "/api/login");
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
+            request.setHeader("Content-Type", "application/json");
+            request.setHeader("Accept", "application/json");
+            request.setEntity(new StringEntity(loginBody, StandardCharsets.UTF_8));
+
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode < 200 || statusCode >= 300) {
+                    throw new RuntimeException("Pika login HTTP " + statusCode + ": " + truncate(body, 200));
+                }
+                JSONObject resp = JSON.parseObject(body);
+                // Pika returns {token, expiresAt, user} at top level
+                String token = resp.getString("token");
+                if (!StringUtils.hasText(token)) {
+                    // Fallback: check nested {data:{token}} for compatibility
+                    JSONObject data = resp.getJSONObject("data");
+                    if (data != null) token = data.getString("token");
+                }
+                if (!StringUtils.hasText(token)) {
+                    throw new RuntimeException("Pika login failed: " + truncate(body, 200));
+                }
+                return token;
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Pika login failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * HTTP GET with explicit JWT Bearer token (used for Pika where token is obtained per-sync).
+     */
+    private String httpGetWithToken(String url, String token, Integer allowInsecureTls) {
+        try {
+            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+            HttpGet request = new HttpGet(url);
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(30_000).build());
+            request.setHeader("Authorization", "Bearer " + token);
+            request.setHeader("Accept", "application/json");
+
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    private Map<String, Object> syncPika(MonitorInstance instance) {
+        // 1. Login to get JWT
+        String jwt = loginPika(instance);
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        Integer tls = instance.getAllowInsecureTls();
+
+        // 2. Fetch agent list (Pika returns raw JSON array [...])
+        String agentsJson = httpGetWithToken(baseUrl + "/api/admin/agents", jwt, tls);
+        JSONArray agents;
+        String trimmedAgents = agentsJson.trim();
+        if (trimmedAgents.startsWith("[")) {
+            agents = JSON.parseArray(trimmedAgents);
+        } else {
+            JSONObject agentsResp = JSON.parseObject(trimmedAgents);
+            agents = agentsResp.getJSONArray("data");
+        }
+        if (agents == null) {
+            agents = new JSONArray();
+        }
+
+        long now = System.currentTimeMillis();
+        Set<String> seenIds = new HashSet<>();
+        int onlineCount = 0;
+        int newNodes = 0;
+        int updatedNodes = 0;
+        int newAssets = 0;
+
+        for (int i = 0; i < agents.size(); i++) {
+            JSONObject agent = agents.getJSONObject(i);
+            String agentId = agent.getString("id");
+            if (!StringUtils.hasText(agentId)) continue;
+            seenIds.add(agentId);
+
+            // Upsert node snapshot
+            MonitorNodeSnapshot existing = monitorNodeSnapshotMapper.selectOne(new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                    .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
+                    .eq(MonitorNodeSnapshot::getRemoteNodeUuid, agentId));
+
+            boolean isNew = (existing == null);
+            if (isNew) {
+                existing = new MonitorNodeSnapshot();
+                existing.setInstanceId(instance.getId());
+                existing.setRemoteNodeUuid(agentId);
+                existing.setCreatedTime(now);
+                existing.setUpdatedTime(now);
+                existing.setStatus(0);
+                existing.setOnline(0);
+                monitorNodeSnapshotMapper.insert(existing);
+                newNodes++;
+            } else {
+                updatedNodes++;
+            }
+
+            // Map Pika agent fields → MonitorNodeSnapshot
+            existing.setName(agent.getString("name"));
+            existing.setIp(agent.getString("ipv4"));
+            existing.setIpv6(agent.getString("ipv6"));
+            existing.setOs(agent.getString("os"));
+            existing.setArch(agent.getString("arch"));
+            existing.setVersion(agent.getString("version"));
+            existing.setTags(agent.get("tags") != null ? agent.getJSONArray("tags").toJSONString() : null);
+            existing.setWeight(agent.getInteger("weight"));
+
+            // Pika trafficStats: {enabled, type, limit, used, resetDay, ...}
+            JSONObject trafficStats = agent.getJSONObject("trafficStats");
+            if (trafficStats != null && trafficStats.getBooleanValue("enabled")) {
+                Long limit = trafficStats.getLong("limit");
+                if (limit != null && limit > 0) existing.setTrafficLimit(limit);
+                existing.setTrafficUsed(trafficStats.getLong("used"));
+                existing.setTrafficLimitType(trafficStats.getString("type"));
+                existing.setTrafficResetDay(trafficStats.getInteger("resetDay"));
+            }
+
+            // Pika status: 1=online, 0=offline
+            boolean isOnline = agent.getIntValue("status") == 1;
+            if (isOnline) onlineCount++;
+            existing.setOnline(isOnline ? 1 : 0);
+
+            // Expiry (Pika uses ms timestamp, 0 = never)
+            Long expireTime = agent.getLong("expireTime");
+            if (expireTime != null && expireTime > 0) {
+                existing.setExpiredAt(expireTime);
+            }
+
+            Long prevActive = existing.getLastActiveAt();
+            existing.setLastActiveAt(isOnline ? now : (prevActive != null ? prevActive : 0L));
+            existing.setLastSyncAt(now);
+            existing.setUpdatedTime(now);
+            monitorNodeSnapshotMapper.updateById(existing);
+
+            // 3. Fetch per-agent latest metrics (Pika returns {cpu:{...}, memory:{...}, ...} directly)
+            try {
+                String metricsJson = httpGetWithToken(baseUrl + "/api/admin/agents/" + agentId + "/metrics/latest", jwt, tls);
+                JSONObject metricsData = JSON.parseObject(metricsJson);
+                // If wrapped in {data:{...}}, unwrap; otherwise use as-is
+                if (metricsData.containsKey("data") && metricsData.getJSONObject("data") != null && metricsData.getJSONObject("data").containsKey("cpu")) {
+                    metricsData = metricsData.getJSONObject("data");
+                }
+                if (metricsData != null && metricsData.containsKey("cpu")) {
+                    applyPikaMetrics(instance, existing, agentId, metricsData, now);
+                }
+            } catch (Exception e) {
+                log.debug("[MonitorSync] Failed to fetch Pika metrics for agent {}: {}", agentId, e.getMessage());
+            }
+
+            // Auto-create/link asset
+            if (existing.getAssetId() == null) {
+                boolean created = autoCreateOrLinkAssetFromNode(existing, instance);
+                if (created) newAssets++;
+            }
+        }
+
+        // Mark removed nodes
+        int removedNodes = 0;
+        List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                .eq(MonitorNodeSnapshot::getInstanceId, instance.getId()));
+        for (MonitorNodeSnapshot node : allNodes) {
+            if (!seenIds.contains(node.getRemoteNodeUuid())) {
+                node.setOnline(0);
+                node.setStatus(1);
+                node.setUpdatedTime(now);
+                monitorNodeSnapshotMapper.updateById(node);
+                removedNodes++;
+            }
+        }
+
+        instance.setNodeCount(seenIds.size());
+        instance.setOnlineNodeCount(onlineCount);
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", seenIds.size());
+        summary.put("online", onlineCount);
+        summary.put("offline", seenIds.size() - onlineCount);
+        summary.put("newNodes", newNodes);
+        summary.put("updatedNodes", updatedNodes);
+        summary.put("removedNodes", removedNodes);
+        summary.put("newAssets", newAssets);
+        return summary;
+    }
+
+    /**
+     * Map Pika metrics response (nested structure) to flat MonitorMetricLatest.
+     * Pika metrics: {cpu:{usagePercent,...}, memory:{total,used,...}, disk:{total,used,...},
+     *   network:{totalBytesSentRate,...}, host:{uptime,load1,...}, gpu:[{utilization,...}], ...}
+     */
+    private void applyPikaMetrics(MonitorInstance instance, MonitorNodeSnapshot nodeSnapshot,
+                                   String agentId, JSONObject data, long now) {
+        try {
+            MonitorMetricLatest metric = monitorMetricLatestMapper.selectOne(new LambdaQueryWrapper<MonitorMetricLatest>()
+                    .eq(MonitorMetricLatest::getInstanceId, instance.getId())
+                    .eq(MonitorMetricLatest::getRemoteNodeUuid, agentId));
+
+            if (metric == null) {
+                metric = new MonitorMetricLatest();
+                metric.setInstanceId(instance.getId());
+                metric.setRemoteNodeUuid(agentId);
+                metric.setNodeSnapshotId(nodeSnapshot.getId());
+                metric.setCreatedTime(now);
+                metric.setStatus(0);
+            }
+
+            // CPU
+            JSONObject cpu = data.getJSONObject("cpu");
+            if (cpu != null) {
+                metric.setCpuUsage(cpu.getDouble("usagePercent"));
+                // Also populate node snapshot CPU info
+                if (cpu.getInteger("logicalCores") != null) {
+                    nodeSnapshot.setCpuCores(cpu.getInteger("logicalCores"));
+                }
+                if (StringUtils.hasText(cpu.getString("modelName"))) {
+                    nodeSnapshot.setCpuName(cpu.getString("modelName"));
+                }
+            }
+
+            // Memory
+            JSONObject memory = data.getJSONObject("memory");
+            if (memory != null) {
+                metric.setMemUsed(memory.getLong("used"));
+                metric.setMemTotal(memory.getLong("total"));
+                metric.setSwapUsed(memory.getLong("swapUsed"));
+                metric.setSwapTotal(memory.getLong("swapTotal"));
+                // Also update node snapshot totals
+                if (memory.getLong("total") != null) nodeSnapshot.setMemTotal(memory.getLong("total"));
+                if (memory.getLong("swapTotal") != null) nodeSnapshot.setSwapTotal(memory.getLong("swapTotal"));
+            }
+
+            // Disk
+            JSONObject disk = data.getJSONObject("disk");
+            if (disk != null) {
+                metric.setDiskUsed(disk.getLong("used"));
+                metric.setDiskTotal(disk.getLong("total"));
+                if (disk.getLong("total") != null) nodeSnapshot.setDiskTotal(disk.getLong("total"));
+            }
+
+            // Network
+            JSONObject network = data.getJSONObject("network");
+            if (network != null) {
+                metric.setNetIn(network.getLong("totalBytesRecvRate"));
+                metric.setNetOut(network.getLong("totalBytesSentRate"));
+                metric.setNetTotalUp(network.getLong("totalBytesSentTotal"));
+                metric.setNetTotalDown(network.getLong("totalBytesRecvTotal"));
+            }
+
+            // Network connections
+            JSONObject netConn = data.getJSONObject("networkConnection");
+            if (netConn != null) {
+                metric.setConnections(netConn.getInteger("total"));
+            }
+
+            // Host info (load, uptime, procs, kernel, virtualization)
+            JSONObject host = data.getJSONObject("host");
+            if (host != null) {
+                metric.setLoad1(host.getDouble("load1"));
+                metric.setLoad5(host.getDouble("load5"));
+                metric.setLoad15(host.getDouble("load15"));
+                metric.setUptime(host.getLong("uptime"));
+                metric.setProcessCount(host.getInteger("procs"));
+                // Populate node snapshot system info from host
+                if (StringUtils.hasText(host.getString("kernelVersion"))) {
+                    nodeSnapshot.setKernelVersion(host.getString("kernelVersion"));
+                }
+                if (StringUtils.hasText(host.getString("virtualizationSystem"))) {
+                    nodeSnapshot.setVirtualization(host.getString("virtualizationSystem"));
+                }
+                if (StringUtils.hasText(host.getString("platform"))) {
+                    String osInfo = host.getString("platform");
+                    if (StringUtils.hasText(host.getString("platformVersion"))) {
+                        osInfo += " " + host.getString("platformVersion");
+                    }
+                    nodeSnapshot.setOs(osInfo);
+                }
+            }
+
+            // GPU (take first GPU if array)
+            JSONArray gpuArr = data.getJSONArray("gpu");
+            if (gpuArr != null && !gpuArr.isEmpty()) {
+                JSONObject gpu = gpuArr.getJSONObject(0);
+                metric.setGpuUsage(gpu.getDouble("utilization"));
+                if (StringUtils.hasText(gpu.getString("name"))) {
+                    nodeSnapshot.setGpuName(gpu.getString("name"));
+                }
+            }
+
+            // Temperature (take first sensor)
+            JSONArray tempArr = data.getJSONArray("temperature");
+            if (tempArr != null && !tempArr.isEmpty()) {
+                metric.setTemperature(tempArr.getJSONObject(0).getDouble("temperature"));
+            }
+
+            metric.setSampledAt(now);
+            metric.setUpdatedTime(now);
+
+            if (metric.getId() == null) {
+                monitorMetricLatestMapper.insert(metric);
+            } else {
+                monitorMetricLatestMapper.updateById(metric);
+            }
+
+            // Update node snapshot with enriched data from metrics
+            monitorNodeSnapshotMapper.updateById(nodeSnapshot);
+        } catch (Exception e) {
+            log.debug("[MonitorSync] Failed to apply Pika metrics for agent {}: {}", agentId, e.getMessage());
+        }
+    }
+
+    // ==================== Auto-Create / Link Asset from Probe Node ====================
+
+    /**
+     * Auto-create or link an asset for a probe node.
+     * For dual-probe support: if an asset with the same IP already exists, link to it
+     * instead of creating a duplicate.
+     */
+    private boolean autoCreateOrLinkAssetFromNode(MonitorNodeSnapshot node, MonitorInstance instance) {
+        if (node.getAssetId() != null) return false;
+
+        boolean isPika = TYPE_PIKA.equalsIgnoreCase(instance.getType());
+
+        // Check if an asset already references this specific node UUID
+        if (isPika) {
+            int existingPika = assetHostMapper.selectCount(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getPikaNodeId, node.getRemoteNodeUuid())
+                    .eq(AssetHost::getStatus, 0)).intValue();
+            if (existingPika > 0) return false;
+        } else {
+            int existingKomari = assetHostMapper.selectCount(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getMonitorNodeUuid, node.getRemoteNodeUuid())
+                    .eq(AssetHost::getStatus, 0)).intValue();
+            if (existingKomari > 0) return false;
+        }
+
+        // Dual-probe IP matching: try to find an existing asset with the same IP
+        if (StringUtils.hasText(node.getIp())) {
+            AssetHost existingByIp = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getPrimaryIp, node.getIp())
+                    .eq(AssetHost::getStatus, 0)
+                    .last("LIMIT 1"));
+            if (existingByIp != null) {
+                // Link this node to the existing asset (dual-probe binding)
+                if (isPika) {
+                    existingByIp.setPikaNodeId(node.getRemoteNodeUuid());
+                } else {
+                    existingByIp.setMonitorNodeUuid(node.getRemoteNodeUuid());
+                }
+                existingByIp.setUpdatedTime(System.currentTimeMillis());
+                assetHostMapper.updateById(existingByIp);
+                node.setAssetId(existingByIp.getId());
+                monitorNodeSnapshotMapper.updateById(node);
+                log.info("[MonitorSync] Linked {} node {} to existing asset '{}' by IP match ({})",
+                        instance.getType(), node.getRemoteNodeUuid(), existingByIp.getName(), node.getIp());
+                return false; // Not a new asset, just linked
+            }
+        }
+
+        // Create new asset
+        String assetName = StringUtils.hasText(node.getName()) ? node.getName() : node.getIp();
+        if (!StringUtils.hasText(assetName)) {
+            assetName = node.getRemoteNodeUuid().substring(0, 8);
+        }
+        int nameCount = assetHostMapper.selectCount(new LambdaQueryWrapper<AssetHost>()
+                .eq(AssetHost::getName, assetName)
+                .eq(AssetHost::getStatus, 0)).intValue();
+        if (nameCount > 0) {
+            assetName = assetName + "-" + node.getRemoteNodeUuid().substring(0, 4);
+        }
+
+        long now = System.currentTimeMillis();
+        AssetHost asset = new AssetHost();
+        asset.setName(assetName);
+        asset.setPrimaryIp(node.getIp());
+        asset.setIpv6(node.getIpv6());
+        asset.setOs(node.getOs());
+        asset.setCpuCores(node.getCpuCores());
+        asset.setRegion(node.getRegion());
+        asset.setCpuName(node.getCpuName());
+        asset.setArch(node.getArch());
+        asset.setVirtualization(node.getVirtualization());
+        asset.setKernelVersion(node.getKernelVersion());
+        asset.setGpuName(node.getGpuName());
+        asset.setCreatedTime(now);
+        asset.setUpdatedTime(now);
+        asset.setStatus(0);
+
+        // Set probe link based on type
+        if (isPika) {
+            asset.setPikaNodeId(node.getRemoteNodeUuid());
+        } else {
+            asset.setMonitorNodeUuid(node.getRemoteNodeUuid());
+        }
+
+        // Convert bytes → MB/GB
+        if (node.getMemTotal() != null && node.getMemTotal() > 0) {
+            asset.setMemTotalMb((int) (node.getMemTotal() / (1024 * 1024)));
+        }
+        if (node.getDiskTotal() != null && node.getDiskTotal() > 0) {
+            asset.setDiskTotalGb((int) (node.getDiskTotal() / (1024L * 1024 * 1024)));
+        }
+        if (node.getSwapTotal() != null && node.getSwapTotal() > 0) {
+            asset.setSwapTotalMb((int) (node.getSwapTotal() / (1024 * 1024)));
+        }
+
+        try {
+            assetHostMapper.insert(asset);
+            node.setAssetId(asset.getId());
+            monitorNodeSnapshotMapper.updateById(node);
+            log.info("[MonitorSync] Auto-created asset '{}' from {} node {}", assetName, instance.getType(), node.getRemoteNodeUuid());
             return true;
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Failed to auto-create asset for node {}: {}", node.getRemoteNodeUuid(), e.getMessage());
+            return false;
         }
-        return false;
+    }
+
+    /**
+     * Legacy wrapper - Komari sync still calls this.
+     */
+    private boolean autoCreateAssetFromNode(MonitorNodeSnapshot node, MonitorInstance instance) {
+        return autoCreateOrLinkAssetFromNode(node, instance);
     }
 
     // ==================== HTTP Client ====================
@@ -391,6 +1118,40 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 request.setHeader("Authorization", "Bearer " + instance.getApiKey());
             }
             request.setHeader("Accept", "application/json");
+
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String httpPost(MonitorInstance instance, String path, String jsonBody, Integer allowInsecureTls) {
+        String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
+        try {
+            CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1);
+            HttpPost request = new HttpPost(url);
+            request.setConfig(RequestConfig.custom()
+                    .setConnectTimeout(10_000)
+                    .setSocketTimeout(15_000)
+                    .build());
+
+            if (StringUtils.hasText(instance.getApiKey())) {
+                request.setHeader("Authorization", "Bearer " + instance.getApiKey());
+            }
+            request.setHeader("Accept", "application/json");
+            request.setHeader("Content-Type", "application/json");
+            if (jsonBody != null) {
+                request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+            }
 
             try (CloseableHttpResponse response = client.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();
@@ -445,11 +1206,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     }
 
     private void applyDto(MonitorInstance instance, String name, String type, String baseUrl, String apiKey,
-                           Integer syncEnabled, Integer syncIntervalMinutes, Integer allowInsecureTls, String remark) {
+                           String username, Integer syncEnabled, Integer syncIntervalMinutes, Integer allowInsecureTls, String remark) {
         instance.setName(name != null ? name.trim() : null);
         instance.setType(type != null ? type.trim().toLowerCase(Locale.ROOT) : TYPE_KOMARI);
         instance.setBaseUrl(baseUrl != null ? baseUrl.trim().replaceAll("/+$", "") : null);
-        instance.setApiKey(apiKey != null ? apiKey.trim() : null);
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            instance.setApiKey(apiKey.trim());
+        }
+        if (username != null && !username.trim().isEmpty()) {
+            instance.setUsername(username.trim());
+        }
         instance.setSyncEnabled(syncEnabled != null ? syncEnabled : 1);
         instance.setSyncIntervalMinutes(syncIntervalMinutes != null ? syncIntervalMinutes : 5);
         instance.setAllowInsecureTls(allowInsecureTls != null ? allowInsecureTls : 0);
@@ -471,6 +1237,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         List<String> uuids = nodes.stream().map(MonitorNodeSnapshot::getRemoteNodeUuid).collect(Collectors.toList());
         Set<Long> instanceIds = nodes.stream().map(MonitorNodeSnapshot::getInstanceId).collect(Collectors.toSet());
 
+        // Build instance info map (name + type)
+        List<MonitorInstance> instances = this.listByIds(instanceIds);
+        Map<Long, MonitorInstance> instanceMap = instances.stream()
+                .collect(Collectors.toMap(MonitorInstance::getId, i -> i, (a, b) -> a));
+
         List<MonitorMetricLatest> metrics = monitorMetricLatestMapper.selectList(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .in(MonitorMetricLatest::getInstanceId, instanceIds)
                 .in(MonitorMetricLatest::getRemoteNodeUuid, uuids));
@@ -482,7 +1253,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return nodes.stream().map(node -> {
             MonitorNodeSnapshotViewDto dto = new MonitorNodeSnapshotViewDto();
             BeanUtils.copyProperties(node, dto);
-            dto.setInstanceName(instanceName);
+            // Fill instance name and type
+            MonitorInstance inst = instanceMap.get(node.getInstanceId());
+            if (inst != null) {
+                dto.setInstanceName(instanceName != null ? instanceName : inst.getName());
+                dto.setInstanceType(inst.getType());
+            } else {
+                dto.setInstanceName(instanceName);
+            }
 
             MonitorMetricLatest metric = metricMap.get(node.getInstanceId() + ":" + node.getRemoteNodeUuid());
             if (metric != null) {

@@ -633,7 +633,11 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             if (currentUser.getRoleId() != ADMIN_ROLE_ID) {
                 // 普通用户只能更新自己的转发
                 List<Long> forwardIds = forwardsList.stream()
-                        .map(item -> Long.valueOf(item.get("id").toString()))
+                        .map(item -> {
+                            Object idObj = item.get("id");
+                            if (idObj == null) throw new IllegalArgumentException("id不能为空");
+                            return Long.valueOf(idObj.toString());
+                        })
                         .collect(Collectors.toList());
 
                 // 检查所有转发是否属于当前用户
@@ -650,8 +654,11 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             // 4. 批量更新排序
             List<Forward> forwardsToUpdate = new ArrayList<>();
             for (Map<String, Object> forwardData : forwardsList) {
-                Long id = Long.valueOf(forwardData.get("id").toString());
-                Integer inx = Integer.valueOf(forwardData.get("inx").toString());
+                Object idObj = forwardData.get("id");
+                Object inxObj = forwardData.get("inx");
+                if (idObj == null || inxObj == null) continue;
+                Long id = Long.valueOf(idObj.toString());
+                Integer inx = Integer.valueOf(inxObj.toString());
 
                 Forward forward = new Forward();
                 forward.setId(id);

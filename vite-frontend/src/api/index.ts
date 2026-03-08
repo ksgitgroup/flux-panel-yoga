@@ -211,6 +211,13 @@ export interface AssetHost {
   gostNodeId?: number | null;
   gostNodeName?: string | null;
   monitorNodeUuid?: string | null;
+  pikaNodeId?: string | null;
+  cpuName?: string | null;
+  arch?: string | null;
+  virtualization?: string | null;
+  kernelVersion?: string | null;
+  gpuName?: string | null;
+  swapTotalMb?: number | null;
   remark?: string | null;
   totalXuiInstances: number;
   totalProtocols: number;
@@ -225,6 +232,12 @@ export interface AssetHost {
   monitorMemTotal?: number | null;
   monitorNetIn?: number | null;
   monitorNetOut?: number | null;
+  probeSource?: string | null;
+  monitorLastSyncAt?: number | null;
+  probeTrafficLimit?: number | null;
+  probeTrafficUsed?: number | null;
+  probeExpiredAt?: number | null;
+  probeTags?: string | null;
 }
 
 export interface AssetForwardLink {
@@ -245,15 +258,22 @@ export interface MonitorMetricLatest {
   cpuUsage?: number | null;
   memUsed?: number | null;
   memTotal?: number | null;
+  swapUsed?: number | null;
+  swapTotal?: number | null;
   diskUsed?: number | null;
   diskTotal?: number | null;
   netIn?: number | null;
   netOut?: number | null;
   netTotalUp?: number | null;
   netTotalDown?: number | null;
+  gpuUsage?: number | null;
+  temperature?: number | null;
   load1?: number | null;
+  load5?: number | null;
+  load15?: number | null;
   uptime?: number | null;
   connections?: number | null;
+  connectionsUdp?: number | null;
   processCount?: number | null;
   sampledAt?: number | null;
 }
@@ -262,6 +282,7 @@ export interface MonitorNodeSnapshot {
   id: number;
   instanceId: number;
   instanceName?: string | null;
+  instanceType?: string | null;
   remoteNodeUuid: string;
   assetId?: number | null;
   assetName?: string | null;
@@ -272,9 +293,26 @@ export interface MonitorNodeSnapshot {
   cpuName?: string | null;
   cpuCores?: number | null;
   memTotal?: number | null;
+  swapTotal?: number | null;
   diskTotal?: number | null;
   region?: string | null;
   version?: string | null;
+  virtualization?: string | null;
+  arch?: string | null;
+  kernelVersion?: string | null;
+  gpuName?: string | null;
+  hidden?: number | null;
+  tags?: string | null;
+  nodeGroup?: string | null;
+  weight?: number | null;
+  price?: number | null;
+  billingCycle?: number | null;
+  currency?: string | null;
+  expiredAt?: number | null;
+  trafficLimit?: number | null;
+  trafficLimitType?: string | null;
+  trafficUsed?: number | null;
+  trafficResetDay?: number | null;
   online?: number | null;
   lastActiveAt?: number | null;
   lastSyncAt?: number | null;
@@ -286,6 +324,8 @@ export interface MonitorInstance {
   name: string;
   type: string;
   baseUrl: string;
+  apiKey?: string | null;
+  username?: string | null;
   syncEnabled?: number | null;
   syncIntervalMinutes?: number | null;
   allowInsecureTls?: number | null;
@@ -480,3 +520,23 @@ export const deleteMonitorInstance = (id: number) => Network.post("/monitor/dele
 export const testMonitorInstance = (id: number) => Network.post("/monitor/test", { id });
 export const syncMonitorInstance = (id: number) => Network.post("/monitor/sync", { id });
 export const getMonitorUnboundNodes = () => Network.post<MonitorNodeSnapshot[]>("/monitor/unbound-nodes");
+
+export interface MonitorProvisionResult {
+  uuid: string;
+  token: string;
+  instanceId: number;
+  instanceName: string;
+  endpoint: string;
+  installCommand: string;
+}
+export const provisionMonitorAgent = (instanceId: number, name?: string) =>
+  Network.post<MonitorProvisionResult>("/monitor/provision", { instanceId, name });
+
+export interface DashboardNodesResponse {
+  nodes: MonitorNodeSnapshot[];
+  total: number;
+  online: number;
+  offline: number;
+}
+export const getMonitorDashboard = () => Network.post<DashboardNodesResponse>("/monitor/dashboard");
+export const deleteMonitorNode = (id: number) => Network.post("/monitor/delete-node", { id });

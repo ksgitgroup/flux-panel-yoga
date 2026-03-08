@@ -46,6 +46,9 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     @Resource
     private MonitorMetricLatestMapper monitorMetricLatestMapper;
 
+    @Resource
+    private MonitorInstanceMapper monitorInstanceMapper;
+
     @Override
     public R getAllAssets() {
         List<AssetHost> assets = this.list(new LambdaQueryWrapper<AssetHost>()
@@ -137,6 +140,14 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         if (forwardCount != null && forwardCount > 0) {
             return R.err("该资产仍被转发配置引用，无法删除");
         }
+        // Unlink monitor node snapshots referencing this asset
+        List<MonitorNodeSnapshot> linkedNodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>().eq(MonitorNodeSnapshot::getAssetId, id));
+        for (MonitorNodeSnapshot node : linkedNodes) {
+            node.setAssetId(null);
+            monitorNodeSnapshotMapper.updateById(node);
+        }
+
         this.removeById(asset.getId());
         return R.ok();
     }
@@ -266,11 +277,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 : nodeMapper.selectBatchIds(gostNodeIds).stream()
                 .collect(Collectors.toMap(Node::getId, Node::getName, (a, b) -> a));
 
-        // Monitor data - lookup by monitorNodeUuid
-        List<String> monitorUuids = assets.stream()
-                .map(AssetHost::getMonitorNodeUuid)
-                .filter(StringUtils::hasText)
-                .collect(Collectors.toList());
+        // Monitor data - lookup by monitorNodeUuid and pikaNodeId
+        List<String> monitorUuids = new ArrayList<>();
+        for (AssetHost a : assets) {
+            if (StringUtils.hasText(a.getMonitorNodeUuid())) monitorUuids.add(a.getMonitorNodeUuid());
+            if (StringUtils.hasText(a.getPikaNodeId())) monitorUuids.add(a.getPikaNodeId());
+        }
         Map<String, MonitorNodeSnapshot> nodeSnapshotByUuid = Collections.emptyMap();
         Map<String, MonitorMetricLatest> metricByUuid = Collections.emptyMap();
         if (!monitorUuids.isEmpty()) {
@@ -329,20 +341,85 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             dto.setTotalForwards(forwardCountMap.getOrDefault(asset.getId(), 0L).intValue());
             dto.setLastObservedAt(lastObservedAt == 0L ? null : lastObservedAt);
 
-            // Monitor enrichment
-            if (StringUtils.hasText(asset.getMonitorNodeUuid())) {
-                MonitorNodeSnapshot snapshot = nodeSnapshotByUuid.get(asset.getMonitorNodeUuid());
-                if (snapshot != null) {
-                    dto.setMonitorOnline(snapshot.getOnline());
+            // Monitor enrichment - check Komari first, then Pika, merge best data
+            {
+                MonitorNodeSnapshot bestSnapshot = null;
+                MonitorMetricLatest bestMetric = null;
+
+                // Komari probe
+                if (StringUtils.hasText(asset.getMonitorNodeUuid())) {
+                    MonitorNodeSnapshot ks = nodeSnapshotByUuid.get(asset.getMonitorNodeUuid());
+                    MonitorMetricLatest km = metricByUuid.get(asset.getMonitorNodeUuid());
+                    if (ks != null) bestSnapshot = ks;
+                    if (km != null) bestMetric = km;
                 }
-                MonitorMetricLatest metric = metricByUuid.get(asset.getMonitorNodeUuid());
-                if (metric != null) {
-                    dto.setMonitorCpuUsage(metric.getCpuUsage());
-                    dto.setMonitorMemUsed(metric.getMemUsed());
-                    dto.setMonitorMemTotal(metric.getMemTotal());
-                    dto.setMonitorNetIn(metric.getNetIn());
-                    dto.setMonitorNetOut(metric.getNetOut());
+                // Pika probe - use if no Komari data, or if Pika data is more recent
+                if (StringUtils.hasText(asset.getPikaNodeId())) {
+                    MonitorNodeSnapshot ps = nodeSnapshotByUuid.get(asset.getPikaNodeId());
+                    MonitorMetricLatest pm = metricByUuid.get(asset.getPikaNodeId());
+                    if (ps != null) {
+                        if (bestSnapshot == null) {
+                            bestSnapshot = ps;
+                        } else if (ps.getOnline() != null && ps.getOnline() == 1 && (bestSnapshot.getOnline() == null || bestSnapshot.getOnline() == 0)) {
+                            // Prefer online probe's data
+                            bestSnapshot = ps;
+                        }
+                    }
+                    if (pm != null) {
+                        if (bestMetric == null) {
+                            bestMetric = pm;
+                        } else if (pm.getSampledAt() != null && (bestMetric.getSampledAt() == null || pm.getSampledAt() > bestMetric.getSampledAt())) {
+                            bestMetric = pm;
+                        }
+                    }
                 }
+
+                if (bestSnapshot != null) {
+                    dto.setMonitorOnline(bestSnapshot.getOnline());
+                    dto.setMonitorLastSyncAt(bestSnapshot.getLastSyncAt());
+                }
+                if (bestMetric != null) {
+                    dto.setMonitorCpuUsage(bestMetric.getCpuUsage());
+                    dto.setMonitorMemUsed(bestMetric.getMemUsed());
+                    dto.setMonitorMemTotal(bestMetric.getMemTotal());
+                    dto.setMonitorNetIn(bestMetric.getNetIn());
+                    dto.setMonitorNetOut(bestMetric.getNetOut());
+                }
+
+                // Aggregate probe traffic/expiry/tags from all linked probes
+                Long maxSyncAt = null;
+                for (String uuid : new String[]{asset.getMonitorNodeUuid(), asset.getPikaNodeId()}) {
+                    if (!StringUtils.hasText(uuid)) continue;
+                    MonitorNodeSnapshot snap = nodeSnapshotByUuid.get(uuid);
+                    if (snap == null) continue;
+                    if (maxSyncAt == null || (snap.getLastSyncAt() != null && snap.getLastSyncAt() > maxSyncAt)) {
+                        maxSyncAt = snap.getLastSyncAt();
+                    }
+                    // Traffic: take the one with a limit configured
+                    if (snap.getTrafficLimit() != null && snap.getTrafficLimit() > 0) {
+                        dto.setProbeTrafficLimit(snap.getTrafficLimit());
+                        dto.setProbeTrafficUsed(snap.getTrafficUsed());
+                    }
+                    // Expiry: take the latest (most relevant)
+                    if (snap.getExpiredAt() != null && snap.getExpiredAt() > 0) {
+                        if (dto.getProbeExpiredAt() == null || snap.getExpiredAt() > dto.getProbeExpiredAt()) {
+                            dto.setProbeExpiredAt(snap.getExpiredAt());
+                        }
+                    }
+                    // Tags: merge from probes
+                    if (StringUtils.hasText(snap.getTags())) {
+                        dto.setProbeTags(snap.getTags());
+                    }
+                }
+                if (maxSyncAt != null) dto.setMonitorLastSyncAt(maxSyncAt);
+
+                // Probe source
+                boolean hasKomari = StringUtils.hasText(asset.getMonitorNodeUuid());
+                boolean hasPika = StringUtils.hasText(asset.getPikaNodeId());
+                if (hasKomari && hasPika) dto.setProbeSource("dual");
+                else if (hasKomari) dto.setProbeSource("komari");
+                else if (hasPika) dto.setProbeSource("pika");
+                else dto.setProbeSource("local");
             }
 
             result.add(dto);
@@ -354,11 +431,17 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     }
 
     private List<MonitorNodeSnapshotViewDto> buildMonitorNodesForAsset(AssetHost asset) {
-        List<MonitorNodeSnapshot> nodes;
-        if (StringUtils.hasText(asset.getMonitorNodeUuid())) {
+        List<MonitorNodeSnapshot> nodes = new ArrayList<>();
+        // Collect nodes from both Komari and Pika probe links
+        List<String> probeUuids = new ArrayList<>();
+        if (StringUtils.hasText(asset.getMonitorNodeUuid())) probeUuids.add(asset.getMonitorNodeUuid());
+        if (StringUtils.hasText(asset.getPikaNodeId())) probeUuids.add(asset.getPikaNodeId());
+
+        if (!probeUuids.isEmpty()) {
             nodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
-                    .eq(MonitorNodeSnapshot::getRemoteNodeUuid, asset.getMonitorNodeUuid()));
-        } else {
+                    .in(MonitorNodeSnapshot::getRemoteNodeUuid, probeUuids));
+        }
+        if (nodes.isEmpty()) {
             nodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                     .eq(MonitorNodeSnapshot::getAssetId, asset.getId()));
         }
@@ -369,6 +452,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
         List<String> uuids = nodes.stream().map(MonitorNodeSnapshot::getRemoteNodeUuid).collect(Collectors.toList());
         Set<Long> mInstanceIds = nodes.stream().map(MonitorNodeSnapshot::getInstanceId).collect(Collectors.toSet());
+
+        // Build instance type map
+        Map<Long, MonitorInstance> instanceMap = new HashMap<>();
+        if (!mInstanceIds.isEmpty()) {
+            monitorInstanceMapper.selectBatchIds(mInstanceIds).forEach(i -> instanceMap.put(i.getId(), i));
+        }
 
         List<MonitorMetricLatest> metrics = monitorMetricLatestMapper.selectList(
                 new LambdaQueryWrapper<MonitorMetricLatest>()
@@ -384,6 +473,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             BeanUtils.copyProperties(node, dto);
             dto.setAssetId(asset.getId());
             dto.setAssetName(asset.getName());
+            // Fill instance type
+            MonitorInstance inst = instanceMap.get(node.getInstanceId());
+            if (inst != null) {
+                dto.setInstanceName(inst.getName());
+                dto.setInstanceType(inst.getType());
+            }
 
             MonitorMetricLatest metric = metricMap.get(node.getInstanceId() + ":" + node.getRemoteNodeUuid());
             if (metric != null) {

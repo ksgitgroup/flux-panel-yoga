@@ -326,6 +326,12 @@ public class DatabaseInitService {
             updateColumn("asset_host", "tags", "varchar(500) DEFAULT NULL COMMENT '标签 (JSON 数组)'");
             updateColumn("asset_host", "gost_node_id", "bigint(20) DEFAULT NULL COMMENT '关联 GOST 节点 ID'");
             updateColumn("asset_host", "monitor_node_uuid", "varchar(64) DEFAULT NULL COMMENT '关联探针节点 UUID'");
+            updateColumn("asset_host", "cpu_name", "varchar(120) DEFAULT NULL COMMENT 'CPU 型号名称（探针同步）'");
+            updateColumn("asset_host", "arch", "varchar(30) DEFAULT NULL COMMENT '架构（探针同步）'");
+            updateColumn("asset_host", "virtualization", "varchar(30) DEFAULT NULL COMMENT '虚拟化类型（探针同步）'");
+            updateColumn("asset_host", "kernel_version", "varchar(120) DEFAULT NULL COMMENT '内核版本（探针同步）'");
+            updateColumn("asset_host", "gpu_name", "varchar(120) DEFAULT NULL COMMENT 'GPU 型号（探针同步）'");
+            updateColumn("asset_host", "swap_total_mb", "int(10) DEFAULT NULL COMMENT 'Swap 容量 (MB)（探针同步）'");
             updateColumn("node", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
             log.info("[DatabaseInit] AssetHost VPS 管理字段增量升级完成");
         } catch (Exception e) {
@@ -411,6 +417,46 @@ public class DatabaseInitService {
                     "KEY `idx_monitor_metric_node` (`node_snapshot_id`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='探针最新指标表'";
             jdbcTemplate.execute(createMonitorMetricLatestTable);
+
+            // Fix: ensure updated_time has a default value to prevent insert failures
+            try {
+                jdbcTemplate.execute("ALTER TABLE `monitor_node_snapshot` MODIFY COLUMN `updated_time` bigint(20) NOT NULL DEFAULT 0 COMMENT '更新时间'");
+                jdbcTemplate.execute("ALTER TABLE `monitor_metric_latest` MODIFY COLUMN `updated_time` bigint(20) NOT NULL DEFAULT 0 COMMENT '更新时间'");
+            } catch (Exception e) {
+                log.debug("[DatabaseInit] updated_time default migration: {}", e.getMessage());
+            }
+
+            // Add new columns to monitor_node_snapshot (v2 expansion)
+            updateColumn("monitor_node_snapshot", "virtualization", "varchar(50) DEFAULT NULL COMMENT '虚拟化类型'");
+            updateColumn("monitor_node_snapshot", "arch", "varchar(50) DEFAULT NULL COMMENT 'CPU 架构'");
+            updateColumn("monitor_node_snapshot", "kernel_version", "varchar(100) DEFAULT NULL COMMENT '内核版本'");
+            updateColumn("monitor_node_snapshot", "gpu_name", "varchar(100) DEFAULT NULL COMMENT 'GPU 型号'");
+            updateColumn("monitor_node_snapshot", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");
+            updateColumn("monitor_node_snapshot", "hidden", "tinyint(1) DEFAULT 0 COMMENT '是否隐藏'");
+            updateColumn("monitor_node_snapshot", "tags", "text DEFAULT NULL COMMENT '标签（分号分隔）'");
+            updateColumn("monitor_node_snapshot", "node_group", "varchar(100) DEFAULT NULL COMMENT '分组'");
+            updateColumn("monitor_node_snapshot", "weight", "int(10) DEFAULT NULL COMMENT '排序权重'");
+            updateColumn("monitor_node_snapshot", "price", "double DEFAULT NULL COMMENT '价格'");
+            updateColumn("monitor_node_snapshot", "billing_cycle", "int(10) DEFAULT NULL COMMENT '计费周期'");
+            updateColumn("monitor_node_snapshot", "currency", "varchar(20) DEFAULT NULL COMMENT '货币符号'");
+            updateColumn("monitor_node_snapshot", "expired_at", "bigint(20) DEFAULT NULL COMMENT '到期时间'");
+            updateColumn("monitor_node_snapshot", "traffic_limit", "bigint(20) DEFAULT NULL COMMENT '流量限额 (bytes)'");
+            updateColumn("monitor_node_snapshot", "traffic_limit_type", "varchar(10) DEFAULT NULL COMMENT '流量限额类型'");
+            updateColumn("monitor_node_snapshot", "traffic_used", "bigint(20) DEFAULT NULL COMMENT '已用流量 (bytes)'");
+            updateColumn("monitor_node_snapshot", "traffic_reset_day", "int(10) DEFAULT NULL COMMENT '流量重置日(1-31)'");
+
+            // Add new columns to monitor_metric_latest (v2 expansion)
+            updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");
+            updateColumn("monitor_metric_latest", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");
+            updateColumn("monitor_metric_latest", "gpu_usage", "double DEFAULT NULL COMMENT 'GPU 使用率 (%)'");
+            updateColumn("monitor_metric_latest", "temperature", "double DEFAULT NULL COMMENT '温度 (°C)'");
+            updateColumn("monitor_metric_latest", "load5", "double DEFAULT NULL COMMENT '5 分钟负载'");
+            updateColumn("monitor_metric_latest", "load15", "double DEFAULT NULL COMMENT '15 分钟负载'");
+            updateColumn("monitor_metric_latest", "connections_udp", "int(10) DEFAULT NULL COMMENT 'UDP 连接数'");
+
+            // Pika integration: add username to monitor_instance, pikaNodeId to asset_host
+            updateColumn("monitor_instance", "username", "varchar(120) DEFAULT NULL COMMENT 'Pika 登录用户名'");
+            updateColumn("asset_host", "pika_node_id", "varchar(64) DEFAULT NULL COMMENT 'Pika 探针节点 ID'");
 
             log.info("[DatabaseInit] Monitor 探针集成表校验成功");
         } catch (Exception e) {

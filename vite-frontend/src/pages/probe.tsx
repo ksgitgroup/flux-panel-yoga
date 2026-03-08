@@ -37,6 +37,7 @@ interface InstanceForm {
   type: string;
   baseUrl: string;
   apiKey: string;
+  username: string;
   syncEnabled: number;
   syncIntervalMinutes: number;
   allowInsecureTls: number;
@@ -44,7 +45,7 @@ interface InstanceForm {
 }
 
 const defaultForm: InstanceForm = {
-  name: '', type: 'komari', baseUrl: '', apiKey: '',
+  name: '', type: 'komari', baseUrl: '', apiKey: '', username: '',
   syncEnabled: 1, syncIntervalMinutes: 5, allowInsecureTls: 0, remark: '',
 };
 
@@ -131,7 +132,7 @@ export default function ProbePage() {
     }
     setActionLoading('save');
     try {
-      const payload = { ...form, name: form.name.trim(), baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), remark: form.remark.trim() };
+      const payload = { ...form, name: form.name.trim(), baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), username: form.username.trim(), remark: form.remark.trim() };
       const res = isEdit ? await updateMonitorInstance(payload) : await createMonitorInstance(payload);
       if (res.code === 0) {
         toast.success(isEdit ? '已更新' : '已创建');
@@ -160,7 +161,7 @@ export default function ProbePage() {
   const openEditModal = (inst: MonitorInstance) => {
     setForm({
       id: inst.id, name: inst.name || '', type: inst.type || 'komari', baseUrl: inst.baseUrl || '',
-      apiKey: '', syncEnabled: inst.syncEnabled ?? 1, syncIntervalMinutes: inst.syncIntervalMinutes ?? 5,
+      apiKey: '', username: inst.username || '', syncEnabled: inst.syncEnabled ?? 1, syncIntervalMinutes: inst.syncIntervalMinutes ?? 5,
       allowInsecureTls: inst.allowInsecureTls ?? 0, remark: inst.remark || '',
     });
     setIsEdit(true); onOpen();
@@ -304,15 +305,19 @@ export default function ProbePage() {
             <Input label="实例名称" placeholder="例如：我的 Komari" isRequired value={form.name} onValueChange={(v) => setForm(p => ({ ...p, name: v }))} />
             <Select label="探针类型" selectedKeys={[form.type]} onSelectionChange={(keys) => { const val = Array.from(keys)[0] as string; if (val) setForm(p => ({ ...p, type: val })); }}>
               <SelectItem key="komari">Komari</SelectItem>
-              <SelectItem key="pika">Pika (即将支持)</SelectItem>
+              <SelectItem key="pika">Pika</SelectItem>
             </Select>
 
             <Divider />
             <div className="text-xs text-default-500 font-medium tracking-wide">连接配置</div>
-            <Input label="服务器地址" placeholder="https://your-komari.com:25774" isRequired value={form.baseUrl}
-              onValueChange={(v) => setForm(p => ({ ...p, baseUrl: v }))} description="Komari 服务端的完整地址（含端口）" />
-            <Input label="API Key" placeholder="Komari 管理员 API 密钥" type="password" value={form.apiKey}
-              onValueChange={(v) => setForm(p => ({ ...p, apiKey: v }))} description={isEdit ? "留空则保持原有密钥" : "在 Komari 后台「设置」中生成"} />
+            <Input label="服务器地址" placeholder={form.type === 'pika' ? 'https://your-pika.com:8080' : 'https://your-komari.com:25774'} isRequired value={form.baseUrl}
+              onValueChange={(v) => setForm(p => ({ ...p, baseUrl: v }))} description={form.type === 'pika' ? 'Pika 服务端的完整地址（含端口）' : 'Komari 服务端的完整地址（含端口）'} />
+            {form.type === 'pika' && (
+              <Input label="用户名" placeholder="admin" value={form.username}
+                onValueChange={(v) => setForm(p => ({ ...p, username: v }))} description="Pika 管理员用户名（默认 admin）" />
+            )}
+            <Input label={form.type === 'pika' ? '密码' : 'API Key'} placeholder={form.type === 'pika' ? 'Pika 管理员密码' : 'Komari 管理员 API 密钥'} type="password" value={form.apiKey}
+              onValueChange={(v) => setForm(p => ({ ...p, apiKey: v }))} description={isEdit ? '留空则保持原有凭证' : (form.type === 'pika' ? '在 Pika 管理面板中设置的密码' : '在 Komari 后台「设置」中生成')} />
             <Switch isSelected={form.allowInsecureTls === 1} onValueChange={(v) => setForm(p => ({ ...p, allowInsecureTls: v ? 1 : 0 }))}>
               <span className="text-sm">跳过 TLS 证书验证（自签名证书）</span>
             </Switch>

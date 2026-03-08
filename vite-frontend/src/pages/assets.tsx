@@ -60,6 +60,7 @@ interface AssetForm {
   currency: string;
   tags: string;
   monitorNodeUuid: string;
+  pikaNodeId: string;
   cpuName: string;
   arch: string;
   virtualization: string;
@@ -73,7 +74,7 @@ const emptyForm = (): AssetForm => ({
   name: '', label: '', primaryIp: '', ipv6: '', environment: '', provider: '', region: '',
   role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
-  currency: 'CNY', tags: '', monitorNodeUuid: '', cpuName: '', arch: '', virtualization: '',
+  currency: 'CNY', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
   kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '',
 });
 
@@ -215,7 +216,7 @@ export default function AssetsPage() {
 
   const summary = useMemo(() => {
     const online = assets.filter(a => a.monitorOnline === 1).length;
-    const hasMonitor = assets.filter(a => a.monitorNodeUuid).length;
+    const hasMonitor = assets.filter(a => a.monitorNodeUuid || a.pikaNodeId).length;
     return {
       totalAssets: assets.length,
       onlineAssets: online,
@@ -290,6 +291,9 @@ export default function AssetsPage() {
     const memMb = node.memTotal ? Math.round(node.memTotal / (1024 * 1024)) : undefined;
     const diskGb = node.diskTotal ? Math.round(node.diskTotal / (1024 * 1024 * 1024)) : undefined;
     const swapMb = node.swapTotal ? Math.round(node.swapTotal / (1024 * 1024)) : undefined;
+    // Determine probe type from instance
+    const inst = monitorInstances.find(i => i.id === node.instanceId);
+    const isPika = inst?.type === 'pika';
     setForm(p => ({
       ...p,
       name: p.name || node.name || '',
@@ -301,14 +305,15 @@ export default function AssetsPage() {
       diskTotalGb: diskGb?.toString() || p.diskTotalGb,
       swapTotalMb: swapMb?.toString() || p.swapTotalMb,
       region: node.region || p.region,
-      monitorNodeUuid: node.remoteNodeUuid || p.monitorNodeUuid,
+      monitorNodeUuid: isPika ? p.monitorNodeUuid : (node.remoteNodeUuid || p.monitorNodeUuid),
+      pikaNodeId: isPika ? (node.remoteNodeUuid || p.pikaNodeId) : p.pikaNodeId,
       cpuName: node.cpuName || p.cpuName,
       arch: node.arch || p.arch,
       virtualization: node.virtualization || p.virtualization,
       kernelVersion: node.kernelVersion || p.kernelVersion,
       gpuName: node.gpuName || p.gpuName,
     }));
-    toast.success(`已导入探针节点: ${node.name || node.ip}`);
+    toast.success(`已导入${isPika ? 'Pika' : 'Komari'}探针节点: ${node.name || node.ip}`);
   };
 
   const openProvisionModal = async () => {
@@ -355,7 +360,7 @@ export default function AssetsPage() {
       monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
       purchaseDate: tsToDateInput(asset.purchaseDate), expireDate: tsToDateInput(asset.expireDate),
       monthlyCost: asset.monthlyCost || '', currency: asset.currency || 'CNY',
-      tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '',
+      tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', pikaNodeId: asset.pikaNodeId || '',
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
       swapTotalMb: asset.swapTotalMb?.toString() || '', remark: asset.remark || '',
@@ -397,6 +402,7 @@ export default function AssetsPage() {
         currency: form.currency || null,
         tags: form.tags.trim() || null,
         monitorNodeUuid: form.monitorNodeUuid.trim() || null,
+        pikaNodeId: form.pikaNodeId.trim() || null,
         cpuName: form.cpuName.trim() || null,
         arch: form.arch.trim() || null,
         virtualization: form.virtualization.trim() || null,
@@ -564,7 +570,7 @@ export default function AssetsPage() {
                 <tbody>
                   {filteredAssets.map((asset) => {
                     const isOnline = asset.monitorOnline === 1;
-                    const hasMonitor = !!asset.monitorNodeUuid;
+                    const hasMonitor = !!(asset.monitorNodeUuid || asset.pikaNodeId);
                     const cpu = asset.monitorCpuUsage || 0;
                     const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
                     const roleChip = getRoleChip(asset.role);
@@ -677,7 +683,7 @@ export default function AssetsPage() {
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:hidden">
             {filteredAssets.map((asset) => {
               const isOnline = asset.monitorOnline === 1;
-              const hasMonitor = !!asset.monitorNodeUuid;
+              const hasMonitor = !!(asset.monitorNodeUuid || asset.pikaNodeId);
               const cpu = asset.monitorCpuUsage || 0;
               const memPct = asset.monitorMemTotal ? ((asset.monitorMemUsed || 0) / asset.monitorMemTotal * 100) : 0;
               const roleChip = getRoleChip(asset.role);
@@ -740,7 +746,7 @@ export default function AssetsPage() {
             <>
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success animate-pulse' : selectedAsset.monitorNodeUuid ? 'bg-danger' : 'bg-default-300'}`} />
+                  <span className={`inline-block h-3 w-3 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success animate-pulse' : (selectedAsset.monitorNodeUuid || selectedAsset.pikaNodeId) ? 'bg-danger' : 'bg-default-300'}`} />
                   <span className="text-lg font-bold">{selectedAsset.name}</span>
                   {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
                   {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
@@ -756,7 +762,8 @@ export default function AssetsPage() {
                   <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器</p>
-                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>探针</Chip>}
+                      {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Komari</Chip>}
+                      {selectedAsset.pikaNodeId && <Chip size="sm" variant="flat" color="warning" classNames={{content: "text-[10px]"}}>Pika</Chip>}
                     </div>
                     <div className="space-y-1 text-xs">
                       <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono">{selectedAsset.os || '-'}</span></p>
@@ -1065,8 +1072,8 @@ export default function AssetsPage() {
               <div className="flex items-center gap-2 mb-1">
                 <Chip size="sm" variant="flat" color="secondary">探针同步</Chip>
                 <span className="text-[11px] text-default-400">
-                  {form.monitorNodeUuid
-                    ? '已绑定探针，以下字段会在同步时自动覆盖（Komari → Flux 单向同步，在 Flux 修改不会回写探针）'
+                  {(form.monitorNodeUuid || form.pikaNodeId)
+                    ? `已绑定${form.monitorNodeUuid && form.pikaNodeId ? '双探针 (Komari + Pika)' : form.monitorNodeUuid ? 'Komari 探针' : 'Pika 探针'}，以下字段会在同步时自动覆盖（探针 → Flux 单向同步）`
                     : '绑定探针后可自动同步，也可手动填写'}
                 </span>
               </div>
@@ -1074,43 +1081,43 @@ export default function AssetsPage() {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Input label="操作系统" placeholder="Ubuntu 22" value={form.os}
                   onValueChange={(v) => setForm(p => ({ ...p, os: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="CPU 核心" type="number" value={form.cpuCores}
                   onValueChange={(v) => setForm(p => ({ ...p, cpuCores: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="内存 (MB)" type="number" value={form.memTotalMb}
                   onValueChange={(v) => setForm(p => ({ ...p, memTotalMb: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="硬盘 (GB)" type="number" value={form.diskTotalGb}
                   onValueChange={(v) => setForm(p => ({ ...p, diskTotalGb: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Input label="CPU 型号" placeholder="AMD EPYC 7543" value={form.cpuName}
                   onValueChange={(v) => setForm(p => ({ ...p, cpuName: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="架构" placeholder="amd64" value={form.arch}
                   onValueChange={(v) => setForm(p => ({ ...p, arch: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="虚拟化" placeholder="kvm / lxc" value={form.virtualization}
                   onValueChange={(v) => setForm(p => ({ ...p, virtualization: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="Swap (MB)" type="number" value={form.swapTotalMb}
                   onValueChange={(v) => setForm(p => ({ ...p, swapTotalMb: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <Input label="内核版本" placeholder="6.1.0-13-amd64" value={form.kernelVersion}
                   onValueChange={(v) => setForm(p => ({ ...p, kernelVersion: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="GPU" placeholder="NVIDIA RTX 4090" value={form.gpuName}
                   onValueChange={(v) => setForm(p => ({ ...p, gpuName: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
                 <Input label="IPv6" value={form.ipv6}
                   onValueChange={(v) => setForm(p => ({ ...p, ipv6: v }))}
-                  description={form.monitorNodeUuid ? '探针自动同步' : undefined} />
+                  description={(form.monitorNodeUuid || form.pikaNodeId) ? '探针自动同步' : undefined} />
               </div>
             </div>
 
@@ -1128,14 +1135,24 @@ export default function AssetsPage() {
                       onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
                   </div>
 
-                  <p className="text-xs font-medium text-default-400">关联</p>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="探针节点 UUID" placeholder="Komari 节点 UUID（绑定后自动同步指标）" value={form.monitorNodeUuid}
+                  <p className="text-xs font-medium text-default-400">关联探针</p>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <Input label="Komari 节点 UUID" placeholder="绑定后自动同步指标" value={form.monitorNodeUuid}
                       onValueChange={(v) => setForm(p => ({ ...p, monitorNodeUuid: v }))}
-                      description="绑定探针后，服务器看板和资产详情会自动展示实时指标" />
+                      description="Komari 探针 UUID" />
+                    <Input label="Pika 节点 ID" placeholder="绑定后自动同步指标" value={form.pikaNodeId}
+                      onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))}
+                      description="Pika 探针 Agent ID" />
                     <Input label="标签 (JSON)" placeholder='["tag1","tag2"]' value={form.tags}
                       onValueChange={(v) => setForm(p => ({ ...p, tags: v }))} />
                   </div>
+                  {(form.monitorNodeUuid || form.pikaNodeId) && (
+                    <p className="text-[11px] text-default-400 mt-1">
+                      {form.monitorNodeUuid && form.pikaNodeId
+                        ? '已绑定双探针 (Komari + Pika)，同步时两个探针数据可交叉验证'
+                        : form.monitorNodeUuid ? '已绑定 Komari 探针' : '已绑定 Pika 探针'}
+                    </p>
+                  )}
                 </div>
               </AccordionItem>
             </Accordion>

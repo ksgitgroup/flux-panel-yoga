@@ -56,6 +56,8 @@ public class AssetHostUpdateDto {
 
     private String monitorNodeUuid;
 
+    private String pikaNodeId;
+
     private String cpuName;
 
     private String arch;

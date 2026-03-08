@@ -55,6 +55,8 @@ public class AssetHost extends BaseEntity {
 
     private String monitorNodeUuid;
 
+    private String pikaNodeId;
+
     // Probe-synced hardware detail fields
     private String cpuName;
 

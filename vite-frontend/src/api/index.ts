@@ -211,6 +211,7 @@ export interface AssetHost {
   gostNodeId?: number | null;
   gostNodeName?: string | null;
   monitorNodeUuid?: string | null;
+  pikaNodeId?: string | null;
   cpuName?: string | null;
   arch?: string | null;
   virtualization?: string | null;
@@ -315,6 +316,7 @@ export interface MonitorInstance {
   type: string;
   baseUrl: string;
   apiKey?: string | null;
+  username?: string | null;
   syncEnabled?: number | null;
   syncIntervalMinutes?: number | null;
   allowInsecureTls?: number | null;

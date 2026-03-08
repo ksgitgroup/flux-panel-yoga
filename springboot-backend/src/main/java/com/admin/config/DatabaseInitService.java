@@ -444,6 +444,10 @@ public class DatabaseInitService {
             updateColumn("monitor_metric_latest", "load15", "double DEFAULT NULL COMMENT '15 分钟负载'");
             updateColumn("monitor_metric_latest", "connections_udp", "int(10) DEFAULT NULL COMMENT 'UDP 连接数'");
 
+            // Pika integration: add username to monitor_instance, pikaNodeId to asset_host
+            updateColumn("monitor_instance", "username", "varchar(120) DEFAULT NULL COMMENT 'Pika 登录用户名'");
+            updateColumn("asset_host", "pika_node_id", "varchar(64) DEFAULT NULL COMMENT 'Pika 探针节点 ID'");
+
             log.info("[DatabaseInit] Monitor 探针集成表校验成功");
         } catch (Exception e) {
             log.error("[DatabaseInit] Monitor 探针集成表创建失败: {}", e.getMessage());

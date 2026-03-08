@@ -56,6 +56,14 @@ function handleTokenExpired() {
   window.localStorage.removeItem('token');
   window.localStorage.removeItem('role_id');
   window.localStorage.removeItem('name');
+  window.localStorage.removeItem('admin');
+  window.localStorage.removeItem('principal_type');
+  window.localStorage.removeItem('auth_source');
+  window.localStorage.removeItem('permissions');
+  window.localStorage.removeItem('role_codes');
+  window.localStorage.removeItem('email');
+  window.localStorage.removeItem('force_password_change');
+  window.localStorage.removeItem('force_two_factor_setup');
   
   // 跳转到登录页面
   if (window.location.pathname !== '/') {

@@ -17,7 +17,7 @@ import {
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, toggleAlertRule,
   getAlertLogs, clearAlertLogs,
 } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 
 const METRICS = [
   { value: 'cpu', label: 'CPU 使用率 (%)' },
@@ -66,7 +66,8 @@ function formatTime(ts?: number | null): string {
 }
 
 export default function AlertPage() {
-  const admin = isAdmin();
+  const canViewAlerts = hasPermission('alert.read');
+  const canManageAlerts = hasPermission('alert.write');
   const [tab, setTab] = useState<'rules' | 'logs'>('rules');
 
   // Rules state
@@ -112,6 +113,10 @@ export default function AlertPage() {
   }, [fetchRules, fetchLogs]);
 
   const handleSave = async () => {
+    if (!canManageAlerts) {
+      toast.error('权限不足，无法保存告警规则');
+      return;
+    }
     if (!editRule?.name || !editRule?.metric) {
       toast.error('请填写必要字段');
       return;
@@ -131,6 +136,10 @@ export default function AlertPage() {
   };
 
   const handleDelete = async (id: number) => {
+    if (!canManageAlerts) {
+      toast.error('权限不足，无法删除告警规则');
+      return;
+    }
     if (!confirm('确定删除此告警规则？')) return;
     try {
       const res = await deleteAlertRule(id);
@@ -140,6 +149,10 @@ export default function AlertPage() {
   };
 
   const handleToggle = async (id: number) => {
+    if (!canManageAlerts) {
+      toast.error('权限不足，无法变更告警规则状态');
+      return;
+    }
     try {
       const res = await toggleAlertRule(id);
       if (res.code === 0) fetchRules();
@@ -147,6 +160,10 @@ export default function AlertPage() {
   };
 
   const openCreate = () => {
+    if (!canManageAlerts) {
+      toast.error('权限不足，无法创建告警规则');
+      return;
+    }
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
       durationSeconds: 0, scopeType: 'all', notifyType: 'log',
@@ -156,14 +173,18 @@ export default function AlertPage() {
   };
 
   const openEdit = (rule: AlertRule) => {
+    if (!canManageAlerts) {
+      toast.error('权限不足，无法编辑告警规则');
+      return;
+    }
     setEditRule({ ...rule });
     onOpen();
   };
 
-  if (!admin) {
+  if (!canViewAlerts) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
-        <CardBody className="p-6"><h1 className="text-xl font-semibold text-danger">仅管理员可访问</h1></CardBody>
+        <CardBody className="p-6"><h1 className="text-xl font-semibold text-danger">缺少告警查看权限</h1></CardBody>
       </Card>
     );
   }
@@ -184,7 +205,9 @@ export default function AlertPage() {
       {tab === 'rules' && (
         <>
           <div className="flex justify-end">
+            {canManageAlerts && (
             <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>
+            )}
           </div>
 
           {rulesLoading ? (
@@ -198,7 +221,7 @@ export default function AlertPage() {
             <div className="space-y-2">
               {rules.map(rule => (
                 <div key={rule.id} className={`rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center gap-3 ${rule.enabled ? 'border-divider/60 bg-content1' : 'border-divider/40 bg-default-50 opacity-60'}`}>
-                  <Switch size="sm" isSelected={rule.enabled === 1} onValueChange={() => handleToggle(rule.id)} />
+                  <Switch size="sm" isSelected={rule.enabled === 1} isDisabled={!canManageAlerts} onValueChange={() => handleToggle(rule.id)} />
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
@@ -224,10 +247,12 @@ export default function AlertPage() {
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
                   </div>
-                  <div className="flex gap-1 ml-auto sm:ml-0">
-                    <Button size="sm" variant="flat" onPress={() => openEdit(rule)}>编辑</Button>
-                    <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>
-                  </div>
+                  {canManageAlerts && (
+                    <div className="flex gap-1 ml-auto sm:ml-0">
+                      <Button size="sm" variant="flat" onPress={() => openEdit(rule)}>编辑</Button>
+                      <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -241,12 +266,14 @@ export default function AlertPage() {
             <p className="text-sm text-default-500">共 {logsTotal} 条告警记录</p>
             <div className="flex gap-2">
               <Button size="sm" variant="flat" onPress={() => fetchLogs(logsPage)}>刷新</Button>
-              <Button size="sm" variant="flat" color="danger" onPress={async () => {
-                if (!confirm('确定清除所有告警日志？')) return;
-                await clearAlertLogs();
-                toast.success('已清除');
-                fetchLogs(1);
-              }}>清除全部</Button>
+              {canManageAlerts && (
+                <Button size="sm" variant="flat" color="danger" onPress={async () => {
+                  if (!confirm('确定清除所有告警日志？')) return;
+                  await clearAlertLogs();
+                  toast.success('已清除');
+                  fetchLogs(1);
+                }}>清除全部</Button>
+              )}
             </div>
           </div>
 

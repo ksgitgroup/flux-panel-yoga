@@ -2,6 +2,7 @@ import { ReactNode, useMemo } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Chip } from "@heroui/chip";
 import { siteConfig } from '@/config/site';
+import { hasAnyPermission } from '@/utils/auth';
 
 interface WorkspaceItem {
   key: string;
@@ -10,6 +11,7 @@ interface WorkspaceItem {
   group: string;
   search?: string;
   icon: ReactNode;
+  requiredPermissions?: string[];
 }
 
 const navItems: WorkspaceItem[] = [
@@ -19,6 +21,7 @@ const navItems: WorkspaceItem[] = [
     path: '/config',
     search: 'section=basic',
     group: '网站配置',
+    requiredPermissions: ['site_config.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h10" />
@@ -31,6 +34,7 @@ const navItems: WorkspaceItem[] = [
     path: '/config',
     search: 'section=security',
     group: '网站配置',
+    requiredPermissions: ['site_config.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 1.105-.895 2-2 2m2-2a2 2 0 114 0m-4 0v3m4-3v3m5-5V7a2 2 0 00-2-2h-1V4a4 4 0 10-8 0v1H9a2 2 0 00-2 2v2m14 0v10a2 2 0 01-2 2H5a2 2 0 01-2-2V9m18 0H3" />
@@ -43,6 +47,7 @@ const navItems: WorkspaceItem[] = [
     path: '/config',
     search: 'section=diagnosis',
     group: '网站配置',
+    requiredPermissions: ['site_config.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} points="22 12 18 12 15 21 9 3 6 12 2 12" />
@@ -55,6 +60,7 @@ const navItems: WorkspaceItem[] = [
     path: '/config',
     search: 'section=alerting',
     group: '网站配置',
+    requiredPermissions: ['site_config.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.17V11a6 6 0 10-12 0v3.17a2 2 0 01-.6 1.43L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -66,9 +72,35 @@ const navItems: WorkspaceItem[] = [
     label: '用户管理',
     path: '/user',
     group: '系统资源',
+    requiredPermissions: ['biz_user.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5V18a4 4 0 00-4-4h-1m-4 6H7m6 0v-2a4 4 0 00-4-4H7m6 6a4 4 0 00-4-4m0 0a4 4 0 100-8 4 4 0 000 8m8 0a4 4 0 100-8 4 4 0 000 8" />
+      </svg>
+    ),
+  },
+  {
+    key: 'iam-users',
+    label: '组织用户',
+    path: '/iam/users',
+    group: '企业 IAM',
+    requiredPermissions: ['iam_user.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5V18a4 4 0 00-4-4h-1m-4 6H7m6 0v-2a4 4 0 00-4-4H7m6 6a4 4 0 00-4-4m0 0a4 4 0 100-8 4 4 0 000 8m8 0a4 4 0 100-8 4 4 0 000 8" />
+      </svg>
+    ),
+  },
+  {
+    key: 'iam-roles',
+    label: '角色权限',
+    path: '/iam/roles',
+    group: '企业 IAM',
+    requiredPermissions: ['iam_role.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2l7 4v6c0 5-3.5 9.74-7 10-3.5-.26-7-5-7-10V6l7-4z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4" />
       </svg>
     ),
   },
@@ -77,6 +109,7 @@ const navItems: WorkspaceItem[] = [
     label: '限速管理',
     path: '/limit',
     group: '系统资源',
+    requiredPermissions: ['speed_limit.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -88,6 +121,7 @@ const navItems: WorkspaceItem[] = [
     label: '协议管理',
     path: '/protocol',
     group: '系统资源',
+    requiredPermissions: ['protocol.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h10" />
@@ -99,6 +133,7 @@ const navItems: WorkspaceItem[] = [
     label: '标签管理',
     path: '/tag',
     group: '系统资源',
+    requiredPermissions: ['tag.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -110,6 +145,7 @@ const navItems: WorkspaceItem[] = [
     label: '探针配置',
     path: '/probe',
     group: '外部集成',
+    requiredPermissions: ['probe.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
@@ -122,6 +158,7 @@ const navItems: WorkspaceItem[] = [
     label: 'X-UI 管理',
     path: '/xui',
     group: '外部集成',
+    requiredPermissions: ['xui.read'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M7 12h10M10 17h4" />
@@ -133,6 +170,7 @@ const navItems: WorkspaceItem[] = [
     label: '导航配置',
     path: '/portal/config',
     group: '外部集成',
+    requiredPermissions: ['portal.write'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
@@ -147,11 +185,13 @@ export function SystemWorkspace({ children }: { children: ReactNode }) {
   const currentSection = searchParams.get('section') || 'basic';
 
   const groupedNav = useMemo(() => {
-    return navItems.reduce<Record<string, WorkspaceItem[]>>((acc, item) => {
+    return navItems
+      .filter((item) => hasAnyPermission(item.requiredPermissions || []))
+      .reduce<Record<string, WorkspaceItem[]>>((acc, item) => {
       acc[item.group] ||= [];
       acc[item.group].push(item);
       return acc;
-    }, {});
+      }, {});
   }, []);
 
   const isActive = (item: WorkspaceItem) => {

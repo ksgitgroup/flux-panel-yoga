@@ -22,7 +22,7 @@ import {
   deleteMonitorNode,
   getTerminalAccessUrl,
 } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
 
 // ===================== Helpers =====================
@@ -289,7 +289,10 @@ function NodeCharts({ nodeId, range }: { nodeId: number; range: string }) {
 
 export default function ServerDashboardPage() {
   const navigate = useNavigate();
-  const admin = isAdmin();
+  const canViewServerDashboard = hasPermission('server_dashboard.read');
+  const canViewAssets = hasPermission('asset.read');
+  const canViewProbe = hasPermission('probe.read');
+  const canViewAlerts = hasPermission('alert.read');
   const [nodes, setNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -440,10 +443,10 @@ export default function ServerDashboardPage() {
     return list;
   }, [nodes, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter]);
 
-  if (!admin) {
+  if (!canViewServerDashboard) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
-        <CardBody className="p-6"><h1 className="text-xl font-semibold text-danger">仅管理员可访问</h1></CardBody>
+        <CardBody className="p-6"><h1 className="text-xl font-semibold text-danger">缺少服务器看板查看权限</h1></CardBody>
       </Card>
     );
   }
@@ -464,9 +467,9 @@ export default function ServerDashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="flat" onPress={() => navigate('/assets')}>资产管理</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针配置</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/alert')}>告警管理</Button>
+          {canViewAssets && <Button size="sm" variant="flat" onPress={() => navigate('/assets')}>资产管理</Button>}
+          {canViewProbe && <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针配置</Button>}
+          {canViewAlerts && <Button size="sm" variant="flat" onPress={() => navigate('/alert')}>告警管理</Button>}
         </div>
       </div>
 

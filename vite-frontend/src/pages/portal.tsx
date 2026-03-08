@@ -8,7 +8,7 @@ import { Spinner } from "@heroui/spinner";
 import toast from 'react-hot-toast';
 
 import { getPortalLinks, PortalLink } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 const isInternalLink = (href: string) => href.startsWith('/');
@@ -39,19 +39,20 @@ const getLinkDescription = (item: PortalLink) => {
 
 export default function PortalPage() {
   const navigate = useNavigate();
-  const admin = isAdmin();
+  const canViewPortal = hasPermission('portal.read');
+  const canManagePortal = hasPermission('portal.write');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<PortalLink[]>([]);
   const [searchKeyword, setSearchKeyword] = useState('');
 
   useEffect(() => {
-    if (!admin) {
-      toast.error('权限不足，只有管理员可以访问自定义导航');
+    if (!canViewPortal) {
+      toast.error('权限不足，无法访问自定义导航');
       navigate('/dashboard', { replace: true });
       return;
     }
     void loadPortalLinks();
-  }, [admin, navigate]);
+  }, [canViewPortal, navigate]);
 
   const loadPortalLinks = async () => {
     setLoading(true);
@@ -116,7 +117,7 @@ export default function PortalPage() {
     window.open(item.href, '_blank', 'noopener,noreferrer');
   };
 
-  if (!admin) {
+  if (!canViewPortal) {
     return null;
   }
 
@@ -147,7 +148,7 @@ export default function PortalPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {admin ? (
+            {canManagePortal ? (
               <Button as={Link} to="/portal/config" color="primary">
                 管理导航入口
               </Button>
@@ -183,11 +184,11 @@ export default function PortalPage() {
           <CardBody className="space-y-3 p-8 text-center">
             <h2 className="text-lg font-semibold text-foreground">还没有可展示的导航入口</h2>
             <p className="text-sm text-default-500">
-              {admin
+              {canManagePortal
                 ? '先到导航配置页新增几个常用入口，例如探针、x-ui 面板和服务器后台。'
                 : '当前没有对你开放的导航入口，请联系管理员配置。'}
             </p>
-            {admin ? (
+            {canManagePortal ? (
               <div>
                 <Button as={Link} to="/portal/config" color="primary">
                   去配置导航

@@ -1,4 +1,12 @@
-import { getRoleIdFromToken, isTokenValid } from './jwt';
+import {
+  getPermissionsFromToken,
+  getPrincipalTypeFromToken,
+  getRoleCodesFromToken,
+  getRoleIdFromToken,
+  isAdminToken,
+  isTokenValid
+} from './jwt';
+import type { LoginResponse } from '@/api';
 
 /**
  * 权限工具类
@@ -10,6 +18,14 @@ import { getRoleIdFromToken, isTokenValid } from './jwt';
  */
 export function getToken(): string | null {
   return localStorage.getItem('token');
+}
+
+export function getPrincipalType(): string | null {
+  const token = getToken();
+  if (!token || !isTokenValid(token)) {
+    return null;
+  }
+  return getPrincipalTypeFromToken(token);
 }
 
 /**
@@ -29,8 +45,70 @@ export function getCurrentUserRoleId(): number | null {
  * @returns 是否是管理员
  */
 export function isAdmin(): boolean {
-  const roleId = getCurrentUserRoleId();
-  return roleId === 0;
+  const token = getToken();
+  if (!token || !isTokenValid(token)) {
+    return false;
+  }
+  return isAdminToken(token) || localStorage.getItem('admin') === 'true';
+}
+
+export function getPermissions(): string[] {
+  const token = getToken();
+  if (!token || !isTokenValid(token)) {
+    return [];
+  }
+  const stored = localStorage.getItem('permissions');
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === 'string');
+      }
+    } catch {
+      /* ignore invalid cache */
+    }
+  }
+  return getPermissionsFromToken(token);
+}
+
+export function getRoleCodes(): string[] {
+  const token = getToken();
+  if (!token || !isTokenValid(token)) {
+    return [];
+  }
+  const stored = localStorage.getItem('role_codes');
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === 'string');
+      }
+    } catch {
+      /* ignore invalid cache */
+    }
+  }
+  return getRoleCodesFromToken(token);
+}
+
+export function hasPermission(permissionCode: string): boolean {
+  if (!permissionCode) {
+    return false;
+  }
+  if (isAdmin()) {
+    return true;
+  }
+  return getPermissions().includes(permissionCode);
+}
+
+export function hasAnyPermission(permissionCodes: string[] = []): boolean {
+  if (!permissionCodes.length) {
+    return true;
+  }
+  if (isAdmin()) {
+    return true;
+  }
+  const currentPermissions = new Set(getPermissions());
+  return permissionCodes.some((code) => currentPermissions.has(code));
 }
 
 /**
@@ -50,6 +128,41 @@ export function hasRole(targetRoleId: number): boolean {
 export function isLoggedIn(): boolean {
   const token = getToken();
   return token ? isTokenValid(token) : false;
+}
+
+export function persistAuthSession(authData?: LoginResponse) {
+  if (!authData?.token || authData.role_id === undefined || !authData.name) {
+    return false;
+  }
+
+  localStorage.setItem('token', authData.token);
+  localStorage.setItem('role_id', authData.role_id.toString());
+  localStorage.setItem('name', authData.name);
+  localStorage.setItem('admin', String(authData.admin ?? authData.role_id === 0));
+  localStorage.setItem('principal_type', authData.principalType || 'legacy');
+  localStorage.setItem('auth_source', authData.authSource || 'local');
+  localStorage.setItem('permissions', JSON.stringify(authData.permissions || []));
+  localStorage.setItem('role_codes', JSON.stringify(authData.roleCodes || []));
+  if (authData.email) {
+    localStorage.setItem('email', authData.email);
+  } else {
+    localStorage.removeItem('email');
+  }
+  return true;
+}
+
+export function clearAuthSessionStorage() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('role_id');
+  localStorage.removeItem('name');
+  localStorage.removeItem('admin');
+  localStorage.removeItem('principal_type');
+  localStorage.removeItem('auth_source');
+  localStorage.removeItem('permissions');
+  localStorage.removeItem('role_codes');
+  localStorage.removeItem('email');
+  localStorage.removeItem('force_password_change');
+  localStorage.removeItem('force_two_factor_setup');
 }
 
 /**

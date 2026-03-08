@@ -12,6 +12,13 @@ export interface LoginResponse {
   token?: string;
   role_id?: number;
   name?: string;
+  admin?: boolean;
+  principalType?: string;
+  authSource?: string;
+  permissions?: string[];
+  roleCodes?: string[];
+  email?: string;
+  sessionExpiresAt?: number;
   requirePasswordChange?: boolean;
   requireTwoFactorSetup?: boolean;
   twoFactorRequired?: boolean;
@@ -19,6 +26,14 @@ export interface LoginResponse {
   requireTwoFactorVerification?: boolean;
   twoFactorChallengeToken?: string;
   twoFactorChallengeExpiresAt?: number;
+}
+
+export interface IamAuthOptions {
+  authMode: 'local_only' | 'dingtalk_only' | 'hybrid' | string;
+  localAdminEnabled: boolean;
+  dingtalkOauthEnabled: boolean;
+  dingtalkConfigured: boolean;
+  dingtalkClientIdConfigured: boolean;
 }
 
 export interface TwoFactorLoginData {
@@ -38,6 +53,13 @@ export interface TwoFactorStatusResponse {
 export interface TwoFactorSetupResponse extends TwoFactorStatusResponse {
   secret: string;
   otpauthUri: string;
+}
+
+export interface DingtalkAuthorizeResponse {
+  authorizeUrl: string;
+  state: string;
+  redirectUri: string;
+  channel: string;
 }
 
 export interface XuiInstance {
@@ -624,3 +646,86 @@ export const toggleAlertRule = (id: number) => Network.post<AlertRule>("/alert/r
 export const getAlertLogs = (page?: number, size?: number) =>
   Network.post<{ records: AlertLog[]; total: number }>("/alert/logs", { page: page || 1, size: size || 20 });
 export const clearAlertLogs = () => Network.post("/alert/logs/clear");
+
+// Enterprise IAM
+export const getIamAuthOptions = () => Network.post<IamAuthOptions>("/iam/auth/options");
+export const getDingtalkAuthorizeUrl = (channel: string = 'web') =>
+  Network.post<DingtalkAuthorizeResponse>("/iam/auth/dingtalk/authorize-url", { channel });
+export const completeDingtalkAuth = (authCode: string, state: string) =>
+  Network.post<LoginResponse>("/iam/auth/dingtalk/login", { authCode, state });
+export const getIamCurrentProfile = () => Network.post("/iam/auth/me");
+export const logoutIamSession = () => Network.post("/iam/auth/logout");
+
+export interface IamPermissionView {
+  id: number;
+  code: string;
+  name: string;
+  moduleKey: string;
+  description?: string | null;
+  sortOrder?: number | null;
+  enabled: number;
+}
+
+export interface IamRoleView {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  roleScope?: string | null;
+  builtin: number;
+  sortOrder?: number | null;
+  enabled: number;
+  userCount: number;
+  permissionCount: number;
+  createdTime: number;
+  updatedTime: number;
+}
+
+export interface IamRoleDetail {
+  role: IamRoleView;
+  permissionIds: number[];
+  permissions: IamPermissionView[];
+}
+
+export interface IamUserView {
+  id: number;
+  displayName: string;
+  email: string;
+  authSource: string;
+  localUsername?: string | null;
+  mobile?: string | null;
+  jobTitle?: string | null;
+  dingtalkUserId?: string | null;
+  departmentPath?: string | null;
+  orgActive: number;
+  enabled: number;
+  lastOrgSyncAt?: number | null;
+  lastLoginAt?: number | null;
+  remark?: string | null;
+  roleIds: number[];
+  roleNames: string[];
+  createdTime: number;
+  updatedTime: number;
+}
+
+export interface IamUserDetail {
+  user: IamUserView;
+  roles: IamRoleView[];
+}
+
+export const getIamRoleList = () => Network.post<IamRoleView[]>("/iam/role/list");
+export const getIamRoleDetail = (id: number) => Network.post<IamRoleDetail>("/iam/role/detail", { id });
+export const createIamRole = (data: any) => Network.post<IamRoleDetail>("/iam/role/create", data);
+export const updateIamRole = (data: any) => Network.post<IamRoleDetail>("/iam/role/update", data);
+export const deleteIamRole = (id: number) => Network.post("/iam/role/delete", { id });
+export const getIamPermissions = () => Network.post<IamPermissionView[]>("/iam/role/permissions");
+export const assignIamRolePermissions = (roleId: number, permissionIds: number[]) =>
+  Network.post<IamRoleDetail>("/iam/role/assign-permissions", { roleId, permissionIds });
+
+export const getIamUserList = () => Network.post<IamUserView[]>("/iam/user/list");
+export const getIamUserDetail = (id: number) => Network.post<IamUserDetail>("/iam/user/detail", { id });
+export const createIamUser = (data: any) => Network.post<IamUserDetail>("/iam/user/create", data);
+export const updateIamUser = (data: any) => Network.post<IamUserDetail>("/iam/user/update", data);
+export const deleteIamUser = (id: number) => Network.post("/iam/user/delete", { id });
+export const assignIamUserRoles = (userId: number, roleIds: number[]) =>
+  Network.post<IamUserDetail>("/iam/user/assign-roles", { userId, roleIds });

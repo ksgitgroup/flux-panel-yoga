@@ -90,6 +90,21 @@ export default function AdminLayout({
       requiredPermissions: ['xui.read']
     },
     {
+      path: '/xui-protocols',
+      label: '协议看板',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 6h16"></path>
+          <path d="M4 12h16"></path>
+          <path d="M4 18h12"></path>
+          <circle cx="18" cy="18" r="2"></circle>
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['xui.read']
+    },
+    {
       path: '/forward',
       label: '转发管理',
       icon: (
@@ -425,9 +440,8 @@ export default function AdminLayout({
     (!item.adminOnly || isAdmin) && hasAnyPermission(item.requiredPermissions || [])
   );
 
-  // Primary nav items (always visible in pill bar)
-  const primaryPaths = ['/dashboard', '/forward', '/tunnel', '/node'];
-  const primaryMenuItems = primaryPaths
+  const primaryMenuOrder = ['/dashboard', '/server-dashboard', '/assets', '/xui', '/xui-protocols', '/forward', '/portal', '/monitor', '/tunnel', '/node'];
+  const primaryMenuItems = primaryMenuOrder
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));
 
@@ -440,7 +454,7 @@ export default function AdminLayout({
   const monitorGroup = monitorGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
   const systemGroup = systemGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
 
-  const allGroupPaths = new Set([...primaryPaths, ...serverGroupPaths, ...monitorGroupPaths, ...systemGroupPaths]);
+  const allGroupPaths = new Set([...primaryMenuOrder, ...serverGroupPaths, ...monitorGroupPaths, ...systemGroupPaths]);
   const ungroupedItems = filteredMenuItems.filter(i => !allGroupPaths.has(i.path));
 
   const isInGroup = (paths: string[]) => paths.includes(location.pathname);

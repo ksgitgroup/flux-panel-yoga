@@ -23,6 +23,7 @@ import { Select, SelectItem } from "@heroui/select";
 import { Switch } from "@heroui/switch";
 import { Spinner } from "@heroui/spinner";
 import toast from 'react-hot-toast';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import {
   AssetHost,
@@ -234,6 +235,8 @@ const buildProtocolSummaryFallback = (inbounds: XuiInboundSnapshot[]): XuiProtoc
 };
 
 export default function XuiPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const canViewXui = hasPermission('xui.read');
   const canManageXui = hasPermission('xui.write');
   const canSyncXui = hasPermission('xui.sync');
@@ -267,6 +270,14 @@ export default function XuiPage() {
   useEffect(() => {
     void Promise.all([loadInstances(), loadAssets()]);
   }, []);
+
+  useEffect(() => {
+    const rawId = searchParams.get('instanceId');
+    if (!rawId) return;
+    const parsedId = Number(rawId);
+    if (!Number.isFinite(parsedId) || parsedId <= 0) return;
+    setSelectedInstanceId(parsedId);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!selectedInstanceId) {
@@ -664,11 +675,16 @@ export default function XuiPage() {
             在 Flux 中登记 x-ui / 3x-ui 实例，统一执行连接测试、快照同步、流量上报接入和后续集中纳管。实例列表只返回脱敏状态，不向前端暴露明文凭据。
           </p>
         </div>
-        {canManageXui && (
-          <Button color="primary" onPress={openCreateModal}>
-            新增 X-UI 实例
+        <div className="flex items-center gap-2">
+          <Button variant="flat" onPress={() => navigate('/xui-protocols')}>
+            协议看板
           </Button>
-        )}
+          {canManageXui && (
+            <Button color="primary" onPress={openCreateModal}>
+              新增 X-UI 实例
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">

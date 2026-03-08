@@ -19,6 +19,7 @@ import MonitorPage from "@/pages/monitor";
 import ProtocolPage from "@/pages/protocol";
 import TagPage from "@/pages/tag";
 import XuiPage from "@/pages/xui";
+import XuiProtocolsPage from "@/pages/xui-protocols";
 import AssetsPage from "@/pages/assets";
 import PortalPage from "@/pages/portal";
 import PortalConfigPage from "@/pages/portal-config";
@@ -385,6 +386,16 @@ function App() {
           <ProtectedRoute requiredPermissions={['xui.read']}>
             <SystemWorkspace>
             <XuiPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/xui-protocols"
+        element={
+          <ProtectedRoute requiredPermissions={['xui.read']}>
+            <SystemWorkspace>
+              <XuiProtocolsPage />
             </SystemWorkspace>
           </ProtectedRoute>
         }

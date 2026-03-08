@@ -193,6 +193,48 @@ export interface XuiInstanceDetail {
   clients: XuiClientSnapshot[];
 }
 
+export interface XuiInboundDirectoryItem {
+  id: number;
+  instanceId: number;
+  instanceName?: string | null;
+  instanceProvider?: string | null;
+  instanceBaseUrl?: string | null;
+  instanceWebBasePath?: string | null;
+  instanceLastSyncStatus?: string | null;
+  instanceLastSyncAt?: number | null;
+  assetId?: number | null;
+  assetName?: string | null;
+  assetPrimaryIp?: string | null;
+  assetRegion?: string | null;
+  assetProvider?: string | null;
+  assetEnvironment?: string | null;
+  hostLabel?: string | null;
+  remoteInboundId: number;
+  remark?: string | null;
+  tag?: string | null;
+  protocol?: string | null;
+  listen?: string | null;
+  port?: number | null;
+  enable: number;
+  expiryTime?: number | null;
+  total?: number | null;
+  up?: number | null;
+  down?: number | null;
+  allTime?: number | null;
+  clientCount?: number | null;
+  onlineClientCount?: number | null;
+  transportSummary?: string | null;
+  lastSyncAt?: number | null;
+  status: number;
+}
+
+export interface XuiProtocolDirectory {
+  instanceCount: number;
+  assetCount: number;
+  protocolSummaries: XuiProtocolSummary[];
+  items: XuiInboundDirectoryItem[];
+}
+
 export interface XuiSyncResult {
   instanceId: number;
   instanceName: string;
@@ -577,6 +619,7 @@ export const deleteTag = (id: number) => Network.post("/tag/delete", { id });
 // X-UI 集成
 export const getXuiList = () => Network.post<XuiInstance[]>("/xui/list");
 export const getXuiDetail = (id: number) => Network.post<XuiInstanceDetail>("/xui/detail", { id });
+export const getXuiProtocolDirectory = () => Network.post<XuiProtocolDirectory>("/xui/protocol-directory");
 export const createXuiInstance = (data: any) => Network.post<XuiInstance>("/xui/create", data);
 export const updateXuiInstance = (data: any) => Network.post<XuiInstance>("/xui/update", data);
 export const deleteXuiInstance = (id: number) => Network.post("/xui/delete", { id });

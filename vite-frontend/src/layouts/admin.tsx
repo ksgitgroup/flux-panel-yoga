@@ -90,6 +90,21 @@ export default function AdminLayout({
       requiredPermissions: ['xui.read']
     },
     {
+      path: '/xui-protocols',
+      label: '协议看板',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 6h16"></path>
+          <path d="M4 12h16"></path>
+          <path d="M4 18h12"></path>
+          <circle cx="18" cy="18" r="2"></circle>
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['xui.read']
+    },
+    {
       path: '/forward',
       label: '转发管理',
       icon: (
@@ -434,7 +449,7 @@ export default function AdminLayout({
   // Grouped dropdown menus
   const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic'];
   const monitorGroupPaths = ['/monitor', '/probe', '/alert'];
-  const systemGroupPaths = ['/xui', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag'];
+  const systemGroupPaths = ['/xui', '/xui-protocols', '/portal', '/portal/config', '/limit', '/user', '/iam/users', '/iam/roles', '/config', '/protocol', '/tag'];
 
   const serverGroup = serverGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
   const monitorGroup = monitorGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));

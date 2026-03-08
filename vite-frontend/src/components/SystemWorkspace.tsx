@@ -166,6 +166,19 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
+    key: 'xui-protocols',
+    label: '协议看板',
+    path: '/xui-protocols',
+    group: '外部集成',
+    requiredPermissions: ['xui.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h12" />
+        <circle cx="18" cy="18" r="2" />
+      </svg>
+    ),
+  },
+  {
     key: 'portal-config',
     label: '导航配置',
     path: '/portal/config',

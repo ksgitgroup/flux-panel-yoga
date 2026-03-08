@@ -341,6 +341,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 existing.setInstanceId(instance.getId());
                 existing.setRemoteNodeUuid(uuid);
                 existing.setCreatedTime(now);
+                existing.setUpdatedTime(now);
                 existing.setStatus(0);
                 existing.setOnline(0);
                 monitorNodeSnapshotMapper.insert(existing);
@@ -739,6 +740,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 existing.setInstanceId(instance.getId());
                 existing.setRemoteNodeUuid(agentId);
                 existing.setCreatedTime(now);
+                existing.setUpdatedTime(now);
                 existing.setStatus(0);
                 existing.setOnline(0);
                 monitorNodeSnapshotMapper.insert(existing);

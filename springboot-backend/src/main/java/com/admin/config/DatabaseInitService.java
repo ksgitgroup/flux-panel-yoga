@@ -519,6 +519,273 @@ public class DatabaseInitService {
             log.error("[DatabaseInit] 告警表创建失败: {}", e.getMessage());
         }
 
+        // 11. Enterprise IAM foundation (additive only, does not replace existing user login flow)
+        try {
+            String createSysRoleTable = "CREATE TABLE IF NOT EXISTS `sys_role` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`code` varchar(80) NOT NULL COMMENT '角色编码'," +
+                    "`name` varchar(120) NOT NULL COMMENT '角色名称'," +
+                    "`description` varchar(255) DEFAULT NULL COMMENT '角色描述'," +
+                    "`role_scope` varchar(40) DEFAULT 'custom' COMMENT '角色范围'," +
+                    "`builtin` tinyint(1) DEFAULT 0 COMMENT '是否内置角色'," +
+                    "`sort_order` int(10) DEFAULT 100 COMMENT '排序权重'," +
+                    "`enabled` tinyint(1) DEFAULT 1 COMMENT '是否启用'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_role_code` (`code`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM角色表'";
+            jdbcTemplate.execute(createSysRoleTable);
+
+            String createSysPermissionTable = "CREATE TABLE IF NOT EXISTS `sys_permission` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`code` varchar(120) NOT NULL COMMENT '权限编码'," +
+                    "`name` varchar(120) NOT NULL COMMENT '权限名称'," +
+                    "`module_key` varchar(80) DEFAULT NULL COMMENT '所属模块'," +
+                    "`description` varchar(255) DEFAULT NULL COMMENT '权限描述'," +
+                    "`sort_order` int(10) DEFAULT 100 COMMENT '排序权重'," +
+                    "`enabled` tinyint(1) DEFAULT 1 COMMENT '是否启用'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_permission_code` (`code`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM权限表'";
+            jdbcTemplate.execute(createSysPermissionTable);
+
+            String createSysUserTable = "CREATE TABLE IF NOT EXISTS `sys_user` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`display_name` varchar(120) NOT NULL COMMENT '姓名'," +
+                    "`email` varchar(191) NOT NULL COMMENT '企业邮箱'," +
+                    "`auth_source` varchar(40) NOT NULL COMMENT '认证来源: local/dingtalk'," +
+                    "`local_username` varchar(120) DEFAULT NULL COMMENT '本地登录名'," +
+                    "`encrypted_password` text DEFAULT NULL COMMENT '本地登录密码（加密）'," +
+                    "`mobile` varchar(40) DEFAULT NULL COMMENT '手机号'," +
+                    "`job_title` varchar(120) DEFAULT NULL COMMENT '岗位'," +
+                    "`dingtalk_user_id` varchar(120) DEFAULT NULL COMMENT '钉钉UserId'," +
+                    "`dingtalk_union_id` varchar(120) DEFAULT NULL COMMENT '钉钉UnionId'," +
+                    "`department_path` varchar(255) DEFAULT NULL COMMENT '部门路径'," +
+                    "`org_active` tinyint(1) DEFAULT 1 COMMENT '是否仍在组织内'," +
+                    "`enabled` tinyint(1) DEFAULT 1 COMMENT '是否启用'," +
+                    "`last_org_sync_at` bigint(20) DEFAULT NULL COMMENT '最后组织同步时间'," +
+                    "`last_login_at` bigint(20) DEFAULT NULL COMMENT '最后登录时间'," +
+                    "`remark` varchar(255) DEFAULT NULL COMMENT '备注'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_user_email` (`email`)," +
+                    "UNIQUE KEY `uk_sys_user_local_username` (`local_username`)," +
+                    "UNIQUE KEY `uk_sys_user_dingtalk_user_id` (`dingtalk_user_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM用户表'";
+            jdbcTemplate.execute(createSysUserTable);
+
+            String createSysUserRoleTable = "CREATE TABLE IF NOT EXISTS `sys_user_role` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`user_id` bigint(20) NOT NULL COMMENT 'IAM用户ID'," +
+                    "`role_id` bigint(20) NOT NULL COMMENT '角色ID'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_user_role` (`user_id`, `role_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM用户角色关系表'";
+            jdbcTemplate.execute(createSysUserRoleTable);
+
+            String createSysRolePermissionTable = "CREATE TABLE IF NOT EXISTS `sys_role_permission` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`role_id` bigint(20) NOT NULL COMMENT '角色ID'," +
+                    "`permission_id` bigint(20) NOT NULL COMMENT '权限ID'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_role_permission` (`role_id`, `permission_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM角色权限关系表'";
+            jdbcTemplate.execute(createSysRolePermissionTable);
+
+            String createSysSessionTable = "CREATE TABLE IF NOT EXISTS `sys_session` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`user_id` bigint(20) NOT NULL COMMENT 'IAM用户ID'," +
+                    "`auth_source` varchar(40) NOT NULL COMMENT '认证来源'," +
+                    "`login_channel` varchar(40) DEFAULT NULL COMMENT '登录渠道'," +
+                    "`display_name` varchar(120) DEFAULT NULL COMMENT '登录时姓名快照'," +
+                    "`email` varchar(191) DEFAULT NULL COMMENT '登录时邮箱快照'," +
+                    "`ip_address` varchar(80) DEFAULT NULL COMMENT '登录IP'," +
+                    "`user_agent` varchar(512) DEFAULT NULL COMMENT 'User-Agent'," +
+                    "`expires_at` bigint(20) NOT NULL COMMENT '会话过期时间'," +
+                    "`last_seen_at` bigint(20) DEFAULT NULL COMMENT '最后活跃时间'," +
+                    "`revoked_at` bigint(20) DEFAULT NULL COMMENT '撤销时间'," +
+                    "`revoke_reason` varchar(120) DEFAULT NULL COMMENT '撤销原因'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_sys_session_user_id` (`user_id`)," +
+                    "KEY `idx_sys_session_expires_at` (`expires_at`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM会话表'";
+            jdbcTemplate.execute(createSysSessionTable);
+
+            String createSysLoginAuditTable = "CREATE TABLE IF NOT EXISTS `sys_login_audit` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`user_id` bigint(20) DEFAULT NULL COMMENT 'IAM用户ID'," +
+                    "`auth_source` varchar(40) DEFAULT NULL COMMENT '认证来源'," +
+                    "`login_channel` varchar(40) DEFAULT NULL COMMENT '登录渠道'," +
+                    "`principal_name` varchar(120) DEFAULT NULL COMMENT '登录名/昵称'," +
+                    "`principal_email` varchar(191) DEFAULT NULL COMMENT '企业邮箱'," +
+                    "`dingtalk_union_id` varchar(120) DEFAULT NULL COMMENT '钉钉UnionId'," +
+                    "`remote_ip` varchar(80) DEFAULT NULL COMMENT '来源IP'," +
+                    "`user_agent` varchar(512) DEFAULT NULL COMMENT 'User-Agent'," +
+                    "`success` tinyint(1) DEFAULT 0 COMMENT '是否成功'," +
+                    "`result_code` varchar(80) DEFAULT NULL COMMENT '结果编码'," +
+                    "`result_message` varchar(255) DEFAULT NULL COMMENT '结果信息'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "KEY `idx_sys_login_audit_user_id` (`user_id`)," +
+                    "KEY `idx_sys_login_audit_created_time` (`created_time`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM登录审计表'";
+            jdbcTemplate.execute(createSysLoginAuditTable);
+
+            ensureConfig("iam_auth_mode", "hybrid", "企业IAM认证模式：local_only/dingtalk_only/hybrid");
+            ensureConfig("iam_local_admin_enabled", "true", "是否保留本地超级管理员登录入口");
+            ensureConfig("dingtalk_oauth_enabled", "false", "是否启用钉钉OAuth登录");
+            ensureConfig("dingtalk_client_id", "", "钉钉OAuth Client ID");
+            ensureConfig("dingtalk_client_secret", "", "钉钉OAuth Client Secret");
+            ensureConfig("dingtalk_corp_id", "", "钉钉企业CorpId");
+            ensureConfig("dingtalk_redirect_uri", "", "钉钉OAuth回调地址");
+            ensureConfig("dingtalk_allowed_org_ids", "[]", "允许登录的钉钉组织ID列表(JSON)");
+            ensureConfig("dingtalk_required_email_domain", "", "钉钉登录用户必须满足的企业邮箱域名");
+
+            ensureIamRole("SUPER_ADMIN", "超级管理员", "企业平台最高权限角色", "system", 1, 0, 1);
+            ensureIamRole("DEV_ADMIN", "开发管理员", "开发与运维管理角色", "system", 1, 10, 1);
+            ensureIamRole("DEVELOPER", "普通开发", "只读或受限操作的开发角色", "system", 1, 20, 1);
+            ensureIamRole("HR", "行政HR", "面向人员与组织信息的角色", "system", 1, 30, 1);
+
+            ensureIamPermission("dashboard.read", "查看首页", "dashboard", "允许查看首页摘要与入口", 10, 1);
+            ensureIamPermission("asset.read", "查看服务器资产", "asset", "允许查看服务器资产", 20, 1);
+            ensureIamPermission("asset.write", "管理服务器资产", "asset", "允许增删改服务器资产", 21, 1);
+            ensureIamPermission("xui.read", "查看X-UI", "xui", "允许查看X-UI与3X-UI登记信息", 30, 1);
+            ensureIamPermission("xui.write", "管理X-UI", "xui", "允许维护X-UI与3X-UI实例", 31, 1);
+            ensureIamPermission("xui.sync", "同步X-UI", "xui", "允许触发X-UI与3X-UI同步", 32, 1);
+            ensureIamPermission("forward.read", "查看转发", "forward", "允许查看转发配置", 40, 1);
+            ensureIamPermission("forward.write", "管理转发", "forward", "允许维护转发配置", 41, 1);
+            ensureIamPermission("tunnel.read", "查看隧道", "tunnel", "允许查看隧道", 50, 1);
+            ensureIamPermission("tunnel.write", "管理隧道", "tunnel", "允许维护隧道", 51, 1);
+            ensureIamPermission("node.read", "查看节点", "node", "允许查看节点配置", 55, 1);
+            ensureIamPermission("node.write", "管理节点", "node", "允许维护节点配置", 56, 1);
+            ensureIamPermission("monitor.read", "查看监控", "monitor", "允许查看监控与探针数据", 60, 1);
+            ensureIamPermission("monitor.write", "管理监控", "monitor", "允许管理探针与监控配置", 61, 1);
+            ensureIamPermission("probe.read", "查看探针配置", "probe", "允许查看探针配置", 70, 1);
+            ensureIamPermission("probe.write", "管理探针配置", "probe", "允许管理探针配置", 71, 1);
+            ensureIamPermission("alert.read", "查看告警", "alert", "允许查看告警规则与日志", 80, 1);
+            ensureIamPermission("alert.write", "管理告警", "alert", "允许管理告警规则", 81, 1);
+            ensureIamPermission("portal.read", "查看自定义导航", "portal", "允许查看导航入口", 90, 1);
+            ensureIamPermission("portal.write", "管理自定义导航", "portal", "允许维护导航入口", 91, 1);
+            ensureIamPermission("server_dashboard.read", "查看服务器看板", "server_dashboard", "允许查看服务器看板", 100, 1);
+            ensureIamPermission("site_config.read", "查看网站配置", "site_config", "允许查看站点配置", 110, 1);
+            ensureIamPermission("site_config.write", "管理网站配置", "site_config", "允许修改站点配置", 111, 1);
+            ensureIamPermission("protocol.read", "查看协议", "protocol", "允许查看协议字典", 120, 1);
+            ensureIamPermission("protocol.write", "管理协议", "protocol", "允许维护协议字典", 121, 1);
+            ensureIamPermission("tag.read", "查看标签", "tag", "允许查看标签", 130, 1);
+            ensureIamPermission("tag.write", "管理标签", "tag", "允许维护标签", 131, 1);
+            ensureIamPermission("speed_limit.read", "查看限速规则", "speed_limit", "允许查看限速规则", 140, 1);
+            ensureIamPermission("speed_limit.write", "管理限速规则", "speed_limit", "允许维护限速规则", 141, 1);
+            ensureIamPermission("biz_user.read", "查看业务用户", "biz_user", "允许查看现有业务用户模块", 150, 1);
+            ensureIamPermission("biz_user.write", "管理业务用户", "biz_user", "允许维护现有业务用户模块", 151, 1);
+            ensureIamPermission("iam_user.read", "查看组织用户", "iam_user", "允许查看企业IAM用户", 160, 1);
+            ensureIamPermission("iam_user.write", "管理组织用户", "iam_user", "允许维护企业IAM用户", 161, 1);
+            ensureIamPermission("iam_role.read", "查看角色", "iam_role", "允许查看企业IAM角色", 170, 1);
+            ensureIamPermission("iam_role.write", "管理角色", "iam_role", "允许维护企业IAM角色与授权", 171, 1);
+
+            ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
+            ensureIamRolePermission("SUPER_ADMIN", "asset.read");
+            ensureIamRolePermission("SUPER_ADMIN", "asset.write");
+            ensureIamRolePermission("SUPER_ADMIN", "xui.read");
+            ensureIamRolePermission("SUPER_ADMIN", "xui.write");
+            ensureIamRolePermission("SUPER_ADMIN", "xui.sync");
+            ensureIamRolePermission("SUPER_ADMIN", "forward.read");
+            ensureIamRolePermission("SUPER_ADMIN", "forward.write");
+            ensureIamRolePermission("SUPER_ADMIN", "tunnel.read");
+            ensureIamRolePermission("SUPER_ADMIN", "tunnel.write");
+            ensureIamRolePermission("SUPER_ADMIN", "node.read");
+            ensureIamRolePermission("SUPER_ADMIN", "node.write");
+            ensureIamRolePermission("SUPER_ADMIN", "monitor.read");
+            ensureIamRolePermission("SUPER_ADMIN", "monitor.write");
+            ensureIamRolePermission("SUPER_ADMIN", "probe.read");
+            ensureIamRolePermission("SUPER_ADMIN", "probe.write");
+            ensureIamRolePermission("SUPER_ADMIN", "alert.read");
+            ensureIamRolePermission("SUPER_ADMIN", "alert.write");
+            ensureIamRolePermission("SUPER_ADMIN", "portal.read");
+            ensureIamRolePermission("SUPER_ADMIN", "portal.write");
+            ensureIamRolePermission("SUPER_ADMIN", "server_dashboard.read");
+            ensureIamRolePermission("SUPER_ADMIN", "site_config.read");
+            ensureIamRolePermission("SUPER_ADMIN", "site_config.write");
+            ensureIamRolePermission("SUPER_ADMIN", "protocol.read");
+            ensureIamRolePermission("SUPER_ADMIN", "protocol.write");
+            ensureIamRolePermission("SUPER_ADMIN", "tag.read");
+            ensureIamRolePermission("SUPER_ADMIN", "tag.write");
+            ensureIamRolePermission("SUPER_ADMIN", "speed_limit.read");
+            ensureIamRolePermission("SUPER_ADMIN", "speed_limit.write");
+            ensureIamRolePermission("SUPER_ADMIN", "biz_user.read");
+            ensureIamRolePermission("SUPER_ADMIN", "biz_user.write");
+            ensureIamRolePermission("SUPER_ADMIN", "iam_user.read");
+            ensureIamRolePermission("SUPER_ADMIN", "iam_user.write");
+            ensureIamRolePermission("SUPER_ADMIN", "iam_role.read");
+            ensureIamRolePermission("SUPER_ADMIN", "iam_role.write");
+
+            ensureIamRolePermission("DEV_ADMIN", "dashboard.read");
+            ensureIamRolePermission("DEV_ADMIN", "asset.read");
+            ensureIamRolePermission("DEV_ADMIN", "asset.write");
+            ensureIamRolePermission("DEV_ADMIN", "xui.read");
+            ensureIamRolePermission("DEV_ADMIN", "xui.write");
+            ensureIamRolePermission("DEV_ADMIN", "xui.sync");
+            ensureIamRolePermission("DEV_ADMIN", "forward.read");
+            ensureIamRolePermission("DEV_ADMIN", "forward.write");
+            ensureIamRolePermission("DEV_ADMIN", "tunnel.read");
+            ensureIamRolePermission("DEV_ADMIN", "tunnel.write");
+            ensureIamRolePermission("DEV_ADMIN", "node.read");
+            ensureIamRolePermission("DEV_ADMIN", "node.write");
+            ensureIamRolePermission("DEV_ADMIN", "monitor.read");
+            ensureIamRolePermission("DEV_ADMIN", "monitor.write");
+            ensureIamRolePermission("DEV_ADMIN", "probe.read");
+            ensureIamRolePermission("DEV_ADMIN", "probe.write");
+            ensureIamRolePermission("DEV_ADMIN", "alert.read");
+            ensureIamRolePermission("DEV_ADMIN", "alert.write");
+            ensureIamRolePermission("DEV_ADMIN", "portal.read");
+            ensureIamRolePermission("DEV_ADMIN", "portal.write");
+            ensureIamRolePermission("DEV_ADMIN", "server_dashboard.read");
+            ensureIamRolePermission("DEV_ADMIN", "site_config.read");
+            ensureIamRolePermission("DEV_ADMIN", "protocol.read");
+            ensureIamRolePermission("DEV_ADMIN", "tag.read");
+            ensureIamRolePermission("DEV_ADMIN", "speed_limit.read");
+            ensureIamRolePermission("DEV_ADMIN", "biz_user.read");
+            ensureIamRolePermission("DEV_ADMIN", "iam_user.read");
+            ensureIamRolePermission("DEV_ADMIN", "iam_role.read");
+
+            ensureIamRolePermission("DEVELOPER", "dashboard.read");
+            ensureIamRolePermission("DEVELOPER", "asset.read");
+            ensureIamRolePermission("DEVELOPER", "xui.read");
+            ensureIamRolePermission("DEVELOPER", "forward.read");
+            ensureIamRolePermission("DEVELOPER", "tunnel.read");
+            ensureIamRolePermission("DEVELOPER", "node.read");
+            ensureIamRolePermission("DEVELOPER", "monitor.read");
+            ensureIamRolePermission("DEVELOPER", "probe.read");
+            ensureIamRolePermission("DEVELOPER", "alert.read");
+            ensureIamRolePermission("DEVELOPER", "portal.read");
+            ensureIamRolePermission("DEVELOPER", "server_dashboard.read");
+
+            ensureIamRolePermission("HR", "dashboard.read");
+            ensureIamRolePermission("HR", "iam_user.read");
+            ensureIamRolePermission("HR", "biz_user.read");
+
+            log.info("[DatabaseInit] 企业IAM基础表与默认角色权限初始化成功");
+        } catch (Exception e) {
+            log.error("[DatabaseInit] 企业IAM基础表初始化失败: {}", e.getMessage());
+        }
+
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
     }
 
@@ -588,5 +855,78 @@ public class DatabaseInitService {
                         "WHERE (xi.`asset_id` IS NULL OR xi.`asset_id` = 0) " +
                         "AND xi.`host_label` IS NOT NULL AND TRIM(xi.`host_label`) <> ''"
         );
+    }
+
+    private void ensureIamRole(String code, String name, String description, String roleScope, int builtin, int sortOrder, int enabled) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `sys_role` WHERE `code` = ?",
+                    Integer.class,
+                    code
+            );
+            if (count != null && count > 0) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            jdbcTemplate.update(
+                    "INSERT INTO `sys_role` (`code`, `name`, `description`, `role_scope`, `builtin`, `sort_order`, `enabled`, `created_time`, `updated_time`, `status`) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                    code, name, description, roleScope, builtin, sortOrder, enabled, now, now
+            );
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 初始化IAM角色 {} 时发生非关键性异常: {}", code, e.getMessage());
+        }
+    }
+
+    private void ensureIamPermission(String code, String name, String moduleKey, String description, int sortOrder, int enabled) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `sys_permission` WHERE `code` = ?",
+                    Integer.class,
+                    code
+            );
+            if (count != null && count > 0) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            jdbcTemplate.update(
+                    "INSERT INTO `sys_permission` (`code`, `name`, `module_key`, `description`, `sort_order`, `enabled`, `created_time`, `updated_time`, `status`) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                    code, name, moduleKey, description, sortOrder, enabled, now, now
+            );
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 初始化IAM权限 {} 时发生非关键性异常: {}", code, e.getMessage());
+        }
+    }
+
+    private void ensureIamRolePermission(String roleCode, String permissionCode) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) " +
+                            "FROM `sys_role_permission` rp " +
+                            "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
+                            "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                            "WHERE r.`code` = ? AND p.`code` = ?",
+                    Integer.class,
+                    roleCode,
+                    permissionCode
+            );
+            if (count != null && count > 0) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            jdbcTemplate.update(
+                    "INSERT INTO `sys_role_permission` (`role_id`, `permission_id`, `created_time`, `updated_time`, `status`) " +
+                            "SELECT r.`id`, p.`id`, ?, ?, 0 " +
+                            "FROM `sys_role` r JOIN `sys_permission` p " +
+                            "WHERE r.`code` = ? AND p.`code` = ? LIMIT 1",
+                    now,
+                    now,
+                    roleCode,
+                    permissionCode
+            );
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 初始化IAM角色权限 {} -> {} 时发生非关键性异常: {}", roleCode, permissionCode, e.getMessage());
+        }
     }
 }

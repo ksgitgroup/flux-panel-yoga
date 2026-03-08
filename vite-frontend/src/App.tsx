@@ -2,12 +2,15 @@ import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 import IndexPage from "@/pages/index";
+import DingtalkCallbackPage from "@/pages/dingtalk-callback";
 import ChangePasswordPage from "@/pages/change-password";
 import DashboardPage from "@/pages/dashboard";
 import ForwardPage from "@/pages/forward";
 import TunnelPage from "@/pages/tunnel";
 import NodePage from "@/pages/node";
 import UserPage from "@/pages/user";
+import IamUsersPage from "@/pages/iam-users";
+import IamRolesPage from "@/pages/iam-roles";
 import ProfilePage from "@/pages/profile";
 import LimitPage from "@/pages/limit";
 import ConfigPage from "@/pages/config";
@@ -29,7 +32,7 @@ import H5Layout from "@/layouts/h5";
 import H5SimpleLayout from "@/layouts/h5-simple";
 
 import { getTwoFactorStatus } from "@/api";
-import { isLoggedIn } from "@/utils/auth";
+import { hasAnyPermission, isLoggedIn } from "@/utils/auth";
 import { siteConfig } from "@/config/site";
 
 // 检测是否为H5模式
@@ -132,13 +135,24 @@ const useForcedAuthState = (authenticated: boolean) => {
 };
 
 // 简化的路由保护组件 - 使用 React Router 导航避免循环
-const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false }: { children: React.ReactNode, useSimpleLayout?: boolean, skipLayout?: boolean }) => {
+const ProtectedRoute = ({
+  children,
+  useSimpleLayout = false,
+  skipLayout = false,
+  requiredPermissions = []
+}: {
+  children: React.ReactNode,
+  useSimpleLayout?: boolean,
+  skipLayout?: boolean,
+  requiredPermissions?: string[]
+}) => {
   const authenticated = isLoggedIn();
   const isH5 = useH5Mode();
   const navigate = useNavigate();
   const location = useLocation();
   const { checking, mustChangePassword, mustSetupTwoFactor } = useForcedAuthState(authenticated);
   const forcedPath = mustChangePassword ? '/change-password' : mustSetupTwoFactor ? '/profile' : null;
+  const authorized = hasAnyPermission(requiredPermissions);
 
   useEffect(() => {
     if (!authenticated) {
@@ -159,6 +173,19 @@ const ProtectedRoute = ({ children, useSimpleLayout = false, skipLayout = false 
       <div className="flex items-center justify-center min-h-screen bg-white dark:bg-black">
         <div className="text-lg text-gray-700 dark:text-gray-200"></div>
       </div>
+    );
+  }
+
+  if (!authorized) {
+    return (
+      <AdminLayout>
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="rounded-[28px] border border-danger/20 bg-danger-50/70 p-8 text-center shadow-sm">
+            <h1 className="text-2xl font-bold text-danger">权限不足</h1>
+            <p className="mt-3 text-sm text-danger-700">当前账号没有访问该模块的权限。</p>
+          </div>
+        </div>
+      </AdminLayout>
     );
   }
 
@@ -234,6 +261,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LoginRoute />} />
+      <Route path="/login/dingtalk/callback" element={<DingtalkCallbackPage />} />
       <Route
         path="/change-password"
         element={
@@ -285,7 +313,7 @@ function App() {
       <Route
         path="/user"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['biz_user.read']}>
             <SystemWorkspace>
               <UserPage />
             </SystemWorkspace>
@@ -293,9 +321,29 @@ function App() {
         }
       />
       <Route
+        path="/iam/users"
+        element={
+          <ProtectedRoute requiredPermissions={['iam_user.read']}>
+            <SystemWorkspace>
+              <IamUsersPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/iam/roles"
+        element={
+          <ProtectedRoute requiredPermissions={['iam_role.read']}>
+            <SystemWorkspace>
+              <IamRolesPage />
+            </SystemWorkspace>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/protocol"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['protocol.read']}>
             <SystemWorkspace>
               <ProtocolPage />
             </SystemWorkspace>
@@ -305,7 +353,7 @@ function App() {
       <Route
         path="/tag"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['tag.read']}>
             <SystemWorkspace>
               <TagPage />
             </SystemWorkspace>
@@ -315,7 +363,7 @@ function App() {
       <Route
         path="/assets"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['asset.read']}>
             <AssetsPage />
           </ProtectedRoute>
         }
@@ -323,7 +371,7 @@ function App() {
       <Route
         path="/server-dashboard"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['server_dashboard.read']}>
             <ServerDashboardPage />
           </ProtectedRoute>
         }
@@ -331,7 +379,7 @@ function App() {
       <Route
         path="/xui"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['xui.read']}>
             <SystemWorkspace>
             <XuiPage />
             </SystemWorkspace>
@@ -341,7 +389,7 @@ function App() {
       <Route
         path="/portal/config"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['portal.write']}>
             <SystemWorkspace>
               <PortalConfigPage />
             </SystemWorkspace>
@@ -359,7 +407,7 @@ function App() {
       <Route
         path="/limit"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['speed_limit.read']}>
             <SystemWorkspace>
               <LimitPage />
             </SystemWorkspace>
@@ -369,7 +417,7 @@ function App() {
       <Route
         path="/config"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['site_config.read']}>
             <SystemWorkspace>
               <ConfigPage />
             </SystemWorkspace>
@@ -379,7 +427,7 @@ function App() {
       <Route
         path="/probe"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['probe.read']}>
             <SystemWorkspace>
               <ProbePage />
             </SystemWorkspace>
@@ -389,7 +437,7 @@ function App() {
       <Route
         path="/monitor"
         element={
-          <ProtectedRoute useSimpleLayout={true}>
+          <ProtectedRoute useSimpleLayout={true} requiredPermissions={['monitor.read']}>
             <MonitorPage />
           </ProtectedRoute>
         }
@@ -397,7 +445,7 @@ function App() {
       <Route
         path="/alert"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['alert.read']}>
             <SystemWorkspace>
               <AlertPage />
             </SystemWorkspace>

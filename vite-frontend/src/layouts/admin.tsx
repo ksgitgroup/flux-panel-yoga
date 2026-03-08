@@ -8,6 +8,7 @@ import { toast } from 'react-hot-toast';
 
 import { Logo } from '@/components/icons';
 import { updatePassword } from '@/api';
+import { hasAnyPermission, isAdmin as checkIsAdmin } from '@/utils/auth';
 import { safeLogout } from '@/utils/logout';
 import { siteConfig } from '@/config/site';
 
@@ -16,6 +17,7 @@ interface MenuItem {
   label: string;
   icon: React.ReactNode;
   adminOnly?: boolean;
+  requiredPermissions?: string[];
 }
 
 interface PasswordForm {
@@ -69,7 +71,8 @@ export default function AdminLayout({
           <path d="M8 17h.01"></path>
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['asset.read']
     },
     {
       path: '/xui',
@@ -83,7 +86,8 @@ export default function AdminLayout({
           <path d="M17 10l3 3-3 3"></path>
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['xui.read']
     },
     {
       path: '/forward',
@@ -104,7 +108,8 @@ export default function AdminLayout({
           <path d="M12 5l7 7-7 7"></path>
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['portal.read']
     },
     {
       path: '/tunnel',
@@ -114,7 +119,8 @@ export default function AdminLayout({
           <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['tunnel.read']
     },
     {
       path: '/node',
@@ -124,7 +130,8 @@ export default function AdminLayout({
           <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['node.read']
     },
     {
       path: '/limit',
@@ -134,7 +141,8 @@ export default function AdminLayout({
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['speed_limit.read']
     },
     {
       path: '/user',
@@ -144,7 +152,36 @@ export default function AdminLayout({
           <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['biz_user.read']
+    },
+    {
+      path: '/iam/users',
+      label: '组织用户',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['iam_user.read']
+    },
+    {
+      path: '/iam/roles',
+      label: '角色权限',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2l7 4v6c0 5-3.5 9.74-7 10-3.5-.26-7-5-7-10V6l7-4z"></path>
+          <path d="M9 12l2 2 4-4"></path>
+        </svg>
+      ),
+      adminOnly: true,
+      requiredPermissions: ['iam_role.read']
     },
     {
       path: '/portal/config',
@@ -157,7 +194,8 @@ export default function AdminLayout({
           <path d="M4 18h7"></path>
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['portal.write']
     },
     {
       path: '/config',
@@ -167,7 +205,8 @@ export default function AdminLayout({
           <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['site_config.read']
     },
     {
       path: '/protocol',
@@ -178,7 +217,8 @@ export default function AdminLayout({
           <path d="M4 6h16M4 12h16M4 18h16"></path>
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['protocol.read']
     },
     {
       path: '/tag',
@@ -189,7 +229,8 @@ export default function AdminLayout({
           <path d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['tag.read']
     },
     {
       path: '/server-dashboard',
@@ -202,7 +243,8 @@ export default function AdminLayout({
           <line x1="12" y1="17" x2="12" y2="21" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['server_dashboard.read']
     },
     {
       path: '/monitor',
@@ -213,7 +255,8 @@ export default function AdminLayout({
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['monitor.read']
     },
     {
       path: '/probe',
@@ -225,7 +268,8 @@ export default function AdminLayout({
           <path d="M12 6v6l4 2" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['probe.read']
     },
     {
       path: '/alert',
@@ -237,7 +281,8 @@ export default function AdminLayout({
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      requiredPermissions: ['alert.read']
     }
   ];
 
@@ -254,17 +299,8 @@ export default function AdminLayout({
     // 获取用户信息
     const name = localStorage.getItem('name') || 'Admin';
 
-    // 兼容处理：如果没有admin字段，根据role_id判断（0为管理员）
-    let adminFlag = localStorage.getItem('admin') === 'true';
-    if (localStorage.getItem('admin') === null) {
-      const roleId = parseInt(localStorage.getItem('role_id') || '1', 10);
-      adminFlag = roleId === 0;
-      // 补充设置admin字段，避免下次再次判断
-      localStorage.setItem('admin', adminFlag.toString());
-    }
-
     setUsername(name);
-    setIsAdmin(adminFlag);
+    setIsAdmin(checkIsAdmin());
 
     // 响应式检查
     checkMobile();
@@ -362,7 +398,7 @@ export default function AdminLayout({
 
   // 过滤菜单项（根据权限）
   const filteredMenuItems = menuItems.filter(item =>
-    !item.adminOnly || isAdmin
+    (!item.adminOnly || isAdmin) && hasAnyPermission(item.requiredPermissions || [])
   );
 
   const primaryMenuOrder = ['/dashboard', '/server-dashboard', '/assets', '/xui', '/forward', '/portal', '/monitor', '/tunnel', '/node'];
@@ -507,7 +543,7 @@ export default function AdminLayout({
             )}
 
             <div className="ml-auto flex items-center gap-2 lg:gap-3">
-              {isAdmin && (
+              {managementMenuItems.length > 0 && (
                 <Button
                   size="sm"
                   variant={isManagementRoute ? "solid" : "flat"}

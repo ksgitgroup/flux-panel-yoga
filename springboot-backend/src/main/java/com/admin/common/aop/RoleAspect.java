@@ -1,8 +1,10 @@
 package com.admin.common.aop;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.lang.R;
-import com.admin.common.utils.JwtUtil;
+import com.admin.service.impl.IamPermissionResolver;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -21,6 +23,12 @@ import javax.servlet.http.HttpServletRequest;
 @Component
 public class RoleAspect {
 
+    private final IamPermissionResolver iamPermissionResolver;
+
+    public RoleAspect(IamPermissionResolver iamPermissionResolver) {
+        this.iamPermissionResolver = iamPermissionResolver;
+    }
+
     @Around("@annotation(requireRole)")
     public Object checkRole(ProceedingJoinPoint joinPoint, RequireRole requireRole) throws Throwable {
         // 获取当前请求
@@ -30,20 +38,20 @@ public class RoleAspect {
         }
         
         HttpServletRequest request = attributes.getRequest();
-        String token = request.getHeader("Authorization");
-        
-        // JWT拦截器已经验证过token存在且有效，这里直接获取role_id
-        Integer roleId = JwtUtil.getRoleIdFromToken(token);
-        if (roleId == null) {
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal == null) {
             return R.err(401, "无法获取用户权限信息");
         }
-        
-        // 检查是否为管理员（role_id = 0）
-        if (roleId != 0) {
-            return R.err(403, "权限不足，仅管理员可操作");
+
+        if (principal.isAdmin()) {
+            return joinPoint.proceed();
         }
-        
-        // 权限检查通过，执行原方法
+
+        String permissionCode = iamPermissionResolver.resolveRequiredPermission(request.getRequestURI());
+        if (permissionCode == null || !principal.hasPermission(permissionCode)) {
+            return R.err(403, "权限不足，缺少权限：" + (permissionCode == null ? "unknown" : permissionCode));
+        }
+
         return joinPoint.proceed();
     }
-} 
+}

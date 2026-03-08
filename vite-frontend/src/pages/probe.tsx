@@ -27,7 +27,7 @@ import {
   testMonitorInstance,
   syncMonitorInstance,
 } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 
 // ===================== Types =====================
 
@@ -65,7 +65,8 @@ const SYNC_STATUS_MAP: Record<string, { label: string; color: "success" | "dange
 // ===================== Component =====================
 
 export default function ProbePage() {
-  const admin = isAdmin();
+  const canViewProbe = hasPermission('probe.read');
+  const canManageProbe = hasPermission('probe.write');
 
   const [instances, setInstances] = useState<MonitorInstance[]>([]);
   const [loading, setLoading] = useState(false);
@@ -93,6 +94,10 @@ export default function ProbePage() {
   // ===================== Actions =====================
 
   const handleTest = async (id: number) => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法测试探针实例');
+      return;
+    }
     setActionLoading('test-' + id);
     try {
       const res = await testMonitorInstance(id);
@@ -102,6 +107,10 @@ export default function ProbePage() {
   };
 
   const handleSync = async (id: number) => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法同步探针实例');
+      return;
+    }
     setActionLoading('sync-' + id);
     try {
       const res = await syncMonitorInstance(id);
@@ -126,6 +135,10 @@ export default function ProbePage() {
   };
 
   const handleSave = async () => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法保存探针实例');
+      return;
+    }
     if (!form.name.trim() || !form.baseUrl.trim()) {
       toast.error('请填写实例名称和地址');
       return;
@@ -145,6 +158,10 @@ export default function ProbePage() {
   };
 
   const handleDelete = async () => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法删除探针实例');
+      return;
+    }
     if (!deleteTarget) return;
     setActionLoading('delete');
     try {
@@ -157,8 +174,20 @@ export default function ProbePage() {
     } catch { toast.error('删除失败'); } finally { setActionLoading(null); }
   };
 
-  const openCreateModal = () => { setForm({ ...defaultForm }); setIsEdit(false); onOpen(); };
+  const openCreateModal = () => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法新增探针实例');
+      return;
+    }
+    setForm({ ...defaultForm });
+    setIsEdit(false);
+    onOpen();
+  };
   const openEditModal = (inst: MonitorInstance) => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法编辑探针实例');
+      return;
+    }
     setForm({
       id: inst.id, name: inst.name || '', type: inst.type || 'komari', baseUrl: inst.baseUrl || '',
       apiKey: '', username: inst.username || '', syncEnabled: inst.syncEnabled ?? 1, syncIntervalMinutes: inst.syncIntervalMinutes ?? 5,
@@ -166,7 +195,14 @@ export default function ProbePage() {
     });
     setIsEdit(true); onOpen();
   };
-  const confirmDelete = (inst: MonitorInstance) => { setDeleteTarget(inst); onDeleteOpen(); };
+  const confirmDelete = (inst: MonitorInstance) => {
+    if (!canManageProbe) {
+      toast.error('权限不足，无法删除探针实例');
+      return;
+    }
+    setDeleteTarget(inst);
+    onDeleteOpen();
+  };
 
   // ===================== Computed =====================
 
@@ -179,6 +215,16 @@ export default function ProbePage() {
   }), [instances]);
 
   // ===================== Render =====================
+
+  if (!canViewProbe) {
+    return (
+      <Card shadow="sm">
+        <CardBody className="py-10 text-center">
+          <p className="text-danger font-semibold">缺少探针查看权限</p>
+        </CardBody>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -197,7 +243,7 @@ export default function ProbePage() {
           }>
             服务器看板
           </Button>
-          {admin && (
+          {canManageProbe && (
             <Button color="primary" size="sm" onPress={openCreateModal} startContent={
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -223,7 +269,7 @@ export default function ProbePage() {
             </div>
             <p className="text-default-500 text-sm">暂无探针实例</p>
             <p className="text-default-400 text-xs mt-1">添加 Komari 或 Pika 探针服务器，自动同步服务器节点和监控数据</p>
-            {admin && (
+            {canManageProbe && (
               <Button color="primary" size="sm" className="mt-4" onPress={openCreateModal}>添加第一个探针</Button>
             )}
           </CardBody>
@@ -281,7 +327,7 @@ export default function ProbePage() {
                   )}
 
                   {/* Actions */}
-                  {admin && (
+                  {canManageProbe && (
                     <div className="flex gap-1.5 pt-1 border-t border-divider">
                       <Button size="sm" variant="light" color="primary" isLoading={actionLoading === 'test-' + inst.id} onPress={() => handleTest(inst.id)}>测试</Button>
                       <Button size="sm" variant="light" color="success" isLoading={actionLoading === 'sync-' + inst.id} onPress={() => handleSync(inst.id)}>同步</Button>

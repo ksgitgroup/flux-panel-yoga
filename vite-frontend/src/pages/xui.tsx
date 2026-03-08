@@ -40,7 +40,7 @@ import {
   testXuiInstance,
   updateXuiInstance
 } from '@/api';
-import { isAdmin } from '@/utils/auth';
+import { hasPermission } from '@/utils/auth';
 
 interface XuiInstanceForm {
   id?: number;
@@ -227,6 +227,9 @@ const buildProtocolSummaryFallback = (inbounds: XuiInboundSnapshot[]): XuiProtoc
 };
 
 export default function XuiPage() {
+  const canViewXui = hasPermission('xui.read');
+  const canManageXui = hasPermission('xui.write');
+  const canSyncXui = hasPermission('xui.sync');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [instances, setInstances] = useState<XuiInstance[]>([]);
@@ -253,8 +256,6 @@ export default function XuiPage() {
     onOpen: onDeleteOpen,
     onClose: onDeleteClose
   } = useDisclosure();
-
-  const admin = isAdmin();
 
   useEffect(() => {
     void Promise.all([loadInstances(), loadAssets()]);
@@ -411,6 +412,10 @@ export default function XuiPage() {
   };
 
   const openCreateModal = () => {
+    if (!canManageXui) {
+      toast.error('权限不足，无法新增 X-UI 实例');
+      return;
+    }
     setIsEdit(false);
     setErrors({});
     setForm(emptyForm());
@@ -419,6 +424,10 @@ export default function XuiPage() {
   };
 
   const openEditModal = (instance: XuiInstance) => {
+    if (!canManageXui) {
+      toast.error('权限不足，无法编辑 X-UI 实例');
+      return;
+    }
     setIsEdit(true);
     setErrors({});
     setForm({
@@ -455,6 +464,10 @@ export default function XuiPage() {
   };
 
   const handleSubmit = async () => {
+    if (!canManageXui) {
+      toast.error('权限不足，无法保存 X-UI 实例');
+      return;
+    }
     if (!validateForm()) return;
     setSubmitLoading(true);
     try {
@@ -510,6 +523,10 @@ export default function XuiPage() {
   };
 
   const handleDelete = async () => {
+    if (!canManageXui) {
+      toast.error('权限不足，无法删除 X-UI 实例');
+      return;
+    }
     if (!instanceToDelete) return;
     setActionLoadingId(instanceToDelete.id);
     try {
@@ -533,6 +550,10 @@ export default function XuiPage() {
   };
 
   const handleTest = async (instance: XuiInstance) => {
+    if (!canManageXui) {
+      toast.error('权限不足，无法测试 X-UI 连接');
+      return;
+    }
     setActionLoadingId(instance.id);
     try {
       const response = await testXuiInstance(instance.id);
@@ -555,6 +576,10 @@ export default function XuiPage() {
   };
 
   const handleSync = async (instance: XuiInstance) => {
+    if (!canSyncXui) {
+      toast.error('权限不足，无法同步 X-UI 实例');
+      return;
+    }
     setActionLoadingId(instance.id);
     try {
       const response = await syncXuiInstance(instance.id);
@@ -576,6 +601,10 @@ export default function XuiPage() {
   };
 
   const openDeleteModal = (instance: XuiInstance) => {
+    if (!canManageXui) {
+      toast.error('权限不足，无法删除 X-UI 实例');
+      return;
+    }
     setInstanceToDelete(instance);
     onDeleteOpen();
   };
@@ -590,13 +619,13 @@ export default function XuiPage() {
     }
   };
 
-  if (!admin) {
+  if (!canViewXui) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
         <CardBody className="p-6">
-          <h1 className="text-xl font-semibold text-danger">仅管理员可访问 X-UI 管理</h1>
+          <h1 className="text-xl font-semibold text-danger">缺少 X-UI 查看权限</h1>
           <p className="mt-2 text-sm text-danger-700">
-            该模块会保存外部面板的接入凭据与同步状态，仅允许管理员操作。
+            该模块会保存外部面板的接入凭据与同步状态，请联系管理员分配对应权限。
           </p>
         </CardBody>
       </Card>
@@ -620,9 +649,11 @@ export default function XuiPage() {
             在 Flux 中登记 x-ui / 3x-ui 实例，统一执行连接测试、快照同步、流量上报接入和后续集中纳管。实例列表只返回脱敏状态，不向前端暴露明文凭据。
           </p>
         </div>
-        <Button color="primary" onPress={openCreateModal}>
-          新增 X-UI 实例
-        </Button>
+        {canManageXui && (
+          <Button color="primary" onPress={openCreateModal}>
+            新增 X-UI 实例
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
@@ -781,30 +812,38 @@ export default function XuiPage() {
                     <p className="mt-1 break-all text-sm text-default-500">{buildInstanceAddress(selectedInstance)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      color="secondary"
-                      isLoading={actionLoadingId === selectedInstance.id}
-                      onPress={() => handleTest(selectedInstance)}
-                    >
-                      测试连接
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      color="success"
-                      isLoading={actionLoadingId === selectedInstance.id}
-                      onPress={() => handleSync(selectedInstance)}
-                    >
-                      立即同步
-                    </Button>
-                    <Button size="sm" variant="flat" onPress={() => openEditModal(selectedInstance)}>
-                      编辑
-                    </Button>
-                    <Button size="sm" variant="flat" color="danger" onPress={() => openDeleteModal(selectedInstance)}>
-                      删除
-                    </Button>
+                    {canManageXui && (
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        color="secondary"
+                        isLoading={actionLoadingId === selectedInstance.id}
+                        onPress={() => handleTest(selectedInstance)}
+                      >
+                        测试连接
+                      </Button>
+                    )}
+                    {canSyncXui && (
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        color="success"
+                        isLoading={actionLoadingId === selectedInstance.id}
+                        onPress={() => handleSync(selectedInstance)}
+                      >
+                        立即同步
+                      </Button>
+                    )}
+                    {canManageXui && (
+                      <>
+                        <Button size="sm" variant="flat" onPress={() => openEditModal(selectedInstance)}>
+                          编辑
+                        </Button>
+                        <Button size="sm" variant="flat" color="danger" onPress={() => openDeleteModal(selectedInstance)}>
+                          删除
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -1340,7 +1379,7 @@ export default function XuiPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onFormClose}>取消</Button>
-            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit}>
+            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit} isDisabled={!canManageXui}>
               {isEdit ? '保存修改' : '创建实例'}
             </Button>
           </ModalFooter>
@@ -1361,6 +1400,7 @@ export default function XuiPage() {
               color="danger"
               isLoading={actionLoadingId === instanceToDelete?.id}
               onPress={handleDelete}
+              isDisabled={!canManageXui}
             >
               确认删除
             </Button>

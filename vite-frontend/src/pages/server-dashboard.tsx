@@ -76,11 +76,15 @@ const CHART_COLORS = {
   net_in: '#06b6d4', net_out: '#f43f5e',
   load: '#ec4899',
   connections: '#6366f1',
+  temp: '#ef4444',
+  gpu: '#a855f7',
+  process: '#64748b',
   // Pika naming
   cpu_usage: '#3b82f6',
   memory_usage: '#10b981',
   network_upload: '#f43f5e', network_download: '#06b6d4',
   disk_usage: '#8b5cf6',
+  temperature_temperature: '#ef4444',
 };
 
 const CHART_LABELS: Record<string, string> = {
@@ -89,9 +93,11 @@ const CHART_LABELS: Record<string, string> = {
   disk: '已用磁盘', disk_total: '总磁盘',
   net_in: '下行 B/s', net_out: '上行 B/s',
   load: '负载', connections: 'TCP 连接数',
+  temp: '温度 °C', gpu: 'GPU %', process: '进程数',
   cpu_usage: 'CPU %', memory_usage: '内存 %',
   network_upload: '上行 B/s', network_download: '下行 B/s',
   disk_usage: '磁盘 %',
+  temperature_temperature: '温度 °C',
 };
 
 const TIME_RANGES = [
@@ -120,6 +126,8 @@ function groupSeries(allSeries: MonitorRecordSeries[], probeType: string): Chart
     if (netSeries.length > 0) groups.push({ title: '网络', unit: 'B/s', series: netSeries });
     if (has('disk_usage'))
       groups.push({ title: '磁盘', unit: '%', series: allSeries.filter(s => s.name === 'disk_usage'), domain: [0, 100] });
+    const tempSeries = allSeries.filter(s => s.name.startsWith('temperature_'));
+    if (tempSeries.length > 0) groups.push({ title: '温度', unit: '°C', series: tempSeries });
   } else {
     // Komari
     if (has('cpu'))
@@ -136,16 +144,27 @@ function groupSeries(allSeries: MonitorRecordSeries[], probeType: string): Chart
       groups.push({ title: '负载', unit: '', series: allSeries.filter(s => s.name === 'load') });
     if (has('connections'))
       groups.push({ title: '连接数', unit: '', series: allSeries.filter(s => s.name === 'connections') });
+    if (has('temp'))
+      groups.push({ title: '温度', unit: '°C', series: allSeries.filter(s => s.name === 'temp') });
+    if (has('gpu'))
+      groups.push({ title: 'GPU', unit: '%', series: allSeries.filter(s => s.name === 'gpu'), domain: [0, 100] });
+    if (has('process'))
+      groups.push({ title: '进程数', unit: '', series: allSeries.filter(s => s.name === 'process') });
   }
   return groups;
 }
 
 function formatChartTime(ts: number, range: string): string {
   const d = new Date(ts);
-  if (['3d', '7d'].includes(range)) {
-    return `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+  const dd = d.getDate().toString().padStart(2, '0');
+  const hh = d.getHours().toString().padStart(2, '0');
+  const mi = d.getMinutes().toString().padStart(2, '0');
+  // Always show date for clarity; short format for <=6h
+  if (['1h', '3h', '6h'].includes(range)) {
+    return `${mm}/${dd} ${hh}:${mi}`;
   }
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  return `${mm}/${dd} ${hh}:${mi}`;
 }
 
 function formatChartValue(v: number, unit: string): string {
@@ -156,6 +175,7 @@ function formatChartValue(v: number, unit: string): string {
     return (v / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
   }
   if (unit === '%') return v.toFixed(1) + '%';
+  if (unit === '°C') return v.toFixed(1) + '°C';
   return v.toFixed(2);
 }
 
@@ -747,7 +767,13 @@ export default function ServerDashboardPage() {
                         {selectedNode.cpuName && <p className="truncate text-default-500 font-mono">{selectedNode.cpuName}</p>}
                         {selectedNode.instanceName && <p className="flex justify-between"><span className="text-default-400">探针</span><span>{selectedNode.instanceName}</span></p>}
                         {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">资产</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate('/assets'); }}>{selectedNode.assetName}</Chip></p>}
-                        {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">价格</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}</span></p>}
+                        {selectedNode.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedNode.provider}</span></p>}
+                        {selectedNode.label && <p className="flex justify-between"><span className="text-default-400">标签</span><span>{selectedNode.label}</span></p>}
+                        {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">价格</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}{selectedNode.billingCycle ? ` / ${selectedNode.billingCycle}天` : ''}</span></p>}
+                        {selectedNode.monthlyCost && selectedNode.monthlyCost !== '0' && <p className="flex justify-between"><span className="text-default-400">月费</span><span className="font-mono">{selectedNode.monthlyCost} {selectedNode.currency || ''}</span></p>}
+                        {selectedNode.bandwidthMbps != null && selectedNode.bandwidthMbps > 0 && <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedNode.bandwidthMbps} Mbps</span></p>}
+                        {selectedNode.sshPort != null && selectedNode.sshPort > 0 && <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedNode.sshPort}</span></p>}
+                        {selectedNode.purchaseDate != null && selectedNode.purchaseDate > 0 && <p className="flex justify-between"><span className="text-default-400">购买日</span><span className="font-mono">{new Date(selectedNode.purchaseDate).toLocaleDateString('zh-CN')}</span></p>}
                         {selectedNode.trafficLimit != null && selectedNode.trafficLimit > 0 && (
                           <p className="flex justify-between"><span className="text-default-400">流量配额</span><span className="font-mono">{formatBytes(selectedNode.trafficUsed)} / {formatBytes(selectedNode.trafficLimit)}</span></p>
                         )}
@@ -763,6 +789,10 @@ export default function ServerDashboardPage() {
                             </span>
                           </p>
                         )}
+                        {selectedNode.panelUrl && (
+                          <p className="flex justify-between"><span className="text-default-400">1Panel</span><a href={selectedNode.panelUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline truncate ml-2">{selectedNode.panelUrl.replace(/^https?:\/\//, '')}</a></p>
+                        )}
+                        {selectedNode.remark && <p className="text-default-500 mt-1 break-all">{selectedNode.remark}</p>}
                         {selectedNode.tags && (() => {
                           try {
                             const tags = JSON.parse(selectedNode.tags);
@@ -892,25 +922,26 @@ export default function ServerDashboardPage() {
                           </div>
                         </div>
                         {showCharts && (
-                          <>
-                            {/* Current probe charts */}
-                            {selectedNode.peerNodeId && (
-                              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">
-                                {selectedNode.instanceType === 'pika' ? 'Pika' : 'Komari'} 探针
-                              </p>
-                            )}
-                            <NodeCharts nodeId={selectedNode.id} range={chartRange} />
-
-                            {/* Peer probe charts */}
-                            {selectedNode.peerNodeId && (
-                              <div className="mt-4 pt-4 border-t border-divider/40">
-                                <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">
-                                  {selectedNode.peerInstanceType === 'pika' ? 'Pika' : 'Komari'} 探针
+                          selectedNode.peerNodeId ? (
+                            /* Dual-probe: side-by-side columns */
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-[10px] font-bold tracking-widest text-primary uppercase mb-2 text-center">
+                                  {selectedNode.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                                </p>
+                                <NodeCharts nodeId={selectedNode.id} range={chartRange} />
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold tracking-widest text-secondary uppercase mb-2 text-center">
+                                  {selectedNode.peerInstanceType === 'pika' ? 'Pika' : 'Komari'}
                                 </p>
                                 <NodeCharts nodeId={selectedNode.peerNodeId} range={chartRange} />
                               </div>
-                            )}
-                          </>
+                            </div>
+                          ) : (
+                            /* Single probe: full width */
+                            <NodeCharts nodeId={selectedNode.id} range={chartRange} />
+                          )
                         )}
                       </div>
 

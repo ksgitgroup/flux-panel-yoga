@@ -247,16 +247,27 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 .map(MonitorNodeSnapshot::getAssetId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Map<Long, String> assetNameMap = new HashMap<>();
+        Map<Long, AssetHost> assetMap = new HashMap<>();
         if (!assetIds.isEmpty()) {
             List<AssetHost> assets = assetHostMapper.selectBatchIds(assetIds);
             for (AssetHost a : assets) {
-                assetNameMap.put(a.getId(), a.getName());
+                assetMap.put(a.getId(), a);
             }
         }
         for (MonitorNodeSnapshotViewDto nv : nodeViews) {
-            if (nv.getAssetId() != null && nv.getAssetName() == null) {
-                nv.setAssetName(assetNameMap.get(nv.getAssetId()));
+            if (nv.getAssetId() != null) {
+                AssetHost a = assetMap.get(nv.getAssetId());
+                if (a != null) {
+                    if (nv.getAssetName() == null) nv.setAssetName(a.getName());
+                    nv.setProvider(a.getProvider());
+                    nv.setLabel(a.getLabel());
+                    nv.setBandwidthMbps(a.getBandwidthMbps());
+                    nv.setSshPort(a.getSshPort());
+                    nv.setPanelUrl(a.getPanelUrl());
+                    nv.setRemark(a.getRemark());
+                    nv.setPurchaseDate(a.getPurchaseDate());
+                    nv.setMonthlyCost(a.getMonthlyCost());
+                }
             }
         }
 
@@ -499,6 +510,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         if ("all".equals(type) || "connections".equals(type)) {
             series.add(extractKomariSeries(records, "connections", "connections"));
         }
+        if ("all".equals(type) || "temp".equals(type) || "temperature".equals(type)) {
+            series.add(extractKomariSeries(records, "temp", "temp"));
+        }
+        if ("all".equals(type) || "gpu".equals(type)) {
+            series.add(extractKomariSeries(records, "gpu", "gpu"));
+        }
+        if ("all".equals(type) || "process".equals(type)) {
+            series.add(extractKomariSeries(records, "process", "process"));
+        }
 
         // Remove empty series
         series.removeIf(s -> ((List<?>) s.get("data")).isEmpty());
@@ -569,7 +589,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     private List<String> mapToPikaTypes(String type) {
         if (type == null || "all".equals(type)) {
-            return List.of("cpu", "memory", "network", "disk");
+            return List.of("cpu", "memory", "network", "disk", "temperature");
         }
         switch (type) {
             case "cpu": return List.of("cpu");

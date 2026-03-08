@@ -323,6 +323,15 @@ export interface MonitorNodeSnapshot {
   instanceBaseUrl?: string | null;
   peerNodeId?: number | null;
   peerInstanceType?: string | null;
+  // Asset enrichment fields
+  provider?: string | null;
+  label?: string | null;
+  bandwidthMbps?: number | null;
+  sshPort?: number | null;
+  panelUrl?: string | null;
+  remark?: string | null;
+  purchaseDate?: number | null;
+  monthlyCost?: string | null;
 }
 
 export interface MonitorInstance {

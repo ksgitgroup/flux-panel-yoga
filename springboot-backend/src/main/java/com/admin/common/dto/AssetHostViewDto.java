@@ -69,6 +69,8 @@ public class AssetHostViewDto {
 
     private String remark;
 
+    private String panelUrl;
+
     private Integer totalXuiInstances;
 
     private Integer totalProtocols;

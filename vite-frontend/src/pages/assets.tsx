@@ -33,6 +33,7 @@ import {
   getAssetList,
   getMonitorList,
   getMonitorUnboundNodes,
+  createXuiInstance,
   provisionDualAgent,
   provisionMonitorAgent,
   updateAsset
@@ -71,6 +72,7 @@ interface AssetForm {
   gpuName: string;
   swapTotalMb: string;
   remark: string;
+  panelUrl: string;
 }
 
 const emptyForm = (): AssetForm => ({
@@ -78,7 +80,7 @@ const emptyForm = (): AssetForm => ({
   role: '', os: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
   currency: 'CNY', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
-  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '',
+  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '',
 });
 
 const ROLES = [
@@ -429,6 +431,7 @@ export default function AssetsPage() {
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
       swapTotalMb: asset.swapTotalMb?.toString() || '', remark: asset.remark || '',
+      panelUrl: asset.panelUrl || '',
     });
     onFormOpen();
   };
@@ -1165,12 +1168,48 @@ export default function AssetsPage() {
                     </div>
                   </div>
                 )}
+                {/* Quick Action Hints */}
+                {(() => {
+                  const hasK = !!selectedAsset.monitorNodeUuid;
+                  const hasP = !!selectedAsset.pikaNodeId;
+                  const hasXui = (selectedAsset.totalXuiInstances || 0) > 0;
+                  const hasPanel = !!selectedAsset.panelUrl;
+                  const hints: { label: string; action: () => void; color: 'warning' | 'secondary' }[] = [];
+                  if (!hasK || !hasP) hints.push({
+                    label: `缺少${!hasK && !hasP ? '探针' : !hasK ? 'Komari' : 'Pika'}探针`,
+                    action: () => { onDetailClose(); openProvisionModal(); },
+                    color: 'warning',
+                  });
+                  if (!hasXui) hints.push({
+                    label: '未绑定 X-UI',
+                    action: () => { onDetailClose(); openEditModal(selectedAsset); },
+                    color: 'warning',
+                  });
+                  if (!hasPanel) hints.push({
+                    label: '未绑定 1Panel',
+                    action: () => { onDetailClose(); openEditModal(selectedAsset); },
+                    color: 'secondary',
+                  });
+                  if (hints.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1.5 mt-2 pt-3 border-t border-divider/40">
+                      <span className="text-[10px] text-default-400 self-center mr-1">待完善:</span>
+                      {hints.map((h, i) => (
+                        <Chip key={i} size="sm" variant="flat" color={h.color} className="h-5 text-[10px] cursor-pointer hover:opacity-80"
+                          onClick={h.action}>
+                          {h.label} →
+                        </Chip>
+                      ))}
+                    </div>
+                  );
+                })()}
               </ModalBody>
-              <ModalFooter>
+              <ModalFooter className="flex-wrap gap-1">
                 <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>
                 <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>
-                <Button size="sm" variant="flat" onPress={() => navigate('/probe')}>探针</Button>
-                <Button size="sm" variant="flat" onPress={() => navigate('/xui')}>X-UI</Button>
+                {selectedAsset.panelUrl && (
+                  <Button size="sm" variant="flat" as="a" href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer">1Panel</Button>
+                )}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
@@ -1375,6 +1414,130 @@ export default function AssetsPage() {
               );
             })()}
 
+            {/* Section: Quick Actions - Service Bindings */}
+            {isEdit && (() => {
+              const editingAsset = assets.find(a => a.id === form.id);
+              if (!editingAsset) return null;
+              const hasKomari = !!form.monitorNodeUuid;
+              const hasPika = !!form.pikaNodeId;
+              const hasXui = (editingAsset.totalXuiInstances || 0) > 0;
+              const hasPanel = !!form.panelUrl;
+
+              return (
+                <div className="rounded-xl border border-warning/20 bg-warning-50/30 dark:bg-warning-50/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Chip size="sm" variant="flat" color="warning">服务绑定</Chip>
+                    <span className="text-[11px] text-default-400">快捷管理此服务器关联的服务</span>
+                  </div>
+
+                  {/* Probe Status */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-default-600 w-16">探针</span>
+                      {hasKomari ? (
+                        <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Komari ✓</Chip>
+                      ) : (
+                        <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">Komari ✗</Chip>
+                      )}
+                      {hasPika ? (
+                        <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">Pika ✓</Chip>
+                      ) : (
+                        <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">Pika ✗</Chip>
+                      )}
+                      {(!hasKomari || !hasPika) && (
+                        <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                          onPress={() => { onFormClose(); openProvisionModal(); }}>
+                          部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* X-UI Status */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-default-600 w-16">X-UI</span>
+                      {hasXui ? (
+                        <>
+                          <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">
+                            已绑定 ({editingAsset.totalXuiInstances} 个)
+                          </Chip>
+                          <Button size="sm" variant="light" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => { onFormClose(); navigate('/xui'); }}>
+                            管理
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
+                          <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={async () => {
+                              const addr = prompt('请输入 X-UI 面板地址\n例如: https://1.2.3.4:54321');
+                              if (!addr) return;
+                              const user = prompt('X-UI 登录用户名');
+                              if (!user) return;
+                              const pass = prompt('X-UI 登录密码');
+                              if (!pass) return;
+                              try {
+                                const res = await createXuiInstance({
+                                  name: `${editingAsset.name}-xui`,
+                                  baseUrl: addr,
+                                  username: user,
+                                  password: pass,
+                                  assetId: editingAsset.id,
+                                  managementMode: 'observe',
+                                  syncEnabled: 1,
+                                  syncIntervalMinutes: 30,
+                                });
+                                if (res.code === 0) {
+                                  toast.success('X-UI 绑定成功，将自动同步');
+                                  void loadAssets();
+                                } else {
+                                  toast.error(res.msg || '绑定失败');
+                                }
+                              } catch { toast.error('绑定请求失败'); }
+                            }}>
+                            快速绑定
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 1Panel Status */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-default-600 w-16">1Panel</span>
+                      {hasPanel ? (
+                        <>
+                          <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">已绑定</Chip>
+                          <a href={form.panelUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-[11px] text-primary hover:underline truncate max-w-[200px]">
+                            {form.panelUrl}
+                          </a>
+                          <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => setForm(p => ({ ...p, panelUrl: '' }))}>
+                            解绑
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Chip size="sm" variant="flat" color="default" className="h-5 text-[10px]">未绑定</Chip>
+                          <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
+                            onPress={() => {
+                              const url = prompt(`请输入 1Panel 面板地址\n例如: https://${editingAsset.primaryIp || '1.2.3.4'}:19382`);
+                              if (url) setForm(p => ({ ...p, panelUrl: url }));
+                            }}>
+                            绑定地址
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Section: Advanced / Linking */}
             <Accordion variant="light" className="-mx-1">
               <AccordionItem key="advanced" title="更多配置" classNames={{ title: "text-xs text-default-400" }}>
@@ -1397,6 +1560,13 @@ export default function AssetsPage() {
                     <Input label="Pika 节点 ID" placeholder="绑定后自动同步指标" value={form.pikaNodeId}
                       onValueChange={(v) => setForm(p => ({ ...p, pikaNodeId: v }))}
                       description="Pika 探针 Agent ID" />
+                  </div>
+
+                  <p className="text-xs font-medium text-default-400">面板绑定</p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Input label="1Panel 地址" placeholder="https://ip:19382" value={form.panelUrl}
+                      onValueChange={(v) => setForm(p => ({ ...p, panelUrl: v }))}
+                      description="1Panel 面板访问地址" />
                   </div>
                 </div>
               </AccordionItem>

@@ -36,6 +36,7 @@ import {
   createXuiInstance,
   provisionDualAgent,
   provisionMonitorAgent,
+  syncMonitorInstance,
   updateAsset,
   batchUpdateAsset,
   geolocateIp
@@ -355,6 +356,9 @@ export default function AssetsPage() {
   const [provisionDualMode, setProvisionDualMode] = useState(false);
   const [provisionKomariId, setProvisionKomariId] = useState<string>('');
   const [provisionPikaId, setProvisionPikaId] = useState<string>('');
+  // Context when provisioning from an existing asset (single-probe deploy)
+  const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' } | null>(null);
+  const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
   const [dualProvisionResult, setDualProvisionResult] = useState<{
     komari?: MonitorProvisionResult; pika?: MonitorProvisionResult;
     komariError?: string; pikaError?: string; combinedCommand: string;
@@ -522,19 +526,40 @@ export default function AssetsPage() {
     toast.success(`已导入${isPika ? 'Pika' : 'Komari'}探针节点: ${node.name || node.ip}`);
   };
 
-  const openProvisionModal = async () => {
+  const openProvisionModal = async (ctx?: { assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' }) => {
     setProvisionStep('select');
-    setProvisionName('');
-    setProvisionInstanceId('');
     setProvisionResult(null);
-    setProvisionDualMode(false);
-    setProvisionKomariId('');
-    setProvisionPikaId('');
     setDualProvisionResult(null);
+    setProvisionSyncLoading(false);
+    setProvisionContext(ctx || null);
+
+    if (ctx) {
+      // Coming from asset context: pre-fill name, auto-select probe type
+      setProvisionName(ctx.assetName);
+      setProvisionDualMode(false);
+      setProvisionKomariId('');
+      setProvisionPikaId('');
+      setProvisionInstanceId('');
+    } else {
+      setProvisionName('');
+      setProvisionInstanceId('');
+      setProvisionDualMode(false);
+      setProvisionKomariId('');
+      setProvisionPikaId('');
+    }
+
     onProvisionOpen();
     try {
       const res = await getMonitorList();
-      if (res.code === 0) setMonitorInstances(res.data || []);
+      if (res.code === 0) {
+        const instances = res.data || [];
+        setMonitorInstances(instances);
+        // Auto-select first matching instance when coming from asset context
+        if (ctx && ctx.missingType !== 'any') {
+          const match = instances.find(i => i.type === ctx.missingType);
+          if (match) setProvisionInstanceId(match.id.toString());
+        }
+      }
     } catch { /* ignore */ }
   };
 
@@ -575,6 +600,33 @@ export default function AssetsPage() {
       } catch { toast.error('请求失败'); }
       finally { setProvisionLoading(false); }
     }
+  };
+
+  // After probe install, sync the instance to discover the new node
+  const handleProvisionSync = async () => {
+    // Determine which instance(s) to sync
+    const idsToSync: number[] = [];
+    if (provisionDualMode && dualProvisionResult) {
+      if (dualProvisionResult.komari) idsToSync.push(dualProvisionResult.komari.instanceId);
+      if (dualProvisionResult.pika) idsToSync.push(dualProvisionResult.pika.instanceId);
+    } else if (provisionResult) {
+      idsToSync.push(provisionResult.instanceId);
+    }
+    if (idsToSync.length === 0) { toast.error('没有可同步的实例'); return; }
+
+    setProvisionSyncLoading(true);
+    try {
+      let allOk = true;
+      for (const id of idsToSync) {
+        const res = await syncMonitorInstance(id);
+        if (res.code !== 0) { toast.error(res.msg || '同步失败'); allOk = false; }
+      }
+      if (allOk) {
+        toast.success('同步完成，新节点将自动关联到服务器资产');
+        void loadAssets();
+      }
+    } catch { toast.error('同步请求失败'); }
+    finally { setProvisionSyncLoading(false); }
   };
 
   const copyToClipboard = (text: string) => {
@@ -811,7 +863,7 @@ export default function AssetsPage() {
           >
             {batchMode ? '退出批量' : '批量操作'}
           </Button>
-          <Button color="primary" size="sm" onPress={openProvisionModal}>添加服务器</Button>
+          <Button color="primary" size="sm" onPress={() => openProvisionModal()}>添加服务器</Button>
           <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
         </div>
       </div>
@@ -1533,7 +1585,11 @@ export default function AssetsPage() {
                   const hints: { label: string; action: () => void; color: 'warning' | 'secondary' }[] = [];
                   if (!hasK || !hasP) hints.push({
                     label: `缺少${!hasK && !hasP ? '探针' : !hasK ? 'Komari' : 'Pika'}探针`,
-                    action: () => { onDetailClose(); openProvisionModal(); },
+                    action: () => {
+                      const missingType: 'komari' | 'pika' | 'any' = !hasK && !hasP ? 'any' : !hasK ? 'komari' : 'pika';
+                      onDetailClose();
+                      openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, missingType });
+                    },
                     color: 'warning',
                   });
                   if (!hasXui) hints.push({
@@ -1915,7 +1971,11 @@ export default function AssetsPage() {
                       )}
                       {(!hasKomari || !hasPika) && (
                         <Button size="sm" variant="flat" color="primary" className="h-6 text-[11px] min-w-0 px-2"
-                          onPress={() => { onFormClose(); openProvisionModal(); }}>
+                          onPress={() => {
+                            const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
+                            onFormClose();
+                            openProvisionModal({ assetId: editingAsset.id, assetName: editingAsset.name, missingType });
+                          }}>
                           部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
                         </Button>
                       )}
@@ -2084,22 +2144,38 @@ export default function AssetsPage() {
       {/* Provision Modal */}
       <Modal isOpen={isProvisionOpen} onOpenChange={(open) => !open && onProvisionClose()} size="2xl">
         <ModalContent>
-          <ModalHeader>添加服务器</ModalHeader>
+          <ModalHeader>
+            {provisionContext
+              ? `为「${provisionContext.assetName}」部署${provisionContext.missingType === 'any' ? '' : provisionContext.missingType === 'komari' ? ' Komari' : ' Pika'}探针`
+              : '添加服务器'}
+          </ModalHeader>
           <ModalBody>
             {provisionStep === 'select' ? (
               <div className="space-y-4">
+                {/* Context hint */}
+                {provisionContext && (
+                  <div className="rounded-lg border border-primary/20 bg-primary-50/40 dark:bg-primary-50/5 p-3 text-xs text-default-600">
+                    {provisionContext.missingType === 'any'
+                      ? '该服务器尚未绑定任何探针，请选择探针实例并部署。'
+                      : `该服务器缺少 ${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 探针，已自动筛选对应类型的实例。`}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-default-500">
                     {provisionDualMode
                       ? '同时部署 Komari + Pika 双探针，获得更完整的监控覆盖。'
                       : '选择探针实例，创建客户端并生成安装命令。'}
                   </p>
-                  <Switch size="sm" isSelected={provisionDualMode} onValueChange={(v) => {
-                    setProvisionDualMode(v);
-                    setProvisionInstanceId(''); setProvisionKomariId(''); setProvisionPikaId('');
-                  }}>
-                    <span className="text-xs whitespace-nowrap">双探针</span>
-                  </Switch>
+                  {/* Hide dual-mode toggle when deploying a specific missing probe type */}
+                  {(!provisionContext || provisionContext.missingType === 'any') && (
+                    <Switch size="sm" isSelected={provisionDualMode} onValueChange={(v) => {
+                      setProvisionDualMode(v);
+                      setProvisionInstanceId(''); setProvisionKomariId(''); setProvisionPikaId('');
+                    }}>
+                      <span className="text-xs whitespace-nowrap">双探针</span>
+                    </Switch>
+                  )}
                 </div>
 
                 {provisionDualMode ? (
@@ -2140,38 +2216,55 @@ export default function AssetsPage() {
                   </>
                 ) : (
                   <>
-                    <Select
-                      label="探针实例"
-                      placeholder="选择探针实例"
-                      selectedKeys={provisionInstanceId ? [provisionInstanceId] : []}
-                      onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
-                    >
-                      {monitorInstances.map(inst => (
-                        <SelectItem key={inst.id.toString()}>
-                          <span className="flex items-center gap-2">
-                            <span className={`inline-block w-2 h-2 rounded-full ${inst.type === 'komari' ? 'bg-primary' : 'bg-secondary'}`} />
-                            {inst.name} ({inst.baseUrl})
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </Select>
-                    {monitorInstances.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
-                        暂无探针实例。请先在
-                        <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
-                          {' '}探针管理{' '}
-                        </span>
-                        中添加实例。
-                      </div>
-                    )}
+                    {(() => {
+                      // Filter instances by context probe type
+                      const filteredInstances = provisionContext && provisionContext.missingType !== 'any'
+                        ? monitorInstances.filter(i => i.type === provisionContext.missingType)
+                        : monitorInstances;
+                      return (
+                        <>
+                          <Select
+                            label={provisionContext && provisionContext.missingType !== 'any'
+                              ? `${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 实例`
+                              : '探针实例'}
+                            placeholder="选择探针实例"
+                            selectedKeys={provisionInstanceId ? [provisionInstanceId] : []}
+                            onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
+                          >
+                            {filteredInstances.map(inst => (
+                              <SelectItem key={inst.id.toString()}>
+                                <span className="flex items-center gap-2">
+                                  <span className={`inline-block w-2 h-2 rounded-full ${inst.type === 'komari' ? 'bg-primary' : 'bg-secondary'}`} />
+                                  {inst.name} ({inst.baseUrl})
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </Select>
+                          {filteredInstances.length === 0 && (
+                            <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
+                              {provisionContext && provisionContext.missingType !== 'any'
+                                ? `暂无 ${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 类型的探针实例。`
+                                : '暂无探针实例。'}
+                              请先在
+                              <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
+                                {' '}探针管理{' '}
+                              </span>
+                              中添加实例。
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </>
                 )}
 
                 <Input
-                  label="服务器名称（可选）"
-                  placeholder="例如 HK-VPS-01，留空自动生成"
+                  label={provisionContext ? '服务器名称' : '服务器名称（可选）'}
+                  placeholder="例如 HK-VPS-01"
                   value={provisionName}
                   onValueChange={setProvisionName}
+                  isRequired={!!provisionContext}
+                  description={provisionContext ? '探针节点将使用此名称，确保与资产名称一致以便自动关联' : '留空将自动生成随机名称'}
                 />
               </div>
             ) : provisionDualMode && dualProvisionResult ? (
@@ -2263,9 +2356,13 @@ export default function AssetsPage() {
                   </Accordion>
                 )}
 
-                <p className="text-xs text-default-400">
-                  安装完成后，前往探针管理点击「同步」，系统将自动发现新节点并创建服务器资产。
-                </p>
+                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
+                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync}>
+                    手动同步
+                  </Button>
+                  <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
+                </div>
               </div>
             ) : (
               /* Single-mode result */
@@ -2310,9 +2407,13 @@ export default function AssetsPage() {
                   </AccordionItem>
                 </Accordion>
 
-                <p className="text-xs text-default-400">
-                  安装完成后，前往探针管理点击「同步」，系统将自动发现新节点并创建服务器资产。
-                </p>
+                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
+                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync}>
+                    手动同步
+                  </Button>
+                  <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
+                </div>
               </div>
             )}
           </ModalBody>
@@ -2321,7 +2422,10 @@ export default function AssetsPage() {
               <>
                 <Button variant="flat" onPress={onProvisionClose}>取消</Button>
                 <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
-                  isDisabled={provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId}>
+                  isDisabled={
+                    (provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId) ||
+                    (!!provisionContext && !provisionName.trim())
+                  }>
                   {provisionDualMode ? '创建双探针' : '创建并生成命令'}
                 </Button>
               </>

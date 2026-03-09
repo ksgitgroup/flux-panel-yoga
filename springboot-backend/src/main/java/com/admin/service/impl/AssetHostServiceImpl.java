@@ -22,6 +22,11 @@ import java.util.stream.Collectors;
 @Service
 public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost> implements AssetHostService {
 
+    /** 资产视图缓存：避免高频 Dashboard/看板轮询时重复执行 7 次 DB 查询 */
+    private volatile List<AssetHostViewDto> cachedAssetViews;
+    private volatile long cachedAssetViewsAt;
+    private static final long ASSET_VIEW_CACHE_TTL_MS = 30_000; // 30 秒
+
     @Resource
     private AssetHostMapper assetHostMapper;
 
@@ -54,9 +59,23 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     @Override
     public R getAllAssets() {
+        long now = System.currentTimeMillis();
+        List<AssetHostViewDto> cached = cachedAssetViews;
+        if (cached != null && (now - cachedAssetViewsAt) < ASSET_VIEW_CACHE_TTL_MS) {
+            return R.ok(cached);
+        }
         List<AssetHost> assets = this.list(new LambdaQueryWrapper<AssetHost>()
                 .orderByDesc(AssetHost::getUpdatedTime, AssetHost::getId));
-        return R.ok(buildAssetViews(assets));
+        List<AssetHostViewDto> views = buildAssetViews(assets);
+        cachedAssetViews = views;
+        cachedAssetViewsAt = now;
+        return R.ok(views);
+    }
+
+    /** 写操作后主动失效缓存 */
+    private void invalidateAssetViewCache() {
+        cachedAssetViews = null;
+        cachedAssetViewsAt = 0;
     }
 
     @Override
@@ -124,6 +143,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setUpdatedTime(now);
         asset.setStatus(0);
         this.save(asset);
+        invalidateAssetViewCache();
         return R.ok(buildAssetViews(Collections.singletonList(asset)).stream().findFirst().orElse(null));
     }
 
@@ -138,6 +158,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         mergeUserEditedFields(asset, editedFields);
         asset.setUpdatedTime(System.currentTimeMillis());
         this.updateById(asset);
+        invalidateAssetViewCache();
         return R.ok(buildAssetViews(Collections.singletonList(asset)).stream().findFirst().orElse(null));
     }
 
@@ -170,6 +191,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         }
 
         this.removeById(asset.getId());
+        invalidateAssetViewCache();
         return R.ok();
     }
 
@@ -271,6 +293,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             }
         }
         this.updateBatchById(assets);
+        invalidateAssetViewCache();
         return R.ok("已批量更新 " + assets.size() + " 个资产");
     }
 

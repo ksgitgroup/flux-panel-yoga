@@ -302,10 +302,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Override
     public R getDashboardNodes() {
-        // Return active nodes: exclude soft-deleted (status=-1) and user-unlinked (assetUnlinked=1)
+        // Only return nodes linked to assets for consistency with assets page
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(
                 new LambdaQueryWrapper<MonitorNodeSnapshot>()
                         .ne(MonitorNodeSnapshot::getStatus, -1)
+                        .isNotNull(MonitorNodeSnapshot::getAssetId)
                         .and(w -> w.isNull(MonitorNodeSnapshot::getAssetUnlinked)
                                 .or().ne(MonitorNodeSnapshot::getAssetUnlinked, 1))
                         .orderByDesc(MonitorNodeSnapshot::getOnline)
@@ -352,6 +353,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     nv.setRemark(a.getRemark());
                     nv.setPurchaseDate(a.getPurchaseDate());
                     nv.setMonthlyCost(a.getMonthlyCost());
+                    // Use asset tags as the single source of truth for tag display
+                    if (a.getTags() != null) nv.setTags(a.getTags());
                 }
             }
         }

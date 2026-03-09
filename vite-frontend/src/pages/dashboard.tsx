@@ -139,7 +139,7 @@ export default function DashboardPage() {
 
   useEffect(() => { void loadHome(); }, [loadHome]);
   useEffect(() => {
-    const interval = window.setInterval(() => void loadHome(true), runtime?.running ? 2500 : 60000);
+    const interval = window.setInterval(() => void loadHome(true), runtime?.running ? 5000 : 120000);
     return () => window.clearInterval(interval);
   }, [loadHome, runtime?.running]);
 

@@ -385,8 +385,8 @@ export default function ServerDashboardPage() {
 
   useEffect(() => {
     fetchData(true);
-    // 10s polling for real-time feel
-    pollRef.current = setInterval(() => fetchData(false), 10_000);
+    // 15s polling for real-time feel (reduced from 10s for performance)
+    pollRef.current = setInterval(() => fetchData(false), 15_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchData]);
 

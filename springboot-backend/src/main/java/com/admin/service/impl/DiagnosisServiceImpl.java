@@ -261,46 +261,29 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
     @Override
     public R getLatestSummary() {
-        // 对每个 target_type+target_id 取最新一条记录
-        List<DiagnosisRecord> all = this.list(
-                new QueryWrapper<DiagnosisRecord>().orderByDesc("created_time")
-        );
+        // SQL 层面完成分组，每个 target_type+target_id 只取最新一条（避免全表加载到内存）
+        DiagnosisRecordMapper mapper = this.getBaseMapper();
+        List<DiagnosisRecord> latestPerTarget = mapper.selectLatestPerTarget();
 
-        // 获取当前所有有效的隧道和转发 ID 列表，用于剔除已删除的资源
-        // 这一步是解决用户提到的“已删除资源仍显示在统计中”的问题
+        // 获取当前有效的隧道和转发 ID，剔除已删除资源
         Set<Integer> activeTunnelIds = tunnelService.list().stream()
                 .map(t -> t.getId().intValue()).collect(Collectors.toSet());
         Set<Integer> activeForwardIds = forwardService.list().stream()
                 .map(f -> f.getId().intValue()).collect(Collectors.toSet());
 
-        // 按 targetType+targetId 分组，保留最新且有效的
-        Map<String, DiagnosisRecord> latestMap = new LinkedHashMap<>();
-        for (DiagnosisRecord r : all) {
+        List<DiagnosisRecord> latestRecords = latestPerTarget.stream().filter(r -> {
             String targetType = r.getTargetType();
             Integer targetId = r.getTargetId();
-            
-            // 校验资源是否还存在
-            boolean exists = false;
-            if ("tunnel".equals(targetType)) {
-                exists = activeTunnelIds.contains(targetId);
-            } else if ("forward".equals(targetType)) {
-                exists = activeForwardIds.contains(targetId);
-            }
-            
-            if (!exists) continue; // 剔除已删除的资源
-
-            String key = targetType + "_" + targetId;
-            latestMap.putIfAbsent(key, r);
-        }
+            if (“tunnel”.equals(targetType)) return activeTunnelIds.contains(targetId);
+            if (“forward”.equals(targetType)) return activeForwardIds.contains(targetId);
+            return false;
+        }).collect(Collectors.toList());
 
         // 统计
-        Collection<DiagnosisRecord> latestRecords = latestMap.values();
         long totalCount = latestRecords.size();
         long failCount = latestRecords.stream().filter(r -> !Boolean.TRUE.equals(r.getOverallSuccess())).count();
         long successCount = totalCount - failCount;
 
-
-        // 计算平均延迟
         double avgLatency = latestRecords.stream()
                 .filter(r -> r.getAverageTime() != null && r.getAverageTime() >= 0)
                 .mapToDouble(DiagnosisRecord::getAverageTime)
@@ -308,23 +291,23 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                 .orElse(-1);
 
         Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("totalCount", totalCount);
-        summary.put("successCount", successCount);
-        summary.put("failCount", failCount);
-        summary.put("healthRate", totalCount > 0 ? Math.round((successCount * 100.0 / totalCount) * 10.0) / 10.0 : 100.0);
-        summary.put("avgLatency", avgLatency >= 0 ? Math.round(avgLatency * 10.0) / 10.0 : null);
-        summary.put("records", latestRecords);
-        
+        summary.put(“totalCount”, totalCount);
+        summary.put(“successCount”, successCount);
+        summary.put(“failCount”, failCount);
+        summary.put(“healthRate”, totalCount > 0 ? Math.round((successCount * 100.0 / totalCount) * 10.0) / 10.0 : 100.0);
+        summary.put(“avgLatency”, avgLatency >= 0 ? Math.round(avgLatency * 10.0) / 10.0 : null);
+        summary.put(“records”, latestRecords);
+
         // 最近异常记录 (最多5条)
         List<DiagnosisRecord> recentFailures = latestRecords.stream()
                 .filter(r -> !Boolean.TRUE.equals(r.getOverallSuccess()))
                 .limit(5)
                 .collect(Collectors.toList());
-        summary.put("recentFailures", recentFailures);
+        summary.put(“recentFailures”, recentFailures);
 
         // 最近一次全量诊断时间
-        Optional<DiagnosisRecord> latest = all.stream().findFirst();
-        latest.ifPresent(r -> summary.put("lastRunTime", r.getCreatedTime()));
+        DiagnosisRecord mostRecent = mapper.selectMostRecent();
+        if (mostRecent != null) summary.put(“lastRunTime”, mostRecent.getCreatedTime());
 
         return R.ok(summary);
     }

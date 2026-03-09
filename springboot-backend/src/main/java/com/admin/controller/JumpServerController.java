@@ -1,5 +1,6 @@
 package com.admin.controller;
 
+import com.admin.common.annotation.RequireRole;
 import com.admin.common.lang.R;
 import com.admin.service.JumpServerService;
 import org.springframework.web.bind.annotation.*;
@@ -15,12 +16,14 @@ public class JumpServerController {
     private JumpServerService jumpServerService;
 
     /** 获取 JumpServer 集成状态 */
+    @RequireRole
     @PostMapping("/status")
     public R getStatus() {
         return jumpServerService.getStatus();
     }
 
     /** 创建 ConnectionToken 并返回跳转 URL */
+    @RequireRole
     @PostMapping("/connect")
     public R connect(@RequestBody Map<String, Object> params) {
         Long assetId = params.get("assetId") != null ? Long.valueOf(params.get("assetId").toString()) : null;

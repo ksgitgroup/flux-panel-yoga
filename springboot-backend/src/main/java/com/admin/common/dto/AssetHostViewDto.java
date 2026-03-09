@@ -69,6 +69,8 @@ public class AssetHostViewDto {
 
     private Integer swapTotalMb;
 
+    private String purpose;
+
     private String remark;
 
     private String panelUrl;

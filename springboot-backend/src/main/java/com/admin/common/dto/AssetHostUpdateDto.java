@@ -72,6 +72,8 @@ public class AssetHostUpdateDto {
 
     private Integer swapTotalMb;
 
+    private String purpose;
+
     private String remark;
 
     private Integer billingCycle;

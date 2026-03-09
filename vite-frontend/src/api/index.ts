@@ -419,6 +419,7 @@ export interface AssetHost {
   kernelVersion?: string | null;
   gpuName?: string | null;
   swapTotalMb?: number | null;
+  purpose?: string | null;
   remark?: string | null;
   panelUrl?: string | null;
   onePanelInstanceId?: number | null;

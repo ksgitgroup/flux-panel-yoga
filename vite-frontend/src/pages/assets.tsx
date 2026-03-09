@@ -84,6 +84,7 @@ interface AssetForm {
   kernelVersion: string;
   gpuName: string;
   swapTotalMb: string;
+  purpose: string;
   remark: string;
   panelUrl: string;
   gostNodeId: string;
@@ -94,7 +95,7 @@ const emptyForm = (): AssetForm => ({
   role: '', os: '', osCategory: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
   currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
-  kernelVersion: '', gpuName: '', swapTotalMb: '', remark: '', panelUrl: '', gostNodeId: '',
+  kernelVersion: '', gpuName: '', swapTotalMb: '', purpose: '', remark: '', panelUrl: '', gostNodeId: '',
 });
 
 const ROLES = [
@@ -155,6 +156,16 @@ const PROVIDERS = [
   { key: '腾讯云', label: '腾讯云' },
   { key: '阿里云', label: '阿里云' },
   { key: '华为云', label: '华为云' },
+];
+
+const ENVIRONMENTS = [
+  { key: '', label: '未指定' },
+  { key: '生产', label: '生产' },
+  { key: '测试', label: '测试' },
+  { key: '预发布', label: '预发布' },
+  { key: '开发', label: '开发' },
+  { key: '灾备', label: '灾备' },
+  { key: '演示', label: '演示' },
 ];
 
 const REGIONS = [
@@ -578,6 +589,19 @@ export default function AssetsPage() {
     return [...PROVIDERS, ...extras];
   }, [providerCounts]);
 
+  /** Dynamic environment options: merge ENVIRONMENTS constant + any custom envs from assets */
+  const allEnvironmentOptions = useMemo(() => {
+    const knownKeys = new Set(ENVIRONMENTS.map(e => e.key));
+    const extras: { key: string; label: string }[] = [];
+    assets.forEach(a => {
+      if (a.environment && !knownKeys.has(a.environment)) {
+        knownKeys.add(a.environment);
+        extras.push({ key: a.environment, label: a.environment });
+      }
+    });
+    return [...ENVIRONMENTS, ...extras];
+  }, [assets]);
+
   const filteredAssets = useMemo(() => {
     let list = assets;
     if (filterRole) {
@@ -619,7 +643,7 @@ export default function AssetsPage() {
     const kw = normalizeKeyword(searchKeyword);
     if (kw) {
       list = list.filter((item) =>
-        [item.name, item.label, item.primaryIp, item.ipv6, item.environment, item.provider, item.region, item.role, item.os, item.osCategory, item.remark, item.tags, item.probeTags, item.cpuName, item.arch, item.virtualization, item.panelUrl, item.monthlyCost]
+        [item.name, item.label, item.primaryIp, item.ipv6, item.environment, item.provider, item.region, item.role, item.os, item.osCategory, item.purpose, item.remark, item.tags, item.probeTags, item.cpuName, item.arch, item.virtualization, item.panelUrl, item.monthlyCost]
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
@@ -949,7 +973,7 @@ export default function AssetsPage() {
       tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', pikaNodeId: asset.pikaNodeId || '',
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
-      swapTotalMb: asset.swapTotalMb?.toString() || '', remark: asset.remark || '',
+      swapTotalMb: asset.swapTotalMb?.toString() || '', purpose: asset.purpose || '', remark: asset.remark || '',
       panelUrl: asset.panelUrl || '', gostNodeId: asset.gostNodeId?.toString() || '',
     });
     onFormOpen();
@@ -1002,6 +1026,7 @@ export default function AssetsPage() {
         kernelVersion: form.kernelVersion.trim() || null,
         gpuName: form.gpuName.trim() || null,
         swapTotalMb: form.swapTotalMb ? parseInt(form.swapTotalMb) : null,
+        purpose: form.purpose.trim() || null,
         remark: form.remark.trim() || null,
         panelUrl: form.panelUrl.trim() || null,
         gostNodeId: form.gostNodeId ? parseInt(form.gostNodeId) : null,
@@ -1469,8 +1494,7 @@ export default function AssetsPage() {
                           onChange={toggleSelectAll} />
                       </th>
                     )}
-                    <th className="px-4 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[260px]">服务器</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[90px]">探针</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[280px]">服务器</th>
                     <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[200px]">遥测</th>
                     <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">流量/到期</th>
                     <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase w-[140px]">标签</th>
@@ -1499,7 +1523,7 @@ export default function AssetsPage() {
                               onChange={() => toggleSelectId(asset.id)} />
                           </td>
                         )}
-                        {/* Server identity */}
+                        {/* Server identity + purpose + sync time */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <span className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${
@@ -1518,34 +1542,25 @@ export default function AssetsPage() {
                                   }`}>{roleChip.text}</span>
                                 )}
                               </div>
-                              <p className="truncate text-xs text-default-400 font-mono mt-0.5">
-                                {asset.primaryIp || '-'}
-                                {(asset.osCategory || asset.os) ? <span className="ml-1.5 opacity-60">/ {asset.osCategory || asset.os}</span> : null}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Probe source + sync time */}
-                        <td className="px-3 py-3">
-                          <div className="space-y-1">
-                            {asset.probeSource === 'dual' ? (
-                              <div className="flex gap-1">
-                                <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">K</Chip>
-                                <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">P</Chip>
+                              {asset.purpose && (
+                                <p className="truncate text-xs text-primary-500 font-medium mt-0.5">{asset.purpose}</p>
+                              )}
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="truncate text-xs text-default-400 font-mono">
+                                  {asset.primaryIp || '-'}
+                                  {(asset.osCategory || asset.os) ? <span className="ml-1.5 opacity-60">/ {asset.osCategory || asset.os}</span> : null}
+                                </span>
                               </div>
-                            ) : asset.probeSource === 'komari' ? (
-                              <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">Komari</Chip>
-                            ) : asset.probeSource === 'pika' ? (
-                              <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">Pika</Chip>
-                            ) : (
-                              <span className="text-xs text-default-300">本地</span>
-                            )}
-                            {asset.monitorLastSyncAt && (
-                              <p className="text-[10px] text-default-400 font-mono">
-                                {new Date(asset.monitorLastSyncAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
-                              </p>
-                            )}
+                              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                {asset.provider && <span className="px-1 py-0 rounded bg-default-100 text-[10px] text-default-500">{asset.provider}</span>}
+                                {asset.environment && <span className="px-1 py-0 rounded bg-primary-50 text-[10px] text-primary dark:bg-primary/10">{asset.environment}</span>}
+                                {asset.monitorLastSyncAt && (
+                                  <span className="text-[10px] text-default-300 font-mono ml-auto">
+                                    {new Date(asset.monitorLastSyncAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </td>
 
@@ -2285,8 +2300,29 @@ export default function AssetsPage() {
                             📍
                           </Button>
                         </div>
-                        <Input size="sm" label="环境" placeholder="生产 / 测试" value={form.environment}
-                          onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+                        {form.environment && !allEnvironmentOptions.some(e => e.key === form.environment) ? (
+                          <div className="flex items-end gap-1">
+                            <Input size="sm" label="环境 (自定义)" value={form.environment} className="flex-1"
+                              onValueChange={(v) => setForm(p => ({ ...p, environment: v }))} />
+                            <Button size="sm" variant="flat" className="h-8 min-w-8" onPress={() => setForm(p => ({ ...p, environment: '' }))} title="切换为选择">
+                              ...
+                            </Button>
+                          </div>
+                        ) : (
+                          <Select size="sm" label="环境" selectedKeys={form.environment ? [form.environment] : []}
+                            onSelectionChange={(keys) => {
+                              const v = Array.from(keys)[0]?.toString() || '';
+                              if (v === '__custom__') {
+                                setForm(p => ({ ...p, environment: '' }));
+                                setTimeout(() => setForm(p => ({ ...p, environment: ' ' })), 0);
+                              } else {
+                                setForm(p => ({ ...p, environment: v }));
+                              }
+                            }}>
+                            {[...allEnvironmentOptions.map(e => <SelectItem key={e.key}>{e.label}</SelectItem>),
+                              <SelectItem key="__custom__">+ 自定义输入...</SelectItem>]}
+                          </Select>
+                        )}
                         <Input size="sm" label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
                           onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
                       </div>
@@ -2326,7 +2362,9 @@ export default function AssetsPage() {
                         );
                       })()}
 
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <Input size="sm" label="核心用途" placeholder="Nginx反代 / 博客站 / MC服务器" value={form.purpose}
+                          onValueChange={(v) => setForm(p => ({ ...p, purpose: v }))} />
                         <Input size="sm" label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
                           onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
                         <Input size="sm" label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
@@ -3263,6 +3301,7 @@ export default function AssetsPage() {
               <SelectItem key="environment">环境</SelectItem>
               <SelectItem key="provider">供应商</SelectItem>
               <SelectItem key="role">角色</SelectItem>
+              <SelectItem key="purpose">核心用途</SelectItem>
               <SelectItem key="osCategory">操作系统类别</SelectItem>
               <SelectItem key="monthlyCost">费用</SelectItem>
               <SelectItem key="currency">货币</SelectItem>
@@ -3277,6 +3316,11 @@ export default function AssetsPage() {
               <Select label="地区" selectedKeys={batchValue ? [batchValue] : []}
                 onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
                 {REGIONS.map(r => <SelectItem key={r.key}>{r.flag} {r.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'environment' ? (
+              <Select label="环境" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {allEnvironmentOptions.filter(e => e.key).map(e => <SelectItem key={e.key}>{e.label}</SelectItem>)}
               </Select>
             ) : batchField === 'role' ? (
               <Select label="角色" selectedKeys={batchValue ? [batchValue] : []}

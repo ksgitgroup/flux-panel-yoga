@@ -198,7 +198,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
         // Whitelist of allowed batch-update fields
         Set<String> allowedFields = Set.of(
-                "tags", "region", "environment", "provider", "role",
+                "tags", "region", "environment", "provider", "role", "purpose",
                 "monthlyCost", "currency", "billingCycle", "bandwidthMbps",
                 "monthlyTrafficGb", "sshPort", "os", "osCategory", "remark"
         );
@@ -260,6 +260,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 case "os": asset.setOs(strVal); break;
                 case "osCategory": asset.setOsCategory(strVal); break;
                 case "remark": asset.setRemark(strVal); break;
+                case "purpose": asset.setPurpose(strVal); break;
                 default: break;
             }
             asset.setUpdatedTime(now);
@@ -334,6 +335,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setGostNodeId(dto.getGostNodeId());
         asset.setMonitorNodeUuid(trimToNull(dto.getMonitorNodeUuid()));
         asset.setPikaNodeId(trimToNull(dto.getPikaNodeId()));
+        asset.setPurpose(trimToNull(dto.getPurpose()));
         asset.setRemark(trimToNull(dto.getRemark()));
         asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
         asset.setBillingCycle(dto.getBillingCycle());
@@ -370,6 +372,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setKernelVersion(trimToNull(dto.getKernelVersion()));
         asset.setGpuName(trimToNull(dto.getGpuName()));
         asset.setSwapTotalMb(dto.getSwapTotalMb());
+        asset.setPurpose(trimToNull(dto.getPurpose()));
         asset.setRemark(trimToNull(dto.getRemark()));
         asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
         asset.setBillingCycle(dto.getBillingCycle());

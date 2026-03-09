@@ -76,6 +76,9 @@ public class AssetHost extends BaseEntity {
 
     private Integer swapTotalMb;
 
+    /** 核心用途 (简短描述服务器主要功能) */
+    private String purpose;
+
     private String remark;
 
     /** 1Panel 面板地址 (e.g. https://ip:port) */

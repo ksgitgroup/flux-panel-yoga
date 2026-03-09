@@ -129,6 +129,34 @@ const OS_CATEGORIES = [
   { key: 'Other', label: 'Other' },
 ];
 
+const PROVIDERS = [
+  { key: '', label: '未指定' },
+  { key: 'DMIT', label: 'DMIT' },
+  { key: 'Vultr', label: 'Vultr' },
+  { key: 'BandwagonHost', label: 'BandwagonHost' },
+  { key: 'RackNerd', label: 'RackNerd' },
+  { key: 'DigitalOcean', label: 'DigitalOcean' },
+  { key: 'Linode', label: 'Linode' },
+  { key: 'AWS', label: 'AWS' },
+  { key: 'Azure', label: 'Azure' },
+  { key: 'GCP', label: 'GCP' },
+  { key: 'Oracle', label: 'Oracle' },
+  { key: 'Hetzner', label: 'Hetzner' },
+  { key: 'OVH', label: 'OVH' },
+  { key: 'Contabo', label: 'Contabo' },
+  { key: 'CloudCone', label: 'CloudCone' },
+  { key: 'HostHatch', label: 'HostHatch' },
+  { key: 'AlphaVPS', label: 'AlphaVPS' },
+  { key: 'GreenCloud', label: 'GreenCloud' },
+  { key: 'V.PS', label: 'V.PS' },
+  { key: 'Kurun', label: 'Kurun' },
+  { key: 'Akile', label: 'Akile' },
+  { key: 'NexTab', label: 'NexTab' },
+  { key: '腾讯云', label: '腾讯云' },
+  { key: '阿里云', label: '阿里云' },
+  { key: '华为云', label: '华为云' },
+];
+
 const REGIONS = [
   { key: '', label: '未指定', flag: '' },
   { key: '中国大陆', label: '中国大陆', flag: '🇨🇳' },
@@ -539,6 +567,16 @@ export default function AssetsPage() {
     assets.forEach(a => { const p = a.provider || ''; counts[p] = (counts[p] || 0) + 1; });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [assets]);
+
+  /** Dynamic provider options: merge PROVIDERS constant + any custom providers from assets */
+  const allProviderOptions = useMemo(() => {
+    const knownKeys = new Set(PROVIDERS.map(p => p.key));
+    const extras: { key: string; label: string }[] = [];
+    providerCounts.forEach(([p]) => {
+      if (p && !knownKeys.has(p)) extras.push({ key: p, label: p });
+    });
+    return [...PROVIDERS, ...extras];
+  }, [providerCounts]);
 
   const filteredAssets = useMemo(() => {
     let list = assets;
@@ -2211,8 +2249,32 @@ export default function AssetsPage() {
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-4">
-                        <Input size="sm" label="供应商" placeholder="DMIT / Vultr" value={form.provider}
-                          onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
+                        {form.provider && !allProviderOptions.some(p => p.key === form.provider) ? (
+                          <div className="flex items-end gap-1">
+                            <Input size="sm" label="供应商 (自定义)" value={form.provider} className="flex-1"
+                              onValueChange={(v) => setForm(p => ({ ...p, provider: v }))} />
+                            <Button size="sm" variant="flat" className="h-8 min-w-8" onPress={() => setForm(p => ({ ...p, provider: '' }))} title="切换为选择">
+                              ...
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-end gap-1">
+                            <Select size="sm" label="供应商" className="flex-1" selectedKeys={form.provider ? [form.provider] : []}
+                              onSelectionChange={(keys) => {
+                                const v = Array.from(keys)[0]?.toString() || '';
+                                if (v === '__custom__') {
+                                  setForm(p => ({ ...p, provider: '' }));
+                                  // Switch to custom input mode by setting a placeholder
+                                  setTimeout(() => setForm(p => ({ ...p, provider: ' ' })), 0);
+                                } else {
+                                  setForm(p => ({ ...p, provider: v }));
+                                }
+                              }}>
+                              {[...allProviderOptions.map(p => <SelectItem key={p.key}>{p.label}</SelectItem>),
+                                <SelectItem key="__custom__">+ 自定义输入...</SelectItem>]}
+                            </Select>
+                          </div>
+                        )}
                         <div className="flex items-end gap-1">
                           <Select size="sm" label="地区" className="flex-1" selectedKeys={form.region ? [form.region] : []}
                             onSelectionChange={(keys) => setForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
@@ -3225,6 +3287,11 @@ export default function AssetsPage() {
               <Select label="操作系统类别" selectedKeys={batchValue ? [batchValue] : []}
                 onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
                 {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+              </Select>
+            ) : batchField === 'provider' ? (
+              <Select label="供应商" selectedKeys={batchValue ? [batchValue] : []}
+                onSelectionChange={(keys) => setBatchValue(Array.from(keys)[0] as string || '')}>
+                {allProviderOptions.filter(p => p.key).map(p => <SelectItem key={p.key}>{p.label}</SelectItem>)}
               </Select>
             ) : batchField === 'currency' ? (
               <Select label="货币" selectedKeys={batchValue ? [batchValue] : []}

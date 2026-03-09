@@ -46,9 +46,12 @@ const SEVERITY_MAP: Record<string, { label: string; color: "default" | "warning"
 
 const EVENT_TYPES = [
   { value: 'alert', label: '告警触发' },
+  { value: 'alert_recovery', label: '告警恢复' },
+  { value: 'daily_summary', label: '每日摘要' },
   { value: 'system', label: '系统事件' },
   { value: 'probe_offline', label: '探针离线' },
   { value: 'expiry', label: '到期提醒' },
+  { value: 'expiry_reminder', label: '到期提醒(定时)' },
   { value: 'diagnosis', label: '诊断异常' },
   { value: 'traffic', label: '流量超额' },
 ];

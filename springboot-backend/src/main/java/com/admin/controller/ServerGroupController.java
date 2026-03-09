@@ -1,6 +1,7 @@
 package com.admin.controller;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.entity.ServerGroup;
 import com.admin.service.ServerGroupService;
@@ -23,18 +24,21 @@ public class ServerGroupController extends BaseController {
         return serverGroupService.listGroups();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/group/create")
     public R createGroup(@RequestBody ServerGroup group) {
         return serverGroupService.createGroup(group);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/group/update")
     public R updateGroup(@RequestBody ServerGroup group) {
         return serverGroupService.updateGroup(group);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/group/delete")
     public R deleteGroup(@RequestBody Map<String, Long> body) {
@@ -47,6 +51,7 @@ public class ServerGroupController extends BaseController {
         return serverGroupService.getMembers(body.get("groupId"));
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/group/member/add")
     public R addMember(@RequestBody Map<String, Object> body) {
@@ -56,6 +61,7 @@ public class ServerGroupController extends BaseController {
         return serverGroupService.addMember(groupId, assetId, roleInGroup);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/group/member/remove")
     public R removeMember(@RequestBody Map<String, Long> body) {

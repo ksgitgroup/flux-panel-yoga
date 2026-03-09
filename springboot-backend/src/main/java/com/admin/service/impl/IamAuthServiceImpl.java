@@ -11,9 +11,12 @@ import com.admin.service.IamAuthService;
 import com.admin.service.RuntimeConfigService;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
@@ -26,6 +29,7 @@ import java.util.stream.Collectors;
 @Service
 public class IamAuthServiceImpl implements IamAuthService {
 
+    private static final Logger log = LoggerFactory.getLogger(IamAuthServiceImpl.class);
     private static final String AUTH_SOURCE_DINGTALK = "dingtalk";
     private static final String AUTH_SOURCE_LOCAL = "local";
     private static final long IAM_SESSION_EXPIRE_MILLIS = 12L * 60 * 60 * 1000;
@@ -396,25 +400,37 @@ public class IamAuthServiceImpl implements IamAuthService {
         payload.put("clientSecret", getConfigValue("dingtalk_client_secret", ""));
         payload.put("code", authCode);
         payload.put("grantType", "authorization_code");
-        ResponseEntity<String> response = restTemplate.postForEntity(
-                DINGTALK_USER_ACCESS_TOKEN_ENDPOINT,
-                new HttpEntity<>(payload.toJSONString(), headers),
-                String.class
-        );
-        return parseJsonObject(response.getBody());
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    DINGTALK_USER_ACCESS_TOKEN_ENDPOINT,
+                    new HttpEntity<>(payload.toJSONString(), headers),
+                    String.class
+            );
+            log.debug("DingTalk token exchange response: {}", response.getBody());
+            return parseJsonObject(response.getBody());
+        } catch (RestClientException e) {
+            log.error("DingTalk token exchange failed: {}", e.getMessage());
+            return new JSONObject();
+        }
     }
 
     private JSONObject fetchCurrentUserProfile(String accessToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("x-acs-dingtalk-access-token", accessToken);
         headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-        ResponseEntity<String> response = restTemplate.exchange(
-                DINGTALK_CURRENT_USER_ENDPOINT,
-                HttpMethod.GET,
-                new HttpEntity<>(headers),
-                String.class
-        );
-        return parseJsonObject(response.getBody());
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    DINGTALK_CURRENT_USER_ENDPOINT,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    String.class
+            );
+            log.debug("DingTalk user profile response: {}", response.getBody());
+            return parseJsonObject(response.getBody());
+        } catch (RestClientException e) {
+            log.error("DingTalk user profile fetch failed: {}", e.getMessage());
+            return new JSONObject();
+        }
     }
 
     private Map<String, Object> buildLoginResponse(AuthPrincipal principal, String token, Long expiresAt) {

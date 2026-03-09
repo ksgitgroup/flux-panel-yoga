@@ -26,9 +26,11 @@ import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.ssl.TrustStrategy;
 import org.apache.http.util.EntityUtils;
+import com.admin.common.utils.SimpleCircuitBreaker;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -49,6 +51,36 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     private static final String STATUS_FAILED = "failed";
     private static final String TYPE_KOMARI = "komari";
     private static final String TYPE_PIKA = "pika";
+
+    /** 熔断器：连续 3 次失败后熔断，30 秒后半开试探 */
+    private static final SimpleCircuitBreaker circuitBreaker = new SimpleCircuitBreaker(3, 30_000);
+
+    /** 连接池复用：标准 TLS */
+    private static final CloseableHttpClient POOLED_CLIENT;
+    /** 连接池复用：跳过 TLS 验证 */
+    private static final CloseableHttpClient POOLED_INSECURE_CLIENT;
+
+    static {
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setMaxTotal(50);
+        cm.setDefaultMaxPerRoute(10);
+        POOLED_CLIENT = HttpClients.custom().setConnectionManager(cm).build();
+
+        try {
+            TrustStrategy trustAll = (chain, authType) -> true;
+            SSLContext sslCtx = SSLContexts.custom().loadTrustMaterial(null, trustAll).build();
+            PoolingHttpClientConnectionManager cmInsecure = new PoolingHttpClientConnectionManager();
+            cmInsecure.setMaxTotal(50);
+            cmInsecure.setDefaultMaxPerRoute(10);
+            POOLED_INSECURE_CLIENT = HttpClients.custom()
+                    .setConnectionManager(cmInsecure)
+                    .setSSLContext(sslCtx)
+                    .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
+                    .build();
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError("Failed to init insecure HttpClient: " + e.getMessage());
+        }
+    }
 
     @Resource
     private MonitorInstanceMapper monitorInstanceMapper;
@@ -1051,7 +1083,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             throw new RuntimeException("Pika password (API Key field) is not configured");
         }
 
-        try (CloseableHttpClient client = buildHttpClient(instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1)) {
+        boolean insecure = instance.getAllowInsecureTls() != null && instance.getAllowInsecureTls() == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
             String loginBody = JSON.toJSONString(Map.of("username", username, "password", password));
             HttpPost request = new HttpPost(baseUrl + "/api/login");
             request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
@@ -1089,7 +1123,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
      * HTTP GET with explicit JWT Bearer token (used for Pika where token is obtained per-sync).
      */
     private String httpGetWithToken(String url, String token, Integer allowInsecureTls) {
-        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
             HttpGet request = new HttpGet(url);
             request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
             request.setHeader("Authorization", "Bearer " + token);
@@ -1689,80 +1725,101 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     // ==================== HTTP Client ====================
 
     private String httpGet(MonitorInstance instance, String path, Integer allowInsecureTls) {
-        String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
-        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
-            HttpGet request = new HttpGet(url);
-            request.setConfig(RequestConfig.custom()
-                    .setConnectTimeout(10_000)
-                    .setSocketTimeout(15_000)
-                    .build());
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        String url = baseUrl + path;
+        String cbKey = extractCircuitBreakerKey(baseUrl);
 
-            if (StringUtils.hasText(instance.getApiKey())) {
-                request.setHeader("Authorization", "Bearer " + instance.getApiKey());
-            }
-            request.setHeader("Accept", "application/json");
+        // 熔断检查：节点宕机时快速失败，不等待超时
+        if (!circuitBreaker.allowRequest(cbKey)) {
+            throw new SimpleCircuitBreaker.CircuitBreakerOpenException(cbKey);
+        }
 
-            try (CloseableHttpResponse response = client.execute(request)) {
-                int statusCode = response.getStatusLine().getStatusCode();
-                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
-                if (statusCode >= 200 && statusCode < 300) {
-                    return body;
-                }
-                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        HttpGet request = new HttpGet(url);
+        request.setConfig(RequestConfig.custom()
+                .setConnectTimeout(10_000)
+                .setSocketTimeout(15_000)
+                .build());
+
+        if (StringUtils.hasText(instance.getApiKey())) {
+            request.setHeader("Authorization", "Bearer " + instance.getApiKey());
+        }
+        request.setHeader("Accept", "application/json");
+
+        try (CloseableHttpResponse response = client.execute(request)) {
+            int statusCode = response.getStatusLine().getStatusCode();
+            String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+            if (statusCode >= 200 && statusCode < 300) {
+                circuitBreaker.recordSuccess(cbKey);
+                return body;
             }
+            circuitBreaker.recordFailure(cbKey);
+            throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+        } catch (SimpleCircuitBreaker.CircuitBreakerOpenException e) {
+            throw e;
         } catch (RuntimeException e) {
+            circuitBreaker.recordFailure(cbKey);
             throw e;
         } catch (Exception e) {
+            circuitBreaker.recordFailure(cbKey);
             throw new RuntimeException("Request failed: " + e.getMessage(), e);
         }
     }
 
     private String httpPost(MonitorInstance instance, String path, String jsonBody, Integer allowInsecureTls) {
-        String url = instance.getBaseUrl().replaceAll("/+$", "") + path;
-        try (CloseableHttpClient client = buildHttpClient(allowInsecureTls != null && allowInsecureTls == 1)) {
-            HttpPost request = new HttpPost(url);
-            request.setConfig(RequestConfig.custom()
-                    .setConnectTimeout(10_000)
-                    .setSocketTimeout(15_000)
-                    .build());
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        String url = baseUrl + path;
+        String cbKey = extractCircuitBreakerKey(baseUrl);
 
-            if (StringUtils.hasText(instance.getApiKey())) {
-                request.setHeader("Authorization", "Bearer " + instance.getApiKey());
-            }
-            request.setHeader("Accept", "application/json");
-            request.setHeader("Content-Type", "application/json");
-            if (jsonBody != null) {
-                request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
-            }
+        if (!circuitBreaker.allowRequest(cbKey)) {
+            throw new SimpleCircuitBreaker.CircuitBreakerOpenException(cbKey);
+        }
 
-            try (CloseableHttpResponse response = client.execute(request)) {
-                int statusCode = response.getStatusLine().getStatusCode();
-                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
-                if (statusCode >= 200 && statusCode < 300) {
-                    return body;
-                }
-                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        HttpPost request = new HttpPost(url);
+        request.setConfig(RequestConfig.custom()
+                .setConnectTimeout(10_000)
+                .setSocketTimeout(15_000)
+                .build());
+
+        if (StringUtils.hasText(instance.getApiKey())) {
+            request.setHeader("Authorization", "Bearer " + instance.getApiKey());
+        }
+        request.setHeader("Accept", "application/json");
+        request.setHeader("Content-Type", "application/json");
+        if (jsonBody != null) {
+            request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+        }
+
+        try (CloseableHttpResponse response = client.execute(request)) {
+            int statusCode = response.getStatusLine().getStatusCode();
+            String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+            if (statusCode >= 200 && statusCode < 300) {
+                circuitBreaker.recordSuccess(cbKey);
+                return body;
             }
+            circuitBreaker.recordFailure(cbKey);
+            throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+        } catch (SimpleCircuitBreaker.CircuitBreakerOpenException e) {
+            throw e;
         } catch (RuntimeException e) {
+            circuitBreaker.recordFailure(cbKey);
             throw e;
         } catch (Exception e) {
+            circuitBreaker.recordFailure(cbKey);
             throw new RuntimeException("Request failed: " + e.getMessage(), e);
         }
     }
 
-    private CloseableHttpClient buildHttpClient(boolean allowInsecureTls) {
+    /** 从 URL 提取 host:port 作为熔断器 key */
+    private String extractCircuitBreakerKey(String baseUrl) {
         try {
-            if (allowInsecureTls) {
-                TrustStrategy trustAll = (chain, authType) -> true;
-                SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(null, trustAll).build();
-                return HttpClients.custom()
-                        .setSSLContext(sslContext)
-                        .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
-                        .build();
-            }
-            return HttpClients.createDefault();
+            java.net.URL u = new java.net.URL(baseUrl);
+            return u.getHost() + ":" + (u.getPort() > 0 ? u.getPort() : u.getDefaultPort());
         } catch (Exception e) {
-            return HttpClients.createDefault();
+            return baseUrl;
         }
     }
 

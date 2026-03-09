@@ -2,6 +2,7 @@ package com.admin.scheduler;
 
 import com.admin.service.ExpiryReminderService;
 import com.admin.service.NotificationService;
+import com.admin.service.impl.AlertAggregationService;
 import com.admin.common.lang.R;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,6 +21,9 @@ public class ExpiryCheckScheduler {
 
     @Resource
     private NotificationService notificationService;
+
+    @Resource
+    private AlertAggregationService alertAggregationService;
 
     @Scheduled(cron = "0 0 9 * * ?")
     public void dailyExpiryCheck() {
@@ -49,6 +53,13 @@ public class ExpiryCheckScheduler {
             }
         } catch (Exception e) {
             log.error("[ExpiryScheduler] Expiry check failed: {}", e.getMessage(), e);
+        }
+
+        // Send daily alert summary after expiry check
+        try {
+            alertAggregationService.sendDailySummary();
+        } catch (Exception e) {
+            log.error("[ExpiryScheduler] Daily alert summary failed: {}", e.getMessage(), e);
         }
     }
 }

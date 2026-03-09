@@ -10,24 +10,13 @@ import com.admin.mapper.MonitorAlertLogMapper;
 import com.admin.mapper.MonitorAlertRuleMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
 import com.admin.mapper.MonitorNodeSnapshotMapper;
-import com.admin.common.utils.WeChatWorkUtil;
 import com.admin.entity.MonitorInstance;
-import com.admin.entity.ViteConfig;
 import com.admin.mapper.MonitorInstanceMapper;
-import com.admin.mapper.ViteConfigMapper;
 import com.admin.service.AlertService;
-import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -36,7 +25,6 @@ import com.admin.entity.DiagnosisRecord;
 import com.admin.mapper.DiagnosisRecordMapper;
 
 import javax.annotation.Resource;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -55,9 +43,9 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     @Resource
     private MonitorInstanceMapper monitorInstanceMapper;
     @Resource
-    private ViteConfigMapper viteConfigMapper;
-    @Resource
     private DiagnosisRecordMapper diagnosisRecordMapper;
+    @Resource
+    private AlertAggregationService aggregationService;
 
     /**
      * 持续时间防抖缓存: key = "ruleId:nodeId/targetId", value = 首次触发时间戳
@@ -140,7 +128,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         return R.ok("已清除所有告警日志");
     }
 
-    // ==================== Alert Evaluation Engine ====================
+    // ==================== Alert Evaluation Engine (with Aggregation) ====================
 
     @Override
     public void evaluateAlerts() {
@@ -148,7 +136,10 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 new LambdaQueryWrapper<MonitorAlertRule>()
                         .eq(MonitorAlertRule::getStatus, 0)
                         .eq(MonitorAlertRule::getEnabled, 1));
-        if (rules.isEmpty()) return;
+        if (rules.isEmpty()) {
+            aggregationService.checkAndFlush();
+            return;
+        }
 
         // Load all online nodes and their metrics
         List<MonitorNodeSnapshot> allNodes = nodeSnapshotMapper.selectList(
@@ -171,7 +162,6 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 int cooldownMs = (rule.getCooldownMinutes() != null ? rule.getCooldownMinutes() : 5) * 60 * 1000;
                 long elapsed = now - rule.getLastTriggeredAt();
                 if (elapsed < cooldownMs) {
-                    // Within cooldown - check if escalation applies
                     if (rule.getEscalateAfterMinutes() != null && rule.getEscalateAfterMinutes() > 0) {
                         long escalateMs = rule.getEscalateAfterMinutes() * 60 * 1000L;
                         if (elapsed >= escalateMs) {
@@ -198,22 +188,22 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             for (MonitorNodeSnapshot node : targetNodes) {
                 boolean triggered = false;
                 double currentValue = 0;
-                String message;
+                String message = "";
 
                 if ("offline".equals(rule.getMetric())) {
-                    // Offline alert: node.online != 1
                     if (node.getOnline() == null || node.getOnline() != 1) {
                         triggered = true;
                         message = String.format("节点「%s」已离线", node.getName());
                     } else {
+                        // Node is online — check for recovery
+                        aggregationService.markRecovered(rule.getId(), node.getId(), rule.getName(), node.getName(), rule.getMetric());
+                        durationTracker.remove(rule.getId() + ":" + node.getId());
                         continue;
                     }
                 } else if ("expiry".equals(rule.getMetric())) {
-                    // Expiry alert: threshold = days remaining to trigger (e.g. 7 means alert when <=7 days left)
                     if (node.getExpiredAt() == null || node.getExpiredAt() <= 0) continue;
                     long daysRemaining = (node.getExpiredAt() - now) / (24 * 60 * 60 * 1000L);
                     currentValue = daysRemaining;
-                    // For expiry, we always use "lte" logic: alert when days remaining <= threshold
                     triggered = daysRemaining <= (long) rule.getThreshold().intValue();
                     if (!triggered) continue;
                     if (daysRemaining < 0) {
@@ -222,12 +212,14 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                         message = String.format("节点「%s」将在 %d 天后到期", node.getName(), daysRemaining);
                     }
                 } else if ("traffic_quota".equals(rule.getMetric())) {
-                    // Traffic quota alert: threshold = usage percentage (e.g. 80 means alert when >=80% used)
                     if (node.getTrafficLimit() == null || node.getTrafficLimit() <= 0) continue;
                     long used = node.getTrafficUsed() != null ? node.getTrafficUsed() : 0;
                     currentValue = (double) used / node.getTrafficLimit() * 100;
                     triggered = compare(currentValue, rule.getOperator(), rule.getThreshold());
-                    if (!triggered) continue;
+                    if (!triggered) {
+                        aggregationService.markRecovered(rule.getId(), node.getId(), rule.getName(), node.getName(), rule.getMetric());
+                        continue;
+                    }
                     message = String.format("节点「%s」流量已用 %.1f%% (%s / %s)",
                             node.getName(), currentValue,
                             formatTraffic(used), formatTraffic(node.getTrafficLimit()));
@@ -237,35 +229,32 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
 
                     currentValue = getMetricValue(metric, rule.getMetric(), node);
                     triggered = compare(currentValue, rule.getOperator(), rule.getThreshold());
-                    if (!triggered) continue;
+                    if (!triggered) {
+                        // Check for recovery
+                        aggregationService.markRecovered(rule.getId(), node.getId(), rule.getName(), node.getName(), rule.getMetric());
+                        durationTracker.remove(rule.getId() + ":" + node.getId());
+                        continue;
+                    }
                     message = String.format("节点「%s」%s=%s 超过阈值 %s %s",
                             node.getName(), rule.getMetric(),
                             formatValue(currentValue, rule.getMetric()),
                             rule.getOperator(), formatValue(rule.getThreshold(), rule.getMetric()));
                 }
 
-                // Duration debounce: require condition to persist for durationSeconds
-                String durationKey = rule.getId() + ":" + node.getId();
-                if (!triggered) {
-                    // Condition cleared — remove from tracker
-                    durationTracker.remove(durationKey);
-                }
-
                 if (triggered) {
-                    // Check duration requirement
+                    // Duration debounce
+                    String durationKey = rule.getId() + ":" + node.getId();
                     int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
                     if (requiredDuration > 0) {
                         long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
                         long elapsedSec = (now - firstTriggeredAt) / 1000;
                         if (elapsedSec < requiredDuration) {
-                            // Not yet sustained long enough — skip this alert
                             continue;
                         }
-                        // Sustained long enough — clear tracker and proceed with alert
                         durationTracker.remove(durationKey);
                     }
 
-                    // Determine effective severity (escalate if applicable)
+                    // Determine effective severity
                     String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
                     String effectiveSeverity = baseSeverity;
                     if (isEscalation) {
@@ -273,24 +262,23 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                         message = "[升级] " + message;
                     }
 
-                    // Create log
-                    MonitorAlertLog logEntry = new MonitorAlertLog();
-                    logEntry.setRuleId(rule.getId());
-                    logEntry.setRuleName(rule.getName());
-                    logEntry.setNodeId(node.getId());
-                    logEntry.setNodeName(node.getName());
-                    logEntry.setMetric(rule.getMetric());
-                    logEntry.setCurrentValue(currentValue);
-                    logEntry.setThreshold(rule.getThreshold());
-                    logEntry.setMessage(String.format("[%s] %s", effectiveSeverity.toUpperCase(), message));
-                    logEntry.setCreatedTime(now);
-                    logEntry.setUpdatedTime(now);
-                    logEntry.setStatus(0);
-
-                    // Send notification
-                    String notifyStatus = sendNotification(rule, effectiveSeverity, message, node);
-                    logEntry.setNotifyStatus(notifyStatus);
-                    alertLogMapper.insert(logEntry);
+                    // Submit to aggregation buffer (instead of direct send)
+                    AlertAggregationService.AlertEvent event = new AlertAggregationService.AlertEvent();
+                    event.setRuleId(rule.getId());
+                    event.setRuleName(rule.getName());
+                    event.setNodeId(node.getId());
+                    event.setNodeName(node.getName());
+                    event.setNodeIp(node.getIp());
+                    event.setMetric(rule.getMetric());
+                    event.setCurrentValue(currentValue);
+                    event.setThreshold(rule.getThreshold());
+                    event.setMessage(message);
+                    event.setSeverity(effectiveSeverity);
+                    event.setNotifyType(rule.getNotifyType());
+                    event.setNotifyTarget(rule.getNotifyTarget());
+                    event.setTimestamp(now);
+                    event.setEscalation(isEscalation);
+                    aggregationService.submitAlert(event);
 
                     // Update cooldown
                     rule.setLastTriggeredAt(now);
@@ -302,6 +290,9 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 }
             }
         }
+
+        // After all rules evaluated, check if aggregation window needs flushing
+        aggregationService.checkAndFlush();
     }
 
     private List<MonitorNodeSnapshot> filterNodesByScope(List<MonitorNodeSnapshot> allNodes, MonitorAlertRule rule) {
@@ -344,7 +335,6 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             return nodes;
         }
 
-        // Build instance type map
         Set<Long> instanceIds = new HashSet<>();
         for (MonitorNodeSnapshot n : nodes) {
             if (n.getInstanceId() != null) instanceIds.add(n.getInstanceId());
@@ -371,7 +361,6 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             return result;
         }
         if ("both".equals(condition)) {
-            // Only include nodes where the same IP has both komari and pika probes
             Map<String, Set<String>> ipProbeTypes = new HashMap<>();
             for (MonitorNodeSnapshot n : nodes) {
                 if (n.getIp() != null) {
@@ -393,6 +382,97 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         }
 
         return nodes;
+    }
+
+    /**
+     * 转发健康度告警评估 (with aggregation integration)
+     */
+    private void evaluateForwardHealthRule(MonitorAlertRule rule, long now, boolean isEscalation) {
+        try {
+            List<DiagnosisRecord> records = diagnosisRecordMapper.selectList(
+                    new LambdaQueryWrapper<DiagnosisRecord>()
+                            .eq(DiagnosisRecord::getTargetType, "forward")
+                            .orderByDesc(DiagnosisRecord::getCreatedTime));
+
+            Map<Integer, DiagnosisRecord> latestByForward = new LinkedHashMap<>();
+            for (DiagnosisRecord r : records) {
+                latestByForward.putIfAbsent(r.getTargetId(), r);
+            }
+
+            for (Map.Entry<Integer, DiagnosisRecord> entry : latestByForward.entrySet()) {
+                DiagnosisRecord rec = entry.getValue();
+                if (rec.getCreatedTime() != null && now - rec.getCreatedTime() > 3600_000) continue;
+
+                double healthScore = 100.0;
+                if (rec.getOverallSuccess() == null || !rec.getOverallSuccess()) {
+                    healthScore -= 50;
+                }
+                if (rec.getPacketLoss() != null) {
+                    healthScore -= rec.getPacketLoss();
+                }
+                if (rec.getAverageTime() != null) {
+                    if (rec.getAverageTime() > 500) healthScore -= 30;
+                    else if (rec.getAverageTime() > 200) healthScore -= 15;
+                    else if (rec.getAverageTime() > 100) healthScore -= 5;
+                }
+                healthScore = Math.max(0, Math.min(100, healthScore));
+
+                boolean triggered = healthScore < (rule.getThreshold() != null ? rule.getThreshold() : 60);
+                String durationKey = rule.getId() + ":fwd:" + rec.getTargetId();
+                String forwardName = rec.getTargetName() != null ? rec.getTargetName() : "ID:" + rec.getTargetId();
+                Long fwdNodeId = rec.getTargetId() != null ? rec.getTargetId().longValue() : null;
+
+                if (!triggered) {
+                    durationTracker.remove(durationKey);
+                    aggregationService.markRecovered(rule.getId(), fwdNodeId, rule.getName(), forwardName, "forward_health");
+                    continue;
+                }
+
+                int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
+                if (requiredDuration > 0) {
+                    long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
+                    long elapsedSec = (now - firstTriggeredAt) / 1000;
+                    if (elapsedSec < requiredDuration) continue;
+                    durationTracker.remove(durationKey);
+                }
+
+                String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
+                String effectiveSeverity = isEscalation ? escalateSeverity(baseSeverity) : baseSeverity;
+
+                String message = String.format("%s转发「%s」健康度 %.0f%% 低于阈值 %.0f%%（丢包:%.1f%% 延迟:%.0fms 连通:%s）",
+                        isEscalation ? "[升级] " : "",
+                        forwardName, healthScore, rule.getThreshold(),
+                        rec.getPacketLoss() != null ? rec.getPacketLoss() : 0,
+                        rec.getAverageTime() != null ? rec.getAverageTime() : 0,
+                        (rec.getOverallSuccess() != null && rec.getOverallSuccess()) ? "正常" : "异常");
+
+                // Submit to aggregation
+                AlertAggregationService.AlertEvent event = new AlertAggregationService.AlertEvent();
+                event.setRuleId(rule.getId());
+                event.setRuleName(rule.getName());
+                event.setNodeId(fwdNodeId);
+                event.setNodeName(forwardName);
+                event.setMetric("forward_health");
+                event.setCurrentValue(healthScore);
+                event.setThreshold(rule.getThreshold());
+                event.setMessage(message);
+                event.setSeverity(effectiveSeverity);
+                event.setNotifyType(rule.getNotifyType());
+                event.setNotifyTarget(rule.getNotifyTarget());
+                event.setTimestamp(now);
+                event.setEscalation(isEscalation);
+                aggregationService.submitAlert(event);
+
+                rule.setLastTriggeredAt(now);
+                rule.setUpdatedTime(now);
+                alertRuleMapper.updateById(rule);
+
+                log.info("[Alert] {} - {}", rule.getName(), message);
+                break;
+            }
+        } catch (Exception e) {
+            log.error("[Alert] evaluateForwardHealthRule error: {}", e.getMessage(), e);
+        }
     }
 
     private double getMetricValue(MonitorMetricLatest metric, String metricName, MonitorNodeSnapshot node) {
@@ -429,6 +509,12 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         }
     }
 
+    private String escalateSeverity(String severity) {
+        if ("info".equals(severity)) return "warning";
+        if ("warning".equals(severity)) return "critical";
+        return "critical";
+    }
+
     private String formatValue(double value, String metric) {
         if ("cpu".equals(metric) || "mem".equals(metric) || "disk".equals(metric) || "traffic_quota".equals(metric)) {
             return String.format("%.1f%%", value);
@@ -450,188 +536,5 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
         if (bytes < 1024L * 1024 * 1024 * 1024) return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
-    }
-
-    /**
-     * 转发健康度告警评估。
-     * 查询最近的 DiagnosisRecord，计算健康分 = 100 - packetLoss - (avgTime > 500 ? 30 : avgTime > 200 ? 15 : 0) - (失败 ? 50 : 0)
-     * threshold: 低于此分数触发（如 60）
-     * durationSeconds: 持续低于阈值多久才真正告警
-     */
-    private void evaluateForwardHealthRule(MonitorAlertRule rule, long now, boolean isEscalation) {
-        try {
-            // Get all recent diagnosis records (latest per forward)
-            List<DiagnosisRecord> records = diagnosisRecordMapper.selectList(
-                    new LambdaQueryWrapper<DiagnosisRecord>()
-                            .eq(DiagnosisRecord::getTargetType, "forward")
-                            .orderByDesc(DiagnosisRecord::getCreatedTime));
-
-            // Group by targetId, keep only latest
-            Map<Integer, DiagnosisRecord> latestByForward = new LinkedHashMap<>();
-            for (DiagnosisRecord r : records) {
-                latestByForward.putIfAbsent(r.getTargetId(), r);
-            }
-
-            for (Map.Entry<Integer, DiagnosisRecord> entry : latestByForward.entrySet()) {
-                DiagnosisRecord rec = entry.getValue();
-                // Skip stale records (older than 1 hour)
-                if (rec.getCreatedTime() != null && now - rec.getCreatedTime() > 3600_000) continue;
-
-                // Calculate health score
-                double healthScore = 100.0;
-                if (rec.getOverallSuccess() == null || !rec.getOverallSuccess()) {
-                    healthScore -= 50;
-                }
-                if (rec.getPacketLoss() != null) {
-                    healthScore -= rec.getPacketLoss(); // e.g. 20% loss → -20
-                }
-                if (rec.getAverageTime() != null) {
-                    if (rec.getAverageTime() > 500) healthScore -= 30;
-                    else if (rec.getAverageTime() > 200) healthScore -= 15;
-                    else if (rec.getAverageTime() > 100) healthScore -= 5;
-                }
-                healthScore = Math.max(0, Math.min(100, healthScore));
-
-                boolean triggered = healthScore < (rule.getThreshold() != null ? rule.getThreshold() : 60);
-                String durationKey = rule.getId() + ":fwd:" + rec.getTargetId();
-
-                if (!triggered) {
-                    durationTracker.remove(durationKey);
-                    continue;
-                }
-
-                // Duration debounce
-                int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
-                if (requiredDuration > 0) {
-                    long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
-                    long elapsedSec = (now - firstTriggeredAt) / 1000;
-                    if (elapsedSec < requiredDuration) continue;
-                    durationTracker.remove(durationKey);
-                }
-
-                String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
-                String effectiveSeverity = isEscalation ? escalateSeverity(baseSeverity) : baseSeverity;
-
-                String forwardName = rec.getTargetName() != null ? rec.getTargetName() : "ID:" + rec.getTargetId();
-                String message = String.format("%s转发「%s」健康度 %.0f%% 低于阈值 %.0f%%（丢包:%.1f%% 延迟:%.0fms 连通:%s）",
-                        isEscalation ? "[升级] " : "",
-                        forwardName, healthScore, rule.getThreshold(),
-                        rec.getPacketLoss() != null ? rec.getPacketLoss() : 0,
-                        rec.getAverageTime() != null ? rec.getAverageTime() : 0,
-                        (rec.getOverallSuccess() != null && rec.getOverallSuccess()) ? "正常" : "异常");
-
-                // Create alert log (use targetId as nodeId for forward alerts)
-                MonitorAlertLog logEntry = new MonitorAlertLog();
-                logEntry.setRuleId(rule.getId());
-                logEntry.setRuleName(rule.getName());
-                logEntry.setNodeId(rec.getTargetId() != null ? rec.getTargetId().longValue() : null);
-                logEntry.setNodeName(forwardName);
-                logEntry.setMetric("forward_health");
-                logEntry.setCurrentValue(healthScore);
-                logEntry.setThreshold(rule.getThreshold());
-                logEntry.setMessage(String.format("[%s] %s", effectiveSeverity.toUpperCase(), message));
-                logEntry.setCreatedTime(now);
-                logEntry.setUpdatedTime(now);
-                logEntry.setStatus(0);
-
-                // Send notification (use a dummy node for compatibility)
-                MonitorNodeSnapshot dummyNode = new MonitorNodeSnapshot();
-                dummyNode.setName(forwardName);
-                String notifyStatus = sendNotification(rule, effectiveSeverity, message, dummyNode);
-                logEntry.setNotifyStatus(notifyStatus);
-                alertLogMapper.insert(logEntry);
-
-                // Update cooldown
-                rule.setLastTriggeredAt(now);
-                rule.setUpdatedTime(now);
-                alertRuleMapper.updateById(rule);
-
-                log.info("[Alert] {} - {}", rule.getName(), message);
-                break; // One trigger per rule per cycle
-            }
-        } catch (Exception e) {
-            log.error("[Alert] evaluateForwardHealthRule error: {}", e.getMessage(), e);
-        }
-    }
-
-    private String escalateSeverity(String severity) {
-        if ("info".equals(severity)) return "warning";
-        if ("warning".equals(severity)) return "critical";
-        return "critical"; // already critical stays critical
-    }
-
-    private String sendNotification(MonitorAlertRule rule, String severity, String message, MonitorNodeSnapshot node) {
-        if ("wechat".equals(rule.getNotifyType())) {
-            return sendWeChatNotification(rule, severity, message, node);
-        }
-
-        if (!"webhook".equals(rule.getNotifyType()) || !StringUtils.hasText(rule.getNotifyTarget())) {
-            return "sent"; // log-only mode
-        }
-
-        try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("ruleName", rule.getName());
-            payload.put("severity", severity);
-            payload.put("metric", rule.getMetric());
-            payload.put("nodeName", node.getName());
-            payload.put("nodeIp", node.getIp());
-            payload.put("message", message);
-            payload.put("timestamp", System.currentTimeMillis());
-
-            CloseableHttpClient client = HttpClients.createDefault();
-            HttpPost request = new HttpPost(rule.getNotifyTarget());
-            request.setConfig(RequestConfig.custom().setConnectTimeout(5000).setSocketTimeout(10000).build());
-            request.setHeader("Content-Type", "application/json");
-            request.setEntity(new StringEntity(JSON.toJSONString(payload), StandardCharsets.UTF_8));
-
-            try (CloseableHttpResponse response = client.execute(request)) {
-                int statusCode = response.getStatusLine().getStatusCode();
-                EntityUtils.consumeQuietly(response.getEntity());
-                if (statusCode >= 200 && statusCode < 300) {
-                    return "sent";
-                } else {
-                    log.warn("[Alert] Webhook returned HTTP {}", statusCode);
-                    return "failed";
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[Alert] Webhook failed: {}", e.getMessage());
-            return "failed";
-        }
-    }
-
-    private String sendWeChatNotification(MonitorAlertRule rule, String severity, String message, MonitorNodeSnapshot node) {
-        try {
-            // Read webhook URL from config
-            ViteConfig config = viteConfigMapper.selectOne(
-                    new LambdaQueryWrapper<ViteConfig>().eq(ViteConfig::getName, "wechat_webhook_url"));
-            String webhookUrl = config != null ? config.getValue() : null;
-            if (!StringUtils.hasText(webhookUrl)) {
-                log.warn("[Alert] 企业微信 Webhook URL 未配置");
-                return "failed";
-            }
-
-            // Build markdown message with severity
-            String severityIcon = "critical".equals(severity) ? "\uD83D\uDD34" : "warning".equals(severity) ? "⚠️" : "\u2139\uFE0F";
-            String markdown = String.format(
-                    "## %s [%s] 告警: %s\n" +
-                    "> **节点**: %s (%s)\n" +
-                    "> **指标**: %s\n" +
-                    "> **详情**: %s\n" +
-                    "> **时间**: %s",
-                    severityIcon, severity.toUpperCase(), rule.getName(),
-                    node.getName(), node.getIp() != null ? node.getIp() : "-",
-                    rule.getMetric(),
-                    message,
-                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
-            );
-
-            boolean success = WeChatWorkUtil.sendMarkdown(webhookUrl, markdown);
-            return success ? "sent" : "failed";
-        } catch (Exception e) {
-            log.warn("[Alert] 企业微信通知失败: {}", e.getMessage());
-            return "failed";
-        }
     }
 }

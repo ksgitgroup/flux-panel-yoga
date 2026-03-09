@@ -34,10 +34,10 @@ import {
   getAssetList,
   getOnePanelDetail,
   getOnePanelList,
-  rotateOnePanelToken,
   updateOnePanelInstance,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface OnePanelForm {
   id?: number;
@@ -134,6 +134,8 @@ function renderNameValueGrid(report?: OnePanelExporterReport | null) {
 }
 
 export default function OnePanelPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const canRead = hasPermission('onepanel.read');
   const canWrite = hasPermission('onepanel.write');
 
@@ -148,12 +150,14 @@ export default function OnePanelPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
 
-  const [isEdit, setIsEdit] = useState(false);
+  const [isEdit] = useState(false);
   const [form, setForm] = useState<OnePanelForm>(emptyForm());
   const [selected, setSelected] = useState<OnePanelInstance | null>(null);
   const [detail, setDetail] = useState<OnePanelInstanceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [bootstrap, setBootstrap] = useState<OnePanelBootstrap | null>(null);
+  const focusAssetId = Number(searchParams.get('assetId') || 0);
+  const focusInstanceId = Number(searchParams.get('instanceId') || 0);
 
   const assetOptions = useMemo(() => (
     [{ key: '__none__', label: '不绑定资产', description: '稍后再和服务器资产建立关系' }].concat(
@@ -188,10 +192,19 @@ export default function OnePanelPage() {
     void loadData();
   }, [canRead]);
 
+  useEffect(() => {
+    if (!focusInstanceId || instances.length === 0) return;
+    const target = instances.find((item) => item.id === focusInstanceId);
+    if (target) {
+      void loadDetail(target);
+    }
+  }, [focusInstanceId, instances]);
+
   const filteredInstances = useMemo(() => {
     const q = normalize(keyword);
-    if (!q) return instances;
-    return instances.filter((item) => [
+    const scoped = focusAssetId > 0 ? instances.filter((item) => item.assetId === focusAssetId) : instances;
+    if (!q) return scoped;
+    return scoped.filter((item) => [
       item.name,
       item.assetName,
       item.assetPrimaryIp,
@@ -201,7 +214,7 @@ export default function OnePanelPage() {
       item.exporterVersion,
       item.remark,
     ].some((value) => normalize(value).includes(q)));
-  }, [instances, keyword]);
+  }, [instances, keyword, focusAssetId]);
 
   const summary = useMemo(() => ({
     total: instances.length,
@@ -210,27 +223,6 @@ export default function OnePanelPage() {
     websites: instances.reduce((sum, item) => sum + (item.websiteCount || 0), 0),
     containers: instances.reduce((sum, item) => sum + (item.containerCount || 0), 0),
   }), [instances]);
-
-  const onCreate = () => {
-    setIsEdit(false);
-    setSelected(null);
-    setForm(emptyForm());
-    setFormOpen(true);
-  };
-
-  const onEdit = (item: OnePanelInstance) => {
-    setIsEdit(true);
-    setSelected(item);
-    setForm({
-      id: item.id,
-      name: item.name,
-      assetId: item.assetId ? item.assetId.toString() : '__none__',
-      panelUrl: item.panelUrl || '',
-      reportEnabled: item.reportEnabled !== 0,
-      remark: item.remark || '',
-    });
-    setFormOpen(true);
-  };
 
   const loadDetail = async (item: OnePanelInstance) => {
     setSelected(item);
@@ -304,18 +296,6 @@ export default function OnePanelPage() {
     }
   };
 
-  const onRotateToken = async (item: OnePanelInstance) => {
-    const response = await rotateOnePanelToken(item.id);
-    if (response.code === 0 && response.data) {
-      setBootstrap(response.data as OnePanelBootstrap);
-      setBootstrapOpen(true);
-      toast.success('新的 exporter token 已生成');
-      await loadData();
-    } else {
-      toast.error(response.msg || '轮换 token 失败');
-    }
-  };
-
   if (!canRead) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
@@ -337,12 +317,19 @@ export default function OnePanelPage() {
         </div>
         <div className="flex items-center gap-2">
           {canWrite ? (
-            <Button color="primary" onPress={onCreate}>
-              新增 1Panel 实例
+            <Button color="primary" variant="flat" onPress={() => navigate('/assets')}>
+              去服务器资产配置
             </Button>
           ) : null}
         </div>
       </div>
+
+      <Card className="border border-primary/20 bg-primary-50/40">
+        <CardBody className="flex flex-col gap-2 p-4 text-sm text-primary-900">
+          <p>1Panel 地址只在服务器资产里录入一次。</p>
+          <p>摘要实例的创建、Token 轮换、移除，也统一从“服务器资产 -&gt; 编辑 -&gt; 服务接入”完成；当前页面只负责汇总查看。</p>
+        </CardBody>
+      </Card>
 
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <Card className="border border-divider/80"><CardBody className="gap-2 p-5"><p className="text-xs uppercase tracking-[0.18em] text-default-400">Instances</p><p className="text-3xl font-semibold">{summary.total}</p><p className="text-sm text-default-500">已注册 exporter 节点</p></CardBody></Card>
@@ -373,7 +360,7 @@ export default function OnePanelPage() {
                 <TableColumn>最近上报</TableColumn>
                 <TableColumn>操作</TableColumn>
               </TableHeader>
-              <TableBody items={filteredInstances} emptyContent="暂无 1Panel exporter 实例。">
+              <TableBody items={filteredInstances} emptyContent="暂无 1Panel exporter 实例，请前往服务器资产完成配置。">
                 {(item) => {
                   const status = getStatusChip(item.lastReportStatus);
                   return (
@@ -424,12 +411,10 @@ export default function OnePanelPage() {
                               打开 1Panel
                             </Button>
                           ) : null}
-                          {canWrite ? (
-                            <>
-                              <Button size="sm" variant="flat" onPress={() => onEdit(item)}>编辑</Button>
-                              <Button size="sm" variant="flat" color="warning" onPress={() => void onRotateToken(item)}>轮换 Token</Button>
-                              <Button size="sm" variant="flat" color="danger" onPress={() => { setSelected(item); setDeleteOpen(true); }}>删除</Button>
-                            </>
+                          {item.assetId ? (
+                            <Button size="sm" variant="flat" color="primary" onPress={() => navigate(`/assets?viewId=${item.assetId}`)}>
+                              查看资产
+                            </Button>
                           ) : null}
                         </div>
                       </TableCell>

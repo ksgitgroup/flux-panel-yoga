@@ -16,4 +16,6 @@ public class AssetHostDetailDto {
     private List<AssetForwardLinkViewDto> forwards;
 
     private List<MonitorNodeSnapshotViewDto> monitorNodes;
+
+    private OnePanelInstanceViewDto onePanelInstance;
 }

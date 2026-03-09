@@ -35,6 +35,9 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     private ForwardMapper forwardMapper;
 
     @Resource
+    private OnePanelInstanceMapper onePanelInstanceMapper;
+
+    @Resource
     private TunnelService tunnelService;
 
     @Resource
@@ -92,6 +95,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .eq(Forward::getRemoteSourceAssetId, asset.getId())
                 .orderByDesc(Forward::getUpdatedTime, Forward::getId));
 
+        OnePanelInstance onePanelInstance = onePanelInstanceMapper.selectOne(new LambdaQueryWrapper<OnePanelInstance>()
+                .eq(OnePanelInstance::getAssetId, asset.getId())
+                .eq(OnePanelInstance::getStatus, 0)
+                .orderByDesc(OnePanelInstance::getUpdatedTime, OnePanelInstance::getId)
+                .last("LIMIT 1"));
+
         // Build monitor nodes for this asset
         List<MonitorNodeSnapshotViewDto> monitorNodes = buildMonitorNodesForAsset(asset);
 
@@ -101,6 +110,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         detail.setProtocolSummaries(buildProtocolSummaries(inbounds));
         detail.setForwards(buildForwardLinks(forwards));
         detail.setMonitorNodes(monitorNodes);
+        detail.setOnePanelInstance(toOnePanelInstanceView(onePanelInstance, asset));
         return R.ok(detail);
     }
 
@@ -139,6 +149,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .eq(Forward::getRemoteSourceAssetId, id));
         if (forwardCount != null && forwardCount > 0) {
             return R.err("该资产仍被转发配置引用，无法删除");
+        }
+        Integer onePanelCount = onePanelInstanceMapper.selectCount(new LambdaQueryWrapper<OnePanelInstance>()
+                .eq(OnePanelInstance::getAssetId, id)
+                .eq(OnePanelInstance::getStatus, 0));
+        if (onePanelCount != null && onePanelCount > 0) {
+            return R.err("该资产下仍有 1Panel 摘要实例，无法删除");
         }
         // Unlink monitor node snapshots referencing this asset + mark as user-unlinked
         List<MonitorNodeSnapshot> linkedNodes = monitorNodeSnapshotMapper.selectList(
@@ -369,6 +385,17 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .filter(item -> item.getRemoteSourceAssetId() != null)
                 .collect(Collectors.groupingBy(Forward::getRemoteSourceAssetId, Collectors.counting()));
 
+        List<OnePanelInstance> onePanelInstances = onePanelInstanceMapper.selectList(new LambdaQueryWrapper<OnePanelInstance>()
+                .in(OnePanelInstance::getAssetId, assetIds)
+                .eq(OnePanelInstance::getStatus, 0)
+                .orderByDesc(OnePanelInstance::getUpdatedTime, OnePanelInstance::getId));
+        Map<Long, OnePanelInstance> onePanelByAsset = new LinkedHashMap<>();
+        for (OnePanelInstance instance : onePanelInstances) {
+            if (instance.getAssetId() != null && !onePanelByAsset.containsKey(instance.getAssetId())) {
+                onePanelByAsset.put(instance.getAssetId(), instance);
+            }
+        }
+
         // GOST node names
         Set<Long> gostNodeIds = assets.stream()
                 .map(AssetHost::getGostNodeId)
@@ -442,6 +469,18 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             dto.setOnlineClients(onlineClients);
             dto.setTotalForwards(forwardCountMap.getOrDefault(asset.getId(), 0L).intValue());
             dto.setLastObservedAt(lastObservedAt == 0L ? null : lastObservedAt);
+
+            OnePanelInstance onePanelInstance = onePanelByAsset.get(asset.getId());
+            if (onePanelInstance != null) {
+                dto.setOnePanelInstanceId(onePanelInstance.getId());
+                dto.setOnePanelInstanceName(onePanelInstance.getName());
+                dto.setOnePanelReportEnabled(onePanelInstance.getReportEnabled());
+                dto.setOnePanelLastReportStatus(onePanelInstance.getLastReportStatus());
+                dto.setOnePanelLastReportAt(onePanelInstance.getLastReportAt());
+                dto.setOnePanelLastReportError(onePanelInstance.getLastReportError());
+                dto.setOnePanelExporterVersion(onePanelInstance.getExporterVersion());
+                dto.setOnePanelPanelVersion(onePanelInstance.getPanelVersion());
+            }
 
             // Monitor enrichment - check Komari first, then Pika, merge best data
             {
@@ -702,6 +741,23 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             dto.setUpdatedTime(forward.getUpdatedTime());
             return dto;
         }).collect(Collectors.toList());
+    }
+
+    private OnePanelInstanceViewDto toOnePanelInstanceView(OnePanelInstance instance, AssetHost asset) {
+        if (instance == null) {
+            return null;
+        }
+        OnePanelInstanceViewDto dto = new OnePanelInstanceViewDto();
+        BeanUtils.copyProperties(instance, dto);
+        if (asset != null) {
+            dto.setAssetId(asset.getId());
+            dto.setAssetName(asset.getName());
+            dto.setAssetPrimaryIp(asset.getPrimaryIp());
+            dto.setAssetEnvironment(asset.getEnvironment());
+            dto.setAssetRegion(asset.getRegion());
+            dto.setPanelUrl(trimToNull(asset.getPanelUrl()));
+        }
+        return dto;
     }
 
     private int safeInteger(Integer value) {

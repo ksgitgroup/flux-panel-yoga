@@ -345,14 +345,20 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
                 "SITE_ENVIRONMENT=",
                 "EXPORTER_LOG_LEVEL=info");
         dto.setEnvTemplate(envTemplate);
+        String exporterBase = fluxBase + "/api/v1/onepanel/exporter";
         dto.setInstallSnippet(String.join("\n",
+                "# 1) 写入环境变量（请先修改 PANEL_API_KEY）",
                 "mkdir -p /etc/flux-1panel-sync",
                 "cat >/etc/flux-1panel-sync/.env <<'EOF'",
                 envTemplate,
                 "EOF",
-                "install -m 0755 flux-1panel-sync.sh /usr/local/bin/flux-1panel-sync",
-                "install -m 0644 flux-1panel-sync.service /etc/systemd/system/flux-1panel-sync.service",
-                "install -m 0644 flux-1panel-sync.timer /etc/systemd/system/flux-1panel-sync.timer",
+                "",
+                "# 2) 从 Flux 面板下载 exporter 脚本和 systemd 配置",
+                "curl -fsSL " + exporterBase + "/flux-1panel-sync.sh -o /usr/local/bin/flux-1panel-sync && chmod +x /usr/local/bin/flux-1panel-sync",
+                "curl -fsSL " + exporterBase + "/flux-1panel-sync.service -o /etc/systemd/system/flux-1panel-sync.service",
+                "curl -fsSL " + exporterBase + "/flux-1panel-sync.timer -o /etc/systemd/system/flux-1panel-sync.timer",
+                "",
+                "# 3) 启用定时同步",
                 "systemctl daemon-reload && systemctl enable --now flux-1panel-sync.timer",
                 "systemctl start flux-1panel-sync.service"));
         return dto;

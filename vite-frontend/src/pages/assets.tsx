@@ -47,7 +47,9 @@ import {
   geolocateIp,
   getNodeList,
   createNode,
-  getNodeInstallCommand
+  getNodeInstallCommand,
+  jumpServerConnect,
+  getJumpServerStatus
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -457,6 +459,9 @@ export default function AssetsPage() {
   const [gostCreateForm, setGostCreateForm] = useState({ name: '', ip: '', portSta: '10000', portEnd: '20000' });
   const [gostCreateLoading, setGostCreateLoading] = useState(false);
   const [gostInstallCmd, setGostInstallCmd] = useState<string | null>(null);
+  // JumpServer
+  const [jsEnabled, setJsEnabled] = useState(false);
+  const [jsConnecting, setJsConnecting] = useState(false);
   // Tag input
   const [tagInput, setTagInput] = useState('');
   // Edit modal active tab
@@ -475,7 +480,10 @@ export default function AssetsPage() {
   const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
 
-  useEffect(() => { void loadAssets(); void loadGostNodes(); }, []);
+  useEffect(() => {
+    void loadAssets(); void loadGostNodes();
+    getJumpServerStatus().then(r => { if (r.code === 0 && r.data) setJsEnabled(r.data.enabled && r.data.configured); });
+  }, []);
 
   // Handle URL params: ?viewId=123 opens detail, ?viewId=123&deploy=1 opens deploy
   useEffect(() => {
@@ -2148,6 +2156,19 @@ export default function AssetsPage() {
                 )}
               </ModalBody>
               <ModalFooter className="flex-wrap gap-1">
+                {jsEnabled && selectedAsset.primaryIp && (
+                  <Button size="sm" variant="flat" color="success" isLoading={jsConnecting} onPress={async () => {
+                    setJsConnecting(true);
+                    try {
+                      const res = await jumpServerConnect(selectedAsset.id);
+                      if (res.code === 0 && res.data?.url) {
+                        window.open(res.data.url, '_blank');
+                      } else {
+                        toast.error(res.msg || '连接失败');
+                      }
+                    } catch { toast.error('连接异常'); } finally { setJsConnecting(false); }
+                  }}>终端登录</Button>
+                )}
                 {(canUpdateAssets) && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
                 {(canDeleteAssets) && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>

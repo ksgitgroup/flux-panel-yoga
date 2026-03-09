@@ -954,6 +954,11 @@ export const deleteOnePanelInstance = (id: number) => Network.post("/onepanel/de
 export const rotateOnePanelToken = (id: number) => Network.post<OnePanelBootstrap>("/onepanel/rotate-token", { id });
 export const diagnoseOnePanelInstance = (id: number) => Network.post("/onepanel/diagnose", { id });
 
+// JumpServer integration
+export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");
+export const jumpServerConnect = (assetId: number, protocol?: string, account?: string) =>
+  Network.post<{ url: string; tokenId: string }>("/jumpserver/connect", { assetId, protocol: protocol || 'ssh', account: account || 'root' });
+
 // Historical records / charts
 export interface MonitorRecordPoint {
   timestamp: number;

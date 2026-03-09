@@ -719,6 +719,12 @@ public class DatabaseInitService {
             ensureConfig("dingtalk_allowed_org_ids", "[]", "允许登录的钉钉组织ID列表(JSON)，支持环境变量 DINGTALK_ALLOWED_ORG_IDS 覆盖");
             ensureConfig("dingtalk_required_email_domain", "", "钉钉登录用户必须满足的企业邮箱域名，支持环境变量 DINGTALK_REQUIRED_EMAIL_DOMAIN 覆盖");
 
+            // JumpServer integration
+            ensureConfig("jumpserver_enabled", "false", "是否启用 JumpServer 堡垒机集成");
+            ensureConfig("jumpserver_url", "", "JumpServer 地址 (如 https://jump.example.com)");
+            ensureConfig("jumpserver_access_key_id", "", "JumpServer Access Key ID");
+            ensureConfig("jumpserver_access_key_secret", "", "JumpServer Access Key Secret");
+
             ensureIamRole("SUPER_ADMIN", "超级管理员", "企业平台最高权限角色", "system", 1, 0, 1);
             ensureIamRole("DEV_ADMIN", "开发管理员", "开发与运维管理角色", "system", 1, 10, 1);
             ensureIamRole("DEVELOPER", "普通开发", "只读或受限操作的开发角色", "system", 1, 20, 1);

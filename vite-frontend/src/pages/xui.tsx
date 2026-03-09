@@ -238,7 +238,9 @@ export default function XuiPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const canViewXui = hasPermission('xui.read');
-  const canManageXui = hasPermission('xui.write');
+  const canCreateXui = hasPermission('xui.create');
+  const canUpdateXui = hasPermission('xui.update');
+  const canDeleteXui = hasPermission('xui.delete');
   const canSyncXui = hasPermission('xui.sync');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -436,7 +438,7 @@ export default function XuiPage() {
   };
 
   const openCreateModal = () => {
-    if (!canManageXui) {
+    if (!canCreateXui) {
       toast.error('权限不足，无法新增 X-UI 实例');
       return;
     }
@@ -448,7 +450,7 @@ export default function XuiPage() {
   };
 
   const openEditModal = (instance: XuiInstance) => {
-    if (!canManageXui) {
+    if (!canUpdateXui) {
       toast.error('权限不足，无法编辑 X-UI 实例');
       return;
     }
@@ -489,7 +491,7 @@ export default function XuiPage() {
   };
 
   const handleSubmit = async () => {
-    if (!canManageXui) {
+    if (!(canCreateXui || canUpdateXui)) {
       toast.error('权限不足，无法保存 X-UI 实例');
       return;
     }
@@ -549,7 +551,7 @@ export default function XuiPage() {
   };
 
   const handleDelete = async () => {
-    if (!canManageXui) {
+    if (!canDeleteXui) {
       toast.error('权限不足，无法删除 X-UI 实例');
       return;
     }
@@ -576,7 +578,7 @@ export default function XuiPage() {
   };
 
   const handleTest = async (instance: XuiInstance) => {
-    if (!canManageXui) {
+    if (!canUpdateXui) {
       toast.error('权限不足，无法测试 X-UI 连接');
       return;
     }
@@ -627,7 +629,7 @@ export default function XuiPage() {
   };
 
   const openDeleteModal = (instance: XuiInstance) => {
-    if (!canManageXui) {
+    if (!canDeleteXui) {
       toast.error('权限不足，无法删除 X-UI 实例');
       return;
     }
@@ -679,7 +681,7 @@ export default function XuiPage() {
           <Button variant="flat" onPress={() => navigate('/xui-protocols')}>
             协议看板
           </Button>
-          {canManageXui && (
+          {(canCreateXui || canUpdateXui) && (
             <Button color="primary" onPress={openCreateModal}>
               新增 X-UI 实例
             </Button>
@@ -852,7 +854,7 @@ export default function XuiPage() {
                     <p className="mt-1 break-all text-sm text-default-500">{buildInstanceAddress(selectedInstance)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {canManageXui && (
+                    {(canCreateXui || canUpdateXui) && (
                       <Button
                         size="sm"
                         variant="flat"
@@ -874,7 +876,7 @@ export default function XuiPage() {
                         立即同步
                       </Button>
                     )}
-                    {canManageXui && (
+                    {(canCreateXui || canUpdateXui) && (
                       <>
                         <Button size="sm" variant="flat" onPress={() => openEditModal(selectedInstance)}>
                           编辑
@@ -1436,7 +1438,7 @@ export default function XuiPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onFormClose}>取消</Button>
-            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit} isDisabled={!canManageXui}>
+            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit} isDisabled={!(canCreateXui || canUpdateXui)}>
               {isEdit ? '保存修改' : '创建实例'}
             </Button>
           </ModalFooter>
@@ -1457,7 +1459,7 @@ export default function XuiPage() {
               color="danger"
               isLoading={actionLoadingId === instanceToDelete?.id}
               onPress={handleDelete}
-              isDisabled={!canManageXui}
+              isDisabled={!canDeleteXui}
             >
               确认删除
             </Button>

@@ -90,6 +90,10 @@ export function getRoleCodes(): string[] {
   return getRoleCodesFromToken(token);
 }
 
+/**
+ * Check if user has a specific permission.
+ * Backward compatible: module.write implies module.create/update/delete.
+ */
 export function hasPermission(permissionCode: string): boolean {
   if (!permissionCode) {
     return false;
@@ -97,7 +101,16 @@ export function hasPermission(permissionCode: string): boolean {
   if (isAdmin()) {
     return true;
   }
-  return getPermissions().includes(permissionCode);
+  const perms = getPermissions();
+  if (perms.includes(permissionCode)) {
+    return true;
+  }
+  // module.write implies module.create/update/delete
+  if (permissionCode.endsWith('.create') || permissionCode.endsWith('.update') || permissionCode.endsWith('.delete')) {
+    const module = permissionCode.substring(0, permissionCode.lastIndexOf('.'));
+    return perms.includes(module + '.write');
+  }
+  return false;
 }
 
 export function hasAnyPermission(permissionCodes: string[] = []): boolean {
@@ -107,8 +120,7 @@ export function hasAnyPermission(permissionCodes: string[] = []): boolean {
   if (isAdmin()) {
     return true;
   }
-  const currentPermissions = new Set(getPermissions());
-  return permissionCodes.some((code) => currentPermissions.has(code));
+  return permissionCodes.some((code) => hasPermission(code));
 }
 
 /**

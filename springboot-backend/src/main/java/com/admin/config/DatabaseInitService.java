@@ -721,6 +721,7 @@ public class DatabaseInitService {
             ensureIamRole("DEV_ADMIN", "开发管理员", "开发与运维管理角色", "system", 1, 10, 1);
             ensureIamRole("DEVELOPER", "普通开发", "只读或受限操作的开发角色", "system", 1, 20, 1);
             ensureIamRole("HR", "行政HR", "面向人员与组织信息的角色", "system", 1, 30, 1);
+            ensureIamRole("OPS_ASSISTANT", "行政专员", "可新增和编辑但无删除权限的运维角色", "system", 1, 25, 1);
 
             ensureIamPermission("dashboard.read", "查看首页", "dashboard", "允许查看首页摘要与入口", 10, 1);
             ensureIamPermission("asset.read", "查看服务器资产", "asset", "允许查看服务器资产", 20, 1);
@@ -759,6 +760,32 @@ public class DatabaseInitService {
             ensureIamPermission("iam_role.write", "管理角色", "iam_role", "允许维护企业IAM角色与授权", 171, 1);
             ensureIamPermission("onepanel.read", "查看1Panel摘要", "onepanel", "允许查看1Panel exporter汇总信息", 180, 1);
             ensureIamPermission("onepanel.write", "管理1Panel实例", "onepanel", "允许维护1Panel exporter实例与token", 181, 1);
+
+            // CRUD 细粒度权限（write 作为聚合权限保留，create/update/delete 可单独授予）
+            String[][] crudModules = {
+                    {"asset", "服务器资产", "22", "23", "24"},
+                    {"xui", "X-UI实例", "33", "34", "35"},
+                    {"forward", "转发配置", "42", "43", "44"},
+                    {"tunnel", "隧道", "52", "53", "54"},
+                    {"node", "节点", "57", "58", "59"},
+                    {"monitor", "监控配置", "62", "63", "64"},
+                    {"probe", "探针配置", "72", "73", "74"},
+                    {"alert", "告警规则", "82", "83", "84"},
+                    {"portal", "自定义导航", "92", "93", "94"},
+                    {"site_config", "网站配置", "112", "113", "114"},
+                    {"protocol", "协议字典", "122", "123", "124"},
+                    {"tag", "标签", "132", "133", "134"},
+                    {"speed_limit", "限速规则", "142", "143", "144"},
+                    {"biz_user", "业务用户", "152", "153", "154"},
+                    {"iam_user", "组织用户", "162", "163", "164"},
+                    {"iam_role", "角色权限", "172", "173", "174"},
+                    {"onepanel", "1Panel实例", "182", "183", "184"},
+            };
+            for (String[] m : crudModules) {
+                ensureIamPermission(m[0] + ".create", "新增" + m[1], m[0], "允许新增" + m[1], Integer.parseInt(m[2]), 1);
+                ensureIamPermission(m[0] + ".update", "编辑" + m[1], m[0], "允许编辑" + m[1], Integer.parseInt(m[3]), 1);
+                ensureIamPermission(m[0] + ".delete", "删除" + m[1], m[0], "允许删除" + m[1], Integer.parseInt(m[4]), 1);
+            }
 
             ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
             ensureIamRolePermission("SUPER_ADMIN", "asset.read");
@@ -845,6 +872,21 @@ public class DatabaseInitService {
             ensureIamRolePermission("HR", "dashboard.read");
             ensureIamRolePermission("HR", "iam_user.read");
             ensureIamRolePermission("HR", "biz_user.read");
+
+            // OPS_ASSISTANT: 全模块 read + create + update，无 delete
+            String[] opsReadModules = {"dashboard.read", "asset.read", "xui.read", "forward.read",
+                    "tunnel.read", "node.read", "monitor.read", "probe.read", "alert.read",
+                    "portal.read", "server_dashboard.read", "site_config.read", "protocol.read",
+                    "tag.read", "speed_limit.read", "biz_user.read", "onepanel.read"};
+            for (String p : opsReadModules) {
+                ensureIamRolePermission("OPS_ASSISTANT", p);
+            }
+            String[] opsCuModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "protocol", "tag", "speed_limit", "onepanel"};
+            for (String m : opsCuModules) {
+                ensureIamRolePermission("OPS_ASSISTANT", m + ".create");
+                ensureIamRolePermission("OPS_ASSISTANT", m + ".update");
+            }
 
             log.info("[DatabaseInit] 企业IAM基础表与默认角色权限初始化成功");
         } catch (Exception e) {
@@ -1143,6 +1185,20 @@ public class DatabaseInitService {
             ensureIamPermission("ip_quality.read", "查看IP质量", "ip_quality", "允许查看IP检测结果", 220, 1);
             ensureIamPermission("ip_quality.write", "管理IP质量", "ip_quality", "允许执行IP检测", 221, 1);
             ensureIamPermission("traffic_analysis.read", "查看流量分析", "traffic_analysis", "允许查看流量分析面板", 230, 1);
+
+            // Phase 5 CRUD 细粒度权限
+            String[][] phase5CrudModules = {
+                    {"audit", "审计日志", "182", "183", "184"},
+                    {"notification", "通知", "192", "193", "194"},
+                    {"topology", "拓扑", "202", "203", "204"},
+                    {"backup", "备份", "212", "213", "214"},
+                    {"ip_quality", "IP质量", "222", "223", "224"},
+            };
+            for (String[] m : phase5CrudModules) {
+                ensureIamPermission(m[0] + ".create", "新增" + m[1], m[0], "允许新增" + m[1], Integer.parseInt(m[2]), 1);
+                ensureIamPermission(m[0] + ".update", "编辑" + m[1], m[0], "允许编辑" + m[1], Integer.parseInt(m[3]), 1);
+                ensureIamPermission(m[0] + ".delete", "删除" + m[1], m[0], "允许删除" + m[1], Integer.parseInt(m[4]), 1);
+            }
 
             // SUPER_ADMIN gets all new permissions
             String[] newPerms = {"audit.read","audit.write","notification.read","notification.write",

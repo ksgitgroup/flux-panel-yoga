@@ -402,11 +402,12 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
         dto.setNodeToken(token);
 
         String fluxBase = resolveFluxBaseUrl();
+        String localPanelUrl = resolveLocalPanelBaseUrl(instance.getPanelUrl());
         String envTemplate = String.join("\n",
                 "FLUX_URL=" + fluxBase,
                 "FLUX_INSTANCE_KEY=" + instance.getInstanceKey(),
                 "FLUX_NODE_TOKEN=" + token,
-                "PANEL_BASE_URL=https://127.0.0.1:10086",
+                "PANEL_BASE_URL=" + localPanelUrl,
                 "PANEL_API_KEY=（安装脚本会交互式填入，无需手动修改）",
                 "PANEL_VERIFY_TLS=false",
                 "PANEL_TIMEOUT_MS=8000",
@@ -455,7 +456,7 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
                 "FLUX_URL=" + fluxBase,
                 "FLUX_INSTANCE_KEY=" + instance.getInstanceKey(),
                 "FLUX_NODE_TOKEN=" + token,
-                "PANEL_BASE_URL=https://127.0.0.1:10086",
+                "PANEL_BASE_URL=" + localPanelUrl,
                 "PANEL_API_KEY=$PANEL_API_KEY_INPUT",
                 "PANEL_VERIFY_TLS=false",
                 "PANEL_TIMEOUT_MS=8000",
@@ -487,6 +488,26 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
                 "echo '  修改配置文件：nano /etc/flux-1panel-sync/.env'",
                 "echo ''"));
         return dto;
+    }
+
+    /**
+     * 从 panelUrl (e.g. https://1.2.3.4:12345) 提取端口，构建本机访问地址 https://127.0.0.1:{port}
+     */
+    private String resolveLocalPanelBaseUrl(String panelUrl) {
+        if (!StringUtils.hasText(panelUrl)) {
+            return "https://127.0.0.1:10086";
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(panelUrl.trim());
+            int port = uri.getPort();
+            String scheme = uri.getScheme() != null ? uri.getScheme() : "https";
+            if (port <= 0) {
+                port = "http".equals(scheme) ? 80 : 443;
+            }
+            return scheme + "://127.0.0.1:" + port;
+        } catch (Exception e) {
+            return "https://127.0.0.1:10086";
+        }
     }
 
     private String resolveFluxBaseUrl() {

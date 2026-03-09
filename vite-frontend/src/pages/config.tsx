@@ -14,7 +14,7 @@ import { SettingsIcon } from '@/components/icons';
 import { hasPermission } from '@/utils/auth';
 import { clearConfigCache, getCachedConfigs, siteConfig, updateSiteConfig } from '@/config/site';
 
-type ConfigType = 'input' | 'switch' | 'select' | 'textarea';
+type ConfigType = 'input' | 'switch' | 'select' | 'textarea' | 'redirect';
 type ConfigSectionKey = 'basic' | 'security' | 'iam' | 'diagnosis' | 'alerting';
 
 interface ConfigItem {
@@ -70,8 +70,8 @@ const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: st
     chip: '任务调度',
   },
   alerting: {
-    title: '企业微信告警（旧版）',
-    description: '此为旧版企业微信告警配置。推荐使用「通知中心 → 通知渠道」统一管理所有通知渠道（企业微信/Telegram/Webhook/Email），并配合「通知策略」灵活路由事件。',
+    title: '通知与告警',
+    description: '通知渠道（企业微信/Telegram/Webhook/Email）和告警策略已统一迁移至「通知中心」，点击下方按钮前往管理。',
     chip: '值班通知',
   },
 };
@@ -232,72 +232,12 @@ const CONFIG_ITEMS: ConfigItem[] = [
     dependsValue: 'true',
   },
   {
-    key: 'wechat_webhook_enabled',
-    label: '启用企业微信机器人',
+    key: '_alerting_redirect',
+    label: '',
     section: 'alerting',
-    description: '开启后，自动诊断异常会按节流策略推送到企业微信群。',
-    type: 'switch',
-  },
-  {
-    key: 'wechat_webhook_url',
-    label: '企业微信机器人 Webhook 地址',
-    section: 'alerting',
-    placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx',
-    description: '企业微信群机器人生成的 Webhook URL。该配置仅管理员可见。',
-    type: 'input',
-    dependsOn: 'wechat_webhook_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'wechat_webhook_cooldown_minutes',
-    label: '同类异常最短发送间隔（分钟）',
-    section: 'alerting',
-    placeholder: '默认 30',
-    description: '处于持续异常时，系统会在这个冷静期内合并相同方向的告警，避免刷屏。',
-    type: 'input',
-    dependsOn: 'wechat_webhook_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'wechat_webhook_max_failures',
-    label: '单次消息最多展示异常条目数',
-    section: 'alerting',
-    placeholder: '默认 8',
-    description: '避免单次告警过长，超出部分会提示到面板查看完整诊断看板。',
-    type: 'input',
-    dependsOn: 'wechat_webhook_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'wechat_notify_recovery_enabled',
-    label: '异常恢复后发送恢复通知',
-    section: 'alerting',
-    description: '当上一轮是失败状态、当前恢复正常时，发送一次恢复消息。',
-    type: 'switch',
-    dependsOn: 'wechat_webhook_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'wechat_webhook_template',
-    label: '异常通知模板',
-    section: 'alerting',
-    description: '支持占位符：{{appName}} {{environment}} {{time}} {{resourceSummary}} {{failureCount}} {{cooldownLabel}} {{failureDetails}}',
-    type: 'textarea',
-    dependsOn: 'wechat_webhook_enabled',
-    dependsValue: 'true',
-    defaultValue: DEFAULT_ALERT_TEMPLATE,
-    rows: 8,
-  },
-  {
-    key: 'wechat_recovery_template',
-    label: '恢复通知模板',
-    section: 'alerting',
-    description: '默认模板会带上环境名和诊断范围，适合在值班群中快速确认恢复。',
-    type: 'textarea',
-    dependsOn: 'wechat_webhook_enabled',
-    dependsValue: 'true',
-    defaultValue: DEFAULT_RECOVERY_TEMPLATE,
-    rows: 6,
+    description: '',
+    type: 'redirect',
+    placeholder: '/notification',
   },
 ];
 
@@ -360,14 +300,44 @@ export default function ConfigPage() {
   }, [canViewConfig, navigate]);
 
   const activeSection = (searchParams.get('section') as ConfigSectionKey) || 'basic';
+  const isScrollingTo = useRef(false);
 
   // Scroll to section when sidebar nav is clicked
   useEffect(() => {
     const el = sectionRefs.current[activeSection];
     if (el) {
+      isScrollingTo.current = true;
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Reset flag after scroll animation completes
+      const timer = setTimeout(() => { isScrollingTo.current = false; }, 600);
+      return () => clearTimeout(timer);
     }
   }, [activeSection]);
+
+  // IntersectionObserver: auto-update active section while scrolling
+  useEffect(() => {
+    const sectionKeys = Object.keys(CONFIG_SECTIONS) as ConfigSectionKey[];
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (isScrollingTo.current) return; // skip during programmatic scroll
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const key = sectionKeys.find(k => sectionRefs.current[k] === entry.target);
+            if (key && key !== searchParams.get('section')) {
+              setSearchParams({ section: key }, { replace: true });
+            }
+            break;
+          }
+        }
+      },
+      { rootMargin: '-140px 0px -60% 0px', threshold: 0 }
+    );
+    sectionKeys.forEach(k => {
+      const el = sectionRefs.current[k];
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [loading, searchParams, setSearchParams]);
 
   const loadConfigs = async (currentConfigs?: Record<string, string>) => {
     const configsToCompare = currentConfigs || configs;
@@ -485,6 +455,19 @@ export default function ConfigPage() {
     const wrapperClasses = isChanged
       ? 'border-warning-300 data-[hover=true]:border-warning-400'
       : '';
+
+    if (item.type === 'redirect') {
+      return (
+        <div className="flex flex-col items-center gap-3 py-4">
+          <Button color="primary" variant="flat" size="lg"
+            onPress={() => navigate(item.placeholder || '/notification')}
+            className="font-semibold">
+            前往通知中心管理
+          </Button>
+          <p className="text-xs text-default-400">通知渠道、通知策略、告警规则均可在通知中心统一配置</p>
+        </div>
+      );
+    }
 
     if (item.type === 'input') {
       return (
@@ -746,19 +729,6 @@ export default function ConfigPage() {
                   </div>
                 ))}
 
-                {sectionKey === 'alerting' && (
-                  <div className="rounded-2xl border border-dashed border-default-300 bg-default-50/70 px-4 py-4 text-sm text-default-600 dark:bg-default-100/20">
-                    <p className="font-semibold text-foreground">模板占位符</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {['{{appName}}', '{{environment}}', '{{time}}', '{{resourceSummary}}', '{{failureCount}}', '{{cooldownLabel}}', '{{failureDetails}}'].map((token) => (
-                        <Chip key={token} size="sm" variant="flat">{token}</Chip>
-                      ))}
-                    </div>
-                    <p className="mt-3 text-xs text-default-500">
-                      异常详情会自动按"单次消息最多展示异常条目数"截断。恢复通知默认只在上一次状态是异常时发送一次。
-                    </p>
-                  </div>
-                )}
               </CardBody>
             </Card>
           </div>

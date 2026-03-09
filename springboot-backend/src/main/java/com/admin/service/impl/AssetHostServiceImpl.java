@@ -340,6 +340,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setRegion(trimToNull(dto.getRegion()));
         asset.setRole(trimToNull(dto.getRole()));
         asset.setOs(trimToNull(dto.getOs()));
+        asset.setOsCategory(trimToNull(dto.getOsCategory()));
         asset.setCpuCores(dto.getCpuCores());
         asset.setMemTotalMb(dto.getMemTotalMb());
         asset.setDiskTotalGb(dto.getDiskTotalGb());
@@ -354,6 +355,12 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setGostNodeId(dto.getGostNodeId());
         asset.setMonitorNodeUuid(trimToNull(dto.getMonitorNodeUuid()));
         asset.setPikaNodeId(trimToNull(dto.getPikaNodeId()));
+        asset.setCpuName(trimToNull(dto.getCpuName()));
+        asset.setArch(trimToNull(dto.getArch()));
+        asset.setVirtualization(trimToNull(dto.getVirtualization()));
+        asset.setKernelVersion(trimToNull(dto.getKernelVersion()));
+        asset.setGpuName(trimToNull(dto.getGpuName()));
+        asset.setSwapTotalMb(dto.getSwapTotalMb());
         asset.setRemark(trimToNull(dto.getRemark()));
         asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
         asset.setBillingCycle(dto.getBillingCycle());

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@heroui/button";
 import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@heroui/dropdown";
@@ -409,10 +409,10 @@ export default function AdminLayout({
   ];
 
 
-  // 检查移动端
+  // 检查移动端（与 Tailwind lg: 1024px 断点对齐）
   const checkMobile = () => {
-    setIsMobile(window.innerWidth <= 768);
-    if (window.innerWidth > 768) {
+    setIsMobile(window.innerWidth < 1024);
+    if (window.innerWidth >= 1024) {
       setMobileMenuVisible(false);
     }
   };
@@ -442,6 +442,27 @@ export default function AdminLayout({
       clearInterval(unreadTimer);
     };
   }, []);
+
+  // ESC 键：退回上一步（关闭移动菜单 → 返回上一页）
+  const handleEsc = useCallback((e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    // Skip if a modal/dialog is open (HeroUI modals handle their own ESC)
+    if (document.querySelector('[role="dialog"]')) return;
+    // Skip if user is in an input/textarea
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    if (isMobile && mobileMenuVisible) {
+      hideMobileMenu();
+    } else {
+      navigate(-1);
+    }
+  }, [isMobile, mobileMenuVisible, navigate]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [handleEsc]);
 
   // 退出登录
   const handleLogout = () => {
@@ -796,8 +817,8 @@ export default function AdminLayout({
           </div>
 
           {isMobile && (
-            <div className="overflow-x-auto border-t border-divider/60 px-3 py-2 [scrollbar-width:none]">
-              <div className="flex min-w-max items-center gap-2">
+            <div className="overflow-x-auto border-t border-divider/60 px-3 py-1.5 [scrollbar-width:none]">
+              <div className="flex min-w-max items-center gap-1.5">
                 {primaryMenuItems.map((item) => {
                   const isActive = location.pathname === item.path;
                   return (
@@ -807,7 +828,7 @@ export default function AdminLayout({
                       variant={isActive ? "solid" : "flat"}
                       color={isActive ? "primary" : "default"}
                       onPress={() => handleMenuClick(item.path)}
-                      className="font-medium"
+                      className="font-medium min-h-[40px] min-w-[44px] px-3"
                     >
                       {item.label}
                     </Button>

@@ -61,7 +61,7 @@ public class TunnelController extends BaseController {
     @RequireRole
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         return tunnelService.deleteTunnel(id);
     }
 
@@ -100,7 +100,7 @@ public class TunnelController extends BaseController {
     @RequireRole
     @PostMapping("/user/remove")
     public R removeUserTunnel(@RequestBody Map<String, Object> params) {
-        Integer id = Integer.valueOf(params.get("id").toString());
+        Integer id = requireInt(params, "id");
         return userTunnelService.removeUserTunnel(id);
     }
 
@@ -133,7 +133,7 @@ public class TunnelController extends BaseController {
     @RequireRole
     @PostMapping("/diagnose")
     public R diagnoseTunnel(@RequestBody Map<String, Object> params) {
-        Long tunnelId = Long.valueOf(params.get("tunnelId").toString());
+        Long tunnelId = requireLong(params, "tunnelId");
         return tunnelService.diagnoseTunnel(tunnelId);
     }
 

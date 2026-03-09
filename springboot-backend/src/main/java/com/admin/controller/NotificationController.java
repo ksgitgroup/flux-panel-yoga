@@ -1,6 +1,7 @@
 package com.admin.controller;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.entity.NotifyChannel;
 import com.admin.entity.NotifyPolicy;
@@ -68,24 +69,28 @@ public class NotificationController extends BaseController {
         return notifyChannelService.listChannels();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/channel/create")
     public R channelCreate(@RequestBody NotifyChannel channel) {
         return notifyChannelService.createChannel(channel);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/channel/update")
     public R channelUpdate(@RequestBody NotifyChannel channel) {
         return notifyChannelService.updateChannel(channel);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/channel/delete")
     public R channelDelete(@RequestBody Map<String, Long> body) {
         return notifyChannelService.deleteChannel(body.get("id"));
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/channel/test")
     public R channelTest(@RequestBody Map<String, Long> body) {
@@ -100,18 +105,21 @@ public class NotificationController extends BaseController {
         return notifyPolicyService.listPolicies();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/policy/create")
     public R policyCreate(@RequestBody NotifyPolicy policy) {
         return notifyPolicyService.createPolicy(policy);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/policy/update")
     public R policyUpdate(@RequestBody NotifyPolicy policy) {
         return notifyPolicyService.updatePolicy(policy);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/policy/delete")
     public R policyDelete(@RequestBody Map<String, Long> body) {

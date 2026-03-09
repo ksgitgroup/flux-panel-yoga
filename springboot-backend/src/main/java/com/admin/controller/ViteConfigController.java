@@ -39,7 +39,7 @@ public class ViteConfigController extends BaseController {
     @LogAnnotation
     @PostMapping("/get")
     public R getConfigByName(@RequestBody Map<String, Object> params) {
-        String name = params.get("name").toString();
+        String name = requireString(params, "name");
         return viteConfigService.getConfigByName(name);
     }
 
@@ -62,8 +62,8 @@ public class ViteConfigController extends BaseController {
     @RequireRole
     @PostMapping("/update-single")
     public R updateConfig(@RequestBody Map<String, Object> params) {
-        String name = params.get("name").toString();
-        String value = params.get("value").toString();
+        String name = requireString(params, "name");
+        String value = requireString(params, "value");
         return viteConfigService.updateConfig(name, value);
     }
 

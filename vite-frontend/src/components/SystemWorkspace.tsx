@@ -337,8 +337,8 @@ export function SystemWorkspace({ children }: { children: ReactNode }) {
             ))}
           </div>
 
-          <div className="flex gap-2 overflow-x-auto lg:hidden [scrollbar-width:none]">
-            {navItems.map((item) => (
+          <div className="relative flex gap-2 overflow-x-auto lg:hidden [scrollbar-width:none] after:absolute after:right-0 after:top-0 after:bottom-0 after:w-6 after:bg-gradient-to-l after:from-white/90 dark:after:from-black/90 after:to-transparent after:pointer-events-none">
+            {navItems.filter((item) => hasAnyPermission(item.requiredPermissions || [])).map((item) => (
               <Link
                 key={item.key}
                 to={item.search ? `${item.path}?${item.search}` : item.path}

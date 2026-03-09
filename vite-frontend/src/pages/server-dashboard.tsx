@@ -629,40 +629,40 @@ export default function ServerDashboardPage() {
       </div>
 
       {/* Summary Bar */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto [scrollbar-width:none] flex-nowrap sm:flex-wrap">
         <button
           onClick={() => setStatusFilter('all')}
-          className={`rounded-xl border px-4 py-2.5 transition-all cursor-pointer ${
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
             statusFilter === 'all' ? 'border-primary bg-primary-50 dark:bg-primary/10' : 'border-divider/60 bg-content1 hover:border-primary/40'
           }`}
         >
           <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
-          <p className="text-2xl font-bold font-mono">{serverSummary.total}</p>
+          <p className="text-xl sm:text-2xl font-bold font-mono">{serverSummary.total}</p>
         </button>
         <button
           onClick={() => setStatusFilter(statusFilter === 'online' ? 'all' : 'online')}
-          className={`rounded-xl border px-4 py-2.5 transition-all cursor-pointer ${
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
             statusFilter === 'online' ? 'border-success bg-success-50 dark:bg-success/10' : 'border-success/20 bg-success-50/30 dark:bg-success-50/10 hover:border-success/40'
           }`}
         >
           <p className="text-[10px] font-bold tracking-widest text-success uppercase">在线</p>
-          <p className="text-2xl font-bold font-mono text-success">{serverSummary.online}</p>
+          <p className="text-xl sm:text-2xl font-bold font-mono text-success">{serverSummary.online}</p>
         </button>
         <button
           onClick={() => setStatusFilter(statusFilter === 'offline' ? 'all' : 'offline')}
-          className={`rounded-xl border px-4 py-2.5 transition-all cursor-pointer ${
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
             statusFilter === 'offline' ? 'border-danger bg-danger-50 dark:bg-danger/10' : serverSummary.offline > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40' : 'border-divider/60 bg-content1'
           }`}
         >
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
-          <p className={`text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
+          <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
         </button>
 
         {/* Probe type filter */}
-        <div className="flex gap-1 ml-2">
+        <div className="flex gap-1 sm:ml-2">
           {(['all', 'komari', 'pika', 'dual'] as const).map(t => (
             <button key={t} onClick={() => setProbeFilter(t)}
-              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${
+              className={`rounded-lg px-2.5 py-2 text-xs font-semibold transition-all cursor-pointer border min-h-[36px] ${
                 probeFilter === t
                   ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
                   : 'border-divider/60 bg-content1 text-default-500 hover:border-primary/40'
@@ -672,22 +672,22 @@ export default function ServerDashboardPage() {
           ))}
         </div>
 
-        {/* View toggle + Sort */}
-        <div className="flex gap-1 ml-2">
+        {/* View toggle + Sort — wrap on mobile */}
+        <div className="flex items-center gap-1 sm:ml-2">
           <button onClick={() => setViewMode('card')}
-            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${viewMode === 'card' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
+            className={`rounded-lg p-2 min-h-[36px] min-w-[36px] flex items-center justify-center transition-all cursor-pointer border ${viewMode === 'card' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
             title="卡片视图">
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zM3 12a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zM3 12a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
           </button>
           <button onClick={() => setViewMode('list')}
-            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${viewMode === 'list' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
+            className={`rounded-lg p-2 min-h-[36px] min-w-[36px] flex items-center justify-center transition-all cursor-pointer border ${viewMode === 'list' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
             title="列表视图">
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
           </button>
         </div>
 
-        {/* Sort */}
-        <div className="flex gap-1">
+        {/* Sort — scrollable on mobile */}
+        <div className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
           {([
             ['name', '名称'],
             ['cpu', 'CPU'],
@@ -698,7 +698,7 @@ export default function ServerDashboardPage() {
           ] as [SortKey, string][]).map(([key, label]) => (
             <button key={key}
               onClick={() => { if (sortKey === key) setSortAsc(!sortAsc); else { setSortKey(key); setSortAsc(key === 'name'); } }}
-              className={`rounded-lg px-2 py-1 text-[10px] font-bold tracking-wider transition-all cursor-pointer border ${
+              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold tracking-wider transition-all cursor-pointer border whitespace-nowrap min-h-[32px] ${
                 sortKey === key ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-400 hover:border-primary/40'
               }`}>
               {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
@@ -706,9 +706,9 @@ export default function ServerDashboardPage() {
           ))}
         </div>
 
-        <div className="flex-1 min-w-[200px] ml-auto max-w-xs">
+        <div className="w-full sm:flex-1 sm:min-w-[200px] sm:ml-auto sm:max-w-xs">
           <Input size="sm" placeholder="搜索服务器、IP、地区、OS..." value={search} onValueChange={setSearch}
-            isClearable onClear={() => setSearch('')} className="flex-1" />
+            isClearable onClear={() => setSearch('')} className="w-full" />
         </div>
       </div>
 
@@ -782,8 +782,8 @@ export default function ServerDashboardPage() {
         </div>
       ) : viewMode === 'list' ? (
         /* ========== List/Table View ========== */
-        <div className="rounded-xl border border-divider/60 bg-content1 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-xl border border-divider/60 bg-content1 overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
             <thead>
               <tr className="border-b border-divider/60 bg-default-50/60">
                 <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">状态</th>

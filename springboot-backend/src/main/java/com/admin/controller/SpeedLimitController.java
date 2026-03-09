@@ -57,7 +57,7 @@ public class SpeedLimitController extends BaseController {
     @RequireRole
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         return speedLimitService.deleteSpeedLimit(id);
     }
 

@@ -29,7 +29,7 @@ html, body {
 }
 
 /* 移动端滚动优化 */
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
   * {
     -webkit-overflow-scrolling: touch;
   }
@@ -45,6 +45,22 @@ html, body {
     max-width: calc(100vw - 1rem) !important;
     margin-left: 0.5rem !important;
     margin-right: 0.5rem !important;
+    max-height: calc(100dvh - 2rem) !important;
+  }
+}
+
+/* 平板端 Modal 上限 */
+@media (min-width: 641px) and (max-width: 1023px) {
+  section[role="dialog"] {
+    max-width: min(90vw, 720px) !important;
+  }
+}
+
+/* 移动端表格触摸滚动 */
+@media (max-width: 1023px) {
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
   }
 }
 

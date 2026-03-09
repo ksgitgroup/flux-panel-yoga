@@ -1,6 +1,7 @@
 package com.admin.controller;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.common.utils.DiagnosisAlertTemplateUtil;
 import com.admin.common.utils.WeChatWorkUtil;
@@ -33,6 +34,7 @@ public class DiagnosisController extends BaseController {
     /**
      * 获取最新诊断状态快照（看板首页数据）
      */
+    @RequireRole
     @PostMapping("/summary")
     public R summary() {
         return diagnosisService.getLatestSummary();
@@ -42,11 +44,15 @@ public class DiagnosisController extends BaseController {
      * 获取某个隧道或转发的诊断历史
      * 参数: targetType (tunnel/forward), targetId, limit(可选,默认20)
      */
+    @RequireRole
     @PostMapping("/history")
     public R history(@RequestBody Map<String, Object> params) {
         String targetType = (String) params.get("targetType");
-        Integer targetId = Integer.valueOf(params.get("targetId").toString());
-        int limit = params.containsKey("limit") ? Integer.parseInt(params.get("limit").toString()) : 20;
+        Object targetIdObj = params.get("targetId");
+        if (targetIdObj == null) return R.err("targetId 不能为空");
+        Integer targetId = Integer.valueOf(targetIdObj.toString());
+        Object limitObj = params.get("limit");
+        int limit = limitObj != null ? Integer.parseInt(limitObj.toString()) : 20;
         return diagnosisService.getDiagnosisHistory(targetType, targetId, limit);
     }
 
@@ -54,6 +60,8 @@ public class DiagnosisController extends BaseController {
      * 手动触发全量诊断（异步执行）
      * 仅管理员可用
      */
+    @LogAnnotation
+    @RequireRole
     @PostMapping("/run-now")
     public R runNow() {
         return diagnosisService.triggerNow();
@@ -62,6 +70,7 @@ public class DiagnosisController extends BaseController {
     /**
      * 获取当前诊断运行状态
      */
+    @RequireRole
     @PostMapping("/runtime-status")
     public R runtimeStatus() {
         return diagnosisService.getRuntimeStatus();
@@ -71,6 +80,7 @@ public class DiagnosisController extends BaseController {
      * 批量获取最新诊断记录
      * 参数: targetType (forward/tunnel), targetIds (ID数组)
      */
+    @RequireRole
     @SuppressWarnings("unchecked")
     @PostMapping("/latest-batch")
     public R latestBatch(@RequestBody Map<String, Object> params) {
@@ -91,6 +101,7 @@ public class DiagnosisController extends BaseController {
      * 获取诊断趋势数据
      * 参数: hours (小时数，可选，默认24)
      */
+    @RequireRole
     @PostMapping("/trend")
     public R trend(@RequestBody(required = false) Map<String, Object> params) {
         int hours = 24;
@@ -104,6 +115,8 @@ public class DiagnosisController extends BaseController {
      * 测试企业微信 Webhook 推送
      * 发送一条测试消息验证配置是否正确
      */
+    @LogAnnotation
+    @RequireRole
     @PostMapping("/test-webhook")
     public R testWebhook() {
         try {

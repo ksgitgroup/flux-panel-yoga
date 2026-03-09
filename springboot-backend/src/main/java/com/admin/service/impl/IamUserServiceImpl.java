@@ -225,9 +225,7 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
             return R.err("本地登录名已存在");
         }
 
-        if (AUTH_SOURCE_DINGTALK.equals(authSource) && !StringUtils.hasText(dingtalkUserId)) {
-            return R.err("钉钉认证用户必须填写 DingTalk UserId");
-        }
+        // dingtalkUserId 不再强制要求（首次钉钉登录时系统自动回填）
         if (StringUtils.hasText(dingtalkUserId) && dingtalkUserIdExists(dingtalkUserId, excludeId)) {
             return R.err("DingTalk UserId 已存在");
         }

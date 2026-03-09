@@ -199,7 +199,7 @@ export default function DashboardPage() {
               <p className="text-sm font-semibold">诊断执行中 · {runtime.completedCount}/{runtime.totalCount}</p>
               {runtime.currentTargetName && <p className="text-xs text-default-500 truncate">正在诊断: {runtime.currentTargetName}</p>}
             </div>
-            <Progress size="sm" value={runtime.progressPercent} color="primary" className="w-32" />
+            <Progress size="sm" value={runtime.progressPercent} color="primary" className="w-20 sm:w-32" />
             <Link to="/monitor" className="text-xs text-primary font-semibold hover:underline flex-shrink-0">查看详情</Link>
           </CardBody>
         </Card>

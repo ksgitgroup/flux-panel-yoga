@@ -98,6 +98,11 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
         }
     }
 
+    @Override
+    public boolean isSecretKey(String key) {
+        return SECRET_KEYS.contains(key);
+    }
+
     private String getEnvironmentOverride(String key) {
         String envName = ENV_MAPPINGS.get(key);
         if (!StringUtils.hasText(envName)) {

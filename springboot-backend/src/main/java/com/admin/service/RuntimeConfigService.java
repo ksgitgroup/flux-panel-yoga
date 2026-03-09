@@ -13,4 +13,6 @@ public interface RuntimeConfigService {
     Map<String, String> applyEffectiveValues(Map<String, String> configMap);
 
     void ensureWritable(String key);
+
+    boolean isSecretKey(String key);
 }

@@ -120,11 +120,15 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
             for (Map.Entry<String, String> entry : configMap.entrySet()) {
                 String name = entry.getKey();
                 String value = entry.getValue();
-                
+
                 if (!StringUtils.hasText(name)) {
-                    continue; // 跳过无效的配置名
+                    continue;
                 }
-                
+                // Skip masked secret values to avoid overwriting real secrets with ******
+                if ("******".equals(value) && runtimeConfigService.isSecretKey(name)) {
+                    continue;
+                }
+
                 updateOrCreateConfig(name, value);
             }
             return R.ok(SUCCESS_UPDATE_MSG);

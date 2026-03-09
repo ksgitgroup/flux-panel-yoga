@@ -9,13 +9,13 @@ import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
 import toast from 'react-hot-toast';
-import { updateConfigs, testWebhook } from '@/api';
+import { updateConfigs, testWebhook, testDingtalkConfig } from '@/api';
 import { SettingsIcon } from '@/components/icons';
 import { hasPermission } from '@/utils/auth';
 import { clearConfigCache, getCachedConfigs, siteConfig, updateSiteConfig } from '@/config/site';
 
 type ConfigType = 'input' | 'switch' | 'select' | 'textarea';
-type ConfigSectionKey = 'basic' | 'security' | 'diagnosis' | 'alerting';
+type ConfigSectionKey = 'basic' | 'security' | 'iam' | 'diagnosis' | 'alerting';
 
 interface ConfigItem {
   key: string;
@@ -58,6 +58,11 @@ const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: st
     title: '登录安全',
     description: '登录验证码和二步验证都属于入口防线。这里统一管理登录入口的强度要求。',
     chip: '入口防护',
+  },
+  iam: {
+    title: '钉钉登录',
+    description: '配置钉钉 OAuth 应用实现组织成员免密登录。所有敏感字段在保存后会自动脱敏。',
+    chip: '身份认证',
   },
   diagnosis: {
     title: '自动诊断',
@@ -131,6 +136,83 @@ const CONFIG_ITEMS: ConfigItem[] = [
       { label: '仅管理员强制', value: 'admin', description: '管理员账号必须绑定 2FA，普通用户可自行选择' },
       { label: '全站强制', value: 'all', description: '所有账号必须绑定 2FA 后才能进入业务页面' },
     ],
+  },
+  {
+    key: 'iam_auth_mode',
+    label: '认证模式',
+    section: 'iam',
+    description: 'hybrid = 同时支持本地管理员 + 钉钉登录；local_only = 仅本地管理员；dingtalk_only = 仅钉钉登录（需先确认钉钉配置正确）。',
+    type: 'select',
+    defaultValue: 'hybrid',
+    options: [
+      { label: '混合模式', value: 'hybrid', description: '本地管理员 + 钉钉登录同时可用' },
+      { label: '仅本地管理员', value: 'local_only', description: '禁用钉钉登录，仅允许本地账号密码' },
+      { label: '仅钉钉', value: 'dingtalk_only', description: '禁用本地登录，仅允许钉钉扫码（确保钉钉已配置）' },
+    ],
+  },
+  {
+    key: 'iam_local_admin_enabled',
+    label: '启用本地管理员登录',
+    section: 'iam',
+    description: '关闭后，管理员也必须通过钉钉登录。建议在钉钉配置验证通过后再关闭此选项。',
+    type: 'switch',
+  },
+  {
+    key: 'dingtalk_oauth_enabled',
+    label: '启用钉钉登录',
+    section: 'iam',
+    description: '开启后，登录页显示「使用钉钉登录」按钮。需要先完成以下配置。',
+    type: 'switch',
+  },
+  {
+    key: 'dingtalk_client_id',
+    label: '应用 Client ID (AppKey)',
+    section: 'iam',
+    placeholder: 'dingxxxxxxxxxxxxxxxx',
+    description: '获取方式：登录钉钉开放平台 open.dingtalk.com → 应用开发 → 企业内部应用 → 选择或创建应用 → 应用信息 → AppKey 即为 Client ID。',
+    type: 'input',
+    dependsOn: 'dingtalk_oauth_enabled',
+    dependsValue: 'true',
+  },
+  {
+    key: 'dingtalk_client_secret',
+    label: '应用 Client Secret (AppSecret)',
+    section: 'iam',
+    placeholder: '保存后自动脱敏为 ******',
+    description: '获取方式：同上页面中的 AppSecret。此字段保存后会脱敏显示为 ******，如需更新请直接填写新值覆盖保存。如显示为 ******，表示已配置。',
+    type: 'input',
+    dependsOn: 'dingtalk_oauth_enabled',
+    dependsValue: 'true',
+  },
+  {
+    key: 'dingtalk_redirect_uri',
+    label: '回调地址 (Redirect URI)',
+    section: 'iam',
+    placeholder: 'https://你的面板域名/login/dingtalk/callback',
+    description: '配置方式：钉钉开放平台 → 应用 → 登录与分享 → 回调域名，填写面板的完整 URL（包含 /login/dingtalk/callback）。注意：必须与面板实际访问地址完全一致，包括协议和端口。',
+    type: 'input',
+    dependsOn: 'dingtalk_oauth_enabled',
+    dependsValue: 'true',
+  },
+  {
+    key: 'dingtalk_corp_id',
+    label: '企业 Corp ID（可选）',
+    section: 'iam',
+    placeholder: 'dingxxxxxxxxxxxxxxxx',
+    description: '获取方式：钉钉管理后台 oa.dingtalk.com → 首页顶部显示的 CorpId。留空表示不限制组织。',
+    type: 'input',
+    dependsOn: 'dingtalk_oauth_enabled',
+    dependsValue: 'true',
+  },
+  {
+    key: 'dingtalk_required_email_domain',
+    label: '允许的邮箱域名（可选）',
+    section: 'iam',
+    placeholder: '例如 company.com',
+    description: '限制只允许此域名的企业邮箱登录。留空表示不限制。建议设置以防止非组织成员通过钉钉登录。',
+    type: 'input',
+    dependsOn: 'dingtalk_oauth_enabled',
+    dependsValue: 'true',
   },
   {
     key: 'auto_diagnosis_enabled',
@@ -267,6 +349,7 @@ export default function ConfigPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
   const [testingWebhook, setTestingWebhook] = useState(false);
+  const [testingDingtalk, setTestingDingtalk] = useState(false);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
@@ -506,6 +589,40 @@ export default function ConfigPage() {
           onPress={() => handleConfigChange(item.key, item.defaultValue || '')}
         >
           恢复默认模板
+        </Button>
+      );
+    }
+
+    if (item.key === 'dingtalk_redirect_uri') {
+      return (
+        <Button
+          size="sm"
+          color="success"
+          variant="flat"
+          isLoading={testingDingtalk}
+          isDisabled={hasChanges}
+          onPress={async () => {
+            setTestingDingtalk(true);
+            try {
+              const res = await testDingtalkConfig();
+              if (res.code === 0 && res.data) {
+                const d = res.data as any;
+                if (d.success) {
+                  toast.success(d.message || '钉钉配置验证通过');
+                } else {
+                  toast.error(d.message || '验证失败');
+                }
+              } else {
+                toast.error(res.msg || '测试失败');
+              }
+            } catch {
+              toast.error('测试请求出错');
+            } finally {
+              setTestingDingtalk(false);
+            }
+          }}
+        >
+          {hasChanges ? '请先保存' : '验证配置'}
         </Button>
       );
     }

@@ -70,6 +70,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/v1/config/get")
                 .excludePathPatterns("/api/v1/xui/traffic/**")
                 .excludePathPatterns("/api/v1/onepanel/report")
+                .excludePathPatterns("/api/v1/onepanel/exporter/**")
                 .excludePathPatterns("/api/v1/user/login")
                 .excludePathPatterns("/api/v1/user/login/2fa")
                 .excludePathPatterns("/api/v1/iam/auth/options")

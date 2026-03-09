@@ -9,10 +9,16 @@ import com.admin.common.dto.OnePanelInstanceUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.service.OnePanelService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.Set;
 
 @RestController
 @CrossOrigin
@@ -21,6 +27,12 @@ public class OnePanelController extends BaseController {
 
     @Autowired
     private OnePanelService onePanelService;
+
+    private static final Set<String> ALLOWED_FILES = Set.of(
+            "flux-1panel-sync.sh",
+            "flux-1panel-sync.service",
+            "flux-1panel-sync.timer"
+    );
 
     @LogAnnotation
     @RequireRole
@@ -70,5 +82,25 @@ public class OnePanelController extends BaseController {
                     @RequestBody(required = false) OnePanelExporterReportDto dto,
                     HttpServletRequest request) {
         return onePanelService.receiveReport(instanceKey, nodeToken, dto, request.getRemoteAddr());
+    }
+
+    /**
+     * Public endpoint to download exporter scripts (no auth required).
+     * Only whitelisted filenames are served from classpath:/onepanel-exporter/.
+     */
+    @GetMapping("/exporter/{filename}")
+    public ResponseEntity<Resource> downloadExporterFile(@PathVariable String filename) {
+        if (!ALLOWED_FILES.contains(filename)) {
+            return ResponseEntity.notFound().build();
+        }
+        Resource resource = new ClassPathResource("onepanel-exporter/" + filename);
+        if (!resource.exists()) {
+            return ResponseEntity.notFound().build();
+        }
+        String contentType = filename.endsWith(".sh") ? "application/x-sh" : "text/plain";
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(resource);
     }
 }

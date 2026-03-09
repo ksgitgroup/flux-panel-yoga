@@ -80,6 +80,7 @@ export default function IamUsersPage() {
   const [users, setUsers] = useState<IamUserView[]>([]);
   const [roles, setRoles] = useState<IamRoleView[]>([]);
   const [keyword, setKeyword] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'enabled'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
@@ -122,30 +123,32 @@ export default function IamUsersPage() {
   };
 
   const filteredUsers = useMemo(() => {
-    const needle = keyword.trim().toLowerCase();
-    if (!needle) {
-      return users;
+    let list = users;
+
+    // Status filter
+    if (filterStatus === 'pending') {
+      list = list.filter((u) => u.enabled === 0);
+    } else if (filterStatus === 'enabled') {
+      list = list.filter((u) => u.enabled === 1);
     }
 
-    return users.filter((user) =>
-      [
-        user.displayName,
-        user.email,
-        user.localUsername,
-        user.dingtalkUserId,
-        user.departmentPath,
-        ...(user.roleNames || []),
-      ]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(needle))
-    );
-  }, [keyword, users]);
+    // Keyword search
+    const needle = keyword.trim().toLowerCase();
+    if (needle) {
+      list = list.filter((user) =>
+        [user.displayName, user.email, user.localUsername, user.dingtalkUserId, user.departmentPath, ...(user.roleNames || [])]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(needle))
+      );
+    }
+    return list;
+  }, [keyword, filterStatus, users]);
 
   const stats = useMemo(() => {
     const enabledCount = users.filter((user) => user.enabled === 1).length;
-    const orgActiveCount = users.filter((user) => user.orgActive === 1).length;
+    const pendingCount = users.filter((user) => user.enabled === 0).length;
     const dingtalkCount = users.filter((user) => user.authSource === 'dingtalk').length;
-    return { enabledCount, orgActiveCount, dingtalkCount };
+    return { enabledCount, pendingCount, dingtalkCount };
   }, [users]);
 
   const handleOpenCreate = () => {
@@ -165,6 +168,15 @@ export default function IamUsersPage() {
     setDeleteModalOpen(true);
   };
 
+  // 快速审批：启用用户 + 跳转编辑分配角色
+  const handleQuickApprove = (user: IamUserView) => {
+    setIsEdit(true);
+    const f = toUserForm(user);
+    f.enabled = '1';
+    setForm(f);
+    setModalOpen(true);
+  };
+
   const validateForm = () => {
     if (!form.displayName.trim()) {
       toast.error('姓名不能为空');
@@ -180,10 +192,6 @@ export default function IamUsersPage() {
     }
     if (form.authSource === 'local' && !isEdit && !form.password.trim()) {
       toast.error('本地认证用户必须设置密码');
-      return false;
-    }
-    if (form.authSource === 'dingtalk' && !form.dingtalkUserId.trim()) {
-      toast.error('钉钉认证用户必须填写 DingTalk UserId');
       return false;
     }
     return true;
@@ -275,7 +283,7 @@ export default function IamUsersPage() {
               <Chip size="sm" color="primary" variant="flat">DingTalk Ready</Chip>
             </div>
             <p className="mt-2 text-sm text-default-500">
-              这一层服务于企业内部操作员。首版先维护用户与角色绑定，后续再平滑接入钉钉登录。
+              企业内部操作员管理。支持钉钉首次登录自动创建账号，管理员审批后即可使用。
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -292,28 +300,32 @@ export default function IamUsersPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border border-divider shadow-sm">
-          <CardBody className="gap-2">
-            <p className="text-sm text-default-500">组织用户总数</p>
-            <p className="text-3xl font-semibold">{users.length}</p>
-            <p className="text-xs text-default-400">仅用于后台企业操作员，不替代业务用户</p>
+      {stats.pendingCount > 0 && (
+        <Card className="border-2 border-warning shadow-sm">
+          <CardBody className="flex-row items-center justify-between gap-4 p-4">
+            <div className="flex items-center gap-3">
+              <Chip size="lg" color="warning" variant="flat">{stats.pendingCount}</Chip>
+              <div>
+                <p className="font-semibold">待审批用户</p>
+                <p className="text-xs text-default-400">通过钉钉首次登录自动创建，需管理员审批启用并分配角色</p>
+              </div>
+            </div>
+            <Button size="sm" color="warning" variant="flat" onPress={() => setFilterStatus('pending')}>
+              查看待审批
+            </Button>
           </CardBody>
         </Card>
-        <Card className="border border-divider shadow-sm">
-          <CardBody className="gap-2">
-            <p className="text-sm text-default-500">已启用</p>
-            <p className="text-3xl font-semibold">{stats.enabledCount}</p>
-            <p className="text-xs text-default-400">组织内活跃 {stats.orgActiveCount} 人</p>
-          </CardBody>
-        </Card>
-        <Card className="border border-divider shadow-sm">
-          <CardBody className="gap-2">
-            <p className="text-sm text-default-500">钉钉认证占比</p>
-            <p className="text-3xl font-semibold">{stats.dingtalkCount}</p>
-            <p className="text-xs text-default-400">保留少量本地账号作为应急入口</p>
-          </CardBody>
-        </Card>
+      )}
+
+      <div className="flex items-center gap-2">
+        {(['all', 'pending', 'enabled'] as const).map((s) => (
+          <Button key={s} size="sm" variant={filterStatus === s ? 'solid' : 'flat'}
+            color={s === 'pending' ? 'warning' : s === 'enabled' ? 'success' : 'default'}
+            onPress={() => setFilterStatus(s)}>
+            {s === 'all' ? `全部 (${users.length})` : s === 'pending' ? `待审批 (${stats.pendingCount})` : `已启用 (${stats.enabledCount})`}
+          </Button>
+        ))}
+        <span className="ml-auto text-xs text-default-400">钉钉认证 {stats.dingtalkCount} 人</span>
       </div>
 
       <div className="overflow-hidden rounded-[28px] border border-divider bg-white/90 shadow-sm dark:bg-default-100/10">
@@ -368,12 +380,14 @@ export default function IamUsersPage() {
                   </td>
                   <td className="px-4 py-4 align-top">
                     <div className="flex flex-wrap gap-2">
-                      <Chip size="sm" color={user.enabled === 1 ? 'success' : 'default'} variant="flat">
-                        {user.enabled === 1 ? '已启用' : '已停用'}
-                      </Chip>
-                      <Chip size="sm" color={user.orgActive === 1 ? 'primary' : 'warning'} variant="flat">
-                        {user.orgActive === 1 ? '组织内' : '已脱离组织'}
-                      </Chip>
+                      {user.enabled === 1 ? (
+                        <Chip size="sm" color="success" variant="flat">已启用</Chip>
+                      ) : (
+                        <Chip size="sm" color="warning" variant="flat">待审批</Chip>
+                      )}
+                      {user.orgActive !== 1 && (
+                        <Chip size="sm" color="default" variant="flat">已脱离组织</Chip>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-4 align-top text-default-500">
@@ -384,6 +398,11 @@ export default function IamUsersPage() {
                   </td>
                   <td className="px-4 py-4 align-top">
                     <div className="flex justify-end gap-2">
+                      {user.enabled === 0 && (
+                        <Button size="sm" variant="flat" color="warning" onPress={() => handleQuickApprove(user)}>
+                          审批
+                        </Button>
+                      )}
                       <Button size="sm" variant="flat" color="primary" onPress={() => handleOpenEdit(user)}>
                         编辑
                       </Button>
@@ -472,8 +491,8 @@ export default function IamUsersPage() {
                     ) : (
                       <>
                         <Input
-                          label="DingTalk UserId"
-                          placeholder="用于后续钉钉 SSO 绑定"
+                          label="DingTalk UserId（可选）"
+                          placeholder="首次钉钉登录时自动填入"
                           value={form.dingtalkUserId}
                           onValueChange={(value) => setForm((prev) => ({ ...prev, dingtalkUserId: value }))}
                         />

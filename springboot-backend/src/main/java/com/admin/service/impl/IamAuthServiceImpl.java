@@ -154,9 +154,11 @@ public class IamAuthServiceImpl implements IamAuthService {
 
         IamUser user = resolveIamUser(email, unionId);
         if (user == null) {
-            writeLoginAudit(null, AUTH_SOURCE_DINGTALK, loginChannel, displayName, email, unionId,
-                    getRemoteIp(request), getUserAgent(request), 0, "user_not_found", "组织用户未在 Flux 中开通");
-            return R.err("组织用户未在 Flux 中开通，请先在企业 IAM 中创建账号");
+            // Auto-provision: create IAM user on first DingTalk login (enabled=0, pending admin approval)
+            user = autoProvisionDingtalkUser(email, displayName, unionId, dingtalkUserId, mobile, jobTitle, departmentPath);
+            writeLoginAudit(user.getId(), AUTH_SOURCE_DINGTALK, loginChannel, displayName, email, unionId,
+                    getRemoteIp(request), getUserAgent(request), 0, "auto_provisioned", "首次钉钉登录，账号已自动创建待审批");
+            return R.err(1001, "账号已自动创建，等待管理员审批后即可登录");
         }
         if (!AUTH_SOURCE_DINGTALK.equalsIgnoreCase(user.getAuthSource())) {
             writeLoginAudit(user.getId(), AUTH_SOURCE_DINGTALK, loginChannel, displayName, email, unionId,
@@ -165,8 +167,8 @@ public class IamAuthServiceImpl implements IamAuthService {
         }
         if (!Objects.equals(user.getEnabled(), 1)) {
             writeLoginAudit(user.getId(), AUTH_SOURCE_DINGTALK, loginChannel, displayName, email, unionId,
-                    getRemoteIp(request), getUserAgent(request), 0, "user_disabled", "组织用户已停用");
-            return R.err("组织用户已停用");
+                    getRemoteIp(request), getUserAgent(request), 0, "user_pending", "账号待审批");
+            return R.err(1001, "账号待管理员审批，请联系管理员启用您的账号");
         }
         if (!Objects.equals(user.getOrgActive(), 1)) {
             writeLoginAudit(user.getId(), AUTH_SOURCE_DINGTALK, loginChannel, displayName, email, unionId,
@@ -453,6 +455,32 @@ public class IamAuthServiceImpl implements IamAuthService {
                 .eq(IamUser::getDingtalkUnionId, unionId)
                 .eq(IamUser::getStatus, 0)
                 .last("limit 1"));
+    }
+
+    /**
+     * 钉钉首次登录自动创建 IAM 用户（enabled=0，待管理员审批）
+     */
+    private IamUser autoProvisionDingtalkUser(String email, String displayName, String unionId,
+                                               String dingtalkUserId, String mobile, String jobTitle, String departmentPath) {
+        long now = System.currentTimeMillis();
+        IamUser user = new IamUser();
+        user.setEmail(email.trim().toLowerCase(Locale.ROOT));
+        user.setDisplayName(StringUtils.hasText(displayName) ? displayName.trim() : email.split("@")[0]);
+        user.setAuthSource(AUTH_SOURCE_DINGTALK);
+        user.setDingtalkUnionId(trimToNull(unionId));
+        user.setDingtalkUserId(trimToNull(dingtalkUserId));
+        user.setMobile(trimToNull(mobile));
+        user.setJobTitle(trimToNull(jobTitle));
+        user.setDepartmentPath(trimToNull(departmentPath));
+        user.setOrgActive(1);
+        user.setEnabled(0); // 待审批
+        user.setLastOrgSyncAt(now);
+        user.setCreatedTime(now);
+        user.setUpdatedTime(now);
+        user.setStatus(0);
+        user.setRemark("钉钉首次登录自动创建，待管理员审批");
+        iamUserMapper.insert(user);
+        return user;
     }
 
     private void revokeSession(Long sessionId, String reason) {

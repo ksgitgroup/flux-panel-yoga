@@ -398,6 +398,7 @@ export default function AssetsPage() {
   const [filterRegion, setFilterRegion] = useState<string>('');
   const [filterOs, setFilterOs] = useState<string>('');
   const [filterProvider, setFilterProvider] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
 
   // XUI inline binding form
   const [xuiBindOpen, setXuiBindOpen] = useState(false);
@@ -439,12 +440,15 @@ export default function AssetsPage() {
   useEffect(() => {
     if (loading || assets.length === 0) return;
     const viewId = searchParams.get('viewId');
+    const urlRegion = searchParams.get('filterRegion');
+    const urlOs = searchParams.get('filterOs');
+    if (urlRegion) setFilterRegion(urlRegion);
+    if (urlOs) setFilterOs(urlOs);
     if (viewId) {
       const id = Number(viewId);
       const asset = assets.find(a => a.id === id);
       if (asset) {
         openDetailModal(id);
-        // If deploy param, also open provision modal after a short delay
         if (searchParams.get('deploy') === '1') {
           setTimeout(() => {
             setProvisionContext({ assetId: id, assetName: asset.name, missingType: 'any' });
@@ -454,7 +458,8 @@ export default function AssetsPage() {
           }, 300);
         }
       }
-      // Clear URL params after handling
+    }
+    if (viewId || urlRegion || urlOs) {
       setSearchParams({}, { replace: true });
     }
   }, [loading, assets]);
@@ -537,7 +542,13 @@ export default function AssetsPage() {
       list = list.filter(a => (filterRole === 'none' ? !a.role : a.role === filterRole));
     }
     if (filterProbe) {
-      list = list.filter(a => (a.probeSource || 'local') === filterProbe || (filterProbe === 'dual' && a.probeSource === 'dual'));
+      list = list.filter(a => {
+        const src = a.probeSource || 'local';
+        if (filterProbe === 'dual') return src === 'dual';
+        if (filterProbe === 'komari') return src === 'komari' || src === 'dual';
+        if (filterProbe === 'pika') return src === 'pika' || src === 'dual';
+        return src === filterProbe;
+      });
     }
     if (filterRegion) {
       list = list.filter(a => filterRegion === '_empty' ? !a.region : a.region === filterRegion);
@@ -547,6 +558,11 @@ export default function AssetsPage() {
     }
     if (filterProvider) {
       list = list.filter(a => filterProvider === '_empty' ? !a.provider : a.provider === filterProvider);
+    }
+    if (filterStatus === 'online') {
+      list = list.filter(a => a.monitorOnline === 1);
+    } else if (filterStatus === 'offline') {
+      list = list.filter(a => (a.monitorNodeUuid || a.pikaNodeId) && a.monitorOnline !== 1);
     }
     if (filterTag) {
       list = list.filter(a => {
@@ -566,7 +582,7 @@ export default function AssetsPage() {
       );
     }
     return list;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -1042,6 +1058,41 @@ export default function AssetsPage() {
     finally { setBatchLoading(false); }
   };
 
+  const handleBatchDeriveOs = async () => {
+    if (!canManageAssets || selectedIds.size === 0) return;
+    const deriveCategory = (os: string): string => {
+      const l = os.toLowerCase();
+      if (l.includes('ubuntu')) return 'Ubuntu';
+      if (l.includes('debian')) return 'Debian';
+      if (l.includes('centos')) return 'CentOS';
+      if (l.includes('alma')) return 'AlmaLinux';
+      if (l.includes('rocky')) return 'Rocky';
+      if (l.includes('fedora')) return 'Fedora';
+      if (l.includes('alpine')) return 'Alpine';
+      if (l.includes('arch')) return 'Arch';
+      if (l.includes('windows')) return 'Windows';
+      if (l.includes('macos') || l.includes('darwin')) return 'MacOS';
+      if (l.includes('freebsd')) return 'FreeBSD';
+      return 'Other';
+    };
+    const targets = filteredAssets.filter(a => selectedIds.has(a.id) && a.os && !a.osCategory);
+    if (targets.length === 0) { toast('所选资产已有分类或缺少 OS 信息', { icon: '💻' }); return; }
+    setBatchLoading(true);
+    let updated = 0;
+    try {
+      for (const asset of targets) {
+        const cat = deriveCategory(asset.os!);
+        await batchUpdateAsset({ ids: [asset.id], field: 'osCategory', value: cat });
+        updated++;
+      }
+      toast.success(`已补全 ${updated} 个资产的操作系统分类`);
+      setSelectedIds(new Set());
+      setBatchMode(false);
+      await loadAssets();
+    } catch { toast.error('批量补全失败'); }
+    finally { setBatchLoading(false); }
+  };
+
   const handleBatchUpdate = async () => {
     if (!canManageAssets) {
       toast.error('权限不足，无法批量修改资产');
@@ -1148,15 +1199,15 @@ export default function AssetsPage() {
 
       {/* Summary Stats - 4 compact cards */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-        <div className="rounded-xl border border-divider/60 bg-content1 p-3">
+        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${!filterStatus ? 'border-primary/40 bg-primary-50/30 ring-1 ring-primary/20' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus('')}>
           <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
           <p className="text-2xl font-bold font-mono">{summary.totalAssets}</p>
         </div>
-        <div className="rounded-xl border border-success/20 bg-success-50/30 dark:bg-success-50/10 p-3">
+        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'online' ? 'border-success/40 ring-1 ring-success/20' : 'border-success/20'} bg-success-50/30 dark:bg-success-50/10`} onClick={() => setFilterStatus(filterStatus === 'online' ? '' : 'online')}>
           <p className="text-[10px] font-bold tracking-widest text-success uppercase">在线</p>
           <p className="text-2xl font-bold font-mono text-success">{summary.onlineAssets}</p>
         </div>
-        <div className={`rounded-xl border p-3 ${summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`}>
+        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'offline' ? 'border-danger/40 ring-1 ring-danger/20' : summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'offline' ? '' : 'offline')}>
           <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-2xl font-bold font-mono ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
         </div>
@@ -1301,8 +1352,8 @@ export default function AssetsPage() {
           </div>
         )}
         {/* Active filter count indicator + clear all */}
-        {(filterRegion || filterOs || filterProvider || filterTag || filterRole || filterProbe) && (
-          <button onClick={() => { setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterTag(''); setFilterRole(null); setFilterProbe(''); }}
+        {(filterRegion || filterOs || filterProvider || filterTag || filterRole || filterProbe || filterStatus) && (
+          <button onClick={() => { setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterTag(''); setFilterRole(null); setFilterProbe(''); setFilterStatus(''); }}
             className="rounded-full px-2.5 py-0.5 text-[10px] font-bold text-danger border border-danger/30 hover:bg-danger-50 transition-all cursor-pointer ml-auto">
             清除所有筛选
           </button>
@@ -1342,7 +1393,10 @@ export default function AssetsPage() {
           </Button>
           <div className="flex-1" />
           <Button size="sm" variant="flat" isDisabled={selectedIds.size === 0} isLoading={batchLoading} onPress={handleBatchGeolocate}>
-            📍 批量匹配地区
+            批量匹配地区
+          </Button>
+          <Button size="sm" variant="flat" isDisabled={selectedIds.size === 0} isLoading={batchLoading} onPress={handleBatchDeriveOs}>
+            补全OS分类
           </Button>
           <Button size="sm" color="primary" isDisabled={selectedIds.size === 0} onPress={openBatchModal}>
             批量修改
@@ -1522,6 +1576,12 @@ export default function AssetsPage() {
                         {/* Integration links */}
                         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-wrap items-center gap-1 text-xs">
+                            {asset.monitorNodeUuid && (
+                              <span className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[10px] font-semibold">K</span>
+                            )}
+                            {asset.pikaNodeId && (
+                              <span className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[10px] font-semibold">P</span>
+                            )}
                             {asset.totalXuiInstances > 0 && (
                               <button type="button" onClick={() => navigate('/xui')}
                                 className="px-1.5 py-0.5 rounded bg-primary-50 text-primary dark:bg-primary/10 text-[11px] font-semibold hover:bg-primary-100 transition-colors cursor-pointer">
@@ -1534,13 +1594,19 @@ export default function AssetsPage() {
                                 1Panel
                               </a>
                             )}
+                            {asset.gostNodeName && (
+                              <button type="button" onClick={() => navigate('/node')}
+                                className="px-1.5 py-0.5 rounded bg-warning-50 text-warning dark:bg-warning/10 text-[11px] font-semibold hover:bg-warning-100 transition-colors cursor-pointer">
+                                GOST
+                              </button>
+                            )}
                             {asset.totalForwards > 0 && (
                               <button type="button" onClick={() => navigate('/forward')}
                                 className="px-1.5 py-0.5 rounded bg-secondary-50 text-secondary dark:bg-secondary/10 text-[11px] font-semibold hover:bg-secondary-100 transition-colors cursor-pointer">
                                 {asset.totalForwards} 转发
                               </button>
                             )}
-                            {!asset.totalXuiInstances && !asset.panelUrl && !asset.totalForwards && (
+                            {!asset.monitorNodeUuid && !asset.pikaNodeId && !asset.totalXuiInstances && !asset.panelUrl && !asset.gostNodeName && !asset.totalForwards && (
                               <span className="text-default-300 font-mono">-</span>
                             )}
                           </div>
@@ -1710,21 +1776,37 @@ export default function AssetsPage() {
                       const syncChip = getStatusChip(inst.lastSyncStatus);
                       const instUrl = buildInstanceAddress(inst);
                       return (
-                        <a key={inst.id} href={instUrl} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1.5 text-[11px] transition-all hover:border-primary/40 hover:shadow-sm no-underline">
+                        <div key={inst.id} className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-2 text-xs">
                           <span className="font-semibold text-primary">X-UI</span>
                           <span className="font-mono text-default-500 truncate max-w-40">{inst.name}</span>
                           <Chip size="sm" color={syncChip.color} variant="flat" className="h-4 text-[9px]">{syncChip.text}</Chip>
                           <span className="text-default-400 font-mono">{inst.inboundCount || 0}入/{inst.clientCount || 0}客</span>
-                        </a>
+                          <a href={instUrl} target="_blank" rel="noopener noreferrer"
+                            className="ml-1 px-1.5 py-0.5 rounded bg-primary-50 text-primary text-[10px] font-semibold hover:bg-primary-100 no-underline">
+                            打开后台
+                          </a>
+                          <button type="button" onClick={() => navigate('/xui')}
+                            className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] font-semibold hover:bg-default-200 cursor-pointer">
+                            配置
+                          </button>
+                        </div>
                       );
                     })}
                     {selectedAsset.panelUrl && (
-                      <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1.5 text-[11px] transition-all hover:border-primary/40 hover:shadow-sm no-underline">
+                      <div className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-2 text-xs">
                         <span className="font-semibold text-secondary">1Panel</span>
                         <span className="text-default-400 font-mono truncate max-w-40">{selectedAsset.panelUrl}</span>
-                      </a>
+                        <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
+                          className="ml-1 px-1.5 py-0.5 rounded bg-success-50 text-success text-[10px] font-semibold hover:bg-success-100 no-underline">
+                          打开后台
+                        </a>
+                        {canManageAssets && (
+                          <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
+                            className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] font-semibold hover:bg-default-200 cursor-pointer">
+                            配置
+                          </button>
+                        )}
+                      </div>
                     )}
                     {selectedAsset.onePanelInstanceId && (
                       <button type="button" onClick={() => navigate(`/onepanel?instanceId=${selectedAsset.onePanelInstanceId}`)}

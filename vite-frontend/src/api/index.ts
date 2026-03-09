@@ -951,6 +951,7 @@ export const createOnePanelInstance = (data: any) => Network.post<OnePanelBootst
 export const updateOnePanelInstance = (data: any) => Network.post<OnePanelInstance>("/onepanel/update", data);
 export const deleteOnePanelInstance = (id: number) => Network.post("/onepanel/delete", { id });
 export const rotateOnePanelToken = (id: number) => Network.post<OnePanelBootstrap>("/onepanel/rotate-token", { id });
+export const diagnoseOnePanelInstance = (id: number) => Network.post("/onepanel/diagnose", { id });
 
 // Historical records / charts
 export interface MonitorRecordPoint {

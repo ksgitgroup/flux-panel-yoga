@@ -76,6 +76,13 @@ public class OnePanelController extends BaseController {
         return onePanelService.rotateToken(dto);
     }
 
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/diagnose")
+    public R diagnose(@Validated @RequestBody OnePanelInstanceIdDto dto) {
+        return onePanelService.diagnoseConnectivity(dto.getId());
+    }
+
     @PostMapping("/report")
     public R report(@RequestHeader(value = "X-Flux-Instance-Key", required = false) String instanceKey,
                     @RequestHeader(value = "X-Flux-Node-Token", required = false) String nodeToken,

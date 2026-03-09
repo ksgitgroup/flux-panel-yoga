@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import toast from 'react-hot-toast';
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -68,6 +68,7 @@ const normalizeRuntime = (data: any): DiagnosisRuntimeStatus => ({
 });
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const admin = localStorage.getItem('admin') === 'true';
   const [loading, setLoading] = useState(true);
   const [userInfo, setUserInfo] = useState<UserInfo>({} as UserInfo);
@@ -141,6 +142,8 @@ export default function DashboardPage() {
     const now = Date.now();
     let expiringSoon = 0, expired = 0, totalMonthly = 0;
     const regionMap: Record<string, number> = {};
+    const osMap: Record<string, number> = {};
+    const offlineAssets: AssetHost[] = [];
     assets.forEach(a => {
       if (a.expireDate) {
         const days = (a.expireDate - now) / 86400000;
@@ -149,16 +152,23 @@ export default function DashboardPage() {
       }
       const region = a.region || '未设置';
       regionMap[region] = (regionMap[region] || 0) + 1;
+      const os = a.osCategory || a.os || '未知';
+      osMap[os] = (osMap[os] || 0) + 1;
+      if ((a.monitorNodeUuid || a.pikaNodeId) && a.monitorOnline !== 1) {
+        offlineAssets.push(a);
+      }
       if (a.monthlyCost) {
         const v = parseFloat(a.monthlyCost);
         if (!isNaN(v)) totalMonthly += v;
       }
     });
-    // Top 5 regions
     const topRegions = Object.entries(regionMap)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 5);
-    return { total: assets.length, expiringSoon, expired, totalMonthly, topRegions };
+    const topOs = Object.entries(osMap)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6);
+    return { total: assets.length, expiringSoon, expired, totalMonthly, topRegions, topOs, offlineAssets };
   }, [assets]);
 
   // Traffic warning assets
@@ -198,7 +208,7 @@ export default function DashboardPage() {
       {/* Key metrics row */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
         {/* Health */}
-        <Card className={`border ${summary?.failCount ? 'border-warning/40 bg-warning-50/20' : 'border-success/30 bg-success-50/20'}`}>
+        <Card className={`border cursor-pointer hover:shadow-md transition-shadow ${summary?.failCount ? 'border-warning/40 bg-warning-50/20' : 'border-success/30 bg-success-50/20'}`} isPressable onPress={() => navigate('/monitor')}>
           <CardBody className="p-3">
             <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">诊断健康率</p>
             <p className={`text-2xl font-bold font-mono mt-1 ${summary?.failCount ? 'text-warning' : 'text-success'}`}>{healthRate.toFixed(1)}%</p>
@@ -210,7 +220,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Forwards & Tunnels */}
-        <Card className="border border-divider/60">
+        <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate('/forward')}>
           <CardBody className="p-3">
             <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">转发 / 隧道</p>
             <p className="text-2xl font-bold font-mono mt-1">{forwardCount} <span className="text-sm text-default-400">/</span> {tunnelCount}</p>
@@ -222,7 +232,7 @@ export default function DashboardPage() {
 
         {/* Nodes */}
         {admin && (
-          <Card className="border border-divider/60">
+          <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate(probeSummary.total > 0 ? '/probe' : '/node')}>
             <CardBody className="p-3">
               <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">
                 {probeSummary.total > 0 ? '探针节点' : 'GOST 节点'}
@@ -256,7 +266,7 @@ export default function DashboardPage() {
 
         {/* Assets */}
         {admin && assets.length > 0 && (
-          <Card className="border border-divider/60">
+          <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate('/assets')}>
             <CardBody className="p-3">
               <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器资产</p>
               <p className="text-2xl font-bold font-mono mt-1">{assetStats.total}</p>
@@ -271,7 +281,7 @@ export default function DashboardPage() {
 
         {/* Monthly cost */}
         {admin && assetStats.totalMonthly > 0 && (
-          <Card className="border border-divider/60">
+          <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate('/cost')}>
             <CardBody className="p-3">
               <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">月度成本</p>
               <p className="text-2xl font-bold font-mono mt-1">¥{assetStats.totalMonthly.toFixed(0)}</p>
@@ -303,9 +313,17 @@ export default function DashboardPage() {
                 <p className="text-sm font-semibold">异常资源</p>
                 <Link to="/monitor" className="text-xs text-primary font-medium hover:underline">诊断看板</Link>
               </div>
-              {summary?.recentFailures?.length ? (
+              {(summary?.recentFailures?.length || assetStats.offlineAssets.length > 0) ? (
                 <div className="space-y-2">
-                  {summary.recentFailures.slice(0, 5).map(r => (
+                  {admin && assetStats.offlineAssets.slice(0, 5).map(a => (
+                    <div key={`offline-${a.id}`} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-danger-50/40 dark:bg-danger-50/10 text-sm cursor-pointer hover:bg-danger-50/60 transition-colors" onClick={() => navigate(`/assets?viewId=${a.id}`)}>
+                      <Chip size="sm" variant="flat" color="danger" className="h-5 text-[10px]">服务器</Chip>
+                      <span className="flex-1 font-medium truncate">{getRegionFlag(a.region)}{a.name}</span>
+                      <span className="text-xs text-default-500 font-mono">{a.primaryIp}</span>
+                      <span className="text-[11px] text-danger font-semibold">离线</span>
+                    </div>
+                  ))}
+                  {summary?.recentFailures?.slice(0, 5).map(r => (
                     <div key={r.id} className="flex items-center gap-3 rounded-lg px-3 py-2 bg-danger-50/40 dark:bg-danger-50/10 text-sm">
                       <Chip size="sm" variant="flat" color="danger" className="h-5 text-[10px]">
                         {r.targetType === 'tunnel' ? '隧道' : '转发'}
@@ -364,9 +382,30 @@ export default function DashboardPage() {
                 </div>
                 <div className="space-y-1.5">
                   {assetStats.topRegions.map(([region, count]) => (
-                    <div key={region} className="flex items-center gap-3 text-sm">
+                    <div key={region} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterRegion=${encodeURIComponent(region)}`)}>
                       <span className="w-32 truncate">{getRegionFlag(region)}{region}</span>
                       <Progress size="sm" value={(count / assetStats.total) * 100} color="primary" className="flex-1" />
+                      <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* OS distribution */}
+          {admin && assetStats.topOs.length > 1 && (
+            <Card className="border border-divider/60">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold">操作系统分布</p>
+                  <Link to="/assets" className="text-xs text-primary font-medium hover:underline">服务器资产</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {assetStats.topOs.map(([os, count]) => (
+                    <div key={os} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterOs=${encodeURIComponent(os)}`)}>
+                      <span className="w-32 truncate">{os}</span>
+                      <Progress size="sm" value={(count / assetStats.total) * 100} color="secondary" className="flex-1" />
                       <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
                     </div>
                   ))}

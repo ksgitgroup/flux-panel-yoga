@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
@@ -267,6 +267,7 @@ export default function ConfigPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
   const [testingWebhook, setTestingWebhook] = useState(false);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     if (!canViewConfig) {
@@ -276,6 +277,14 @@ export default function ConfigPage() {
   }, [canViewConfig, navigate]);
 
   const activeSection = (searchParams.get('section') as ConfigSectionKey) || 'basic';
+
+  // Scroll to section when sidebar nav is clicked
+  useEffect(() => {
+    const el = sectionRefs.current[activeSection];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [activeSection]);
 
   const loadConfigs = async (currentConfigs?: Record<string, string>) => {
     const configsToCompare = currentConfigs || configs;
@@ -386,8 +395,6 @@ export default function ConfigPage() {
       items: CONFIG_ITEMS.filter((item) => item.section === sectionKey && shouldShowItem(item)),
     }));
   }, [configs]);
-
-  const activeSectionItems = groupedItems.find(({ sectionKey }) => sectionKey === activeSection)?.items || [];
 
   const renderConfigItem = (item: ConfigItem) => {
     const isChanged = hasChanges && (configs[item.key] || '') !== (originalConfigs[item.key] || '');
@@ -516,28 +523,25 @@ export default function ConfigPage() {
 
   return (
     <div className="space-y-4 p-1 lg:p-2">
-      <Card className="border border-default-200 shadow-sm">
-        <CardBody className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
-              <SettingsIcon className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold">网站配置</h1>
-                <Chip size="sm" variant="flat" color="primary">{CONFIG_SECTIONS[activeSection].chip}</Chip>
+      {/* Sticky header bar */}
+      <div className="sticky top-[60px] z-20 -mx-1 lg:-mx-2 px-1 lg:px-2 pb-2 pt-1 bg-gradient-to-b from-slate-50/95 via-slate-50/80 to-transparent dark:from-black/95 dark:via-black/80 backdrop-blur-sm">
+        <Card className="border border-default-200 shadow-sm">
+          <CardBody className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between py-3">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-primary/10 p-2 text-primary">
+                <SettingsIcon className="h-5 w-5" />
               </div>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                左侧导航负责切换配置分区，这里只显示当前页面需要编辑的配置项。
-              </p>
+              <div>
+                <h1 className="text-lg font-semibold">网站配置</h1>
+                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                  <Chip size="sm" variant="flat" color="primary">环境：{configs.site_environment_name || '未设置'}</Chip>
+                  <Chip size="sm" variant="flat" color={configs.auto_diagnosis_enabled === 'true' ? 'success' : 'default'}>
+                    自动诊断：{configs.auto_diagnosis_enabled === 'true' ? `${configs.auto_diagnosis_interval || '30'} 分钟` : '未启用'}
+                  </Chip>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Chip size="sm" variant="flat" color="primary">环境：{configs.site_environment_name || '未设置'}</Chip>
-            <Chip size="sm" variant="flat" color={configs.auto_diagnosis_enabled === 'true' ? 'success' : 'default'}>
-              自动诊断：{configs.auto_diagnosis_enabled === 'true' ? `${configs.auto_diagnosis_interval || '30'} 分钟` : '未启用'}
-            </Chip>
             <Button
               color="primary"
               startContent={<SaveIcon className="w-4 h-4" />}
@@ -547,10 +551,11 @@ export default function ConfigPage() {
             >
               {saving ? '保存中...' : '保存配置'}
             </Button>
-          </div>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      </div>
 
+      {/* Mobile section tabs */}
       <div className="flex flex-wrap gap-2 xl:hidden">
         {(Object.keys(CONFIG_SECTIONS) as ConfigSectionKey[]).map((sectionKey) => {
           const section = CONFIG_SECTIONS[sectionKey];
@@ -569,71 +574,79 @@ export default function ConfigPage() {
         })}
       </div>
 
-      {/* Alert rule management quick entry */}
-      {activeSection === 'alerting' && (
-        <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 shadow-sm">
-          <CardBody className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 py-3">
-            <div>
-              <p className="text-sm font-semibold">告警规则管理</p>
-              <p className="text-xs text-default-500 mt-0.5">
-                配置节点监控告警规则（CPU/内存/离线/到期/流量等），管理告警日志
-              </p>
-            </div>
-            <Button size="sm" color="primary" variant="flat" onPress={() => navigate('/alert')}>
-              管理规则
-            </Button>
-          </CardBody>
-        </Card>
-      )}
-
-      {activeSectionItems.length > 0 && (() => {
-        const section = CONFIG_SECTIONS[activeSection];
+      {/* All sections rendered continuously */}
+      {groupedItems.map(({ sectionKey, items }) => {
+        if (items.length === 0) return null;
+        const section = CONFIG_SECTIONS[sectionKey];
 
         return (
-          <Card key={activeSection} className="border border-default-200 shadow-sm">
-            <CardHeader className="flex flex-col items-start gap-3 pb-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <h2 className="text-xl font-semibold">{section.title}</h2>
-                <Chip size="sm" variant="flat" color="primary">{section.chip}</Chip>
-              </div>
-              <p className="text-sm text-default-500">{section.description}</p>
-            </CardHeader>
-            <CardBody className="space-y-5 pt-5">
-              {activeSectionItems.map((item, index) => (
-                <div key={item.key} className="space-y-3">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="max-w-3xl">
-                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{item.label}</label>
-                      {item.description && (
-                        <p className="mt-1 text-xs leading-6 text-gray-500 dark:text-gray-400">{item.description}</p>
-                      )}
+          <div
+            key={sectionKey}
+            ref={(el) => { sectionRefs.current[sectionKey] = el; }}
+            className="scroll-mt-[140px]"
+          >
+            {/* Alert rule management quick entry */}
+            {sectionKey === 'alerting' && (
+              <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 shadow-sm mb-4">
+                <CardBody className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 py-3">
+                  <div>
+                    <p className="text-sm font-semibold">告警规则管理</p>
+                    <p className="text-xs text-default-500 mt-0.5">
+                      配置节点监控告警规则（CPU/内存/离线/到期/流量等），管理告警日志
+                    </p>
+                  </div>
+                  <Button size="sm" color="primary" variant="flat" onPress={() => navigate('/alert')}>
+                    管理规则
+                  </Button>
+                </CardBody>
+              </Card>
+            )}
+
+            <Card className="border border-default-200 shadow-sm">
+              <CardHeader className="flex flex-col items-start gap-3 pb-0">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-xl font-semibold">{section.title}</h2>
+                  <Chip size="sm" variant="flat" color="primary">{section.chip}</Chip>
+                </div>
+                <p className="text-sm text-default-500">{section.description}</p>
+              </CardHeader>
+              <CardBody className="space-y-5 pt-5">
+                {items.map((item, index) => (
+                  <div key={item.key} className="space-y-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="max-w-3xl">
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{item.label}</label>
+                        {item.description && (
+                          <p className="mt-1 text-xs leading-6 text-gray-500 dark:text-gray-400">{item.description}</p>
+                        )}
+                      </div>
+                      {renderFieldActions(item)}
                     </div>
-                    {renderFieldActions(item)}
+
+                    {renderConfigItem(item)}
+
+                    {index !== items.length - 1 && <Divider className="pt-2" />}
                   </div>
+                ))}
 
-                  {renderConfigItem(item)}
-
-                  {index !== activeSectionItems.length - 1 && <Divider className="pt-2" />}
-                </div>
-              ))}
-
-              {activeSection === 'alerting' && (
-                <div className="rounded-2xl border border-dashed border-default-300 bg-default-50/70 px-4 py-4 text-sm text-default-600 dark:bg-default-100/20">
-                  <p className="font-semibold text-foreground">模板占位符</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {['{{appName}}', '{{environment}}', '{{time}}', '{{resourceSummary}}', '{{failureCount}}', '{{cooldownLabel}}', '{{failureDetails}}'].map((token) => (
-                      <Chip key={token} size="sm" variant="flat">{token}</Chip>
-                    ))}
+                {sectionKey === 'alerting' && (
+                  <div className="rounded-2xl border border-dashed border-default-300 bg-default-50/70 px-4 py-4 text-sm text-default-600 dark:bg-default-100/20">
+                    <p className="font-semibold text-foreground">模板占位符</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {['{{appName}}', '{{environment}}', '{{time}}', '{{resourceSummary}}', '{{failureCount}}', '{{cooldownLabel}}', '{{failureDetails}}'].map((token) => (
+                        <Chip key={token} size="sm" variant="flat">{token}</Chip>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-default-500">
+                      异常详情会自动按"单次消息最多展示异常条目数"截断。恢复通知默认只在上一次状态是异常时发送一次。
+                    </p>
                   </div>
-                  <p className="mt-3 text-xs text-default-500">
-                    异常详情会自动按“单次消息最多展示异常条目数”截断。恢复通知默认只在上一次状态是异常时发送一次。
-                  </p>
-                </div>
-              )}
-            </CardBody>
-          </Card>
+                )}
+              </CardBody>
+            </Card>
+          </div>
         );
-      })()}
+      })}
 
       {hasChanges && (
         <Card className="border-warning-200 bg-warning-50 dark:bg-warning-900/20 dark:border-warning-800">

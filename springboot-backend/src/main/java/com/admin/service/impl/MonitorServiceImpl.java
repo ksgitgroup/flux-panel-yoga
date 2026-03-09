@@ -842,6 +842,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setLastActiveAt(isOnline ? now : (prevActive != null ? prevActive : 0L));
             existing.setLastSyncAt(now);
             existing.setUpdatedTime(now);
+            // Record first-ever online time for offline diagnostics
+            if (isOnline && existing.getFirstSeenAt() == null) {
+                existing.setFirstSeenAt(now);
+            }
 
             monitorNodeSnapshotMapper.updateById(existing);
 
@@ -1240,6 +1244,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setLastActiveAt(isOnline ? now : (prevActive != null ? prevActive : 0L));
             existing.setLastSyncAt(now);
             existing.setUpdatedTime(now);
+            // Record first-ever online time for offline diagnostics
+            if (isOnline && existing.getFirstSeenAt() == null) {
+                existing.setFirstSeenAt(now);
+            }
             monitorNodeSnapshotMapper.updateById(existing);
 
             // 3. Fetch per-agent latest metrics (Pika returns {cpu:{...}, memory:{...}, ...} directly)
@@ -1923,6 +1931,37 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 BeanUtils.copyProperties(metric, metricDto);
                 dto.setLatestMetric(metricDto);
             }
+
+            // Compute offline diagnostics
+            long now = System.currentTimeMillis();
+            boolean isOnline = node.getOnline() != null && node.getOnline() == 1;
+            boolean everConnected = node.getFirstSeenAt() != null || (node.getLastActiveAt() != null && node.getLastActiveAt() > 0);
+
+            if (isOnline) {
+                dto.setConnectionStatus("online");
+            } else if (!everConnected) {
+                dto.setConnectionStatus("never_connected");
+                dto.setOfflineReason("never_connected");
+            } else {
+                dto.setConnectionStatus("offline");
+                // Calculate offline duration from lastActiveAt
+                Long lastActive = node.getLastActiveAt();
+                if (lastActive != null && lastActive > 0) {
+                    dto.setOfflineDuration(now - lastActive);
+                }
+                // Infer offline reason
+                Long lastSync = node.getLastSyncAt();
+                if (lastSync == null || (now - lastSync) > 600_000) {
+                    // Probe hasn't synced in 10+ minutes → probe unreachable or server down
+                    dto.setOfflineReason("probe_unreachable");
+                } else if (node.getStatus() != null && node.getStatus() == 1) {
+                    // Status=1 means probe no longer reports this node
+                    dto.setOfflineReason("probe_removed");
+                } else {
+                    dto.setOfflineReason("server_down");
+                }
+            }
+
             return dto;
         }).collect(Collectors.toList());
     }

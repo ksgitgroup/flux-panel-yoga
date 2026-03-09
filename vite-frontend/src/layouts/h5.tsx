@@ -24,7 +24,7 @@ export default function H5Layout({
   const location = useLocation();
   const [, setIsAdmin] = useState(false);
 
-  // Tabbar配置
+  // Tabbar配置 — 5 个高频入口
   const tabItems: TabItem[] = [
     {
       path: '/dashboard',
@@ -34,6 +34,18 @@ export default function H5Layout({
           <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
         </svg>
       )
+    },
+    {
+      path: '/server-dashboard',
+      label: '看板',
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+        </svg>
+      ),
+      requiredPermissions: ['server_dashboard.read']
     },
     {
       path: '/forward',
@@ -54,16 +66,6 @@ export default function H5Layout({
         </svg>
       ),
       requiredPermissions: ['tunnel.read']
-    },
-    {
-      path: '/node',
-      label: '节点',
-      icon: (
-        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-        </svg>
-      ),
-      requiredPermissions: ['node.read']
     },
     {
       path: '/profile',

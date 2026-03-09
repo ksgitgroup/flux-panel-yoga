@@ -611,27 +611,77 @@ export default function AdminLayout({
             </Button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-4 py-5">
-            <div className="space-y-1">
-              {filteredMenuItems.map((item) => {
+          <nav className="flex-1 overflow-y-auto px-4 py-4">
+            {/* ── 高频入口 ── */}
+            <div className="space-y-0.5">
+              {primaryMenuItems.map((item) => {
                 const isActive = location.pathname === item.path;
                 return (
-                  <button
-                    key={item.path}
-                    onClick={() => handleMenuClick(item.path)}
-                    className={`
-                      flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors
-                      ${isActive
-                        ? 'bg-primary text-white shadow-lg shadow-primary/25'
-                        : 'text-default-700 hover:bg-default-100 dark:text-default-200 dark:hover:bg-default-100/10'}
-                    `}
-                  >
+                  <button key={item.path} onClick={() => handleMenuClick(item.path)}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/25' : 'text-default-700 hover:bg-default-100 dark:text-default-200 dark:hover:bg-default-100/10'}`}>
                     <span className="flex-shrink-0">{item.icon}</span>
                     <span className="text-sm font-medium">{item.label}</span>
                   </button>
                 );
               })}
             </div>
+            {/* ── 服务器 ── */}
+            {serverGroup.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-1 px-4 text-[10px] font-bold uppercase tracking-widest text-default-400">服务器</p>
+                <div className="space-y-0.5">
+                  {serverGroup.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <button key={item.path} onClick={() => handleMenuClick(item.path)}
+                        className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition-colors ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/25' : 'text-default-700 hover:bg-default-100 dark:text-default-200 dark:hover:bg-default-100/10'}`}>
+                        <span className="flex-shrink-0">{item.icon}</span>
+                        <span className="text-sm font-medium">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {/* ── 系统管理 ── */}
+            {(() => {
+              const systemGroup = systemGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
+              return systemGroup.length > 0 ? (
+                <div className="mt-4">
+                  <p className="mb-1 px-4 text-[10px] font-bold uppercase tracking-widest text-default-400">系统管理</p>
+                  <div className="space-y-0.5">
+                    {systemGroup.map((item) => {
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <button key={item.path} onClick={() => handleMenuClick(item.path)}
+                          className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition-colors ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/25' : 'text-default-700 hover:bg-default-100 dark:text-default-200 dark:hover:bg-default-100/10'}`}>
+                          <span className="flex-shrink-0">{item.icon}</span>
+                          <span className="text-sm font-medium">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+            {/* ── 未分组 ── */}
+            {ungroupedItems.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-1 px-4 text-[10px] font-bold uppercase tracking-widest text-default-400">其他</p>
+                <div className="space-y-0.5">
+                  {ungroupedItems.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <button key={item.path} onClick={() => handleMenuClick(item.path)}
+                        className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition-colors ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/25' : 'text-default-700 hover:bg-default-100 dark:text-default-200 dark:hover:bg-default-100/10'}`}>
+                        <span className="flex-shrink-0">{item.icon}</span>
+                        <span className="text-sm font-medium">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </nav>
 
           <div className="border-t border-divider px-5 py-4 text-xs text-default-500">

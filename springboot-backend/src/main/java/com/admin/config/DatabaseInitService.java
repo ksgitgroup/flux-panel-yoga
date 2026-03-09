@@ -455,6 +455,9 @@ public class DatabaseInitService {
             // Sync control: prevent re-creation after user deletes asset/node
             updateColumn("monitor_node_snapshot", "asset_unlinked", "tinyint(1) DEFAULT 0 COMMENT '用户已取消关联资产(1=跳过自动创建)'");
 
+            // Offline diagnostics: track first connection time
+            updateColumn("monitor_node_snapshot", "first_seen_at", "bigint(20) DEFAULT NULL COMMENT '首次上线时间'");
+
             // Add new columns to monitor_metric_latest (v2 expansion)
             updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");
             updateColumn("monitor_metric_latest", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");

@@ -17,6 +17,7 @@ import {
 } from "@/api";
 import { formatFlow, formatRelativeTime, getRegionFlag, barColor } from '@/utils/formatters';
 import { siteConfig } from "@/config/site";
+import HealthGauge from "@/components/HealthGauge";
 
 interface UserInfo {
   flow: number;
@@ -66,6 +67,25 @@ const normalizeRuntime = (data: any): DiagnosisRuntimeStatus => ({
   progressPercent: Number(data?.progressPercent ?? 0),
   currentTargetName: data?.currentTargetName ?? undefined,
 });
+
+/* ─── Infrastructure metric cell ─── */
+const InfraCell = ({ label, value, suffix, color, subtext, onClick }: {
+  label: string; value: string; suffix?: string; color: string; subtext?: string; onClick?: () => void;
+}) => (
+  <div
+    className={`rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-4 py-3 transition-shadow hover:shadow-md${onClick ? ' cursor-pointer' : ''}`}
+    onClick={onClick}
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
+  >
+    <p className="text-[10px] font-bold uppercase tracking-widest text-default-400">{label}</p>
+    <p className="mt-1.5 flex items-baseline gap-1">
+      <span className={`text-2xl font-extrabold font-mono ${color}`}>{value}</span>
+      {suffix && <span className="text-sm font-semibold text-default-400">{suffix}</span>}
+    </p>
+    {subtext && <p className="mt-0.5 text-[11px] text-default-500">{subtext}</p>}
+  </div>
+);
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -190,129 +210,193 @@ export default function DashboardPage() {
 
   const healthRate = summary?.healthRate ?? 100;
 
+  // Compute an overall composite score for the health gauge
+  const overallScore = useMemo(() => {
+    if (!admin || assets.length === 0) return healthRate;
+    // Weighted: 40% diagnosis health, 30% probe online, 20% no-expiry, 10% completeness
+    const probeTotal = Math.max(probeSummary.total, 1);
+    const probeOnlineRate = (probeSummary.online / probeTotal) * 100;
+    const noExpiredRate = assets.length > 0 ? ((assets.length - assetStats.expired) / assets.length) * 100 : 100;
+    const probeBindRate = assets.length > 0 ? ((assets.length - assets.filter(a => !a.monitorNodeUuid && !a.pikaNodeId).length) / assets.length) * 100 : 100;
+    return Math.max(0, Math.min(100, healthRate * 0.4 + probeOnlineRate * 0.3 + noExpiredRate * 0.2 + probeBindRate * 0.1));
+  }, [admin, healthRate, probeSummary, assetStats, assets]);
+
   if (loading) {
     return <div className="flex min-h-[420px] items-center justify-center"><Spinner size="lg" /></div>;
   }
 
   return (
     <div className="space-y-4">
-      {/* Diagnosis running banner */}
-      {runtime?.running && (
-        <Card className="border border-primary/30 bg-primary-50/30 dark:bg-primary-900/10">
-          <CardBody className="flex flex-row items-center gap-4 p-3">
-            <Spinner size="sm" color="primary" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold">诊断执行中 · {runtime.completedCount}/{runtime.totalCount}</p>
-              {runtime.currentTargetName && <p className="text-xs text-default-500 truncate">正在诊断: {runtime.currentTargetName}</p>}
+      {/* ═══════════════════════ Hero Header ═══════════════════════ */}
+      <Card className="overflow-hidden border border-default-200 shadow-sm bg-[radial-gradient(ellipse_at_top_left,rgba(37,99,235,0.08),transparent_50%),radial-gradient(ellipse_at_bottom_right,rgba(16,185,129,0.06),transparent_50%)] dark:bg-[radial-gradient(ellipse_at_top_left,rgba(37,99,235,0.15),transparent_50%),radial-gradient(ellipse_at_bottom_right,rgba(16,185,129,0.1),transparent_50%)]">
+        <CardBody className="p-5 lg:p-6">
+          {/* Diagnosis running banner */}
+          {runtime?.running && (
+            <div className="mb-4 flex items-center gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
+              <Spinner size="sm" color="primary" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">诊断执行中 · {runtime.completedCount}/{runtime.totalCount}</p>
+                {runtime.currentTargetName && <p className="text-xs text-default-500 truncate">正在诊断: {runtime.currentTargetName}</p>}
+              </div>
+              <Progress size="sm" value={runtime.progressPercent} color="primary" className="w-20 sm:w-32" />
+              <Link to="/monitor" className="text-xs text-primary font-semibold hover:underline flex-shrink-0">查看详情</Link>
             </div>
-            <Progress size="sm" value={runtime.progressPercent} color="primary" className="w-20 sm:w-32" />
-            <Link to="/monitor" className="text-xs text-primary font-semibold hover:underline flex-shrink-0">查看详情</Link>
-          </CardBody>
-        </Card>
+          )}
+
+          <div className="flex flex-col gap-5 md:flex-row md:items-start">
+            {/* Left: Health Gauge */}
+            <div className="flex flex-col items-center gap-1 md:mr-2">
+              <HealthGauge
+                score={overallScore}
+                size={admin ? 140 : 120}
+                strokeWidth={10}
+                sublabel={summary?.lastRunTime ? formatRelativeTime(summary.lastRunTime) : undefined}
+                onClick={() => navigate('/monitor')}
+              />
+            </div>
+
+            {/* Right: Info cards grid (like Sub2API 3x2) */}
+            <div className="flex-1 grid gap-3 grid-cols-2 lg:grid-cols-3">
+              {/* Diagnosis health */}
+              <InfraCell
+                label="诊断健康率"
+                value={healthRate.toFixed(1)}
+                suffix="%"
+                color={summary?.failCount ? 'text-warning' : 'text-success'}
+                subtext={summary?.failCount ? `${summary.failCount} 个异常` : '全部通过'}
+                onClick={() => navigate('/monitor')}
+              />
+
+              {/* Forwards / Tunnels */}
+              <InfraCell
+                label="转发 / 隧道"
+                value={`${forwardCount}`}
+                suffix={`/ ${tunnelCount}`}
+                color="text-foreground"
+                subtext={`${summary?.totalCount ?? 0} 个纳入诊断`}
+                onClick={() => navigate('/forward')}
+              />
+
+              {/* Probe / Node online */}
+              {admin && (
+                <InfraCell
+                  label={probeSummary.total > 0 ? '探针节点' : 'GOST 节点'}
+                  value={probeSummary.total > 0 ? `${probeSummary.online}` : `${onlineNodes}`}
+                  suffix={`/ ${probeSummary.total > 0 ? probeSummary.total : nodes.length}`}
+                  color={(() => {
+                    const online = probeSummary.total > 0 ? probeSummary.online : onlineNodes;
+                    const total = probeSummary.total > 0 ? probeSummary.total : nodes.length;
+                    return online === total && total > 0 ? 'text-success' : 'text-warning';
+                  })()}
+                  subtext={probeSummary.total > 0 ? `${probeSummary.instances} 个实例` : '节点在线状态'}
+                  onClick={() => navigate(probeSummary.total > 0 ? '/probe' : '/node')}
+                />
+              )}
+
+              {/* Server assets */}
+              {admin && assets.length > 0 && (
+                <InfraCell
+                  label="服务器资产"
+                  value={`${assetStats.total}`}
+                  suffix="台"
+                  color="text-foreground"
+                  subtext={[
+                    assetStats.expired > 0 ? `${assetStats.expired} 已过期` : '',
+                    assetStats.expiringSoon > 0 ? `${assetStats.expiringSoon} 即将到期` : '',
+                    assetStats.expired === 0 && assetStats.expiringSoon === 0 ? `${assetStats.topRegions.length} 个地区` : '',
+                  ].filter(Boolean).join(' · ')}
+                  onClick={() => navigate('/assets')}
+                />
+              )}
+
+              {/* Monthly cost */}
+              {admin && assetStats.totalMonthly > 0 && (
+                <InfraCell
+                  label="月度成本"
+                  value={`¥${assetStats.totalMonthly.toFixed(0)}`}
+                  color="text-foreground"
+                  subtext={`均 ¥${assetStats.total > 0 ? (assetStats.totalMonthly / assetStats.total).toFixed(0) : 0}/台`}
+                  onClick={() => navigate('/cost')}
+                />
+              )}
+
+              {/* Flow usage (non-admin) */}
+              {!admin && (
+                <InfraCell
+                  label="流量使用"
+                  value={userInfo.flow === 99999 ? '不限' : `${flowPct.toFixed(1)}%`}
+                  color={flowPct >= 80 ? 'text-danger' : flowPct >= 60 ? 'text-warning' : 'text-foreground'}
+                  subtext={`${formatFlow(usedFlow)} / ${userInfo.flow === 99999 ? '无限制' : `${userInfo.flow || 0} GB`}`}
+                />
+              )}
+
+              {/* Version */}
+              <InfraCell
+                label="版本"
+                value={siteConfig.release_version}
+                color="text-foreground"
+                subtext={`${siteConfig.environment_name} · ${siteConfig.build_revision}`}
+              />
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* ═══════════════════════ Infrastructure Status Row ═══════════════════════ */}
+      {admin && assets.length > 0 && (
+        <div className="grid gap-3 grid-cols-3 lg:grid-cols-6">
+          <div className="rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-3 py-2.5 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">在线率</p>
+            <p className={`text-xl font-extrabold font-mono mt-1 ${
+              probeSummary.total > 0
+                ? (probeSummary.online === probeSummary.total ? 'text-success' : 'text-warning')
+                : 'text-default-400'
+            }`}>
+              {probeSummary.total > 0 ? `${((probeSummary.online / probeSummary.total) * 100).toFixed(0)}%` : '-'}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-3 py-2.5 text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/alert')}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">活跃告警</p>
+            <p className={`text-xl font-extrabold font-mono mt-1 ${assetStats.offlineAssets.length > 0 || (summary?.failCount || 0) > 0 ? 'text-danger' : 'text-success'}`}>
+              {assetStats.offlineAssets.length + (summary?.failCount || 0)}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-3 py-2.5 text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/traffic')}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">流量预警</p>
+            <p className={`text-xl font-extrabold font-mono mt-1 ${trafficWarnings.length > 0 ? 'text-warning' : 'text-success'}`}>
+              {trafficWarnings.length}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-3 py-2.5 text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/cost')}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">即将到期</p>
+            <p className={`text-xl font-extrabold font-mono mt-1 ${assetStats.expiringSoon > 0 ? 'text-warning' : assetStats.expired > 0 ? 'text-danger' : 'text-success'}`}>
+              {assetStats.expiringSoon + assetStats.expired}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-3 py-2.5 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">延迟均值</p>
+            <p className={`text-xl font-extrabold font-mono mt-1 ${
+              summary?.avgLatency ? (summary.avgLatency > 150 ? 'text-danger' : summary.avgLatency > 80 ? 'text-warning' : 'text-success') : 'text-default-400'
+            }`}>
+              {summary?.avgLatency ? `${summary.avgLatency.toFixed(0)}ms` : '-'}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-default-200 bg-white/80 dark:bg-black/20 px-3 py-2.5 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">探针覆盖</p>
+            <p className={`text-xl font-extrabold font-mono mt-1 ${
+              assets.filter(a => !a.monitorNodeUuid && !a.pikaNodeId).length > 0 ? 'text-warning' : 'text-success'
+            }`}>
+              {assets.length > 0 ? `${((1 - assets.filter(a => !a.monitorNodeUuid && !a.pikaNodeId).length / assets.length) * 100).toFixed(0)}%` : '-'}
+            </p>
+          </div>
+        </div>
       )}
 
-      {/* Key metrics row */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-        {/* Health */}
-        <Card className={`border cursor-pointer hover:shadow-md transition-shadow ${summary?.failCount ? 'border-warning/40 bg-warning-50/20' : 'border-success/30 bg-success-50/20'}`} isPressable onPress={() => navigate('/monitor')}>
-          <CardBody className="p-3">
-            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">诊断健康率</p>
-            <p className={`text-2xl font-bold font-mono mt-1 ${summary?.failCount ? 'text-warning' : 'text-success'}`}>{healthRate.toFixed(1)}%</p>
-            <p className="text-[11px] text-default-500 mt-0.5">
-              {summary?.failCount ? `${summary.failCount} 个异常` : '系统稳定'}
-              {summary?.lastRunTime ? ` · ${formatRelativeTime(summary.lastRunTime)}` : ''}
-            </p>
-          </CardBody>
-        </Card>
-
-        {/* Forwards & Tunnels */}
-        <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate('/forward')}>
-          <CardBody className="p-3">
-            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">转发 / 隧道</p>
-            <p className="text-2xl font-bold font-mono mt-1">{forwardCount} <span className="text-sm text-default-400">/</span> {tunnelCount}</p>
-            <p className="text-[11px] text-default-500 mt-0.5">
-              {summary?.totalCount ?? 0} 个纳入诊断
-            </p>
-          </CardBody>
-        </Card>
-
-        {/* Nodes */}
-        {admin && (
-          <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate(probeSummary.total > 0 ? '/probe' : '/node')}>
-            <CardBody className="p-3">
-              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">
-                {probeSummary.total > 0 ? '探针节点' : 'GOST 节点'}
-              </p>
-              <p className="text-2xl font-bold font-mono mt-1">
-                {probeSummary.total > 0
-                  ? <><span className="text-success">{probeSummary.online}</span> <span className="text-sm text-default-400">/</span> {probeSummary.total}</>
-                  : <><span className={onlineNodes === nodes.length && nodes.length > 0 ? 'text-success' : 'text-warning'}>{onlineNodes}</span> <span className="text-sm text-default-400">/</span> {nodes.length}</>
-                }
-              </p>
-              <p className="text-[11px] text-default-500 mt-0.5">
-                {probeSummary.total > 0 ? `${probeSummary.instances} 个探针实例` : '节点在线状态'}
-              </p>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Flow usage (non-admin) */}
-        {!admin && (
-          <Card className="border border-divider/60">
-            <CardBody className="p-3">
-              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">流量使用</p>
-              <p className="text-2xl font-bold font-mono mt-1">
-                {userInfo.flow === 99999 ? '不限' : `${flowPct.toFixed(1)}%`}
-              </p>
-              <p className="text-[11px] text-default-500 mt-0.5">{formatFlow(usedFlow)} / {userInfo.flow === 99999 ? '无限制' : `${userInfo.flow || 0} GB`}</p>
-              {userInfo.flow !== 99999 && <Progress size="sm" value={flowPct} color={barColor(flowPct)} className="mt-1.5" />}
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Assets */}
-        {admin && assets.length > 0 && (
-          <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate('/assets')}>
-            <CardBody className="p-3">
-              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器资产</p>
-              <p className="text-2xl font-bold font-mono mt-1">{assetStats.total}</p>
-              <p className="text-[11px] text-default-500 mt-0.5">
-                {assetStats.expiringSoon > 0 && <span className="text-warning">{assetStats.expiringSoon} 即将到期 · </span>}
-                {assetStats.expired > 0 && <span className="text-danger">{assetStats.expired} 已过期 · </span>}
-                {assetStats.topRegions.length > 0 && `${assetStats.topRegions.length} 个地区`}
-              </p>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Monthly cost */}
-        {admin && assetStats.totalMonthly > 0 && (
-          <Card className="border border-divider/60 cursor-pointer hover:shadow-md transition-shadow" isPressable onPress={() => navigate('/cost')}>
-            <CardBody className="p-3">
-              <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">月度成本</p>
-              <p className="text-2xl font-bold font-mono mt-1">¥{assetStats.totalMonthly.toFixed(0)}</p>
-              <p className="text-[11px] text-default-500 mt-0.5">
-                平均 ¥{assetStats.total > 0 ? (assetStats.totalMonthly / assetStats.total).toFixed(0) : 0}/台
-              </p>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Version */}
-        <Card className="border border-divider/60">
-          <CardBody className="p-3">
-            <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">版本</p>
-            <p className="text-lg font-bold mt-1">{siteConfig.release_version}</p>
-            <p className="text-[11px] text-default-500 mt-0.5">{siteConfig.environment_name} · {siteConfig.build_revision}</p>
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* Main content: two columns */}
+      {/* ═══════════════════════ Main Content ═══════════════════════ */}
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        {/* Left: failures + region overview */}
+        {/* Left column */}
         <div className="space-y-4">
-          {/* Recent failures */}
+          {/* Failures & offline */}
           <Card className="border border-divider/60">
             <CardBody className="p-4">
               <div className="flex items-center justify-between mb-3">
@@ -378,73 +462,78 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {/* Region distribution */}
-          {admin && assetStats.topRegions.length > 0 && (
-            <Card className="border border-divider/60">
-              <CardBody className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">地区分布</p>
-                  <Link to="/assets" className="text-xs text-primary font-medium hover:underline">服务器资产</Link>
-                </div>
-                <div className="space-y-1.5">
-                  {assetStats.topRegions.map(([region, count]) => (
-                    <div key={region} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterRegion=${encodeURIComponent(region)}`)}>
-                      <span className="w-32 truncate">{getRegionFlag(region)}{region}</span>
-                      <Progress size="sm" value={(count / assetStats.total) * 100} color="primary" className="flex-1" />
-                      <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
+          {/* ═══════════ Distribution cards (3-column compact) ═══════════ */}
+          {admin && (assetStats.topRegions.length > 0 || assetStats.topOs.length > 1 || assetStats.topProviders.length > 1) && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {/* Region */}
+              {assetStats.topRegions.length > 0 && (
+                <Card className="border border-divider/60">
+                  <CardBody className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-semibold">地区分布</p>
+                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline">全部</Link>
                     </div>
-                  ))}
-                </div>
-              </CardBody>
-            </Card>
-          )}
+                    <div className="space-y-1.5">
+                      {assetStats.topRegions.map(([region, count]) => (
+                        <div key={region} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterRegion=${encodeURIComponent(region)}`)}>
+                          <span className="w-24 truncate text-xs">{getRegionFlag(region)}{region}</span>
+                          <Progress size="sm" value={(count / assetStats.total) * 100} color="primary" className="flex-1" />
+                          <span className="text-xs font-mono text-default-500 w-6 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
 
-          {/* OS distribution */}
-          {admin && assetStats.topOs.length > 1 && (
-            <Card className="border border-divider/60">
-              <CardBody className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">操作系统分布</p>
-                  <Link to="/assets" className="text-xs text-primary font-medium hover:underline">服务器资产</Link>
-                </div>
-                <div className="space-y-1.5">
-                  {assetStats.topOs.map(([os, count]) => (
-                    <div key={os} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterOs=${encodeURIComponent(os)}`)}>
-                      <span className="w-32 truncate">{os}</span>
-                      <Progress size="sm" value={(count / assetStats.total) * 100} color="secondary" className="flex-1" />
-                      <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
+              {/* OS */}
+              {assetStats.topOs.length > 1 && (
+                <Card className="border border-divider/60">
+                  <CardBody className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-semibold">操作系统</p>
+                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline">全部</Link>
                     </div>
-                  ))}
-                </div>
-              </CardBody>
-            </Card>
-          )}
+                    <div className="space-y-1.5">
+                      {assetStats.topOs.map(([os, count]) => (
+                        <div key={os} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterOs=${encodeURIComponent(os)}`)}>
+                          <span className="w-24 truncate text-xs">{os}</span>
+                          <Progress size="sm" value={(count / assetStats.total) * 100} color="secondary" className="flex-1" />
+                          <span className="text-xs font-mono text-default-500 w-6 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
 
-          {/* Provider distribution */}
-          {admin && assetStats.topProviders.length > 1 && (
-            <Card className="border border-divider/60">
-              <CardBody className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">厂商分布</p>
-                  <Link to="/assets" className="text-xs text-primary font-medium hover:underline">服务器资产</Link>
-                </div>
-                <div className="space-y-1.5">
-                  {assetStats.topProviders.map(([provider, count]) => (
-                    <div key={provider} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterProvider=${encodeURIComponent(provider)}`)}>
-                      <span className="w-32 truncate">{provider}</span>
-                      <Progress size="sm" value={(count / assetStats.total) * 100} color="warning" className="flex-1" />
-                      <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
+              {/* Provider */}
+              {assetStats.topProviders.length > 1 && (
+                <Card className="border border-divider/60">
+                  <CardBody className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-semibold">厂商分布</p>
+                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline">全部</Link>
                     </div>
-                  ))}
-                </div>
-              </CardBody>
-            </Card>
+                    <div className="space-y-1.5">
+                      {assetStats.topProviders.map(([provider, count]) => (
+                        <div key={provider} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterProvider=${encodeURIComponent(provider)}`)}>
+                          <span className="w-24 truncate text-xs">{provider}</span>
+                          <Progress size="sm" value={(count / assetStats.total) * 100} color="warning" className="flex-1" />
+                          <span className="text-xs font-mono text-default-500 w-6 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Right sidebar: quick nav */}
+        {/* Right sidebar */}
         <div className="space-y-4">
-          {/* Quick nav grid */}
+          {/* Quick nav */}
           <Card className="border border-divider/60">
             <CardBody className="p-4">
               <p className="text-sm font-semibold mb-3">快捷导航</p>

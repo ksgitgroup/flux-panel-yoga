@@ -45,7 +45,7 @@ public class TagController extends BaseController {
     @LogAnnotation
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Object> params) {
-        Integer id = Integer.valueOf(params.get("id").toString());
+        Integer id = requireInt(params, "id");
         tagService.removeById(id);
         return R.ok();
     }

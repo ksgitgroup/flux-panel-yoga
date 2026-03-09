@@ -56,28 +56,28 @@ public class ForwardController extends BaseController {
     @LogAnnotation
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         return forwardService.deleteForward(id);
     }
 
     @LogAnnotation
     @PostMapping("/force-delete")
     public R forceDelete(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         return forwardService.forceDeleteForward(id);
     }
 
     @LogAnnotation
     @PostMapping("/pause")
     public R pause(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         return forwardService.pauseForward(id);
     }
 
     @LogAnnotation
     @PostMapping("/resume")
     public R resume(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         return forwardService.resumeForward(id);
     }
 
@@ -89,7 +89,7 @@ public class ForwardController extends BaseController {
     @LogAnnotation
     @PostMapping("/diagnose")
     public R diagnoseForward(@RequestBody Map<String, Object> params) {
-        Long forwardId = Long.valueOf(params.get("forwardId").toString());
+        Long forwardId = requireLong(params, "forwardId");
         return forwardService.diagnoseForward(forwardId);
     }
 
@@ -112,7 +112,7 @@ public class ForwardController extends BaseController {
     @LogAnnotation
     @PostMapping("/copy")
     public R copyForward(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+        Long id = requireLong(params, "id");
         Forward forward = forwardService.getById(id);
         if (forward == null) {
             return R.err("转发不存在");

@@ -442,8 +442,10 @@ export default function AssetsPage() {
     const viewId = searchParams.get('viewId');
     const urlRegion = searchParams.get('filterRegion');
     const urlOs = searchParams.get('filterOs');
+    const urlTag = searchParams.get('filterTag');
     if (urlRegion) setFilterRegion(urlRegion);
     if (urlOs) setFilterOs(urlOs);
+    if (urlTag) setFilterTag(urlTag);
     if (viewId) {
       const id = Number(viewId);
       const asset = assets.find(a => a.id === id);
@@ -459,7 +461,7 @@ export default function AssetsPage() {
         }
       }
     }
-    if (viewId || urlRegion || urlOs) {
+    if (viewId || urlRegion || urlOs || urlTag) {
       setSearchParams({}, { replace: true });
     }
   }, [loading, assets]);

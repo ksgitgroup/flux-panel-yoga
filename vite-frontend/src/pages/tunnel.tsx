@@ -179,11 +179,7 @@ export default function TunnelPage() {
               targetIds: tunnelList.map((t: Tunnel) => t.id)
             });
             if (diagRes.code === 0 && diagRes.data) {
-              const map: Record<number, any> = {};
-              diagRes.data.forEach((item: any) => {
-                map[item.targetId] = item;
-              });
-              setDiagnosisMap(map);
+              setDiagnosisMap(diagRes.data);
             }
           } catch { /* silent */ }
         }

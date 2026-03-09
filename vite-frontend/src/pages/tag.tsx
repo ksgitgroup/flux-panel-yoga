@@ -131,27 +131,34 @@ export default function TagPage() {
         }
     };
 
-    // Compute asset tag stats
+    // Compute asset tag stats — count = number of assets containing this tag (not occurrences)
     const assetTagStats = useMemo(() => {
-        const tagMap = new Map<string, { count: number; source: Set<string> }>();
+        const tagMap = new Map<string, { assetIds: Set<number>; source: Set<string> }>();
         assets.forEach(a => {
+            const seenTags = new Set<string>(); // dedupe across tags + probeTags per asset
             const parseTags = (raw?: string | null, source?: string) => {
                 if (!raw) return;
                 let tagArr: string[] = [];
                 try { tagArr = JSON.parse(raw); } catch { tagArr = raw.split(',').map(t => t.trim()).filter(Boolean); }
                 tagArr.forEach(t => {
-                    const entry = tagMap.get(t) || { count: 0, source: new Set<string>() };
-                    entry.count++;
+                    if (seenTags.has(t)) {
+                        // already counted for this asset, just add source
+                        const entry = tagMap.get(t);
+                        if (entry && source) entry.source.add(source);
+                        return;
+                    }
+                    seenTags.add(t);
+                    const entry = tagMap.get(t) || { assetIds: new Set<number>(), source: new Set<string>() };
+                    entry.assetIds.add(a.id);
                     if (source) entry.source.add(source);
                     tagMap.set(t, entry);
                 });
             };
             parseTags(a.tags, 'asset');
-            // probeTags from probe sync are displayed separately in assets but we aggregate here
             if ((a as any).probeTags) parseTags((a as any).probeTags, 'probe');
         });
         return Array.from(tagMap.entries())
-            .map(([name, info]) => ({ name, count: info.count, sources: Array.from(info.source) }))
+            .map(([name, info]) => ({ name, count: info.assetIds.size, sources: Array.from(info.source) }))
             .sort((a, b) => b.count - a.count);
     }, [assets]);
 
@@ -221,7 +228,7 @@ export default function TagPage() {
                                                 <Chip key={t.name} size="sm" variant="flat"
                                                     color={t.sources.includes('probe') ? 'secondary' : 'primary'}
                                                     className="text-xs cursor-pointer hover:opacity-80"
-                                                    onClick={() => navigate(`/assets?search=${encodeURIComponent(t.name)}`)}>
+                                                    onClick={() => navigate(`/assets?filterTag=${encodeURIComponent(t.name)}`)}>
                                                     {t.name}
                                                     <span className="ml-1 text-default-400">({t.count})</span>
                                                 </Chip>
@@ -257,7 +264,7 @@ export default function TagPage() {
                                                         </td>
                                                         <td className="px-4 py-2 text-right">
                                                             <Button size="sm" variant="light" color="primary" className="h-6 text-[10px] min-w-0 px-2"
-                                                                onPress={() => navigate(`/assets?search=${encodeURIComponent(t.name)}`)}>
+                                                                onPress={() => navigate(`/assets?filterTag=${encodeURIComponent(t.name)}`)}>
                                                                 查看资产
                                                             </Button>
                                                         </td>

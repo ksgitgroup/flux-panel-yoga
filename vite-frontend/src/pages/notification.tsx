@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input, Textarea } from "@heroui/input";
@@ -42,6 +43,21 @@ const SEVERITY_MAP: Record<string, { label: string; color: "default" | "warning"
   critical: { label: '严重', color: 'danger' },
   error: { label: '错误', color: 'danger' },
 };
+
+const EVENT_TYPES = [
+  { value: 'alert', label: '告警触发' },
+  { value: 'system', label: '系统事件' },
+  { value: 'probe_offline', label: '探针离线' },
+  { value: 'expiry', label: '到期提醒' },
+  { value: 'diagnosis', label: '诊断异常' },
+  { value: 'traffic', label: '流量超额' },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: 'info', label: '提示', color: 'default' as const },
+  { value: 'warning', label: '警告', color: 'warning' as const },
+  { value: 'critical', label: '严重', color: 'danger' as const },
+];
 
 function formatTime(ts?: number | null): string {
   if (!ts) return '-';
@@ -408,9 +424,10 @@ function PoliciesTab() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    {p.eventTypes ? p.eventTypes.split(',').map((e, i) => (
-                      <Chip key={i} size="sm" variant="flat">{e.trim()}</Chip>
-                    )) : '-'}
+                    {p.eventTypes ? p.eventTypes.split(',').map((e, i) => {
+                      const et = EVENT_TYPES.find(t => t.value === e.trim());
+                      return <Chip key={i} size="sm" variant="flat">{et?.label || e.trim()}</Chip>;
+                    }) : '-'}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -451,20 +468,48 @@ function PoliciesTab() {
                 onValueChange={(v) => setEditItem(prev => ({ ...prev, enabled: v ? 1 : 0 }))}
               />
             </div>
-            <Input
-              label="事件类型"
-              description="多个用逗号分隔，如: alert,system,probe_offline"
-              value={editItem?.eventTypes || ''}
-              onValueChange={(v) => setEditItem(prev => ({ ...prev, eventTypes: v }))}
-              placeholder="alert, system, probe_offline"
-            />
-            <Input
-              label="严重级别筛选"
-              description="多个用逗号分隔，如: warning,critical。留空表示全部"
-              value={editItem?.severityFilter || ''}
-              onValueChange={(v) => setEditItem(prev => ({ ...prev, severityFilter: v }))}
-              placeholder="info, warning, critical"
-            />
+            <div>
+              <p className="text-sm font-medium text-default-700 mb-2">事件类型</p>
+              <div className="flex flex-wrap gap-2">
+                {EVENT_TYPES.map(et => {
+                  const selected = (editItem?.eventTypes || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const isActive = selected.includes(et.value);
+                  return (
+                    <Chip key={et.value} size="sm" variant={isActive ? 'solid' : 'bordered'}
+                      color={isActive ? 'primary' : 'default'}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        const next = isActive ? selected.filter(v => v !== et.value) : [...selected, et.value];
+                        setEditItem(prev => ({ ...prev, eventTypes: next.join(',') }));
+                      }}>
+                      {et.label}
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-default-400 mt-1.5">选择需要触发此策略的事件类型，可多选</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-default-700 mb-2">严重级别筛选</p>
+              <div className="flex flex-wrap gap-2">
+                {SEVERITY_OPTIONS.map(sv => {
+                  const selected = (editItem?.severityFilter || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const isActive = selected.includes(sv.value);
+                  return (
+                    <Chip key={sv.value} size="sm" variant={isActive ? 'solid' : 'bordered'}
+                      color={isActive ? sv.color : 'default'}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        const next = isActive ? selected.filter(v => v !== sv.value) : [...selected, sv.value];
+                        setEditItem(prev => ({ ...prev, severityFilter: next.join(',') }));
+                      }}>
+                      {sv.label}
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-default-400 mt-1.5">不选则匹配所有级别。不同级别可关联不同策略实现分级通知</p>
+            </div>
             <Select
               label="通知渠道"
               selectionMode="multiple"
@@ -491,6 +536,7 @@ function PoliciesTab() {
 
 // ==================== Main Page ====================
 export default function NotificationPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('notifications');
 
   return (
@@ -498,8 +544,8 @@ export default function NotificationPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">通知中心</h1>
         <div className="flex gap-2">
-          <Button size="sm" variant="flat" onPress={() => window.location.href = '/alert'}>告警规则</Button>
-          <Button size="sm" variant="flat" onPress={() => window.location.href = '/audit'}>审计日志</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/alert')}>告警规则</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/audit')}>审计日志</Button>
         </div>
       </div>
 

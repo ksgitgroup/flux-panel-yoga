@@ -450,6 +450,10 @@ export default function AuditPage() {
     <div className="w-full">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">审计与到期</h1>
+        <div className="flex gap-2">
+          <Button size="sm" variant="flat" as="a" href="/alert">告警规则</Button>
+          <Button size="sm" variant="flat" as="a" href="/notification">通知中心</Button>
+        </div>
       </div>
       <Tabs aria-label="审计页面标签" variant="underlined" size="lg">
         <Tab key="logs" title="审计日志">

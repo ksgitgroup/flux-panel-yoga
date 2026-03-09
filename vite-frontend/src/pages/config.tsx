@@ -70,8 +70,8 @@ const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: st
     chip: '任务调度',
   },
   alerting: {
-    title: '企业微信告警',
-    description: '告警标题、模板、恢复通知和节流间隔都集中在这里管理，默认模板即开即用。',
+    title: '企业微信告警（旧版）',
+    description: '此为旧版企业微信告警配置。推荐使用「通知中心 → 通知渠道」统一管理所有通知渠道（企业微信/Telegram/Webhook/Email），并配合「通知策略」灵活路由事件。',
     chip: '值班通知',
   },
 };

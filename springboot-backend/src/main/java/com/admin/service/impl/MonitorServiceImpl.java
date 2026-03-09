@@ -270,10 +270,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Override
     public R getDashboardNodes() {
-        // Return ALL active nodes (exclude soft-deleted status=-1)
+        // Return active nodes: exclude soft-deleted (status=-1) and user-unlinked (assetUnlinked=1)
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(
                 new LambdaQueryWrapper<MonitorNodeSnapshot>()
                         .ne(MonitorNodeSnapshot::getStatus, -1)
+                        .and(w -> w.isNull(MonitorNodeSnapshot::getAssetUnlinked)
+                                .or().ne(MonitorNodeSnapshot::getAssetUnlinked, 1))
                         .orderByDesc(MonitorNodeSnapshot::getOnline)
                         .orderByAsc(MonitorNodeSnapshot::getName));
         if (allNodes.isEmpty()) {

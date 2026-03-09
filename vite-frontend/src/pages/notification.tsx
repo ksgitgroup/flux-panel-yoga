@@ -23,12 +23,14 @@ import {
 } from "@/api";
 
 const CHANNEL_TYPES = [
+  { value: 'wechat', label: '企业微信' },
   { value: 'telegram', label: 'Telegram' },
   { value: 'webhook', label: 'Webhook' },
   { value: 'email', label: 'Email' },
 ];
 
 const CONFIG_PLACEHOLDERS: Record<string, string> = {
+  wechat: JSON.stringify({ webhookUrl: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." }, null, 2),
   telegram: JSON.stringify({ token: "bot_token", chatId: "123456" }, null, 2),
   webhook: JSON.stringify({ url: "https://..." }, null, 2),
   email: JSON.stringify({ to: "user@example.com", smtpHost: "smtp.example.com", smtpPort: 587, username: "", password: "" }, null, 2),
@@ -375,7 +377,10 @@ function PoliciesTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center">
-        <span className="text-default-500 text-sm">配置通知策略，将事件类型映射到通知渠道</span>
+        <div>
+          <span className="text-default-500 text-sm">策略决定哪些事件发送到哪个渠道。</span>
+          <span className="text-default-400 text-xs ml-1">示例：创建策略 "告警→微信"，事件类型选 alert，渠道选企业微信</span>
+        </div>
         <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>
       </div>
 
@@ -490,7 +495,24 @@ export default function NotificationPage() {
 
   return (
     <div className="flex flex-col gap-4 p-4 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold">通知中心</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">通知中心</h1>
+        <div className="flex gap-2">
+          <Button size="sm" variant="flat" onPress={() => window.location.href = '/alert'}>告警规则</Button>
+          <Button size="sm" variant="flat" onPress={() => window.location.href = '/audit'}>审计日志</Button>
+        </div>
+      </div>
+
+      {/* Architecture guide */}
+      <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary/5">
+        <CardBody className="p-3 text-xs text-default-600 space-y-1">
+          <p className="font-semibold text-sm text-primary">通知架构说明</p>
+          <p><strong>通知消息</strong> — 系统产生的所有通知记录（告警触发、探针离线、到期提醒等），支持已读状态和类型筛选。</p>
+          <p><strong>通知渠道</strong> — 配置接收通知的方式：企业微信、Telegram、Webhook、Email。所有渠道统一在此管理（包括原"安全登录-企业微信通知"的功能）。</p>
+          <p><strong>通知策略</strong> — 将事件类型路由到渠道。例如：告警事件 → 企业微信渠道，探针离线 → Telegram 渠道。不配置策略时，通知仅记录在消息列表中。</p>
+        </CardBody>
+      </Card>
+
       <Tabs
         selectedKey={activeTab}
         onSelectionChange={(key) => setActiveTab(key as string)}

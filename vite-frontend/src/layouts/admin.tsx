@@ -534,13 +534,13 @@ export default function AdminLayout({
   );
 
   // Primary nav items (always visible in pill bar) — 高频直达
-  const primaryPaths = ['/dashboard', '/assets', '/forward', '/tunnel'];
+  const primaryPaths = ['/dashboard', '/server-dashboard', '/assets', '/forward', '/tunnel'];
   const primaryMenuItems = primaryPaths
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));
 
   // Grouped dropdown menus — "服务器"含看板+分析，"监控"含诊断+探针
-  const serverGroupPaths = ['/server-dashboard', '/monitor', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
+  const serverGroupPaths = ['/monitor', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
   // 系统工作台：点击直接进入 /config，侧边栏导航所有子页面
   const systemGroupPaths = [
     '/xui', '/xui-protocols', '/onepanel',

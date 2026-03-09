@@ -787,99 +787,48 @@ public class DatabaseInitService {
                 ensureIamPermission(m[0] + ".delete", "删除" + m[1], m[0], "允许删除" + m[1], Integer.parseInt(m[4]), 1);
             }
 
+            // ========== 角色权限分配（数据驱动） ==========
+
+            // 所有业务模块
+            String[] allModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "site_config", "protocol", "tag",
+                    "speed_limit", "biz_user", "iam_user", "iam_role", "onepanel"};
+
+            // --- SUPER_ADMIN: 全部权限 (admin bypass 已覆盖, 这里显式授予用于 UI 展示) ---
             ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
-            ensureIamRolePermission("SUPER_ADMIN", "asset.read");
-            ensureIamRolePermission("SUPER_ADMIN", "asset.write");
-            ensureIamRolePermission("SUPER_ADMIN", "xui.read");
-            ensureIamRolePermission("SUPER_ADMIN", "xui.write");
-            ensureIamRolePermission("SUPER_ADMIN", "xui.sync");
-            ensureIamRolePermission("SUPER_ADMIN", "forward.read");
-            ensureIamRolePermission("SUPER_ADMIN", "forward.write");
-            ensureIamRolePermission("SUPER_ADMIN", "tunnel.read");
-            ensureIamRolePermission("SUPER_ADMIN", "tunnel.write");
-            ensureIamRolePermission("SUPER_ADMIN", "node.read");
-            ensureIamRolePermission("SUPER_ADMIN", "node.write");
-            ensureIamRolePermission("SUPER_ADMIN", "monitor.read");
-            ensureIamRolePermission("SUPER_ADMIN", "monitor.write");
-            ensureIamRolePermission("SUPER_ADMIN", "probe.read");
-            ensureIamRolePermission("SUPER_ADMIN", "probe.write");
-            ensureIamRolePermission("SUPER_ADMIN", "alert.read");
-            ensureIamRolePermission("SUPER_ADMIN", "alert.write");
-            ensureIamRolePermission("SUPER_ADMIN", "portal.read");
-            ensureIamRolePermission("SUPER_ADMIN", "portal.write");
             ensureIamRolePermission("SUPER_ADMIN", "server_dashboard.read");
-            ensureIamRolePermission("SUPER_ADMIN", "site_config.read");
-            ensureIamRolePermission("SUPER_ADMIN", "site_config.write");
-            ensureIamRolePermission("SUPER_ADMIN", "protocol.read");
-            ensureIamRolePermission("SUPER_ADMIN", "protocol.write");
-            ensureIamRolePermission("SUPER_ADMIN", "tag.read");
-            ensureIamRolePermission("SUPER_ADMIN", "tag.write");
-            ensureIamRolePermission("SUPER_ADMIN", "speed_limit.read");
-            ensureIamRolePermission("SUPER_ADMIN", "speed_limit.write");
-            ensureIamRolePermission("SUPER_ADMIN", "biz_user.read");
-            ensureIamRolePermission("SUPER_ADMIN", "biz_user.write");
-            ensureIamRolePermission("SUPER_ADMIN", "iam_user.read");
-            ensureIamRolePermission("SUPER_ADMIN", "iam_user.write");
-            ensureIamRolePermission("SUPER_ADMIN", "iam_role.read");
-            ensureIamRolePermission("SUPER_ADMIN", "iam_role.write");
-            ensureIamRolePermission("SUPER_ADMIN", "onepanel.read");
-            ensureIamRolePermission("SUPER_ADMIN", "onepanel.write");
+            ensureIamRolePermission("SUPER_ADMIN", "xui.sync");
+            for (String m : allModules) {
+                ensureIamRolePermission("SUPER_ADMIN", m + ".read");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".write");
+            }
 
+            // --- DEV_ADMIN: 核心运维全权限 + 配置/用户管理只读 ---
             ensureIamRolePermission("DEV_ADMIN", "dashboard.read");
-            ensureIamRolePermission("DEV_ADMIN", "asset.read");
-            ensureIamRolePermission("DEV_ADMIN", "asset.write");
-            ensureIamRolePermission("DEV_ADMIN", "xui.read");
-            ensureIamRolePermission("DEV_ADMIN", "xui.write");
-            ensureIamRolePermission("DEV_ADMIN", "xui.sync");
-            ensureIamRolePermission("DEV_ADMIN", "forward.read");
-            ensureIamRolePermission("DEV_ADMIN", "forward.write");
-            ensureIamRolePermission("DEV_ADMIN", "tunnel.read");
-            ensureIamRolePermission("DEV_ADMIN", "tunnel.write");
-            ensureIamRolePermission("DEV_ADMIN", "node.read");
-            ensureIamRolePermission("DEV_ADMIN", "node.write");
-            ensureIamRolePermission("DEV_ADMIN", "monitor.read");
-            ensureIamRolePermission("DEV_ADMIN", "monitor.write");
-            ensureIamRolePermission("DEV_ADMIN", "probe.read");
-            ensureIamRolePermission("DEV_ADMIN", "probe.write");
-            ensureIamRolePermission("DEV_ADMIN", "alert.read");
-            ensureIamRolePermission("DEV_ADMIN", "alert.write");
-            ensureIamRolePermission("DEV_ADMIN", "portal.read");
-            ensureIamRolePermission("DEV_ADMIN", "portal.write");
             ensureIamRolePermission("DEV_ADMIN", "server_dashboard.read");
-            ensureIamRolePermission("DEV_ADMIN", "site_config.read");
-            ensureIamRolePermission("DEV_ADMIN", "protocol.read");
-            ensureIamRolePermission("DEV_ADMIN", "tag.read");
-            ensureIamRolePermission("DEV_ADMIN", "speed_limit.read");
-            ensureIamRolePermission("DEV_ADMIN", "biz_user.read");
-            ensureIamRolePermission("DEV_ADMIN", "iam_user.read");
-            ensureIamRolePermission("DEV_ADMIN", "iam_role.read");
-            ensureIamRolePermission("DEV_ADMIN", "onepanel.read");
-            ensureIamRolePermission("DEV_ADMIN", "onepanel.write");
+            ensureIamRolePermission("DEV_ADMIN", "xui.sync");
+            // 全 CRUD 模块
+            String[] devFullModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "onepanel"};
+            for (String m : devFullModules) {
+                ensureIamRolePermission("DEV_ADMIN", m + ".read");
+                ensureIamRolePermission("DEV_ADMIN", m + ".write");
+            }
+            // 只读模块
+            String[] devReadOnlyModules = {"site_config", "protocol", "tag", "speed_limit",
+                    "biz_user", "iam_user", "iam_role"};
+            for (String m : devReadOnlyModules) {
+                ensureIamRolePermission("DEV_ADMIN", m + ".read");
+            }
 
-            ensureIamRolePermission("DEVELOPER", "dashboard.read");
-            ensureIamRolePermission("DEVELOPER", "asset.read");
-            ensureIamRolePermission("DEVELOPER", "xui.read");
-            ensureIamRolePermission("DEVELOPER", "forward.read");
-            ensureIamRolePermission("DEVELOPER", "tunnel.read");
-            ensureIamRolePermission("DEVELOPER", "node.read");
-            ensureIamRolePermission("DEVELOPER", "monitor.read");
-            ensureIamRolePermission("DEVELOPER", "probe.read");
-            ensureIamRolePermission("DEVELOPER", "alert.read");
-            ensureIamRolePermission("DEVELOPER", "portal.read");
-            ensureIamRolePermission("DEVELOPER", "server_dashboard.read");
-            ensureIamRolePermission("DEVELOPER", "onepanel.read");
-
-            ensureIamRolePermission("HR", "dashboard.read");
-            ensureIamRolePermission("HR", "iam_user.read");
-            ensureIamRolePermission("HR", "biz_user.read");
-
-            // OPS_ASSISTANT: 全模块 read + create + update，无 delete
-            String[] opsReadModules = {"dashboard.read", "asset.read", "xui.read", "forward.read",
-                    "tunnel.read", "node.read", "monitor.read", "probe.read", "alert.read",
-                    "portal.read", "server_dashboard.read", "site_config.read", "protocol.read",
-                    "tag.read", "speed_limit.read", "biz_user.read", "onepanel.read"};
-            for (String p : opsReadModules) {
-                ensureIamRolePermission("OPS_ASSISTANT", p);
+            // --- OPS_ASSISTANT (行政专员): 全模块 read + create + update，无 delete ---
+            ensureIamRolePermission("OPS_ASSISTANT", "dashboard.read");
+            ensureIamRolePermission("OPS_ASSISTANT", "server_dashboard.read");
+            String[] opsFullReadModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "site_config", "protocol", "tag",
+                    "speed_limit", "biz_user", "onepanel"};
+            for (String m : opsFullReadModules) {
+                ensureIamRolePermission("OPS_ASSISTANT", m + ".read");
             }
             String[] opsCuModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
                     "probe", "alert", "portal", "protocol", "tag", "speed_limit", "onepanel"};
@@ -887,6 +836,20 @@ public class DatabaseInitService {
                 ensureIamRolePermission("OPS_ASSISTANT", m + ".create");
                 ensureIamRolePermission("OPS_ASSISTANT", m + ".update");
             }
+
+            // --- DEVELOPER (普通开发): 核心模块只读 ---
+            ensureIamRolePermission("DEVELOPER", "dashboard.read");
+            ensureIamRolePermission("DEVELOPER", "server_dashboard.read");
+            String[] devReadModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "onepanel"};
+            for (String m : devReadModules) {
+                ensureIamRolePermission("DEVELOPER", m + ".read");
+            }
+
+            // --- HR (行政HR): 仅首页 + 用户相关 ---
+            ensureIamRolePermission("HR", "dashboard.read");
+            ensureIamRolePermission("HR", "iam_user.read");
+            ensureIamRolePermission("HR", "biz_user.read");
 
             log.info("[DatabaseInit] 企业IAM基础表与默认角色权限初始化成功");
         } catch (Exception e) {

@@ -19,4 +19,6 @@ public interface IamAuthService {
     R logoutCurrentSession();
 
     AuthPrincipal authenticate(String token, String remoteIp, String userAgent);
+
+    R testDingtalkConfig();
 }

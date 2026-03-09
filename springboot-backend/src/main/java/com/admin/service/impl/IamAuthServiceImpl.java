@@ -500,6 +500,65 @@ public class IamAuthServiceImpl implements IamAuthService {
         iamLoginAuditMapper.insert(audit);
     }
 
+    @Override
+    public R testDingtalkConfig() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<String> errors = new ArrayList<>();
+
+        // Step 1: Check required configs
+        String clientId = getConfigValue("dingtalk_client_id", "");
+        String clientSecret = getConfigValue("dingtalk_client_secret", "");
+        String redirectUri = getConfigValue("dingtalk_redirect_uri", "");
+
+        result.put("clientIdConfigured", StringUtils.hasText(clientId));
+        result.put("clientSecretConfigured", StringUtils.hasText(clientSecret));
+        result.put("redirectUriConfigured", StringUtils.hasText(redirectUri));
+
+        if (!StringUtils.hasText(clientId)) errors.add("Client ID (AppKey) 未配置");
+        if (!StringUtils.hasText(clientSecret)) errors.add("Client Secret (AppSecret) 未配置");
+        if (!StringUtils.hasText(redirectUri)) errors.add("Redirect URI 未配置");
+
+        if (!errors.isEmpty()) {
+            result.put("success", false);
+            result.put("errors", errors);
+            result.put("message", "配置不完整：" + String.join("、", errors));
+            return R.ok(result);
+        }
+
+        // Step 2: Try to get server access token from DingTalk (validates appkey/appsecret)
+        try {
+            String tokenUrl = "https://oapi.dingtalk.com/gettoken?appkey="
+                    + urlEncode(clientId) + "&appsecret=" + urlEncode(clientSecret);
+            ResponseEntity<String> response = restTemplate.getForEntity(tokenUrl, String.class);
+            JSONObject body = parseJsonObject(response.getBody());
+            int errcode = body.getIntValue("errcode", -1);
+
+            if (errcode == 0) {
+                result.put("success", true);
+                result.put("message", "钉钉配置验证通过！AppKey/AppSecret 有效");
+            } else {
+                String errmsg = body.getString("errmsg");
+                result.put("success", false);
+                if (errcode == 40089 || errcode == 40014) {
+                    errors.add("AppKey 无效：" + errmsg);
+                } else if (errcode == 40015) {
+                    errors.add("AppSecret 无效：" + errmsg);
+                } else {
+                    errors.add("钉钉返回错误 " + errcode + "：" + errmsg);
+                }
+                result.put("errors", errors);
+                result.put("message", String.join("、", errors));
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            errors.add("连接钉钉 API 失败：" + e.getMessage());
+            result.put("errors", errors);
+            result.put("message", "网络错误：" + e.getMessage());
+        }
+
+        return R.ok(result);
+    }
+
     private boolean isDingtalkConfigured() {
         return StringUtils.hasText(getConfigValue("dingtalk_client_id", ""))
                 && StringUtils.hasText(getConfigValue("dingtalk_client_secret", ""))

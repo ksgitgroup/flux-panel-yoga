@@ -1,5 +1,6 @@
 package com.admin.controller;
 
+import com.admin.common.annotation.RequireRole;
 import com.admin.common.aop.LogAnnotation;
 import com.admin.common.dto.IamDingtalkLoginDto;
 import com.admin.common.lang.R;
@@ -34,6 +35,13 @@ public class IamAuthController extends BaseController {
     @PostMapping("/dingtalk/login")
     public R dingtalkLogin(@Validated @RequestBody IamDingtalkLoginDto dto, HttpServletRequest request) {
         return iamAuthService.loginWithDingtalkCode(dto, request);
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/dingtalk/test")
+    public R testDingtalkConfig() {
+        return iamAuthService.testDingtalkConfig();
     }
 
     @PostMapping("/me")

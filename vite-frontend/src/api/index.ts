@@ -1027,6 +1027,7 @@ export const getDingtalkAuthorizeUrl = (channel: string = 'web') =>
   Network.post<DingtalkAuthorizeResponse>("/iam/auth/dingtalk/authorize-url", { channel });
 export const completeDingtalkAuth = (authCode: string, state: string) =>
   Network.post<LoginResponse>("/iam/auth/dingtalk/login", { authCode, state });
+export const testDingtalkConfig = () => Network.post("/iam/auth/dingtalk/test");
 export const getIamCurrentProfile = () => Network.post("/iam/auth/me");
 export const logoutIamSession = () => Network.post("/iam/auth/logout");
 

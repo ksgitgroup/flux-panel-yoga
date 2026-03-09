@@ -42,6 +42,19 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
+    key: 'config-iam',
+    label: '钉钉登录',
+    path: '/config',
+    search: 'section=iam',
+    group: '网站配置',
+    requiredPermissions: ['site_config.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 1.105-.895 2-2 2m2-2a2 2 0 114 0m-4 0v3m4-3v3m5-5V7a2 2 0 00-2-2h-1V4a4 4 0 10-8 0v1H9a2 2 0 00-2 2v2m14 0v10a2 2 0 01-2 2H5a2 2 0 01-2-2V9m18 0H3" />
+      </svg>
+    ),
+  },
+  {
     key: 'config-diagnosis',
     label: '诊断配置',
     path: '/config',

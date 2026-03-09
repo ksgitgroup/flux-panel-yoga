@@ -1,5 +1,7 @@
 package com.admin.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -52,6 +54,7 @@ public class AssetHost extends BaseEntity {
 
     private String currency;
 
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
     private String tags;
 
     private Long gostNodeId;

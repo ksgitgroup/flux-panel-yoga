@@ -1,6 +1,7 @@
 package com.admin.controller;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.service.IpQualityService;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +18,7 @@ public class IpQualityController extends BaseController {
     @Resource
     private IpQualityService ipQualityService;
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/check")
     public R check(@RequestBody Map<String, Object> body) {
@@ -25,6 +27,7 @@ public class IpQualityController extends BaseController {
         return ipQualityService.checkSingleIp(ip, assetId);
     }
 
+    @LogAnnotation
     @SuppressWarnings("unchecked")
     @RequireRole
     @PostMapping("/batch-check")

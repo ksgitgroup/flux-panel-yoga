@@ -1,6 +1,7 @@
 package com.admin.controller;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.service.TrafficAnalysisService;
 import org.springframework.web.bind.annotation.*;
@@ -90,6 +91,7 @@ public class TrafficAnalysisController extends BaseController {
         return trafficAnalysisService.listAnomalies(page, size, acknowledged);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/anomalies/acknowledge")
     public R acknowledgeAnomaly(@RequestBody Map<String, Long> body) {

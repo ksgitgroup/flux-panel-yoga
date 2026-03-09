@@ -27,6 +27,7 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.util.EntityUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @Service
 public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, MonitorAlertRule> implements AlertService {
+
+    /** 共享连接池 HttpClient，用于 Webhook 通知 */
+    private static final CloseableHttpClient SHARED_CLIENT;
+    static {
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setMaxTotal(20);
+        cm.setDefaultMaxPerRoute(5);
+        SHARED_CLIENT = HttpClients.custom().setConnectionManager(cm).build();
+    }
 
     @Resource
     private MonitorAlertRuleMapper alertRuleMapper;
@@ -579,13 +589,12 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             payload.put("message", message);
             payload.put("timestamp", System.currentTimeMillis());
 
-            CloseableHttpClient client = HttpClients.createDefault();
             HttpPost request = new HttpPost(rule.getNotifyTarget());
             request.setConfig(RequestConfig.custom().setConnectTimeout(5000).setSocketTimeout(10000).build());
             request.setHeader("Content-Type", "application/json");
             request.setEntity(new StringEntity(JSON.toJSONString(payload), StandardCharsets.UTF_8));
 
-            try (CloseableHttpResponse response = client.execute(request)) {
+            try (CloseableHttpResponse response = SHARED_CLIENT.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 EntityUtils.consumeQuietly(response.getEntity());
                 if (statusCode >= 200 && statusCode < 300) {

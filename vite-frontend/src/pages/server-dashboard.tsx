@@ -570,22 +570,34 @@ export default function ServerDashboardPage() {
     return sorted;
   }, [allServers, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter, sortKey, sortAsc]);
 
+  const cardLoadingRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const candidates = filteredServers
       .slice(0, 12)
       .map((s) => s.primary.id)
-      .filter((id) => !cardProviderDetails[id] && !cardLoadingIds[id]);
+      .filter((id) => !cardProviderDetails[id] && !cardLoadingRef.current.has(id));
     if (candidates.length === 0) return;
     let cancelled = false;
     candidates.forEach((id) => {
+      cardLoadingRef.current.add(id);
       setCardLoadingIds((prev) => ({ ...prev, [id]: true }));
       getMonitorNodeProviderDetail(id)
         .then((res) => {
-          if (cancelled || res.code !== 0 || !res.data) return;
-          setCardProviderDetails((prev) => ({ ...prev, [id]: res.data as MonitorNodeProviderDetail }));
+          if (cancelled) return;
+          if (res.code === 0 && res.data) {
+            setCardProviderDetails((prev) => ({ ...prev, [id]: res.data as MonitorNodeProviderDetail }));
+          } else {
+            // Mark as loaded (empty) to prevent infinite retry
+            setCardProviderDetails((prev) => ({ ...prev, [id]: {} as MonitorNodeProviderDetail }));
+          }
         })
-        .catch(() => undefined)
+        .catch(() => {
+          if (!cancelled) {
+            setCardProviderDetails((prev) => ({ ...prev, [id]: {} as MonitorNodeProviderDetail }));
+          }
+        })
         .finally(() => {
+          cardLoadingRef.current.delete(id);
           if (!cancelled) {
             setCardLoadingIds((prev) => {
               const next = { ...prev };
@@ -596,7 +608,7 @@ export default function ServerDashboardPage() {
         });
     });
     return () => { cancelled = true; };
-  }, [filteredServers, cardLoadingIds, cardProviderDetails]);
+  }, [filteredServers, cardProviderDetails]);
 
   if (!canViewServerDashboard) {
     return (

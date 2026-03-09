@@ -21,6 +21,7 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.util.EntityUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -32,6 +33,15 @@ import java.util.*;
 @Slf4j
 @Service
 public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Notification> implements NotificationService {
+
+    /** 共享连接池 HttpClient，用于通知投递 */
+    private static final CloseableHttpClient SHARED_CLIENT;
+    static {
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setMaxTotal(20);
+        cm.setDefaultMaxPerRoute(5);
+        SHARED_CLIENT = HttpClients.custom().setConnectionManager(cm).build();
+    }
 
     @Resource
     private NotificationMapper notificationMapper;
@@ -216,7 +226,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     }
 
     private void httpPost(String url, String jsonBody) {
-        try (CloseableHttpClient client = HttpClients.createDefault()) {
+        try {
             HttpPost request = new HttpPost(url);
             request.setConfig(RequestConfig.custom()
                     .setConnectTimeout(5000)
@@ -225,7 +235,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             request.setHeader("Content-Type", "application/json");
             request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
 
-            try (CloseableHttpResponse response = client.execute(request)) {
+            try (CloseableHttpResponse response = SHARED_CLIENT.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 EntityUtils.consumeQuietly(response.getEntity());
                 if (statusCode < 200 || statusCode >= 300) {

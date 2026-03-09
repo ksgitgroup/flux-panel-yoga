@@ -122,21 +122,46 @@ extract_items() {
   jq -c '.data.items // .data // []'
 }
 
+# Error counter for 1Panel API calls
+API_ERRORS=0
+API_TOTAL=0
+
 safe_get_data() {
   local path="$1"
-  api_request GET "$path" | extract_data 2>/dev/null || printf '{}'
+  API_TOTAL=$((API_TOTAL + 1))
+  local result
+  if result="$(api_request GET "$path" 2>/dev/null | extract_data 2>/dev/null)"; then
+    printf '%s' "$result"
+  else
+    API_ERRORS=$((API_ERRORS + 1))
+    printf '{}'
+  fi
 }
 
 safe_post_data() {
   local path="$1"
   local body="$2"
-  api_request POST "$path" "$body" | extract_data 2>/dev/null || printf '{}'
+  API_TOTAL=$((API_TOTAL + 1))
+  local result
+  if result="$(api_request POST "$path" "$body" 2>/dev/null | extract_data 2>/dev/null)"; then
+    printf '%s' "$result"
+  else
+    API_ERRORS=$((API_ERRORS + 1))
+    printf '{}'
+  fi
 }
 
 safe_post_items() {
   local path="$1"
   local body="$2"
-  api_request POST "$path" "$body" | extract_items 2>/dev/null || printf '[]'
+  API_TOTAL=$((API_TOTAL + 1))
+  local result
+  if result="$(api_request POST "$path" "$body" 2>/dev/null | extract_items 2>/dev/null)"; then
+    printf '%s' "$result"
+  else
+    API_ERRORS=$((API_ERRORS + 1))
+    printf '[]'
+  fi
 }
 
 os_json="$(safe_get_data "/dashboard/base/os")"
@@ -339,6 +364,20 @@ payload="$(
   '
 )"
 
+# Check if 1Panel API was reachable at all
+if [[ "$API_ERRORS" -eq "$API_TOTAL" && "$API_TOTAL" -gt 0 ]]; then
+  printf 'ERROR: all %d 1Panel API calls failed — cannot reach %s\n' "$API_TOTAL" "$PANEL_BASE_URL" >&2
+  printf 'Hints:\n' >&2
+  printf '  1. Check if 1Panel is running: systemctl status 1panel\n' >&2
+  printf '  2. Verify PANEL_BASE_URL port matches 1Panel listen port\n' >&2
+  printf '  3. Try: curl -k %s/api/v2/dashboard/base/os\n' "$PANEL_BASE_URL" >&2
+  exit 1
+fi
+
+if [[ "$API_ERRORS" -gt 0 ]]; then
+  printf 'WARN: %d/%d 1Panel API calls failed (partial data)\n' "$API_ERRORS" "$API_TOTAL" >&2
+fi
+
 curl -fsS \
   --connect-timeout "$PANEL_TIMEOUT_SEC" \
   --max-time "$PANEL_TIMEOUT_SEC" \
@@ -349,4 +388,8 @@ curl -fsS \
   --data "$payload" \
   "${FLUX_URL%/}/api/v1/onepanel/report" >/dev/null
 
-printf 'onepanel exporter sync ok\n'
+if [[ "$API_ERRORS" -gt 0 ]]; then
+  printf 'onepanel exporter sync ok (with %d/%d API warnings)\n' "$API_ERRORS" "$API_TOTAL"
+else
+  printf 'onepanel exporter sync ok\n'
+fi

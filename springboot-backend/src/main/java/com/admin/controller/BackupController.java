@@ -1,6 +1,7 @@
 package com.admin.controller;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.entity.BackupSchedule;
 import com.admin.service.BackupService;
@@ -31,24 +32,28 @@ public class BackupController extends BaseController {
         return backupService.listRecords(type, page, size);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/export/gost")
     public R exportGost(@RequestBody Map<String, Long> body) {
         return backupService.exportGostConfig(body.get("nodeId"));
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/export/xui")
     public R exportXui(@RequestBody Map<String, Long> body) {
         return backupService.exportXuiConfig(body.get("instanceId"));
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/database")
     public R backupDatabase() {
         return backupService.backupDatabase();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Long> body) {
@@ -61,18 +66,21 @@ public class BackupController extends BaseController {
         return backupService.listSchedules();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/schedule/create")
     public R scheduleCreate(@RequestBody BackupSchedule schedule) {
         return backupService.createSchedule(schedule);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/schedule/update")
     public R scheduleUpdate(@RequestBody BackupSchedule schedule) {
         return backupService.updateSchedule(schedule);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/schedule/delete")
     public R scheduleDelete(@RequestBody Map<String, Long> body) {

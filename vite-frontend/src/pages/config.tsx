@@ -281,7 +281,7 @@ export default function ConfigPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const canViewConfig = hasPermission('site_config.read');
-  const canManageConfig = hasPermission('site_config.write');
+  const canUpdateConfig = hasPermission('site_config.update');
   const initialConfigs = getInitialConfigs();
   const [configs, setConfigs] = useState<Record<string, string>>(initialConfigs);
   const [loading, setLoading] = useState(Object.keys(initialConfigs).length === 0);
@@ -406,7 +406,7 @@ export default function ConfigPage() {
   };
 
   const handleSave = async () => {
-    if (!canManageConfig) {
+    if (!canUpdateConfig) {
       toast.error('权限不足，无法保存配置');
       return;
     }
@@ -532,7 +532,7 @@ export default function ConfigPage() {
   };
 
   const renderFieldActions = (item: ConfigItem) => {
-    if (!canManageConfig) {
+    if (!canUpdateConfig) {
       return null;
     }
     if (item.key === 'wechat_webhook_url' && configs.wechat_webhook_url) {
@@ -647,7 +647,7 @@ export default function ConfigPage() {
               startContent={<SaveIcon className="w-4 h-4" />}
               onClick={handleSave}
               isLoading={saving}
-              disabled={!canManageConfig || !hasChanges}
+              disabled={!canUpdateConfig || !hasChanges}
             >
               {saving ? '保存中...' : '保存配置'}
             </Button>

@@ -291,7 +291,7 @@ function App() {
       <Route
         path="/forward"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['forward.read']}>
             <ForwardPage />
           </ProtectedRoute>
         }
@@ -309,7 +309,7 @@ function App() {
       <Route
         path="/tunnel"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['tunnel.read']}>
             <TunnelPage />
           </ProtectedRoute>
         }
@@ -317,7 +317,7 @@ function App() {
       <Route
         path="/node"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredPermissions={['node.read']}>
             <NodePage />
           </ProtectedRoute>
         }
@@ -421,7 +421,7 @@ function App() {
       <Route
         path="/portal/config"
         element={
-          <ProtectedRoute requiredPermissions={['portal.write']}>
+          <ProtectedRoute requiredPermissions={['portal.create', 'portal.update']}>
             <SystemWorkspace>
               <PortalConfigPage />
             </SystemWorkspace>

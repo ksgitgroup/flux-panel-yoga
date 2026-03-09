@@ -59,7 +59,9 @@ const buildTemporaryId = () => `portal_${Date.now()}_${Math.random().toString(36
 
 export default function PortalConfigPage() {
   const navigate = useNavigate();
-  const canManagePortal = hasPermission('portal.write');
+  const canCreatePortal = hasPermission('portal.create');
+  const canUpdatePortal = hasPermission('portal.update');
+  const canDeletePortal = hasPermission('portal.delete');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<PortalLink[]>([]);
@@ -75,14 +77,16 @@ export default function PortalConfigPage() {
     onClose: onFormClose,
   } = useDisclosure();
 
+  const canAccessPortalConfig = canCreatePortal || canUpdatePortal || canDeletePortal;
+
   useEffect(() => {
-    if (!canManagePortal) {
+    if (!canAccessPortalConfig) {
       toast.error('权限不足，无法访问导航配置');
       navigate('/dashboard', { replace: true });
       return;
     }
     void loadPortalLinks();
-  }, [canManagePortal, navigate]);
+  }, [canAccessPortalConfig, navigate]);
 
   const loadPortalLinks = async () => {
     setLoading(true);
@@ -246,7 +250,7 @@ export default function PortalConfigPage() {
     window.open(item.href, '_blank', 'noopener,noreferrer');
   };
 
-  if (!canManagePortal) {
+  if (!canAccessPortalConfig) {
     return null;
   }
 
@@ -282,12 +286,16 @@ export default function PortalConfigPage() {
             <Button variant="flat" onPress={() => void loadPortalLinks()}>
               重新加载
             </Button>
-            <Button color="primary" onPress={openCreateModal}>
-              新增入口
-            </Button>
-            <Button color="success" isLoading={saving} onPress={handlePersist} isDisabled={!hasChanges}>
-              保存配置
-            </Button>
+            {canCreatePortal && (
+              <Button color="primary" onPress={openCreateModal}>
+                新增入口
+              </Button>
+            )}
+            {canUpdatePortal && (
+              <Button color="success" isLoading={saving} onPress={handlePersist} isDisabled={!hasChanges}>
+                保存配置
+              </Button>
+            )}
           </div>
         </CardBody>
       </Card>
@@ -321,7 +329,7 @@ export default function PortalConfigPage() {
               先新增几个最常用的探针、x-ui 面板或服务器管理入口。
             </p>
             <div>
-              <Button color="primary" onPress={openCreateModal}>新增入口</Button>
+              {canCreatePortal && <Button color="primary" onPress={openCreateModal}>新增入口</Button>}
             </div>
           </CardBody>
         </Card>
@@ -360,12 +368,16 @@ export default function PortalConfigPage() {
                   <Button size="sm" variant="flat" color="primary" onPress={() => previewLink(item)}>
                     预览
                   </Button>
-                  <Button size="sm" variant="flat" onPress={() => openEditModal(item)}>
-                    编辑
-                  </Button>
-                  <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(item)}>
-                    删除
-                  </Button>
+                  {canUpdatePortal && (
+                    <Button size="sm" variant="flat" onPress={() => openEditModal(item)}>
+                      编辑
+                    </Button>
+                  )}
+                  {canDeletePortal && (
+                    <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(item)}>
+                      删除
+                    </Button>
+                  )}
                 </div>
               </CardBody>
             </Card>

@@ -39,7 +39,15 @@ public class AuthPrincipal {
         if (permissionCode == null || permissionCode.isBlank()) {
             return false;
         }
-        return permissions.contains(permissionCode);
+        if (permissions.contains(permissionCode)) {
+            return true;
+        }
+        // Backward compatibility: module.write implies module.create/update/delete
+        if (permissionCode.endsWith(".create") || permissionCode.endsWith(".update") || permissionCode.endsWith(".delete")) {
+            String module = permissionCode.substring(0, permissionCode.lastIndexOf('.'));
+            return permissions.contains(module + ".write");
+        }
+        return false;
     }
 
     public Set<String> safePermissions() {

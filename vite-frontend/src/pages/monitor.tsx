@@ -571,7 +571,7 @@ const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
 export default function MonitorPage() {
   const navigate = useNavigate();
   const canViewMonitor = hasPermission('monitor.read');
-  const canManageMonitor = hasPermission('monitor.write');
+  const canUpdateMonitor = hasPermission('monitor.update');
   const canViewNodes = hasPermission('node.read');
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
@@ -824,7 +824,7 @@ export default function MonitorPage() {
   }, [canViewNodes]);
 
   const handleRunNow = async () => {
-    if (!canManageMonitor) return;
+    if (!canUpdateMonitor) return;
     setTriggering(true);
     try {
       const resp = await runDiagnosisNow();
@@ -1029,7 +1029,7 @@ export default function MonitorPage() {
               <Button variant="bordered" onPress={() => loadBoard(false)} size="sm">刷新</Button>
               <Button variant="flat" size="sm" onPress={() => navigate('/alert')}>告警配置</Button>
               <Button variant="flat" size="sm" onPress={() => navigate('/server-dashboard')}>服务器看板</Button>
-              {canManageMonitor && (
+              {canUpdateMonitor && (
                 <Button color="primary" onPress={handleRunNow} isLoading={triggering} size="sm">
                   立即诊断
                 </Button>

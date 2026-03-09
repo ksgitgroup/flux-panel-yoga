@@ -360,8 +360,10 @@ export default function AssetsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const canViewAssets = hasPermission('asset.read');
-  const canManageAssets = hasPermission('asset.write');
-  const canManageXui = hasPermission('xui.write');
+  const canCreateAssets = hasPermission('asset.create');
+  const canUpdateAssets = hasPermission('asset.update');
+  const canDeleteAssets = hasPermission('asset.delete');
+  const canManageXui = hasPermission('xui.create');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assets, setAssets] = useState<AssetHost[]>([]);
@@ -616,7 +618,7 @@ export default function AssetsPage() {
   };
 
   const openCreateModal = () => {
-    if (!canManageAssets) {
+    if (!canCreateAssets) {
       toast.error('权限不足，无法新建资产');
       return;
     }
@@ -635,7 +637,7 @@ export default function AssetsPage() {
   };
 
   const importFromNode = (node: MonitorNodeSnapshot) => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法导入探针节点');
       return;
     }
@@ -668,7 +670,7 @@ export default function AssetsPage() {
   };
 
   const openProvisionModal = async (ctx?: { assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' }) => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法为资产部署探针');
       return;
     }
@@ -709,7 +711,7 @@ export default function AssetsPage() {
   };
 
   const handleProvision = async () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法创建探针安装命令');
       return;
     }
@@ -753,7 +755,7 @@ export default function AssetsPage() {
 
   // After probe install, sync the instance to discover the new node
   const handleProvisionSync = async () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法同步探针实例');
       return;
     }
@@ -803,7 +805,7 @@ export default function AssetsPage() {
   };
 
   const handleCreateOnePanelInstance = async (asset: AssetHost) => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法创建 1Panel 摘要实例');
       return;
     }
@@ -834,7 +836,7 @@ export default function AssetsPage() {
   };
 
   const handleRotateOnePanelToken = async (asset: AssetHost) => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法轮换 1Panel Token');
       return;
     }
@@ -859,7 +861,7 @@ export default function AssetsPage() {
   };
 
   const handleDeleteOnePanelInstance = async (asset: AssetHost) => {
-    if (!canManageAssets) {
+    if (!canDeleteAssets) {
       toast.error('权限不足，无法移除 1Panel 摘要实例');
       return;
     }
@@ -887,7 +889,7 @@ export default function AssetsPage() {
   };
 
   const openEditModal = (asset: AssetHost, tab?: string) => {
-    if (!canManageAssets) {
+    if (!canUpdateAssets) {
       toast.error('权限不足，无法编辑资产');
       return;
     }
@@ -923,7 +925,7 @@ export default function AssetsPage() {
   };
 
   const handleSubmit = async () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法保存资产');
       return;
     }
@@ -976,7 +978,7 @@ export default function AssetsPage() {
   };
 
   const openDeleteModal = (asset: AssetHost) => {
-    if (!canManageAssets) {
+    if (!canDeleteAssets) {
       toast.error('权限不足，无法删除资产');
       return;
     }
@@ -984,7 +986,7 @@ export default function AssetsPage() {
     onDeleteOpen();
   };
   const handleDelete = async () => {
-    if (!canManageAssets) {
+    if (!canDeleteAssets) {
       toast.error('权限不足，无法删除资产');
       return;
     }
@@ -1018,7 +1020,7 @@ export default function AssetsPage() {
   };
 
   const openBatchModal = () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法批量修改资产');
       return;
     }
@@ -1029,7 +1031,7 @@ export default function AssetsPage() {
   };
 
   const handleBatchGeolocate = async () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法批量匹配地区');
       return;
     }
@@ -1061,7 +1063,7 @@ export default function AssetsPage() {
   };
 
   const handleBatchDeriveOs = async () => {
-    if (!canManageAssets || selectedIds.size === 0) return;
+    if (!(canCreateAssets || canUpdateAssets) || selectedIds.size === 0) return;
     const deriveCategory = (os: string): string => {
       const l = os.toLowerCase();
       if (l.includes('ubuntu')) return 'Ubuntu';
@@ -1096,7 +1098,7 @@ export default function AssetsPage() {
   };
 
   const handleBatchUpdate = async () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法批量修改资产');
       return;
     }
@@ -1121,7 +1123,7 @@ export default function AssetsPage() {
   };
 
   const handleGeolocate = async () => {
-    if (!canManageAssets) {
+    if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法修改资产地区');
       return;
     }
@@ -1183,7 +1185,7 @@ export default function AssetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {canManageAssets && (
+          {(canCreateAssets || canUpdateAssets) && (
             <>
               <Button
                 variant={batchMode ? 'solid' : 'flat'} size="sm"
@@ -1385,7 +1387,7 @@ export default function AssetsPage() {
       )}
 
       {/* Batch action bar */}
-      {canManageAssets && batchMode && (
+      {(canCreateAssets || canUpdateAssets) && batchMode && (
         <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-50/50 dark:bg-warning-50/10 px-4 py-2">
           <span className="text-sm font-semibold text-warning-700 dark:text-warning-400">
             已选 {selectedIds.size} / {filteredAssets.length}
@@ -1623,7 +1625,7 @@ export default function AssetsPage() {
                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                               查看
                             </button>
-                            {canManageAssets && (
+                            {(canCreateAssets || canUpdateAssets) && (
                               <button type="button"
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-primary-200 text-[11px] font-medium text-primary hover:bg-primary-50 hover:border-primary-300 transition-all cursor-pointer"
                                 onClick={() => openEditModal(asset)}>
@@ -1761,7 +1763,7 @@ export default function AssetsPage() {
                   return (
                     <div className="rounded-lg border border-warning/30 bg-warning-50/40 dark:bg-warning-50/10 px-3 py-2 flex items-center gap-2 flex-wrap">
                       <span className="text-[11px] font-semibold text-warning-600 dark:text-warning-400">待完善</span>
-                      {canManageAssets && hints.map((h, i) => (
+                      {(canCreateAssets || canUpdateAssets) && hints.map((h, i) => (
                         <Chip key={i} size="sm" variant="flat" color={h.color} className="h-5 text-[10px] cursor-pointer hover:opacity-80"
                           onClick={h.action}>
                           {h.label} &rarr;
@@ -1802,7 +1804,7 @@ export default function AssetsPage() {
                           className="ml-1 px-1.5 py-0.5 rounded bg-success-50 text-success text-[10px] font-semibold hover:bg-success-100 no-underline">
                           打开后台
                         </a>
-                        {canManageAssets && (
+                        {(canCreateAssets || canUpdateAssets) && (
                           <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
                             className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] font-semibold hover:bg-default-200 cursor-pointer">
                             配置
@@ -2093,8 +2095,8 @@ export default function AssetsPage() {
                 )}
               </ModalBody>
               <ModalFooter className="flex-wrap gap-1">
-                {canManageAssets && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
-                {canManageAssets && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
+                {(canUpdateAssets) && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
+                {(canDeleteAssets) && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>
             </>
@@ -2146,7 +2148,7 @@ export default function AssetsPage() {
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑资产' : '新建资产'}</ModalHeader>
           <ModalBody className="px-3 pb-2">
-            {!isEdit && canManageAssets && unboundNodes.length > 0 && (
+            {!isEdit && canCreateAssets || canUpdateAssets && unboundNodes.length > 0 && (
               <div className="rounded-lg border border-primary-200 bg-primary-50 p-3 dark:border-primary-800 dark:bg-primary-950 mb-2">
                 <p className="mb-2 text-xs font-medium text-primary-600 dark:text-primary-400">从探针导入（自动填充服务器信息）</p>
                 <div className="flex flex-wrap gap-2">
@@ -2160,7 +2162,7 @@ export default function AssetsPage() {
                 </div>
               </div>
             )}
-            {!isEdit && canManageAssets && importLoading && (
+            {!isEdit && canCreateAssets || canUpdateAssets && importLoading && (
               <div className="flex items-center gap-2 text-xs text-default-400 mb-2">
                 <Spinner size="sm" /> 加载探针节点...
               </div>
@@ -2384,7 +2386,7 @@ export default function AssetsPage() {
                               )}
                             </div>
                           </div>
-                          {canManageAssets && (!hasKomari || !hasPika) && editingAsset && (
+                          {(canCreateAssets || canUpdateAssets) && (!hasKomari || !hasPika) && editingAsset && (
                             <Button size="sm" variant="flat" color="primary" className="h-7 text-[11px] min-w-0 px-3"
                               onPress={() => {
                                 const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
@@ -2445,7 +2447,7 @@ export default function AssetsPage() {
                             <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           )}
                         </div>
-                        {canManageAssets && canManageXui && !hasXui && editingAsset && (
+                        {(canCreateAssets || canUpdateAssets) && canManageXui && !hasXui && editingAsset && (
                           <>
                             {!xuiBindOpen ? (
                               <Button size="sm" variant="flat" color="primary"
@@ -2516,7 +2518,7 @@ export default function AssetsPage() {
                                 className="text-[11px] text-primary hover:underline truncate max-w-[200px]">
                                 {form.panelUrl}
                               </a>
-                              {canManageAssets && (
+                              {(canCreateAssets || canUpdateAssets) && (
                                 <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
                                   onPress={() => setForm(p => ({ ...p, panelUrl: '' }))}>
                                   解绑
@@ -2527,7 +2529,7 @@ export default function AssetsPage() {
                             <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未录入地址</Chip>
                           )}
                         </div>
-                        {canManageAssets && !hasPanel && editingAsset && (
+                        {(canCreateAssets || canUpdateAssets) && !hasPanel && editingAsset && (
                           <>
                             {!panelBindOpen ? (
                               <Button size="sm" variant="flat" color="primary"
@@ -2579,7 +2581,7 @@ export default function AssetsPage() {
                                     <p className="text-danger">最近错误：{editingAsset.onePanelLastReportError}</p>
                                   )}
                                 </div>
-                                {canManageAssets && (
+                                {(canCreateAssets || canUpdateAssets) && (
                                   <div className="flex flex-wrap gap-2">
                                     <Button size="sm" variant="flat" color="primary"
                                       onPress={() => navigate(`/onepanel?instanceId=${editingAsset.onePanelInstanceId}`)}>
@@ -2605,7 +2607,7 @@ export default function AssetsPage() {
                                 <p className="text-[11px] text-default-500">
                                   当前只完成了 1Panel 面板地址录入。下一步可在这里一键创建 1Panel 摘要实例，Flux 会生成本机 exporter 安装参数。
                                 </p>
-                                {canManageAssets && (
+                                {(canCreateAssets || canUpdateAssets) && (
                                   <div className="flex flex-wrap gap-2">
                                     <Button size="sm" color="primary" isLoading={onePanelActionLoading}
                                       onPress={() => void handleCreateOnePanelInstance(editingAsset)}>
@@ -2640,7 +2642,7 @@ export default function AssetsPage() {
                                   </Chip>
                                 ) : null;
                               })()}
-                              {canManageAssets && (
+                              {(canCreateAssets || canUpdateAssets) && (
                                 <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
                                   onPress={() => setForm(p => ({ ...p, gostNodeId: '' }))}>
                                   解绑
@@ -2651,7 +2653,7 @@ export default function AssetsPage() {
                             <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定</Chip>
                           )}
                         </div>
-                        {canManageAssets && !form.gostNodeId && editingAsset && (
+                        {(canCreateAssets || canUpdateAssets) && !form.gostNodeId && editingAsset && (
                           <>
                             {!gostBindOpen ? (
                               <Button size="sm" variant="flat" color="primary"
@@ -2759,7 +2761,7 @@ export default function AssetsPage() {
                           </>
                         )}
                         {/* Show install command for bound node */}
-                        {canManageAssets && form.gostNodeId && (
+                        {(canCreateAssets || canUpdateAssets) && form.gostNodeId && (
                           <Button size="sm" variant="flat" color="secondary" className="h-7 text-[11px]"
                             onPress={async () => {
                               try {
@@ -2860,7 +2862,7 @@ export default function AssetsPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onFormClose}>取消</Button>
-            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit} isDisabled={!canManageAssets}>
+            <Button color="primary" isLoading={submitLoading} onPress={handleSubmit} isDisabled={!(canCreateAssets || canUpdateAssets)}>
               {isEdit ? '保存' : '创建'}
             </Button>
           </ModalFooter>
@@ -2876,7 +2878,7 @@ export default function AssetsPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onDeleteClose}>取消</Button>
-            <Button color="danger" isLoading={actionLoadingId === assetToDelete?.id} onPress={handleDelete} isDisabled={!canManageAssets}>删除</Button>
+            <Button color="danger" isLoading={actionLoadingId === assetToDelete?.id} onPress={handleDelete} isDisabled={!canDeleteAssets}>删除</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -3098,7 +3100,7 @@ export default function AssetsPage() {
 
                 <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
                   <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
-                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!canManageAssets}>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
                     手动同步
                   </Button>
                   <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
@@ -3149,7 +3151,7 @@ export default function AssetsPage() {
 
                 <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
                   <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
-                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!canManageAssets}>
+                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
                     手动同步
                   </Button>
                   <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
@@ -3163,7 +3165,7 @@ export default function AssetsPage() {
                 <Button variant="flat" onPress={onProvisionClose}>取消</Button>
                 <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
                   isDisabled={
-                    !canManageAssets ||
+                    !(canCreateAssets || canUpdateAssets) ||
                     (provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId) ||
                     (!!provisionContext && !provisionName.trim())
                   }>
@@ -3271,7 +3273,7 @@ export default function AssetsPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onBatchClose}>取消</Button>
-            <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate} isDisabled={!canManageAssets}>
+            <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate} isDisabled={!(canCreateAssets || canUpdateAssets)}>
               确认修改
             </Button>
           </ModalFooter>

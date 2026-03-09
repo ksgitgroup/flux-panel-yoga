@@ -96,7 +96,9 @@ const highlightColor = (severity?: string | null): "default" | "primary" | "succ
 
 export default function ProbePage() {
   const canViewProbe = hasPermission('probe.read');
-  const canManageProbe = hasPermission('probe.write');
+  const canCreateProbe = hasPermission('probe.create');
+  const canUpdateProbe = hasPermission('probe.update');
+  const canDeleteProbe = hasPermission('probe.delete');
 
   const [instances, setInstances] = useState<MonitorInstance[]>([]);
   const [loading, setLoading] = useState(false);
@@ -151,7 +153,7 @@ export default function ProbePage() {
   // ===================== Actions =====================
 
   const handleTest = async (id: number) => {
-    if (!canManageProbe) {
+    if (!canUpdateProbe) {
       toast.error('权限不足，无法测试探针实例');
       return;
     }
@@ -164,7 +166,7 @@ export default function ProbePage() {
   };
 
   const handleSync = async (id: number) => {
-    if (!canManageProbe) {
+    if (!canUpdateProbe) {
       toast.error('权限不足，无法同步探针实例');
       return;
     }
@@ -192,7 +194,7 @@ export default function ProbePage() {
   };
 
   const handleSave = async () => {
-    if (!canManageProbe) {
+    if (!(isEdit ? canUpdateProbe : canCreateProbe)) {
       toast.error('权限不足，无法保存探针实例');
       return;
     }
@@ -215,7 +217,7 @@ export default function ProbePage() {
   };
 
   const handleDelete = async () => {
-    if (!canManageProbe) {
+    if (!canDeleteProbe) {
       toast.error('权限不足，无法删除探针实例');
       return;
     }
@@ -232,7 +234,7 @@ export default function ProbePage() {
   };
 
   const openCreateModal = () => {
-    if (!canManageProbe) {
+    if (!canCreateProbe) {
       toast.error('权限不足，无法新增探针实例');
       return;
     }
@@ -241,7 +243,7 @@ export default function ProbePage() {
     onOpen();
   };
   const openEditModal = (inst: MonitorInstance) => {
-    if (!canManageProbe) {
+    if (!canUpdateProbe) {
       toast.error('权限不足，无法编辑探针实例');
       return;
     }
@@ -253,7 +255,7 @@ export default function ProbePage() {
     setIsEdit(true); onOpen();
   };
   const confirmDelete = (inst: MonitorInstance) => {
-    if (!canManageProbe) {
+    if (!canDeleteProbe) {
       toast.error('权限不足，无法删除探针实例');
       return;
     }
@@ -356,7 +358,7 @@ export default function ProbePage() {
           }>
             服务器看板
           </Button>
-          {canManageProbe && (
+          {canCreateProbe && (
             <Button color="primary" size="sm" onPress={openCreateModal} startContent={
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -382,7 +384,7 @@ export default function ProbePage() {
             </div>
             <p className="text-default-500 text-sm">暂无探针实例</p>
             <p className="text-default-400 text-xs mt-1">添加 Komari 或 Pika 探针服务器，自动同步服务器节点和监控数据</p>
-            {canManageProbe && (
+            {canCreateProbe && (
               <Button color="primary" size="sm" className="mt-4" onPress={openCreateModal}>添加第一个探针</Button>
             )}
           </CardBody>
@@ -444,7 +446,7 @@ export default function ProbePage() {
                     <Button size="sm" variant="light" color="primary" className="flex-1" onPress={() => openDetailModal(inst)}>
                       查看详情
                     </Button>
-                    {canManageProbe && (
+                    {canDeleteProbe && (
                       <Button size="sm" variant="light" color="danger" onPress={() => confirmDelete(inst)}>删除</Button>
                     )}
                   </div>
@@ -476,11 +478,11 @@ export default function ProbePage() {
                   </p>
                 )}
               </div>
-              {detail?.instance && canManageProbe && (
+              {detail?.instance && (canUpdateProbe || canDeleteProbe) && (
                 <div className="flex gap-2">
-                  <Button size="sm" variant="flat" color="primary" isLoading={actionLoading === 'test-' + detail.instance.id} onPress={() => handleTest(detail.instance.id)}>测试</Button>
-                  <Button size="sm" variant="flat" color="success" isLoading={actionLoading === 'sync-' + detail.instance.id} onPress={() => handleSync(detail.instance.id)}>同步</Button>
-                  <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(detail.instance); }}>编辑</Button>
+                  {canUpdateProbe && <Button size="sm" variant="flat" color="primary" isLoading={actionLoading === 'test-' + detail.instance.id} onPress={() => handleTest(detail.instance.id)}>测试</Button>}
+                  {canUpdateProbe && <Button size="sm" variant="flat" color="success" isLoading={actionLoading === 'sync-' + detail.instance.id} onPress={() => handleSync(detail.instance.id)}>同步</Button>}
+                  {canUpdateProbe && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(detail.instance); }}>编辑</Button>}
                 </div>
               )}
             </div>

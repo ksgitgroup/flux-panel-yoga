@@ -138,7 +138,7 @@ export default function OnePanelPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const canRead = hasPermission('onepanel.read');
-  const canWrite = hasPermission('onepanel.write');
+  const canUpdate = hasPermission('onepanel.update');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -337,7 +337,7 @@ export default function OnePanelPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {canWrite ? (
+          {canUpdate ? (
             <Button color="primary" variant="flat" onPress={() => navigate('/assets')}>
               去服务器资产配置
             </Button>

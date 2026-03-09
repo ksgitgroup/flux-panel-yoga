@@ -40,7 +40,8 @@ const getLinkDescription = (item: PortalLink) => {
 export default function PortalPage() {
   const navigate = useNavigate();
   const canViewPortal = hasPermission('portal.read');
-  const canManagePortal = hasPermission('portal.write');
+  const canCreatePortal = hasPermission('portal.create');
+  const canUpdatePortal = hasPermission('portal.update');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<PortalLink[]>([]);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -148,7 +149,7 @@ export default function PortalPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {canManagePortal ? (
+            {(canCreatePortal || canUpdatePortal) ? (
               <Button as={Link} to="/portal/config" color="primary">
                 管理导航入口
               </Button>
@@ -184,11 +185,11 @@ export default function PortalPage() {
           <CardBody className="space-y-3 p-8 text-center">
             <h2 className="text-lg font-semibold text-foreground">还没有可展示的导航入口</h2>
             <p className="text-sm text-default-500">
-              {canManagePortal
+              {(canCreatePortal || canUpdatePortal)
                 ? '先到导航配置页新增几个常用入口，例如探针、x-ui 面板和服务器后台。'
                 : '当前没有对你开放的导航入口，请联系管理员配置。'}
             </p>
-            {canManagePortal ? (
+            {(canCreatePortal || canUpdatePortal) ? (
               <div>
                 <Button as={Link} to="/portal/config" color="primary">
                   去配置导航

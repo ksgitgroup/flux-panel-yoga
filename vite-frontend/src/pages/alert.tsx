@@ -94,7 +94,9 @@ function parseNum(v: string, fallback?: number): number | undefined {
 export default function AlertPage() {
   const navigate = useNavigate();
   const canViewAlerts = hasPermission('alert.read');
-  const canManageAlerts = hasPermission('alert.write');
+  const canCreateAlerts = hasPermission('alert.create');
+  const canUpdateAlerts = hasPermission('alert.update');
+  const canDeleteAlerts = hasPermission('alert.delete');
   const [tab, setTab] = useState<'rules' | 'logs'>('rules');
 
   // Rules state
@@ -140,7 +142,7 @@ export default function AlertPage() {
   }, [fetchRules, fetchLogs]);
 
   const handleSave = async () => {
-    if (!canManageAlerts) {
+    if (editRule?.id ? !canUpdateAlerts : !canCreateAlerts) {
       toast.error('权限不足');
       return;
     }
@@ -172,7 +174,7 @@ export default function AlertPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!canManageAlerts) {
+    if (!canDeleteAlerts) {
       toast.error('权限不足');
       return;
     }
@@ -185,7 +187,7 @@ export default function AlertPage() {
   };
 
   const handleToggle = async (id: number) => {
-    if (!canManageAlerts) return;
+    if (!canUpdateAlerts) return;
     try {
       const res = await toggleAlertRule(id);
       if (res.code === 0) fetchRules();
@@ -193,7 +195,7 @@ export default function AlertPage() {
   };
 
   const openCreate = () => {
-    if (!canManageAlerts) {
+    if (!canCreateAlerts) {
       toast.error('权限不足');
       return;
     }
@@ -207,7 +209,7 @@ export default function AlertPage() {
   };
 
   const openEdit = (rule: AlertRule) => {
-    if (!canManageAlerts) {
+    if (!canUpdateAlerts) {
       toast.error('权限不足');
       return;
     }
@@ -262,7 +264,7 @@ export default function AlertPage() {
       {tab === 'rules' && (
         <>
           <div className="flex justify-end">
-            {canManageAlerts && (
+            {canCreateAlerts && (
             <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>
             )}
           </div>
@@ -278,7 +280,7 @@ export default function AlertPage() {
             <div className="space-y-2">
               {rules.map(rule => (
                 <div key={rule.id} className={`rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center gap-3 ${rule.enabled ? 'border-divider/60 bg-content1' : 'border-divider/40 bg-default-50 opacity-60'}`}>
-                  <Switch size="sm" isSelected={rule.enabled === 1} isDisabled={!canManageAlerts} onValueChange={() => handleToggle(rule.id)} />
+                  <Switch size="sm" isSelected={rule.enabled === 1} isDisabled={!canUpdateAlerts} onValueChange={() => handleToggle(rule.id)} />
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
@@ -311,10 +313,10 @@ export default function AlertPage() {
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
                     </p>
                   </div>
-                  {canManageAlerts && (
+                  {(canUpdateAlerts || canDeleteAlerts) && (
                     <div className="flex gap-1 ml-auto sm:ml-0">
-                      <Button size="sm" variant="flat" onPress={() => openEdit(rule)}>编辑</Button>
-                      <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>
+                      {canUpdateAlerts && <Button size="sm" variant="flat" onPress={() => openEdit(rule)}>编辑</Button>}
+                      {canDeleteAlerts && <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>}
                     </div>
                   )}
                 </div>
@@ -330,7 +332,7 @@ export default function AlertPage() {
             <p className="text-sm text-default-500">共 {logsTotal} 条告警记录</p>
             <div className="flex gap-2">
               <Button size="sm" variant="flat" onPress={() => fetchLogs(logsPage)}>刷新</Button>
-              {canManageAlerts && (
+              {canDeleteAlerts && (
                 <Button size="sm" variant="flat" color="danger" onPress={async () => {
                   if (!confirm('确定清除所有告警日志？')) return;
                   await clearAlertLogs();

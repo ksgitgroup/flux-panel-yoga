@@ -1658,11 +1658,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 changed = true;
             }
 
-            // Tags: merge probe tags
-            String prevTags = asset.getTags();
-            applyProbeTagsToAsset(asset, node);
-            if (!java.util.Objects.equals(prevTags, asset.getTags())) {
-                changed = true;
+            // Tags: only fill probe tags on first sync (when asset has no tags)
+            // Do NOT merge on subsequent syncs - user may have manually removed tags
+            if (!StringUtils.hasText(asset.getTags())) {
+                String prevTags = asset.getTags();
+                applyProbeTagsToAsset(asset, node);
+                if (!java.util.Objects.equals(prevTags, asset.getTags())) {
+                    changed = true;
+                }
             }
 
             if (changed) {

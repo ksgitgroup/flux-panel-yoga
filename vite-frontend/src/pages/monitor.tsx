@@ -42,6 +42,7 @@ import {
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { siteConfig } from '@/config/site';
+import HealthGauge from '@/components/HealthGauge';
 
 interface DiagnosisRecord {
   id: number;
@@ -263,20 +264,21 @@ const StatCard = ({ label, value, subtitle, tone }: {
   value: string;
   subtitle: string;
   tone: 'default' | 'primary' | 'success' | 'warning' | 'danger';
-}) => (
-  <Card className="border border-default-200 bg-white/85 shadow-sm dark:bg-black/20">
-    <CardBody className="gap-3 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs uppercase tracking-[0.18em] text-default-400">{label}</p>
-        <Chip size="sm" variant="flat" color={tone}>{label}</Chip>
-      </div>
-      <div>
-        <p className="text-2xl font-semibold text-foreground">{value}</p>
-        <p className="mt-1 text-xs leading-5 text-default-500">{subtitle}</p>
-      </div>
-    </CardBody>
-  </Card>
-);
+}) => {
+  const colorMap = { default: 'text-foreground', primary: 'text-primary', success: 'text-success', warning: 'text-warning', danger: 'text-danger' };
+  return (
+    <Card className="border border-default-200 bg-white/85 shadow-sm dark:bg-black/20 hover:shadow-md transition-shadow">
+      <CardBody className="gap-1.5 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-default-400">{label}</p>
+          <Chip size="sm" variant="flat" color={tone} className="h-5 text-[10px]">{label}</Chip>
+        </div>
+        <p className={`text-3xl font-extrabold font-mono ${colorMap[tone]}`}>{value}</p>
+        <p className="text-xs text-default-500">{subtitle}</p>
+      </CardBody>
+    </Card>
+  );
+};
 
 const RecordRow = ({ record }: { record: DiagnosisRecord }) => {
   const [expanded, setExpanded] = useState(false);
@@ -1008,32 +1010,47 @@ export default function MonitorPage() {
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-5 py-2">
-      <Card className="overflow-hidden border border-default-200 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.12),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.1),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,252,0.96))] shadow-sm dark:bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.18),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.14),transparent_28%),linear-gradient(180deg,rgba(9,9,11,0.96),rgba(15,23,42,0.94))]">
+      <Card className="overflow-hidden border border-default-200 shadow-sm bg-[radial-gradient(ellipse_at_top_left,rgba(37,99,235,0.08),transparent_50%),radial-gradient(ellipse_at_bottom_right,rgba(16,185,129,0.06),transparent_50%)] dark:bg-[radial-gradient(ellipse_at_top_left,rgba(37,99,235,0.15),transparent_50%),radial-gradient(ellipse_at_bottom_right,rgba(16,185,129,0.1),transparent_50%)]">
         <CardBody className="gap-5 p-5 lg:p-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip size="sm" variant="flat" color="primary">{siteConfig.environment_name}</Chip>
-                <Chip size="sm" variant="flat" color={healthRate >= 85 ? 'success' : healthRate >= 70 ? 'warning' : 'danger'}>
-                  健康率 {healthRate.toFixed(1)}%
-                </Chip>
-                <Chip size="sm" variant="flat">{siteConfig.release_version} · {siteConfig.build_revision}</Chip>
-              </div>
-              <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">诊断看板</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-default-600">
-                这里是诊断集合页：手动触发全量诊断、看当前执行进度、看节点实时流量、看隧道/转发累计流量排行，以及确认最近 24 小时的健康趋势。首页不再堆这些图，全部收口在这里。
-              </p>
+          <div className="flex flex-col gap-5 md:flex-row md:items-start">
+            {/* Health Gauge */}
+            <div className="flex flex-col items-center gap-1 md:mr-2 flex-shrink-0">
+              <HealthGauge
+                score={healthRate}
+                size={140}
+                strokeWidth={10}
+                sublabel={summary?.lastRunTime ? formatRelativeTime(summary.lastRunTime) : undefined}
+              />
             </div>
 
-            <div className="flex gap-2 self-start">
-              <Button variant="bordered" onPress={() => loadBoard(false)} size="sm">刷新</Button>
-              <Button variant="flat" size="sm" onPress={() => navigate('/alert')}>告警配置</Button>
-              <Button variant="flat" size="sm" onPress={() => navigate('/server-dashboard')}>服务器看板</Button>
-              {canUpdateMonitor && (
-                <Button color="primary" onPress={handleRunNow} isLoading={triggering} size="sm">
-                  立即诊断
-                </Button>
-              )}
+            {/* Header info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Chip size="sm" variant="flat" color="primary">{siteConfig.environment_name}</Chip>
+                    <Chip size="sm" variant="flat" color={healthRate >= 85 ? 'success' : healthRate >= 70 ? 'warning' : 'danger'}>
+                      健康率 {healthRate.toFixed(1)}%
+                    </Chip>
+                    <Chip size="sm" variant="flat">{siteConfig.release_version}</Chip>
+                  </div>
+                  <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">诊断看板</h1>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-default-600">
+                    全量诊断、执行进度、节点实时流量、隧道/转发流量排行、24 小时健康趋势。
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 self-start flex-shrink-0">
+                  <Button variant="bordered" onPress={() => loadBoard(false)} size="sm">刷新</Button>
+                  <Button variant="flat" size="sm" onPress={() => navigate('/alert')}>告警配置</Button>
+                  <Button variant="flat" size="sm" onPress={() => navigate('/server-dashboard')}>服务器看板</Button>
+                  {canUpdateMonitor && (
+                    <Button color="primary" onPress={handleRunNow} isLoading={triggering} size="sm">
+                      立即诊断
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1485,20 +1502,41 @@ export default function MonitorPage() {
       {/* ==================== Server Health Tab ==================== */}
       {activeTab === 'server' && (
         <>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-            <StatCard label="健康评分" value={`${serverHealth.score.toFixed(0)}`}
-              subtitle={serverHealth.score >= 85 ? '状态良好' : serverHealth.score >= 60 ? '需要关注' : '需要处理'}
-              tone={serverHealth.score >= 85 ? 'success' : serverHealth.score >= 60 ? 'warning' : 'danger'} />
-            <StatCard label="探针在线率" value={serverHealth.probeNodeTotal > 0 ? `${((serverHealth.probeNodeOnline / serverHealth.probeNodeTotal) * 100).toFixed(0)}%` : '-'}
-              subtitle={`${serverHealth.probeNodeOnline}/${serverHealth.probeNodeTotal} 在线`}
-              tone={serverHealth.offlineNodes > 0 ? 'danger' : 'success'} />
-            <StatCard label="探针实例" value={`${probeInstances.length}`}
-              subtitle={probeInstances.map(i => i.type || 'probe').join(' + ') || '无'}
-              tone="primary" />
-            <StatCard label="服务器总数" value={`${assets.length}`}
-              subtitle={`${serverHealth.noProbe.length} 无探针绑定`}
-              tone={serverHealth.noProbe.length > 0 ? 'warning' : 'success'} />
-          </div>
+          {/* Server health hero with gauge */}
+          <Card className="border border-default-200 shadow-sm bg-white/80 dark:bg-black/20">
+            <CardBody className="p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center">
+                <div className="flex-shrink-0">
+                  <HealthGauge
+                    score={serverHealth.score}
+                    size={120}
+                    strokeWidth={9}
+                    label={serverHealth.score >= 85 ? '健康' : serverHealth.score >= 60 ? '关注' : '异常'}
+                    sublabel={serverHealth.totalIssues > 0 ? `${serverHealth.totalIssues} 个问题` : '无待处理'}
+                  />
+                </div>
+                <div className="flex-1 grid gap-3 grid-cols-2 lg:grid-cols-3">
+                  <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">探针在线率</p>
+                    <p className={`text-2xl font-extrabold font-mono mt-1 ${serverHealth.offlineNodes > 0 ? 'text-warning' : 'text-success'}`}>
+                      {serverHealth.probeNodeTotal > 0 ? `${((serverHealth.probeNodeOnline / serverHealth.probeNodeTotal) * 100).toFixed(0)}%` : '-'}
+                    </p>
+                    <p className="text-xs text-default-500 mt-0.5">{serverHealth.probeNodeOnline}/{serverHealth.probeNodeTotal} 在线</p>
+                  </div>
+                  <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">探针实例</p>
+                    <p className="text-2xl font-extrabold font-mono mt-1 text-primary">{probeInstances.length}</p>
+                    <p className="text-xs text-default-500 mt-0.5">{probeInstances.map(i => i.type || 'probe').join(' + ') || '无'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-default-200 bg-default-50/70 px-4 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-default-400">服务器总数</p>
+                    <p className={`text-2xl font-extrabold font-mono mt-1 ${serverHealth.noProbe.length > 0 ? 'text-warning' : 'text-foreground'}`}>{assets.length}</p>
+                    <p className="text-xs text-default-500 mt-0.5">{serverHealth.noProbe.length} 无探针</p>
+                  </div>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
 
           {/* Probe instances */}
           <Card className="border border-default-200 shadow-sm">

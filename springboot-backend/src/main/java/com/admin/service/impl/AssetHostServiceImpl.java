@@ -131,7 +131,11 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     public R updateAsset(AssetHostUpdateDto dto) {
         AssetHost asset = getRequiredAsset(dto.getId());
         validateDuplicate(dto.getName(), dto.getLabel(), dto.getId());
+        // Track which sync-protected fields the user is editing
+        Set<String> editedFields = detectUserEditedFields(asset, dto);
         applyAssetDtoFromUpdate(asset, dto);
+        // Merge with existing userEditedFields
+        mergeUserEditedFields(asset, editedFields);
         asset.setUpdatedTime(System.currentTimeMillis());
         this.updateById(asset);
         return R.ok(buildAssetViews(Collections.singletonList(asset)).stream().findFirst().orElse(null));
@@ -259,6 +263,11 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 default: break;
             }
             asset.setUpdatedTime(now);
+            // Track user-edited sync-protected fields
+            Set<String> syncProtected = Set.of("tags", "os", "osCategory", "monthlyCost", "currency", "billingCycle");
+            if (syncProtected.contains(field)) {
+                mergeUserEditedFields(asset, Set.of(field));
+            }
         }
         this.updateBatchById(assets);
         return R.ok("已批量更新 " + assets.size() + " 个资产");
@@ -364,6 +373,58 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setRemark(trimToNull(dto.getRemark()));
         asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
         asset.setBillingCycle(dto.getBillingCycle());
+    }
+
+    /**
+     * Detect which sync-protected fields the user is changing compared to the current DB value.
+     * Only tracks fields that probe sync might overwrite.
+     */
+    private Set<String> detectUserEditedFields(AssetHost current, AssetHostUpdateDto dto) {
+        Set<String> edited = new HashSet<>();
+        // Fields that probe sync overwrites: os, osCategory, hardware, tags, label, billing
+        if (!Objects.equals(trimToNull(dto.getLabel()), current.getLabel())) edited.add("label");
+        if (!Objects.equals(trimToNull(dto.getTags()), current.getTags())) edited.add("tags");
+        if (!Objects.equals(trimToNull(dto.getOs()), current.getOs())) edited.add("os");
+        if (!Objects.equals(trimToNull(dto.getOsCategory()), current.getOsCategory())) edited.add("osCategory");
+        if (!Objects.equals(dto.getCpuCores(), current.getCpuCores())) edited.add("cpuCores");
+        if (!Objects.equals(dto.getMemTotalMb(), current.getMemTotalMb())) edited.add("memTotalMb");
+        if (!Objects.equals(dto.getDiskTotalGb(), current.getDiskTotalGb())) edited.add("diskTotalGb");
+        if (!Objects.equals(trimToNull(dto.getMonthlyCost()), current.getMonthlyCost())) edited.add("monthlyCost");
+        if (!Objects.equals(trimToNull(dto.getCurrency()), current.getCurrency())) edited.add("currency");
+        if (!Objects.equals(dto.getBillingCycle(), current.getBillingCycle())) edited.add("billingCycle");
+        if (!Objects.equals(dto.getExpireDate(), current.getExpireDate())) edited.add("expireDate");
+        return edited;
+    }
+
+    /**
+     * Merge newly edited fields into the asset's userEditedFields JSON array.
+     */
+    private void mergeUserEditedFields(AssetHost asset, Set<String> newEdited) {
+        if (newEdited.isEmpty()) return;
+        Set<String> existing = parseUserEditedFields(asset.getUserEditedFields());
+        existing.addAll(newEdited);
+        asset.setUserEditedFields(toJsonArray(existing));
+    }
+
+    /** Parse JSON array string like ["tags","label"] into a Set */
+    static Set<String> parseUserEditedFields(String json) {
+        Set<String> result = new HashSet<>();
+        if (json == null || json.isBlank()) return result;
+        // Simple JSON array parser: ["a","b"] → Set("a","b")
+        String trimmed = json.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+            for (String part : trimmed.split(",")) {
+                String field = part.trim().replace("\"", "");
+                if (!field.isEmpty()) result.add(field);
+            }
+        }
+        return result;
+    }
+
+    private static String toJsonArray(Set<String> fields) {
+        if (fields == null || fields.isEmpty()) return null;
+        return "[" + fields.stream().sorted().map(f -> "\"" + f + "\"").collect(Collectors.joining(",")) + "]";
     }
 
     private List<AssetHostViewDto> buildAssetViews(List<AssetHost> assets) {

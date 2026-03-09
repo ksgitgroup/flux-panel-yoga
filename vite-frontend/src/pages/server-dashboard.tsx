@@ -252,6 +252,88 @@ function NodeCharts({ nodeId, range }: { nodeId: number; range: string }) {
   );
 }
 
+// ===================== Merged Server type =====================
+
+/** A unified "server" entry that merges dual-probe nodes into one row */
+interface MergedServer {
+  /** Primary node (prefers Komari, or whichever has online=1) */
+  primary: MonitorNodeSnapshot;
+  /** Peer node from the other probe type (if dual-probe) */
+  peer?: MonitorNodeSnapshot;
+  /** Display name */
+  name: string;
+  ip: string;
+  region: string;
+  os: string;
+  assetId?: number | null;
+  assetName?: string | null;
+  isOnline: boolean;
+  isDual: boolean;
+  /** Best metric (prefer online node) */
+  cpu: number;
+  mem: number;
+  disk: number;
+  netIn: number;
+  netOut: number;
+  uptime: number;
+  trafficUsed: number;
+  trafficLimit: number;
+  tags: string;
+}
+
+type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime';
+type ViewMode = 'card' | 'list';
+
+function mergeNodes(nodes: MonitorNodeSnapshot[]): MergedServer[] {
+  // Group by assetId; unlinked nodes are standalone
+  const byAsset = new Map<string, MonitorNodeSnapshot[]>();
+  nodes.forEach(n => {
+    const key = n.assetId ? `asset-${n.assetId}` : `solo-${n.instanceId}-${n.id}`;
+    const group = byAsset.get(key) || [];
+    group.push(n);
+    byAsset.set(key, group);
+  });
+
+  const servers: MergedServer[] = [];
+  byAsset.forEach(group => {
+    // Pick primary: prefer online, then komari
+    const sorted = [...group].sort((a, b) => {
+      if ((a.online ?? 0) !== (b.online ?? 0)) return (b.online ?? 0) - (a.online ?? 0);
+      if ((a.instanceType || 'komari') === 'komari' && (b.instanceType || 'komari') !== 'komari') return -1;
+      return 0;
+    });
+    const primary = sorted[0];
+    const peer = sorted.length >= 2 ? sorted[1] : undefined;
+    const m = primary.latestMetric;
+    const pm = peer?.latestMetric;
+    // Use best metrics from either probe
+    const bestM = (primary.online === 1 ? m : pm) || m || pm;
+
+    servers.push({
+      primary,
+      peer,
+      name: primary.assetName || primary.name || primary.ip || primary.remoteNodeUuid?.slice(0, 8) || '-',
+      ip: primary.ip || peer?.ip || '-',
+      region: primary.region || peer?.region || '',
+      os: primary.os || peer?.os || '',
+      assetId: primary.assetId,
+      assetName: primary.assetName,
+      isOnline: primary.online === 1 || (peer?.online === 1),
+      isDual: !!peer,
+      cpu: bestM?.cpuUsage || 0,
+      mem: memPercent(bestM?.memUsed, bestM?.memTotal),
+      disk: memPercent(bestM?.diskUsed, bestM?.diskTotal),
+      netIn: bestM?.netIn || 0,
+      netOut: bestM?.netOut || 0,
+      uptime: bestM?.uptime || 0,
+      trafficUsed: primary.trafficUsed || peer?.trafficUsed || 0,
+      trafficLimit: primary.trafficLimit || peer?.trafficLimit || 0,
+      tags: primary.tags || peer?.tags || '',
+    });
+  });
+  return servers;
+}
+
 // ===================== Component =====================
 
 export default function ServerDashboardPage() {
@@ -264,10 +346,13 @@ export default function ServerDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
-  const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika'>('all');
+  const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika' | 'dual'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
   const [osFilter, setOsFilter] = useState<string>('');
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortAsc, setSortAsc] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [cardProviderDetails, setCardProviderDetails] = useState<Record<number, MonitorNodeProviderDetail>>({});
@@ -366,59 +451,50 @@ export default function ServerDashboardPage() {
     }
   }, [selectedNode]);
 
-  // Deduplicate by assetId: group nodes into unique servers
-  // Same server with both Komari + Pika counts as ONE server
-  const serverSummary = useMemo(() => {
-    const byAsset = new Map<number | string, { online: boolean; region?: string; os?: string }>();
-    nodes.forEach(n => {
-      const key = n.assetId ?? `unlinked-${n.instanceId}-${n.id}`;
-      const prev = byAsset.get(key);
-      byAsset.set(key, {
-        online: (prev?.online || false) || n.online === 1,
-        region: prev?.region || n.region || undefined,
-        os: prev?.os || n.os || undefined,
-      });
-    });
-    const total = byAsset.size;
-    let online = 0;
-    byAsset.forEach(v => { if (v.online) online++; });
-    return { total, online, offline: total - online };
-  }, [nodes]);
+  // Merge nodes into unified servers (dual-probe = 1 server)
+  const allServers = useMemo(() => mergeNodes(nodes), [nodes]);
 
-  // Collect all unique tags with counts
+  const serverSummary = useMemo(() => {
+    const total = allServers.length;
+    const online = allServers.filter(s => s.isOnline).length;
+    return { total, online, offline: total - online };
+  }, [allServers]);
+
+  // Collect all unique tags with counts (from merged servers)
   const tagCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    nodes.forEach(n => {
-      if (n.tags) {
-        try { JSON.parse(n.tags).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch { /* ignore */ }
+    allServers.forEach(s => {
+      if (s.tags) {
+        try { JSON.parse(s.tags).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch { /* ignore */ }
       }
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [nodes]);
+  }, [allServers]);
 
-  // Count by probe type
+  // Count by probe type (based on merged servers)
   const probeCounts = useMemo(() => {
-    const counts = { komari: 0, pika: 0 };
-    nodes.forEach(n => {
-      if (n.instanceType === 'pika') counts.pika++;
+    const counts = { komari: 0, pika: 0, dual: 0 };
+    allServers.forEach(s => {
+      if (s.isDual) counts.dual++;
+      else if ((s.primary.instanceType || 'komari') === 'pika') counts.pika++;
       else counts.komari++;
     });
     return counts;
-  }, [nodes]);
+  }, [allServers]);
 
-  // Region counts from nodes
+  // Region counts from servers
   const regionCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    nodes.forEach(n => { const r = n.region || ''; counts[r] = (counts[r] || 0) + 1; });
+    allServers.forEach(s => { const r = s.region || ''; counts[r] = (counts[r] || 0) + 1; });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [nodes]);
+  }, [allServers]);
 
-  // OS counts from nodes (extract category from full OS string)
+  // OS counts from servers
   const osCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    nodes.forEach(n => {
+    allServers.forEach(s => {
       let cat = '';
-      const os = (n.os || '').toLowerCase();
+      const os = (s.os || '').toLowerCase();
       if (os.includes('ubuntu')) cat = 'Ubuntu';
       else if (os.includes('debian')) cat = 'Debian';
       else if (os.includes('centos')) cat = 'CentOS';
@@ -433,50 +509,71 @@ export default function ServerDashboardPage() {
       counts[cat] = (counts[cat] || 0) + 1;
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [nodes]);
+  }, [allServers]);
 
-  const filteredNodes = useMemo(() => {
-    let list = nodes;
-    if (statusFilter === 'online') list = list.filter(n => n.online === 1);
-    else if (statusFilter === 'offline') list = list.filter(n => n.online !== 1);
-    if (probeFilter !== 'all') list = list.filter(n => (n.instanceType || 'komari') === probeFilter);
+  // Filter and sort merged servers
+  const filteredServers = useMemo(() => {
+    let list = allServers;
+    if (statusFilter === 'online') list = list.filter(s => s.isOnline);
+    else if (statusFilter === 'offline') list = list.filter(s => !s.isOnline);
+    if (probeFilter === 'dual') list = list.filter(s => s.isDual);
+    else if (probeFilter === 'komari') list = list.filter(s => !s.isDual && (s.primary.instanceType || 'komari') === 'komari');
+    else if (probeFilter === 'pika') list = list.filter(s => !s.isDual && s.primary.instanceType === 'pika');
     if (regionFilter) {
-      list = list.filter(n => regionFilter === '_empty' ? !n.region : n.region === regionFilter);
+      list = list.filter(s => regionFilter === '_empty' ? !s.region : s.region === regionFilter);
     }
     if (osFilter) {
       const q = osFilter.toLowerCase();
-      list = list.filter(n => {
-        if (osFilter === '_empty') return !n.os;
-        const os = (n.os || '').toLowerCase();
+      list = list.filter(s => {
+        if (osFilter === '_empty') return !s.os;
+        const os = (s.os || '').toLowerCase();
         if (q === 'other') return os && !['ubuntu','debian','centos','alma','rocky','fedora','alpine','arch','windows','macos','darwin'].some(k => os.includes(k));
         return os.includes(q);
       });
     }
     if (tagFilter) {
-      list = list.filter(n => {
-        if (!n.tags) return false;
-        try { return JSON.parse(n.tags).includes(tagFilter); } catch { return false; }
+      list = list.filter(s => {
+        if (!s.tags) return false;
+        try { return JSON.parse(s.tags).includes(tagFilter); } catch { return false; }
       });
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(n =>
-        (n.name || '').toLowerCase().includes(q) ||
-        (n.ip || '').toLowerCase().includes(q) ||
-        (n.region || '').toLowerCase().includes(q) ||
-        (n.os || '').toLowerCase().includes(q) ||
-        (n.assetName || '').toLowerCase().includes(q) ||
-        (n.instanceName || '').toLowerCase().includes(q) ||
-        (n.tags || '').toLowerCase().includes(q)
+      list = list.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        s.ip.toLowerCase().includes(q) ||
+        s.region.toLowerCase().includes(q) ||
+        s.os.toLowerCase().includes(q) ||
+        (s.assetName || '').toLowerCase().includes(q) ||
+        (s.primary.instanceName || '').toLowerCase().includes(q) ||
+        s.tags.toLowerCase().includes(q)
       );
     }
-    return list;
-  }, [nodes, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter]);
+    // Sort
+    const sorted = [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'cpu': cmp = a.cpu - b.cpu; break;
+        case 'mem': cmp = a.mem - b.mem; break;
+        case 'disk': cmp = a.disk - b.disk; break;
+        case 'traffic': {
+          const aPct = a.trafficLimit > 0 ? a.trafficUsed / a.trafficLimit : 0;
+          const bPct = b.trafficLimit > 0 ? b.trafficUsed / b.trafficLimit : 0;
+          cmp = aPct - bPct;
+          break;
+        }
+        case 'uptime': cmp = a.uptime - b.uptime; break;
+        default: cmp = a.name.localeCompare(b.name, 'zh-CN');
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return sorted;
+  }, [allServers, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter, sortKey, sortAsc]);
 
   useEffect(() => {
-    const candidates = filteredNodes
+    const candidates = filteredServers
       .slice(0, 12)
-      .map((node) => node.id)
+      .map((s) => s.primary.id)
       .filter((id) => !cardProviderDetails[id] && !cardLoadingIds[id]);
     if (candidates.length === 0) return;
     let cancelled = false;
@@ -499,7 +596,7 @@ export default function ServerDashboardPage() {
         });
     });
     return () => { cancelled = true; };
-  }, [filteredNodes, cardLoadingIds, cardProviderDetails]);
+  }, [filteredServers, cardLoadingIds, cardProviderDetails]);
 
   if (!canViewServerDashboard) {
     return (
@@ -531,7 +628,7 @@ export default function ServerDashboardPage() {
         </div>
       </div>
 
-      {/* Summary Bar - counts deduplicated by server (same server with dual probes = 1) */}
+      {/* Summary Bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setStatusFilter('all')}
@@ -563,14 +660,48 @@ export default function ServerDashboardPage() {
 
         {/* Probe type filter */}
         <div className="flex gap-1 ml-2">
-          {(['all', 'komari', 'pika'] as const).map(t => (
+          {(['all', 'komari', 'pika', 'dual'] as const).map(t => (
             <button key={t} onClick={() => setProbeFilter(t)}
               className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${
                 probeFilter === t
                   ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
                   : 'border-divider/60 bg-content1 text-default-500 hover:border-primary/40'
               }`}>
-              {t === 'all' ? '全部探针' : t === 'komari' ? `Komari (${probeCounts.komari})` : `Pika (${probeCounts.pika})`}
+              {t === 'all' ? '全部' : t === 'komari' ? `K(${probeCounts.komari})` : t === 'pika' ? `P(${probeCounts.pika})` : `双探针(${probeCounts.dual})`}
+            </button>
+          ))}
+        </div>
+
+        {/* View toggle + Sort */}
+        <div className="flex gap-1 ml-2">
+          <button onClick={() => setViewMode('card')}
+            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${viewMode === 'card' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
+            title="卡片视图">
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zM3 12a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+          </button>
+          <button onClick={() => setViewMode('list')}
+            className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer border ${viewMode === 'list' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
+            title="列表视图">
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+          </button>
+        </div>
+
+        {/* Sort */}
+        <div className="flex gap-1">
+          {([
+            ['name', '名称'],
+            ['cpu', 'CPU'],
+            ['mem', '内存'],
+            ['disk', '磁盘'],
+            ['traffic', '流量'],
+            ['uptime', '运行'],
+          ] as [SortKey, string][]).map(([key, label]) => (
+            <button key={key}
+              onClick={() => { if (sortKey === key) setSortAsc(!sortAsc); else { setSortKey(key); setSortAsc(key === 'name'); } }}
+              className={`rounded-lg px-2 py-1 text-[10px] font-bold tracking-wider transition-all cursor-pointer border ${
+                sortKey === key ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-400 hover:border-primary/40'
+              }`}>
+              {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
             </button>
           ))}
         </div>
@@ -624,7 +755,7 @@ export default function ServerDashboardPage() {
             className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
               !tagFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
             }`}>
-            ALL ({nodes.length})
+            ALL ({allServers.length})
           </button>
           {tagCounts.map(([tag, count]) => (
             <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
@@ -640,24 +771,116 @@ export default function ServerDashboardPage() {
       {/* Loading */}
       {loading ? (
         <div className="flex h-64 items-center justify-center"><Spinner size="lg" /></div>
-      ) : filteredNodes.length === 0 ? (
+      ) : filteredServers.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
           <h3 className="text-base font-semibold text-default-600">
-            {nodes.length === 0 ? '暂无服务器' : '没有匹配的结果'}
+            {allServers.length === 0 ? '暂无服务器' : '没有匹配的结果'}
           </h3>
           <p className="mt-2 text-sm text-default-400">
-            {nodes.length === 0 ? '添加探针实例并同步后，服务器将显示在此处。' : '尝试调整搜索条件或筛选项。'}
+            {allServers.length === 0 ? '添加探针实例并同步后，服务器将显示在此处。' : '尝试调整搜索条件或筛选项。'}
           </p>
         </div>
+      ) : viewMode === 'list' ? (
+        /* ========== List/Table View ========== */
+        <div className="rounded-xl border border-divider/60 bg-content1 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-divider/60 bg-default-50/60">
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">状态</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">名称 / IP</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">探针</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">CPU</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">内存</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">磁盘</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">网络</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">运行</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">地区</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredServers.map(server => {
+                const m = server.primary.latestMetric;
+                return (
+                  <tr key={`${server.primary.instanceId}-${server.primary.id}`}
+                    onClick={() => openDetail(server.primary)}
+                    className={`border-b border-divider/30 cursor-pointer transition-colors ${server.isOnline ? 'hover:bg-default-50' : 'bg-danger-50/10 hover:bg-danger-50/20'}`}
+                  >
+                    <td className="px-3 py-2">
+                      <span className={`inline-block h-2.5 w-2.5 rounded-full ${server.isOnline ? 'bg-success animate-pulse' : 'bg-danger'}`} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <p className="font-semibold text-sm truncate max-w-[200px]">{server.name}</p>
+                      <p className="text-[11px] text-default-400 font-mono">{server.ip}</p>
+                    </td>
+                    <td className="px-3 py-2">
+                      {server.isDual ? (
+                        <div className="flex gap-1">
+                          <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">K</Chip>
+                          <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">P</Chip>
+                        </div>
+                      ) : (
+                        <Chip size="sm" variant="flat" color={server.primary.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
+                          {server.primary.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                        </Chip>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {server.isOnline ? (
+                        <div className="flex items-center gap-1.5 min-w-[80px]">
+                          <div className="flex-1 h-1.5 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
+                            <div className={`h-full rounded-sm ${barColorClass(server.cpu)}`} style={{ width: `${Math.min(server.cpu, 100)}%` }} />
+                          </div>
+                          <span className={`text-[11px] font-mono ${server.cpu > 90 ? 'text-danger' : server.cpu > 75 ? 'text-warning' : 'text-default-600'}`}>{server.cpu.toFixed(0)}%</span>
+                        </div>
+                      ) : <span className="text-[11px] text-default-300">-</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      {server.isOnline ? (
+                        <div className="flex items-center gap-1.5 min-w-[80px]">
+                          <div className="flex-1 h-1.5 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
+                            <div className={`h-full rounded-sm ${barColorClass(server.mem)}`} style={{ width: `${Math.min(server.mem, 100)}%` }} />
+                          </div>
+                          <span className={`text-[11px] font-mono ${server.mem > 90 ? 'text-danger' : server.mem > 75 ? 'text-warning' : 'text-default-600'}`}>{server.mem.toFixed(0)}%</span>
+                        </div>
+                      ) : <span className="text-[11px] text-default-300">-</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      {server.isOnline ? (
+                        <div className="flex items-center gap-1.5 min-w-[80px]">
+                          <div className="flex-1 h-1.5 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
+                            <div className={`h-full rounded-sm ${barColorClass(server.disk)}`} style={{ width: `${Math.min(server.disk, 100)}%` }} />
+                          </div>
+                          <span className={`text-[11px] font-mono ${server.disk > 90 ? 'text-danger' : server.disk > 75 ? 'text-warning' : 'text-default-600'}`}>{server.disk.toFixed(0)}%</span>
+                        </div>
+                      ) : <span className="text-[11px] text-default-300">-</span>}
+                    </td>
+                    <td className="px-3 py-2 text-[10px] font-mono text-default-500">
+                      {server.isOnline && m ? (
+                        <>
+                          <span className="text-success">↓</span>{formatSpeed(m.netIn)}
+                          <span className="mx-1 text-default-200">|</span>
+                          <span className="text-primary">↑</span>{formatSpeed(m.netOut)}
+                        </>
+                      ) : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] font-mono text-default-500">
+                      {server.isOnline && m ? formatUptime(m.uptime) : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-default-500">
+                      {server.region ? `${getRegionFlag(server.region)}${server.region}` : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
-        /* Server Card Grid */
+        /* ========== Card Grid View ========== */
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredNodes.map((node) => {
+          {filteredServers.map((server) => {
+            const node = server.primary;
             const m = node.latestMetric;
-            const isOnline = node.online === 1;
-            const cpu = m?.cpuUsage || 0;
-            const mem = memPercent(m?.memUsed, m?.memTotal);
-            const disk = memPercent(m?.diskUsed, m?.diskTotal);
             const cardDetail = cardProviderDetails[node.id];
             const cardLoading = !!cardLoadingIds[node.id];
 
@@ -667,7 +890,7 @@ export default function ServerDashboardPage() {
                 key={`${node.instanceId}-${node.id}`}
                 onClick={() => openDetail(node)}
                 className={`rounded-xl border p-3 text-left transition-all hover:shadow-md cursor-pointer ${
-                  isOnline
+                  server.isOnline
                     ? 'border-divider/60 bg-content1 hover:border-primary/40'
                     : 'border-danger/20 bg-danger-50/20 dark:bg-danger-50/5 hover:border-danger/40'
                 }`}
@@ -677,59 +900,63 @@ export default function ServerDashboardPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${
-                        isOnline ? 'bg-success animate-pulse' : 'bg-danger'
+                        server.isOnline ? 'bg-success animate-pulse' : 'bg-danger'
                       }`} />
-                      <span className="truncate font-semibold text-sm">{node.name || node.remoteNodeUuid?.slice(0, 8)}</span>
+                      <span className="truncate font-semibold text-sm">{server.name}</span>
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-4">
-                      {node.ip || '-'}
-                      {node.region ? ` / ${getRegionFlag(node.region)}${node.region}` : ''}
+                      {server.ip}
+                      {server.region ? ` / ${getRegionFlag(server.region)}${server.region}` : ''}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                    <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
-                      {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
-                    </Chip>
-                    {node.assetName && (
-                      <span className="text-[9px] text-default-400 font-mono truncate max-w-[80px]">{node.assetName}</span>
+                    {server.isDual ? (
+                      <div className="flex gap-0.5">
+                        <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">K</Chip>
+                        <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">P</Chip>
+                      </div>
+                    ) : (
+                      <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
+                        {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                      </Chip>
                     )}
                   </div>
                 </div>
 
                 {/* Metrics - compact resource bars */}
-                {isOnline && m ? (
+                {server.isOnline && m ? (
                   <div className="space-y-1.5">
                     {/* CPU */}
                     <div className="flex items-center gap-1.5">
                       <span className="w-7 text-[10px] font-bold tracking-wider text-default-400 flex-shrink-0">CPU</span>
                       <div className="flex-1 h-1.5 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
-                        <div className={`h-full transition-all duration-700 ease-out rounded-sm ${barColorClass(cpu)}`}
-                          style={{ width: `${Math.min(cpu, 100)}%` }} />
+                        <div className={`h-full transition-all duration-700 ease-out rounded-sm ${barColorClass(server.cpu)}`}
+                          style={{ width: `${Math.min(server.cpu, 100)}%` }} />
                       </div>
-                      <span className={`w-9 text-right text-[11px] font-mono font-medium ${cpu > 90 ? 'text-danger' : cpu > 75 ? 'text-warning' : 'text-default-600'}`}>
-                        {cpu.toFixed(0)}%
+                      <span className={`w-9 text-right text-[11px] font-mono font-medium ${server.cpu > 90 ? 'text-danger' : server.cpu > 75 ? 'text-warning' : 'text-default-600'}`}>
+                        {server.cpu.toFixed(0)}%
                       </span>
                     </div>
                     {/* MEM */}
                     <div className="flex items-center gap-1.5">
                       <span className="w-7 text-[10px] font-bold tracking-wider text-default-400 flex-shrink-0">MEM</span>
                       <div className="flex-1 h-1.5 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
-                        <div className={`h-full transition-all duration-700 ease-out rounded-sm ${barColorClass(mem)}`}
-                          style={{ width: `${Math.min(mem, 100)}%` }} />
+                        <div className={`h-full transition-all duration-700 ease-out rounded-sm ${barColorClass(server.mem)}`}
+                          style={{ width: `${Math.min(server.mem, 100)}%` }} />
                       </div>
-                      <span className={`w-9 text-right text-[11px] font-mono font-medium ${mem > 90 ? 'text-danger' : mem > 75 ? 'text-warning' : 'text-default-600'}`}>
-                        {mem.toFixed(0)}%
+                      <span className={`w-9 text-right text-[11px] font-mono font-medium ${server.mem > 90 ? 'text-danger' : server.mem > 75 ? 'text-warning' : 'text-default-600'}`}>
+                        {server.mem.toFixed(0)}%
                       </span>
                     </div>
                     {/* DISK */}
                     <div className="flex items-center gap-1.5">
                       <span className="w-7 text-[10px] font-bold tracking-wider text-default-400 flex-shrink-0">DISK</span>
                       <div className="flex-1 h-1.5 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
-                        <div className={`h-full transition-all duration-700 ease-out rounded-sm ${barColorClass(disk)}`}
-                          style={{ width: `${Math.min(disk, 100)}%` }} />
+                        <div className={`h-full transition-all duration-700 ease-out rounded-sm ${barColorClass(server.disk)}`}
+                          style={{ width: `${Math.min(server.disk, 100)}%` }} />
                       </div>
-                      <span className={`w-9 text-right text-[11px] font-mono font-medium ${disk > 90 ? 'text-danger' : disk > 75 ? 'text-warning' : 'text-default-600'}`}>
-                        {disk.toFixed(0)}%
+                      <span className={`w-9 text-right text-[11px] font-mono font-medium ${server.disk > 90 ? 'text-danger' : server.disk > 75 ? 'text-warning' : 'text-default-600'}`}>
+                        {server.disk.toFixed(0)}%
                       </span>
                     </div>
 
@@ -743,14 +970,14 @@ export default function ServerDashboardPage() {
                       <span>{formatUptime(m.uptime)}</span>
                     </div>
                     {/* Traffic quota bar */}
-                    {node.trafficLimit != null && node.trafficLimit > 0 && (
+                    {server.trafficLimit > 0 && (
                       <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
                         <span className="flex-shrink-0">流量</span>
                         <div className="flex-1 h-1 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
-                          <div className={`h-full rounded-sm ${(node.trafficUsed || 0) / node.trafficLimit > 0.9 ? 'bg-danger' : 'bg-primary'}`}
-                            style={{ width: `${Math.min(((node.trafficUsed || 0) / node.trafficLimit) * 100, 100)}%` }} />
+                          <div className={`h-full rounded-sm ${server.trafficUsed / server.trafficLimit > 0.9 ? 'bg-danger' : 'bg-primary'}`}
+                            style={{ width: `${Math.min((server.trafficUsed / server.trafficLimit) * 100, 100)}%` }} />
                         </div>
-                        <span className="flex-shrink-0">{formatBytes(node.trafficUsed)} / {formatBytes(node.trafficLimit)}</span>
+                        <span className="flex-shrink-0">{formatBytes(server.trafficUsed)} / {formatBytes(server.trafficLimit)}</span>
                       </div>
                     )}
 
@@ -796,7 +1023,7 @@ export default function ServerDashboardPage() {
                 ) : (
                   <div className="py-3 text-center">
                     <span className="text-[11px] text-danger font-bold tracking-wider">离线</span>
-                    {node.os && <p className="text-[10px] text-default-400 mt-1">{node.os}</p>}
+                    {server.os && <p className="text-[10px] text-default-400 mt-1">{server.os}</p>}
                   </div>
                 )}
               </button>

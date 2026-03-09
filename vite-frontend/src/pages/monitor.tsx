@@ -8,6 +8,7 @@ import { Input } from "@heroui/input";
 import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
+import { useNavigate } from 'react-router-dom';
 import { Progress } from "@heroui/progress";
 import { Tabs, Tab } from "@heroui/tabs";
 import {
@@ -568,6 +569,7 @@ const LatencyTrendChart = ({ data }: { data: TrendPoint[] }) => {
 };
 
 export default function MonitorPage() {
+  const navigate = useNavigate();
   const canViewMonitor = hasPermission('monitor.read');
   const canManageMonitor = hasPermission('monitor.write');
   const canViewNodes = hasPermission('node.read');
@@ -1025,6 +1027,8 @@ export default function MonitorPage() {
 
             <div className="flex gap-2 self-start">
               <Button variant="bordered" onPress={() => loadBoard(false)} size="sm">刷新</Button>
+              <Button variant="flat" size="sm" onPress={() => navigate('/alert')}>告警配置</Button>
+              <Button variant="flat" size="sm" onPress={() => navigate('/server-dashboard')}>服务器看板</Button>
               {canManageMonitor && (
                 <Button color="primary" onPress={handleRunNow} isLoading={triggering} size="sm">
                   立即诊断

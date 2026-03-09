@@ -255,6 +255,7 @@ export default function AlertPage() {
           <Button size="sm" variant={tab === 'rules' ? 'solid' : 'flat'} color="primary" onPress={() => setTab('rules')}>规则</Button>
           <Button size="sm" variant={tab === 'logs' ? 'solid' : 'flat'} color="primary" onPress={() => setTab('logs')}>日志</Button>
           <Button size="sm" variant="flat" onPress={() => navigate('/notification')}>通知中心</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/monitor')}>诊断看板</Button>
         </div>
       </div>
 

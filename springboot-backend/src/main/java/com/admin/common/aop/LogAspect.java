@@ -8,11 +8,13 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.admin.common.utils.HttpContextUtils;
 import com.admin.common.utils.IpUtils;
+import com.admin.service.AuditLogService;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.*;
 import org.aspectj.lang.reflect.CodeSignature;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.servlet.http.HttpServletRequest;
@@ -28,6 +30,9 @@ import java.util.Set;
 @Aspect
 @Slf4j
 public class LogAspect {
+
+    @Autowired(required = false)
+    private AuditLogService auditLogService;
 
     private static final String REDACTED = "******";
     private static final Set<String> SENSITIVE_FIELD_NAMES = new HashSet<>(Arrays.asList(
@@ -117,9 +122,22 @@ public class LogAspect {
         String logMessage = String.format(
             "【请求日志】用户ID:[%s], IP地址:[%s], 请求方式:[%s], 控制器方法:[%s], 请求参数:[%s], 返回参数:[%s]", user_id, ipAddr, requestMethod, controllerMethod, requestParams, responseParams
         );
-        
+
         // 打印单条完整日志
         log.info(logMessage);
+
+        // Write to audit log database
+        if (auditLogService != null) {
+            try {
+                String module = extractModule(className);
+                String action = methodName;
+                String username = String.valueOf(user_id);
+                String detail = requestParams.length() > 500 ? requestParams.substring(0, 500) : requestParams;
+                auditLogService.log(username, action, module, null, controllerMethod, detail, ipAddr, "success");
+            } catch (Exception e) {
+                log.debug("[AuditLog] Failed to write audit log: {}", e.getMessage());
+            }
+        }
     }
 
 
@@ -172,14 +190,29 @@ public class LogAspect {
             String errorMessage = String.format(
                 "【异常日志】用户ID:[%s], IP地址:[%s], 请求方式:[%s], 控制器方法:[%s], 请求参数:[%s], 异常信息:[%s]", user_id, ipAddr, requestMethod, controllerMethod, requestParams, exceptionMsg
             );
-            
+
             // 打印单条完整异常日志
             log.info(errorMessage, ex);
+
+            // Write to audit log database
+            if (auditLogService != null) {
+                String module = extractModule(className);
+                String username = String.valueOf(user_id);
+                auditLogService.log(username, methodName, module, null, controllerMethod, exceptionMsg, ipAddr, "failed");
+            }
         } catch (Exception e) {
             log.info("记录异常日志时出错: {}", e.getMessage());
         }
     }
-    
+
+    /** Extract module name from controller class name, e.g. "AssetHostController" → "asset" */
+    private String extractModule(String className) {
+        String simple = className.contains(".") ? className.substring(className.lastIndexOf('.') + 1) : className;
+        simple = simple.replace("Controller", "");
+        // Convert CamelCase to lowercase, e.g. "AssetHost" → "asset_host"
+        return simple.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
+    }
+
     /**
      * 获取请求参数
      */

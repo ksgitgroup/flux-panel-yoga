@@ -13,9 +13,16 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import javax.sql.DataSource;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -32,6 +39,9 @@ public class BackupServiceImpl extends ServiceImpl<BackupRecordMapper, BackupRec
 
     @Resource
     private XuiInstanceMapper xuiInstanceMapper;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Override
     public R listRecords(String type, int page, int size) {
@@ -115,16 +125,72 @@ public class BackupServiceImpl extends ServiceImpl<BackupRecordMapper, BackupRec
     @Override
     public R backupDatabase() {
         BackupRecord record = new BackupRecord();
-        record.setName("数据库备份 - " + System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        record.setName("数据库备份 - " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(now)));
         record.setType("database");
-        record.setBackupData("{\"note\":\"Manual database backup placeholder\"}");
         record.setTriggerType("manual");
-        record.setBackupStatus("success");
-        record.setCreatedTime(System.currentTimeMillis());
-        record.setUpdatedTime(System.currentTimeMillis());
+        record.setCreatedTime(now);
+        record.setUpdatedTime(now);
         record.setStatus(0);
-        backupRecordMapper.insert(record);
 
+        try (Connection conn = dataSource.getConnection()) {
+            DatabaseMetaData meta = conn.getMetaData();
+            String catalog = conn.getCatalog();
+            Map<String, Object> backup = new LinkedHashMap<>();
+            backup.put("database", catalog);
+            backup.put("timestamp", now);
+            backup.put("server", meta.getDatabaseProductName() + " " + meta.getDatabaseProductVersion());
+
+            // Export each table: row count + structure summary
+            List<Map<String, Object>> tables = new ArrayList<>();
+            try (ResultSet rs = meta.getTables(catalog, null, "%", new String[]{"TABLE"})) {
+                while (rs.next()) {
+                    String tableName = rs.getString("TABLE_NAME");
+                    Map<String, Object> tableInfo = new LinkedHashMap<>();
+                    tableInfo.put("name", tableName);
+
+                    // Row count
+                    try (Statement stmt = conn.createStatement();
+                         ResultSet countRs = stmt.executeQuery("SELECT COUNT(*) FROM `" + tableName.replace("`", "``") + "`")) {
+                        tableInfo.put("rows", countRs.next() ? countRs.getLong(1) : 0);
+                    }
+
+                    // Column info
+                    List<String> columns = new ArrayList<>();
+                    try (ResultSet colRs = meta.getColumns(catalog, null, tableName, "%")) {
+                        while (colRs.next()) {
+                            columns.add(colRs.getString("COLUMN_NAME") + " " + colRs.getString("TYPE_NAME"));
+                        }
+                    }
+                    tableInfo.put("columns", columns);
+
+                    // CREATE TABLE statement
+                    try (Statement stmt = conn.createStatement();
+                         ResultSet showRs = stmt.executeQuery("SHOW CREATE TABLE `" + tableName.replace("`", "``") + "`")) {
+                        if (showRs.next()) {
+                            tableInfo.put("createSql", showRs.getString(2));
+                        }
+                    } catch (Exception ignored) {
+                        // Non-MySQL databases won't support SHOW CREATE TABLE
+                    }
+
+                    tables.add(tableInfo);
+                }
+            }
+            backup.put("tables", tables);
+            backup.put("tableCount", tables.size());
+            long totalRows = tables.stream().mapToLong(t -> ((Number) t.getOrDefault("rows", 0L)).longValue()).sum();
+            backup.put("totalRows", totalRows);
+
+            record.setBackupData(JSON.toJSONString(backup));
+            record.setBackupStatus("success");
+        } catch (Exception e) {
+            log.error("[Backup] Database backup failed: {}", e.getMessage());
+            record.setBackupData("{\"error\":\"" + e.getMessage().replace("\"", "'") + "\"}");
+            record.setBackupStatus("failed");
+        }
+
+        backupRecordMapper.insert(record);
         return R.ok(record);
     }
 

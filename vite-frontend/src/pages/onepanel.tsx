@@ -31,6 +31,7 @@ import {
   OnePanelWebsiteSummary,
   createOnePanelInstance,
   deleteOnePanelInstance,
+  diagnoseOnePanelInstance,
   getAssetList,
   getOnePanelDetail,
   getOnePanelList,
@@ -149,6 +150,9 @@ export default function OnePanelPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
+  const [diagnoseOpen, setDiagnoseOpen] = useState(false);
+  const [diagnoseLoading, setDiagnoseLoading] = useState(false);
+  const [diagnoseResult, setDiagnoseResult] = useState<any>(null);
 
   const [isEdit] = useState(false);
   const [form, setForm] = useState<OnePanelForm>(emptyForm());
@@ -296,6 +300,23 @@ export default function OnePanelPage() {
     }
   };
 
+  const onDiagnose = async (item: OnePanelInstance) => {
+    setSelected(item);
+    setDiagnoseOpen(true);
+    setDiagnoseLoading(true);
+    setDiagnoseResult(null);
+    try {
+      const response = await diagnoseOnePanelInstance(item.id);
+      if (response.code === 0 && response.data) {
+        setDiagnoseResult(response.data);
+      } else {
+        toast.error(response.msg || '诊断失败');
+      }
+    } finally {
+      setDiagnoseLoading(false);
+    }
+  };
+
   if (!canRead) {
     return (
       <Card className="border border-danger/20 bg-danger-50/60">
@@ -401,11 +422,13 @@ export default function OnePanelPage() {
                           <Chip size="sm" variant="flat" color={status.color}>{status.text}</Chip>
                           <p className="mt-2 text-xs text-default-500">{formatDate(item.lastReportAt)}</p>
                           <p className="mt-1 text-xs text-default-500">{item.lastReportRemoteIp || '-'}</p>
+                          {item.lastReportError ? <p className="mt-1 text-xs text-danger">{item.lastReportError}</p> : null}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="flat" onPress={() => loadDetail(item)}>详情</Button>
+                          <Button size="sm" variant="flat" color="warning" onPress={() => void onDiagnose(item)}>诊断</Button>
                           {item.panelUrl ? (
                             <Button size="sm" variant="flat" color="secondary" as="a" href={item.panelUrl} target="_blank" rel="noreferrer">
                               打开 1Panel
@@ -509,6 +532,61 @@ export default function OnePanelPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={() => setBootstrapOpen(false)}>关闭</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={diagnoseOpen} onOpenChange={(open) => !open && setDiagnoseOpen(false)} size="3xl" scrollBehavior="inside">
+        <ModalContent>
+          <ModalHeader>连通性诊断: {selected?.name || ''}</ModalHeader>
+          <ModalBody className="space-y-4">
+            {diagnoseLoading ? (
+              <div className="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
+            ) : diagnoseResult ? (
+              <>
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">检查结果</p>
+                  {(diagnoseResult.checks || []).map((check: string, i: number) => (
+                    <div key={i} className={`rounded-lg px-3 py-2 text-sm ${check.startsWith('PASS') ? 'bg-success-50 text-success-700' : check.startsWith('WARN') ? 'bg-warning-50 text-warning-700' : 'bg-danger-50 text-danger-700'}`}>
+                      {check}
+                    </div>
+                  ))}
+                </div>
+                {(diagnoseResult.suggestions || []).length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">建议操作</p>
+                    {(diagnoseResult.suggestions || []).map((s: string, i: number) => (
+                      <div key={i} className="flex items-start gap-2 rounded-lg border border-divider/80 px-3 py-2 text-sm">
+                        <span className="mt-0.5 text-default-400">→</span>
+                        <span className="font-mono text-xs">{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {diagnoseResult.triggerCommand ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">手动触发同步 (在目标服务器上执行)</p>
+                    <div className="flex items-center gap-2 rounded-lg bg-default-100 px-3 py-2">
+                      <code className="flex-1 text-xs">{diagnoseResult.triggerCommand}</code>
+                      <Button size="sm" variant="flat" onPress={() => void copyText(diagnoseResult.triggerCommand, '命令已复制')}>复制</Button>
+                    </div>
+                  </div>
+                ) : null}
+                <Card className="border border-primary/20 bg-primary-50/40">
+                  <CardBody className="gap-1 p-4 text-xs text-primary-900">
+                    <p className="font-semibold text-sm">关于 1Panel API Key</p>
+                    <p>Flux 不存储 1Panel API Key，密钥仅保存在目标服务器的 /etc/flux-1panel-sync/.env 文件中 (权限 600)。</p>
+                    <p>安装绑定完成后，不能关闭 1Panel 的 API 接口——exporter 每次同步都需要用 API Key 访问本地 1Panel API。</p>
+                    <p>安全建议：将 1Panel API 接口的访问限制为仅 127.0.0.1 / 本机，避免对外暴露。</p>
+                  </CardBody>
+                </Card>
+              </>
+            ) : (
+              <p className="text-sm text-default-500">暂无诊断结果。</p>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={() => { setDiagnoseOpen(false); void loadData(); }}>关闭并刷新</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

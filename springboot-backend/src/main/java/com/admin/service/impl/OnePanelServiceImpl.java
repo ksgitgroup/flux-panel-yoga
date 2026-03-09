@@ -240,6 +240,76 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
         return R.ok(ack);
     }
 
+    @Override
+    public R diagnoseConnectivity(Long id) {
+        OnePanelInstance instance = getRequiredInstance(id);
+        Map<String, Object> diag = new LinkedHashMap<>();
+        diag.put("instanceId", instance.getId());
+        diag.put("instanceName", instance.getName());
+        diag.put("instanceKey", instance.getInstanceKey());
+        diag.put("reportEnabled", Objects.equals(instance.getReportEnabled(), FLAG_TRUE));
+        diag.put("tokenIssuedAt", instance.getTokenIssuedAt());
+        diag.put("lastReportAt", instance.getLastReportAt());
+        diag.put("lastReportStatus", instance.getLastReportStatus());
+        diag.put("lastReportError", instance.getLastReportError());
+        diag.put("lastReportRemoteIp", instance.getLastReportRemoteIp());
+        diag.put("exporterVersion", instance.getExporterVersion());
+        diag.put("panelVersion", instance.getPanelVersion());
+
+        List<String> checks = new ArrayList<>();
+        List<String> suggestions = new ArrayList<>();
+
+        if (!Objects.equals(instance.getReportEnabled(), FLAG_TRUE)) {
+            checks.add("FAIL: 上报已关闭");
+            suggestions.add("请在实例设置中开启 exporter 上报");
+        } else {
+            checks.add("PASS: 上报已开启");
+        }
+
+        if (instance.getTokenIssuedAt() == null || instance.getTokenIssuedAt() == 0) {
+            checks.add("FAIL: Token 尚未颁发");
+            suggestions.add("请重新创建实例或轮换 Token");
+        } else {
+            checks.add("PASS: Token 已颁发 (" + formatTs(instance.getTokenIssuedAt()) + ")");
+        }
+
+        String reportStatus = instance.getLastReportStatus();
+        if (STATUS_NEVER.equals(reportStatus) || reportStatus == null) {
+            checks.add("FAIL: 从未收到过上报");
+            suggestions.add("请在目标服务器运行: systemctl start flux-1panel-sync.service");
+            suggestions.add("查看 exporter 日志: journalctl -u flux-1panel-sync.service -n 30 --no-pager");
+            suggestions.add("确认 .env 中 FLUX_URL 可从目标服务器访问");
+            suggestions.add("确认 .env 中 FLUX_NODE_TOKEN 与创建时一致");
+        } else if (STATUS_FAILED.equals(reportStatus)) {
+            checks.add("FAIL: 最近一次上报失败");
+            if (StringUtils.hasText(instance.getLastReportError())) {
+                checks.add("错误: " + instance.getLastReportError());
+            }
+            suggestions.add("查看 exporter 日志: journalctl -u flux-1panel-sync.service -n 30 --no-pager");
+        } else if (STATUS_SUCCESS.equals(reportStatus)) {
+            checks.add("PASS: 最近一次上报成功 (" + formatTs(instance.getLastReportAt()) + ")");
+            long elapsed = System.currentTimeMillis() - (instance.getLastReportAt() != null ? instance.getLastReportAt() : 0);
+            if (elapsed > 600_000) {
+                checks.add("WARN: 距离上次上报已超过 10 分钟 (定时器间隔为 5 分钟)");
+                suggestions.add("检查定时器: systemctl status flux-1panel-sync.timer");
+                suggestions.add("手动触发: systemctl start flux-1panel-sync.service");
+            }
+        }
+
+        diag.put("checks", checks);
+        diag.put("suggestions", suggestions);
+
+        String triggerCmd = "systemctl start flux-1panel-sync.service && journalctl -u flux-1panel-sync.service -n 20 --no-pager";
+        diag.put("triggerCommand", triggerCmd);
+
+        return R.ok(diag);
+    }
+
+    private String formatTs(Long ts) {
+        if (ts == null || ts == 0) return "-";
+        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(ts));
+    }
+
     private OnePanelInstance getRequiredInstance(Long id) {
         OnePanelInstance instance = this.getById(id);
         if (instance == null || instance.getStatus() == 1) {

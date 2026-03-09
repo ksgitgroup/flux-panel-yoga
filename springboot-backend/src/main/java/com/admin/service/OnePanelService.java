@@ -23,4 +23,6 @@ public interface OnePanelService extends IService<OnePanelInstance> {
     R rotateToken(OnePanelInstanceIdDto dto);
 
     R receiveReport(String instanceKey, String token, OnePanelExporterReportDto dto, String remoteIp);
+
+    R diagnoseConnectivity(Long id);
 }

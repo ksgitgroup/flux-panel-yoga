@@ -79,4 +79,7 @@ public class MonitorNodeSnapshot extends BaseEntity {
 
     /** 0=normal, 1=user-unlinked from asset (skip auto-create/link on sync) */
     private Integer assetUnlinked;
+
+    /** 首次上线时间 (首次 online=1 时记录) */
+    private Long firstSeenAt;
 }

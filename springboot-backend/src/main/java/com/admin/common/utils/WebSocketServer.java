@@ -6,6 +6,7 @@ import com.admin.common.dto.GostDto;
 import com.admin.common.task.CheckGostConfigAsync;
 import com.admin.entity.Node;
 import com.admin.service.NodeService;
+import com.admin.service.NotificationService;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import lombok.SneakyThrows;
@@ -30,6 +31,9 @@ public class WebSocketServer extends TextWebSocketHandler {
 
     @Resource
     NodeService nodeService;
+
+    @Resource
+    NotificationService notificationService;
 
     // 存储所有活跃的 WebSocket 连接（
     private static final CopyOnWriteArraySet<WebSocketSession> activeSessions = new CopyOnWriteArraySet<>();
@@ -332,12 +336,26 @@ public class WebSocketServer extends TextWebSocketHandler {
                         
                         if (updateResult) {
                             log.info("节点 {} 状态更新为离线成功", nodeId);
-                            
+
                             JSONObject res = new JSONObject();
                             res.put("id", id);
                             res.put("type", "status");
                             res.put("data", 0);
                             broadcastMessage(res.toJSONString());
+
+                            // 发送节点离线通知
+                            try {
+                                notificationService.send(
+                                        "GOST 节点离线: " + node.getName(),
+                                        "节点 " + node.getName() + " (ID: " + nodeId + ") 已断开连接",
+                                        "node_offline",
+                                        "warning",
+                                        "gost",
+                                        nodeId
+                                );
+                            } catch (Exception ex) {
+                                log.warn("发送节点离线通知失败: {}", ex.getMessage());
+                            }
                         } else {
                             log.info("节点 {} 状态更新为离线失败", nodeId);
                         }

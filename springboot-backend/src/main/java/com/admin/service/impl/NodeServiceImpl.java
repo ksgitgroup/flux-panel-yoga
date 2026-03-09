@@ -5,17 +5,21 @@ import cn.hutool.core.util.StrUtil;
 import com.admin.common.dto.NodeDto;
 import com.admin.common.dto.NodeUpdateDto;
 import com.admin.common.lang.R;
+import com.admin.entity.AssetHost;
 import com.admin.entity.Node;
 import com.admin.entity.Tunnel;
 import com.admin.entity.ViteConfig;
+import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.NodeMapper;
 import com.admin.mapper.TunnelMapper;
 import com.admin.service.NodeService;
 import com.admin.service.TunnelService;
 import com.admin.service.ViteConfigService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -33,6 +37,7 @@ import org.springframework.beans.factory.annotation.Value;
  * @author QAQ
  * @since 2025-06-03
  */
+@Slf4j
 @Service
 public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements NodeService {
 
@@ -74,6 +79,9 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     @Resource
     ViteConfigService viteConfigService;
 
+    @Resource
+    private AssetHostMapper assetHostMapper;
+
     /** 当前构建分支（由 GitHub Actions → Dockerfile → ENV 自动注入） */
     @Value("${GIT_BRANCH:dev}")
     private String gitBranch;
@@ -95,6 +103,9 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     public R createNode(NodeDto nodeDto) {
         Node node = buildNewNode(nodeDto);
         boolean result = this.save(node);
+        if (result) {
+            autoLinkAsset(node);
+        }
         return result ? R.ok(SUCCESS_CREATE_MSG) : R.err(ERROR_CREATE_MSG);
     }
 
@@ -129,6 +140,12 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         // 2. 构建更新对象并执行更新
         Node updateNode = buildUpdateNode(nodeUpdateDto);
         boolean result = this.updateById(updateNode);
+
+        // 2.1 如果 serverIp 变更，重新尝试关联资产
+        Node existingNode = this.getById(nodeUpdateDto.getId());
+        if (existingNode != null && existingNode.getAssetId() == null) {
+            autoLinkAsset(existingNode);
+        }
 
         // 更新隧道入口ip
         List<Tunnel> inNodeId = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", updateNode.getId()));
@@ -171,7 +188,10 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
             return usageCheckResult;
         }
 
-        // 3. 执行删除操作
+        // 3. 解除资产关联
+        unlinkAsset(id);
+
+        // 4. 执行删除操作
         boolean result = this.removeById(id);
         return result ? R.ok(SUCCESS_DELETE_MSG) : R.err(ERROR_DELETE_MSG);
     }
@@ -420,6 +440,62 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         // 计算冒号数量，IPv6地址至少有2个冒号
         long colonCount = address.chars().filter(ch -> ch == ':').count();
         return colonCount >= 2;
+    }
+
+    /**
+     * 创建节点后自动关联资产
+     * 通过 serverIp 匹配 asset_host.primary_ip，双向绑定
+     */
+    private void autoLinkAsset(Node node) {
+        try {
+            String serverIp = node.getServerIp();
+            if (StrUtil.isBlank(serverIp)) return;
+
+            // 查找 IP 匹配且未绑定 GOST 节点的资产
+            AssetHost asset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getPrimaryIp, serverIp)
+                    .isNull(AssetHost::getGostNodeId)
+                    .last("LIMIT 1"));
+            if (asset == null) return;
+
+            // 双向绑定: node → asset, asset → node
+            node.setAssetId(asset.getId());
+            this.updateById(node);
+
+            asset.setGostNodeId(node.getId());
+            asset.setUpdatedTime(System.currentTimeMillis());
+            assetHostMapper.updateById(asset);
+
+            log.info("[GOST] 节点 {} (IP={}) 自动关联资产 {} ({})", node.getName(), serverIp, asset.getName(), asset.getId());
+        } catch (Exception e) {
+            log.warn("[GOST] 自动关联资产失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 删除节点前解除资产关联
+     */
+    private void unlinkAsset(Long nodeId) {
+        try {
+            // 清除 asset_host 中引用此节点的 gost_node_id
+            List<AssetHost> linkedAssets = assetHostMapper.selectList(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getGostNodeId, nodeId));
+            for (AssetHost asset : linkedAssets) {
+                asset.setGostNodeId(null);
+                asset.setUpdatedTime(System.currentTimeMillis());
+                assetHostMapper.updateById(asset);
+                log.info("[GOST] 节点删除，解除资产 {} ({}) 的 GOST 关联", asset.getName(), asset.getId());
+            }
+
+            // 同时清除 node 自身的 assetId
+            Node node = this.getById(nodeId);
+            if (node != null && node.getAssetId() != null) {
+                node.setAssetId(null);
+                this.updateById(node);
+            }
+        } catch (Exception e) {
+            log.warn("[GOST] 解除资产关联失败: {}", e.getMessage());
+        }
     }
 
     /**

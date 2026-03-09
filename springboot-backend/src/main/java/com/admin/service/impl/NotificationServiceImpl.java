@@ -131,11 +131,26 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
 
     @Override
     public R unreadCount() {
-        long count = notificationMapper.selectCount(
-                new LambdaQueryWrapper<Notification>()
-                        .eq(Notification::getStatus, 0)
-                        .eq(Notification::getReadStatus, 0));
-        return R.ok(Map.of("count", count));
+        LambdaQueryWrapper<Notification> baseWrapper = new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getStatus, 0)
+                .eq(Notification::getReadStatus, 0);
+        long count = notificationMapper.selectCount(baseWrapper);
+
+        // Severity breakdown for frontend priority toasts
+        long criticalCount = notificationMapper.selectCount(new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getStatus, 0)
+                .eq(Notification::getReadStatus, 0)
+                .eq(Notification::getSeverity, "critical"));
+        long warningCount = notificationMapper.selectCount(new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getStatus, 0)
+                .eq(Notification::getReadStatus, 0)
+                .eq(Notification::getSeverity, "warning"));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("count", count);
+        result.put("critical", criticalCount);
+        result.put("warning", warningCount);
+        return R.ok(result);
     }
 
     @Override

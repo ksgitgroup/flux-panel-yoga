@@ -378,7 +378,7 @@ if [[ "$API_ERRORS" -gt 0 ]]; then
   printf 'WARN: %d/%d 1Panel API calls failed (partial data)\n' "$API_ERRORS" "$API_TOTAL" >&2
 fi
 
-curl -fsS \
+report_response=$(curl -sS -w '\n%{http_code}' \
   --connect-timeout "$PANEL_TIMEOUT_SEC" \
   --max-time "$PANEL_TIMEOUT_SEC" \
   -H "Content-Type: application/json" \
@@ -386,10 +386,24 @@ curl -fsS \
   -H "X-Flux-Node-Token: ${FLUX_NODE_TOKEN}" \
   -X POST \
   --data "$payload" \
-  "${FLUX_URL%/}/api/v1/onepanel/report" >/dev/null
+  "${FLUX_URL%/}/api/v1/onepanel/report" 2>&1) || true
 
-if [[ "$API_ERRORS" -gt 0 ]]; then
-  printf 'onepanel exporter sync ok (with %d/%d API warnings)\n' "$API_ERRORS" "$API_TOTAL"
+report_http_code=$(echo "$report_response" | tail -1)
+report_body=$(echo "$report_response" | sed '$d')
+
+if [[ "$report_http_code" =~ ^2[0-9][0-9]$ ]]; then
+  if [[ "$API_ERRORS" -gt 0 ]]; then
+    printf 'onepanel exporter sync ok (with %d/%d API warnings)\n' "$API_ERRORS" "$API_TOTAL"
+  else
+    printf 'onepanel exporter sync ok\n'
+  fi
 else
-  printf 'onepanel exporter sync ok\n'
+  printf 'ERROR: report to Flux failed (HTTP %s)\n' "$report_http_code" >&2
+  printf '  URL: %s/api/v1/onepanel/report\n' "${FLUX_URL%/}" >&2
+  printf '  Response: %s\n' "$report_body" >&2
+  printf 'Hints:\n' >&2
+  printf '  1. Check FLUX_URL is correct and reachable from this server\n' >&2
+  printf '  2. Check FLUX_INSTANCE_KEY and FLUX_NODE_TOKEN match the Flux panel\n' >&2
+  printf '  3. Try: curl -v -H "Content-Type: application/json" -X POST %s/api/v1/onepanel/report\n' "${FLUX_URL%/}" >&2
+  exit 1
 fi

@@ -284,6 +284,23 @@ interface MergedServer {
 type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime';
 type ViewMode = 'card' | 'list';
 
+const OFFLINE_REASON_LABELS: Record<string, string> = {
+  probe_unreachable: '探针不可达',
+  server_down: '服务器宕机',
+  probe_removed: '探针已移除',
+  never_connected: '从未连接',
+};
+
+function formatOfflineDuration(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return '';
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return `${minutes}分钟`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时${minutes % 60 > 0 ? minutes % 60 + '分' : ''}`;
+  const days = Math.floor(hours / 24);
+  return `${days}天${hours % 24 > 0 ? hours % 24 + '小时' : ''}`;
+}
+
 function mergeNodes(nodes: MonitorNodeSnapshot[]): MergedServer[] {
   // Group by assetId; unlinked nodes are standalone
   const byAsset = new Map<string, MonitorNodeSnapshot[]>();
@@ -385,8 +402,8 @@ export default function ServerDashboardPage() {
 
   useEffect(() => {
     fetchData(true);
-    // 10s polling for real-time feel
-    pollRef.current = setInterval(() => fetchData(false), 10_000);
+    // 15s polling for real-time feel (reduced from 10s for performance)
+    pollRef.current = setInterval(() => fetchData(false), 15_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchData]);
 
@@ -1033,9 +1050,20 @@ export default function ServerDashboardPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="py-3 text-center">
-                    <span className="text-[11px] text-danger font-bold tracking-wider">离线</span>
-                    {server.os && <p className="text-[10px] text-default-400 mt-1">{server.os}</p>}
+                  <div className="py-3 text-center space-y-0.5">
+                    <span className="text-[11px] text-danger font-bold tracking-wider">
+                      {server.primary.connectionStatus === 'never_connected' ? '从未连接' : '离线'}
+                    </span>
+                    {server.primary.offlineDuration != null && server.primary.offlineDuration > 0 && (
+                      <p className="text-[10px] text-danger/70">已离线 {formatOfflineDuration(server.primary.offlineDuration)}</p>
+                    )}
+                    {server.primary.offlineReason && server.primary.offlineReason !== 'never_connected' && (
+                      <p className="text-[10px] text-default-400">{OFFLINE_REASON_LABELS[server.primary.offlineReason] || server.primary.offlineReason}</p>
+                    )}
+                    {server.primary.lastActiveAt && server.primary.lastActiveAt > 0 && (
+                      <p className="text-[9px] text-default-400">最后在线: {new Date(server.primary.lastActiveAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+                    )}
+                    {server.os && <p className="text-[10px] text-default-400">{server.os}</p>}
                   </div>
                 )}
               </button>
@@ -1075,6 +1103,22 @@ export default function ServerDashboardPage() {
                       同步: {selectedNode.lastSyncAt ? new Date(selectedNode.lastSyncAt).toLocaleString('zh-CN', { hour12: false }) : '-'}
                       {m?.sampledAt ? ` · 采样: ${new Date(m.sampledAt).toLocaleString('zh-CN', { hour12: false })}` : ''}
                     </p>
+                    {!isOnline && (
+                      <div className="flex items-center gap-2 mt-1 text-[10px]">
+                        <Chip size="sm" variant="flat" color="danger" className="h-4 text-[9px]">
+                          {selectedNode.connectionStatus === 'never_connected' ? '从未连接' : `离线${selectedNode.offlineDuration ? ' ' + formatOfflineDuration(selectedNode.offlineDuration) : ''}`}
+                        </Chip>
+                        {selectedNode.offlineReason && (
+                          <span className="text-default-400">{OFFLINE_REASON_LABELS[selectedNode.offlineReason] || selectedNode.offlineReason}</span>
+                        )}
+                        {selectedNode.lastActiveAt && selectedNode.lastActiveAt > 0 && (
+                          <span className="text-default-400">最后在线: {new Date(selectedNode.lastActiveAt).toLocaleString('zh-CN', { hour12: false })}</span>
+                        )}
+                        {selectedNode.firstSeenAt && (
+                          <span className="text-default-400">首次上线: {new Date(selectedNode.firstSeenAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' })}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </ModalHeader>
                 <ModalBody className="space-y-4 pb-6">

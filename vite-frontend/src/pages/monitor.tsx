@@ -666,7 +666,7 @@ export default function MonitorPage() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void loadBoard(true);
-    }, runtime?.running ? 2500 : 60000);
+    }, runtime?.running ? 5000 : 120000);
     return () => window.clearInterval(timer);
   }, [loadBoard, runtime?.running]);
 

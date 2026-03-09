@@ -455,6 +455,9 @@ public class DatabaseInitService {
             // Sync control: prevent re-creation after user deletes asset/node
             updateColumn("monitor_node_snapshot", "asset_unlinked", "tinyint(1) DEFAULT 0 COMMENT '用户已取消关联资产(1=跳过自动创建)'");
 
+            // Offline diagnostics: track first connection time
+            updateColumn("monitor_node_snapshot", "first_seen_at", "bigint(20) DEFAULT NULL COMMENT '首次上线时间'");
+
             // Add new columns to monitor_metric_latest (v2 expansion)
             updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");
             updateColumn("monitor_metric_latest", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");
@@ -718,6 +721,12 @@ public class DatabaseInitService {
             ensureConfig("dingtalk_redirect_uri", "", "钉钉OAuth回调地址（支持环境变量 DINGTALK_REDIRECT_URI 覆盖）");
             ensureConfig("dingtalk_allowed_org_ids", "[]", "允许登录的钉钉组织ID列表(JSON)，支持环境变量 DINGTALK_ALLOWED_ORG_IDS 覆盖");
             ensureConfig("dingtalk_required_email_domain", "", "钉钉登录用户必须满足的企业邮箱域名，支持环境变量 DINGTALK_REQUIRED_EMAIL_DOMAIN 覆盖");
+
+            // JumpServer integration
+            ensureConfig("jumpserver_enabled", "false", "是否启用 JumpServer 堡垒机集成");
+            ensureConfig("jumpserver_url", "", "JumpServer 地址 (如 https://jump.example.com)");
+            ensureConfig("jumpserver_access_key_id", "", "JumpServer Access Key ID");
+            ensureConfig("jumpserver_access_key_secret", "", "JumpServer Access Key Secret");
 
             ensureIamRole("SUPER_ADMIN", "超级管理员", "企业平台最高权限角色", "system", 1, 0, 1);
             ensureIamRole("DEV_ADMIN", "开发管理员", "开发与运维管理角色", "system", 1, 10, 1);

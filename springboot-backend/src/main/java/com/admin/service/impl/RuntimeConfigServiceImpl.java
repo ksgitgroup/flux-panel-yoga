@@ -37,6 +37,7 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
 
         Set<String> secretKeys = new LinkedHashSet<>();
         secretKeys.add("dingtalk_client_secret");
+        secretKeys.add("jumpserver_access_key_secret");
         SECRET_KEYS = Collections.unmodifiableSet(secretKeys);
     }
 
@@ -84,6 +85,13 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
 
             if (SECRET_KEYS.contains(key) && StringUtils.hasText(effectiveMap.get(key))) {
                 effectiveMap.put(key, MASKED_SECRET_VALUE);
+            }
+        }
+
+        // Mask secret keys that are not in ENV_MAPPINGS but still sensitive
+        for (String secretKey : SECRET_KEYS) {
+            if (!ENV_MAPPINGS.containsKey(secretKey) && StringUtils.hasText(effectiveMap.get(secretKey))) {
+                effectiveMap.put(secretKey, MASKED_SECRET_VALUE);
             }
         }
 

@@ -99,4 +99,17 @@ public class MonitorNodeSnapshotViewDto {
 
     /** Peer probe type (komari/pika). Null if no peer. */
     private String peerInstanceType;
+
+    // ---- Offline diagnostics ----
+    /** 首次上线时间 */
+    private Long firstSeenAt;
+
+    /** 连接状态: online / offline / never_connected / degraded */
+    private String connectionStatus;
+
+    /** 离线时长 (毫秒), 仅离线时有值 */
+    private Long offlineDuration;
+
+    /** 离线原因推断: probe_unreachable / server_down / probe_removed / never_connected */
+    private String offlineReason;
 }

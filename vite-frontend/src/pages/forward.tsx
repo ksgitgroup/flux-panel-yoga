@@ -3069,23 +3069,33 @@ export default function ForwardPage() {
                     description="用于多IP服务器指定使用那个IP请求远程地址，不懂的默认为空就行"
                   />
 
-                  <Select
-                    label="协议 (Protocol)"
-                    placeholder="选择协议 (可选)"
-                    selectedKeys={form.protocolId ? [form.protocolId.toString()] : []}
-                    onSelectionChange={(keys) => {
-                      const selectedKey = Array.from(keys)[0] as string;
-                      setForm(prev => ({ ...prev, protocolId: selectedKey ? parseInt(selectedKey) : null }));
-                    }}
-                    variant="bordered"
-                  >
-                    {[
-                      <SelectItem key="" textValue="无协议">无协议</SelectItem>,
-                      ...protocols.map(p => (
-                        <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
-                      ))
-                    ]}
-                  </Select>
+                  {form.remoteSourceType === 'xui' && form.remoteSourceProtocol ? (
+                    <Input
+                      label="协议 (Protocol)"
+                      value={form.remoteSourceProtocol}
+                      isReadOnly
+                      variant="bordered"
+                      description="协议由 X-UI 入站自动确定"
+                    />
+                  ) : (
+                    <Select
+                      label="协议 (Protocol)"
+                      placeholder="选择协议 (可选)"
+                      selectedKeys={form.protocolId ? [form.protocolId.toString()] : []}
+                      onSelectionChange={(keys) => {
+                        const selectedKey = Array.from(keys)[0] as string;
+                        setForm(prev => ({ ...prev, protocolId: selectedKey ? parseInt(selectedKey) : null }));
+                      }}
+                      variant="bordered"
+                    >
+                      {[
+                        <SelectItem key="" textValue="无协议">无协议</SelectItem>,
+                        ...protocols.map(p => (
+                          <SelectItem key={p.id.toString()} textValue={p.name}>{p.name}</SelectItem>
+                        ))
+                      ]}
+                    </Select>
+                  )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

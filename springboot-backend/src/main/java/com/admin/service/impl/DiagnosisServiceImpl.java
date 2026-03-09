@@ -274,8 +274,8 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
         List<DiagnosisRecord> latestRecords = latestPerTarget.stream().filter(r -> {
             String targetType = r.getTargetType();
             Integer targetId = r.getTargetId();
-            if (“tunnel”.equals(targetType)) return activeTunnelIds.contains(targetId);
-            if (“forward”.equals(targetType)) return activeForwardIds.contains(targetId);
+            if ("tunnel".equals(targetType)) return activeTunnelIds.contains(targetId);
+            if ("forward".equals(targetType)) return activeForwardIds.contains(targetId);
             return false;
         }).collect(Collectors.toList());
 
@@ -291,23 +291,23 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                 .orElse(-1);
 
         Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put(“totalCount”, totalCount);
-        summary.put(“successCount”, successCount);
-        summary.put(“failCount”, failCount);
-        summary.put(“healthRate”, totalCount > 0 ? Math.round((successCount * 100.0 / totalCount) * 10.0) / 10.0 : 100.0);
-        summary.put(“avgLatency”, avgLatency >= 0 ? Math.round(avgLatency * 10.0) / 10.0 : null);
-        summary.put(“records”, latestRecords);
+        summary.put("totalCount", totalCount);
+        summary.put("successCount", successCount);
+        summary.put("failCount", failCount);
+        summary.put("healthRate", totalCount > 0 ? Math.round((successCount * 100.0 / totalCount) * 10.0) / 10.0 : 100.0);
+        summary.put("avgLatency", avgLatency >= 0 ? Math.round(avgLatency * 10.0) / 10.0 : null);
+        summary.put("records", latestRecords);
 
         // 最近异常记录 (最多5条)
         List<DiagnosisRecord> recentFailures = latestRecords.stream()
                 .filter(r -> !Boolean.TRUE.equals(r.getOverallSuccess()))
                 .limit(5)
                 .collect(Collectors.toList());
-        summary.put(“recentFailures”, recentFailures);
+        summary.put("recentFailures", recentFailures);
 
         // 最近一次全量诊断时间
         DiagnosisRecord mostRecent = mapper.selectMostRecent();
-        if (mostRecent != null) summary.put(“lastRunTime”, mostRecent.getCreatedTime());
+        if (mostRecent != null) summary.put("lastRunTime", mostRecent.getCreatedTime());
 
         return R.ok(summary);
     }

@@ -533,33 +533,29 @@ export default function AdminLayout({
     (!item.adminOnly || isAdmin) && hasAnyPermission(item.requiredPermissions || [])
   );
 
-  // Primary nav items (always visible in pill bar)
-  const primaryPaths = ['/dashboard', '/forward', '/tunnel'];
+  // Primary nav items (always visible in pill bar) — 高频直达
+  const primaryPaths = ['/dashboard', '/assets', '/forward', '/tunnel'];
   const primaryMenuItems = primaryPaths
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter((item): item is MenuItem => Boolean(item));
 
-  // Grouped dropdown menus
-  const serverGroupPaths = ['/server-dashboard', '/assets', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
-  const monitorGroupPaths = ['/monitor', '/probe', '/alert', '/notification', '/audit'];
-  // 系统菜单分组：外部集成 | 权限管理 | 系统配置
-  const systemIntegrationPaths = ['/xui', '/xui-protocols', '/onepanel'];
-  const systemAccessPaths = ['/user', '/iam/users', '/iam/roles', '/limit'];
-  const systemConfigPaths = ['/config', '/protocol', '/tag', '/portal', '/portal/config', '/backup'];
-  const systemGroupPaths = [...systemIntegrationPaths, ...systemAccessPaths, ...systemConfigPaths];
+  // Grouped dropdown menus — "服务器"含看板+分析，"监控"含诊断+探针
+  const serverGroupPaths = ['/server-dashboard', '/monitor', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
+  // 系统工作台：点击直接进入 /config，侧边栏导航所有子页面
+  const systemGroupPaths = [
+    '/xui', '/xui-protocols', '/onepanel',
+    '/user', '/iam/users', '/iam/roles', '/limit',
+    '/config', '/protocol', '/tag', '/portal', '/portal/config', '/backup',
+    '/probe', '/alert', '/notification', '/audit'
+  ];
 
   const serverGroup = serverGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
-  const monitorGroup = monitorGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
-  const systemGroup = systemGroupPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
-  const systemIntegrationGroup = systemIntegrationPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
-  const systemAccessGroup = systemAccessPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
-  const systemConfigGroup = systemConfigPaths.map(p => filteredMenuItems.find(i => i.path === p)).filter((i): i is MenuItem => Boolean(i));
 
-  const allGroupPaths = new Set([...primaryPaths, ...serverGroupPaths, ...monitorGroupPaths, ...systemGroupPaths]);
+  const allGroupPaths = new Set([...primaryPaths, ...serverGroupPaths, ...systemGroupPaths]);
   const ungroupedItems = filteredMenuItems.filter(i => !allGroupPaths.has(i.path));
 
   const isInGroup = (paths: string[]) => paths.includes(location.pathname);
-  const isManagementRoute = isInGroup(systemGroupPaths) || ungroupedItems.some(i => i.path === location.pathname);
+  const isSystemRoute = isInGroup(systemGroupPaths) || ungroupedItems.some(i => i.path === location.pathname);
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(0,111,238,0.08),_transparent_22%),linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(241,245,249,0.9))] text-foreground dark:bg-black">
       {/* 移动端遮罩层 */}
@@ -713,85 +709,28 @@ export default function AdminLayout({
                       </Dropdown>
                     )}
 
-                    {/* Monitor group dropdown */}
-                    {monitorGroup.length > 0 && (
-                      <Dropdown placement="bottom-start">
-                        <DropdownTrigger>
-                          <button className={`inline-flex h-8.5 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition-all ${
-                            isInGroup(monitorGroupPaths) ? 'bg-primary text-white shadow-lg shadow-primary/25' : 'text-default-500 hover:bg-white hover:text-foreground dark:hover:bg-default-100/10'
-                          }`}>
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-                            <span>监控</span>
-                            <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                          </button>
-                        </DropdownTrigger>
-                        <DropdownMenu aria-label="监控菜单">
-                          {monitorGroup.map(item => (
-                            <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
-                              className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
-                              {item.label}
-                            </DropdownItem>
-                          ))}
-                        </DropdownMenu>
-                      </Dropdown>
-                    )}
                   </div>
                 </div>
               </nav>
             )}
 
             <div className="ml-auto flex items-center gap-2 lg:gap-3">
-              {/* System group dropdown */}
-              {systemGroup.length > 0 && (
-                <Dropdown placement="bottom-end">
-                  <DropdownTrigger>
-                    <Button
-                      size="sm"
-                      variant={isManagementRoute ? "solid" : "flat"}
-                      color={isManagementRoute ? "primary" : "default"}
-                      className="h-10 rounded-[18px] border border-divider bg-white/80 px-3.5 font-semibold shadow-sm dark:bg-default-100/10"
-                      startContent={
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-                        </svg>
-                      }
-                    >
-                      {!isMobile && '系统'}
-                    </Button>
-                  </DropdownTrigger>
-                  <DropdownMenu aria-label="系统菜单" className="max-h-96 overflow-y-auto">
-                    {[
-                      ...(systemIntegrationGroup.length > 0 ? [
-                        <DropdownItem key="__section_integration" isReadOnly className="opacity-50 text-[10px] uppercase tracking-wider font-bold cursor-default pointer-events-none">外部集成</DropdownItem>,
-                        ...systemIntegrationGroup.map(item => (
-                          <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
-                            className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
-                            {item.label}
-                          </DropdownItem>
-                        )),
-                      ] : []),
-                      ...(systemAccessGroup.length > 0 ? [
-                        <DropdownItem key="__section_access" isReadOnly className="opacity-50 text-[10px] uppercase tracking-wider font-bold cursor-default pointer-events-none">权限管理</DropdownItem>,
-                        ...systemAccessGroup.map(item => (
-                          <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
-                            className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
-                            {item.label}
-                          </DropdownItem>
-                        )),
-                      ] : []),
-                      ...(systemConfigGroup.length > 0 ? [
-                        <DropdownItem key="__section_config" isReadOnly className="opacity-50 text-[10px] uppercase tracking-wider font-bold cursor-default pointer-events-none">系统配置</DropdownItem>,
-                        ...systemConfigGroup.map(item => (
-                          <DropdownItem key={item.path} startContent={item.icon} onPress={() => handleMenuClick(item.path)}
-                            className={location.pathname === item.path ? 'text-primary font-semibold' : ''}>
-                            {item.label}
-                          </DropdownItem>
-                        )),
-                      ] : []),
-                    ]}
-                  </DropdownMenu>
-                </Dropdown>
-              )}
+              {/* System workspace — 直接导航，不弹下拉 */}
+              <Button
+                size="sm"
+                variant={isSystemRoute ? "solid" : "flat"}
+                color={isSystemRoute ? "primary" : "default"}
+                className="h-10 rounded-[18px] border border-divider bg-white/80 px-3.5 font-semibold shadow-sm dark:bg-default-100/10"
+                startContent={
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                }
+                onPress={() => handleMenuClick('/config')}
+              >
+                {!isMobile && '系统'}
+              </Button>
 
               <Button
                 size="sm"

@@ -303,7 +303,8 @@ export default function ConfigPage() {
         setOriginalConfigs({ ...mergedConfigs });
         setHasChanges(false);
       }
-    } catch {
+    } catch (error) {
+      console.error('[ConfigPage] 加载配置失败:', error);
       if (!hasInitialData) {
         toast.error('加载配置出错，请重试');
       }

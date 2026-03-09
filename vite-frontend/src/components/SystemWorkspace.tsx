@@ -192,6 +192,18 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
+    key: 'portal',
+    label: '自定义导航',
+    path: '/portal',
+    group: '外部集成',
+    requiredPermissions: ['portal.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+      </svg>
+    ),
+  },
+  {
     key: 'portal-config',
     label: '导航配置',
     path: '/portal/config',
@@ -199,7 +211,60 @@ const navItems: WorkspaceItem[] = [
     requiredPermissions: ['portal.write'],
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h10M4 18h7" />
+      </svg>
+    ),
+  },
+  {
+    key: 'alert',
+    label: '告警管理',
+    path: '/alert',
+    group: '运维监控',
+    requiredPermissions: ['alert.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.73 21a2 2 0 0 1-3.46 0" />
+      </svg>
+    ),
+  },
+  {
+    key: 'notification',
+    label: '通知中心',
+    path: '/notification',
+    group: '运维监控',
+    requiredPermissions: ['notification.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+        <polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} points="22,6 12,13 2,6" />
+      </svg>
+    ),
+  },
+  {
+    key: 'audit',
+    label: '审计日志',
+    path: '/audit',
+    group: '运维监控',
+    requiredPermissions: ['audit.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} points="14 2 14 8 20 8" />
+      </svg>
+    ),
+  },
+  {
+    key: 'backup',
+    label: '备份管理',
+    path: '/backup',
+    group: '运维监控',
+    requiredPermissions: ['backup.read'],
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} points="7 10 12 15 17 10" />
+        <line strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} x1="12" y1="15" x2="12" y2="3" />
       </svg>
     ),
   },

@@ -30,14 +30,29 @@ public class DiagnosisScheduler {
     /** 上次诊断的时间戳 */
     private final AtomicLong lastRunTime = new AtomicLong(0);
 
+    /** JVM 启动时间戳，用于启动宽限期判断 */
+    private static final long BOOT_TIME = System.currentTimeMillis();
+
+    /** 启动宽限期（毫秒），部署重启后 3 分钟内跳过自动诊断，避免误报 */
+    private static final long BOOT_GRACE_MS = 3 * 60 * 1000L;
+
     /**
      * 每 60 秒检查一次：
      * 1. 从配置表读取 auto_diagnosis_enabled 和 auto_diagnosis_interval（分钟）
      * 2. 如果启用且距上次运行已超过设定的间隔，则触发全量诊断
+     * 3. 启动后 3 分钟内处于宽限期，跳过自动诊断（避免部署重启时误报）
      */
     @Scheduled(fixedDelay = 60_000)
     public void checkAndRun() {
         try {
+            // 启动宽限期：部署重启后服务/网络可能尚未就绪，跳过自动诊断
+            long elapsed = System.currentTimeMillis() - BOOT_TIME;
+            if (elapsed < BOOT_GRACE_MS) {
+                log.debug("[DiagnosisScheduler] 启动宽限期中（已启动 {}s / 宽限 {}s），跳过本次诊断",
+                        elapsed / 1000, BOOT_GRACE_MS / 1000);
+                return;
+            }
+
             String enabledVal = getConfigValue("auto_diagnosis_enabled");
             if (!"true".equalsIgnoreCase(enabledVal)) {
                 return;

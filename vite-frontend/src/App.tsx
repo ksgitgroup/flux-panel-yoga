@@ -299,8 +299,10 @@ function App() {
       <Route
         path="/portal"
         element={
-          <ProtectedRoute>
-            <PortalPage />
+          <ProtectedRoute requiredPermissions={['portal.read']}>
+            <SystemWorkspace>
+              <PortalPage />
+            </SystemWorkspace>
           </ProtectedRoute>
         }
       />

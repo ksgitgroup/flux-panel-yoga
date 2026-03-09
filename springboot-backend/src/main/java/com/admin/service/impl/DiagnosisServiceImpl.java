@@ -54,6 +54,14 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
     private final Object runtimeLock = new Object();
     private DiagnosisRuntimeSnapshot runtimeSnapshot = DiagnosisRuntimeSnapshot.idle();
 
+    /**
+     * 连续失败计数器：key = "targetType_targetId"，value = 连续失败次数。
+     * 只有连续失败 >= CONSECUTIVE_FAIL_THRESHOLD 次才纳入告警，避免单次抖动误报。
+     * 成功时重置为 0。
+     */
+    private final Map<String, Integer> consecutiveFailCount = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int CONSECUTIVE_FAIL_THRESHOLD = 2;
+
     private static class DiagnosisRuntimeSnapshot {
         private boolean running;
         private String triggerSource;
@@ -148,6 +156,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             int stepIndex = 0;
             for (Tunnel tunnel : tunnels) {
                 stepIndex++;
+                String failKey = "tunnel_" + tunnel.getId();
                 markRuntimeStep(stepIndex, "tunnel", tunnel.getId().intValue(), tunnel.getName());
                 try {
                     R result = tunnelService.diagnoseTunnel(tunnel.getId());
@@ -156,20 +165,32 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                     saveRecord("tunnel", tunnel.getId().intValue(), tunnel.getName(), success, result.getData(), metrics[0], metrics[1]);
                     completeRuntimeStep("tunnel", tunnel.getId().intValue(), tunnel.getName(), success, metrics[0], metrics[1], null);
 
-                    if (!success) {
-                        failureMessages.add(String.format("🔴 **隧道异常**：%s（ID:%d）%n> %s",
-                                tunnel.getName(), tunnel.getId(), extractFailureReason(result.getData())));
+                    if (success) {
+                        consecutiveFailCount.put(failKey, 0);
+                    } else {
+                        int count = consecutiveFailCount.merge(failKey, 1, Integer::sum);
+                        if (count >= CONSECUTIVE_FAIL_THRESHOLD) {
+                            failureMessages.add(String.format("🔴 **隧道异常**：%s（ID:%d）（连续 %d 次失败）%n> %s",
+                                    tunnel.getName(), tunnel.getId(), count, extractFailureReason(result.getData())));
+                        } else {
+                            log.info("[自动诊断] 隧道 {}（ID:{}）首次失败，暂不告警（{}/{}）",
+                                    tunnel.getName(), tunnel.getId(), count, CONSECUTIVE_FAIL_THRESHOLD);
+                        }
                     }
                 } catch (Exception e) {
                     completeRuntimeStep("tunnel", tunnel.getId().intValue(), tunnel.getName(), false, -1, -1, e.getMessage());
-                    failureMessages.add(String.format("🔴 **隧道异常**：%s（ID:%d）%n> %s",
-                            tunnel.getName(), tunnel.getId(), e.getMessage()));
+                    int count = consecutiveFailCount.merge(failKey, 1, Integer::sum);
+                    if (count >= CONSECUTIVE_FAIL_THRESHOLD) {
+                        failureMessages.add(String.format("🔴 **隧道异常**：%s（ID:%d）（连续 %d 次失败）%n> %s",
+                                tunnel.getName(), tunnel.getId(), count, e.getMessage()));
+                    }
                     log.error("[自动诊断] 诊断隧道 {} 时异常: {}", tunnel.getId(), e.getMessage());
                 }
             }
 
             for (Forward forward : forwards) {
                 stepIndex++;
+                String failKey = "forward_" + forward.getId();
                 markRuntimeStep(stepIndex, "forward", forward.getId().intValue(), forward.getName());
                 try {
                     R result = forwardService.diagnoseForward(forward.getId().longValue(), true);
@@ -178,14 +199,25 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                     saveRecord("forward", forward.getId().intValue(), forward.getName(), success, result.getData(), metrics[0], metrics[1]);
                     completeRuntimeStep("forward", forward.getId().intValue(), forward.getName(), success, metrics[0], metrics[1], null);
 
-                    if (!success) {
-                        failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）%n> %s",
-                                forward.getName(), forward.getId(), extractFailureReason(result.getData())));
+                    if (success) {
+                        consecutiveFailCount.put(failKey, 0);
+                    } else {
+                        int count = consecutiveFailCount.merge(failKey, 1, Integer::sum);
+                        if (count >= CONSECUTIVE_FAIL_THRESHOLD) {
+                            failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）（连续 %d 次失败）%n> %s",
+                                    forward.getName(), forward.getId(), count, extractFailureReason(result.getData())));
+                        } else {
+                            log.info("[自动诊断] 转发 {}（ID:{}）首次失败，暂不告警（{}/{}）",
+                                    forward.getName(), forward.getId(), count, CONSECUTIVE_FAIL_THRESHOLD);
+                        }
                     }
                 } catch (Exception e) {
                     completeRuntimeStep("forward", forward.getId().intValue(), forward.getName(), false, -1, -1, e.getMessage());
-                    failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）%n> %s",
-                            forward.getName(), forward.getId(), e.getMessage()));
+                    int count = consecutiveFailCount.merge(failKey, 1, Integer::sum);
+                    if (count >= CONSECUTIVE_FAIL_THRESHOLD) {
+                        failureMessages.add(String.format("🔴 **转发异常**：%s（ID:%d）（连续 %d 次失败）%n> %s",
+                                forward.getName(), forward.getId(), count, e.getMessage()));
+                    }
                     log.error("[自动诊断] 诊断转发 {} 时异常: {}", forward.getId(), e.getMessage());
                 }
             }

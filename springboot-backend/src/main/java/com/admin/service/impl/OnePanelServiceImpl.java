@@ -88,6 +88,10 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
         if (duplicateError != null) {
             return R.err(duplicateError);
         }
+        String duplicateAssetError = checkDuplicateAssetBinding(dto.getAssetId(), null);
+        if (duplicateAssetError != null) {
+            return R.err(duplicateAssetError);
+        }
 
         long now = System.currentTimeMillis();
         OnePanelInstance instance = new OnePanelInstance();
@@ -120,6 +124,10 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
         String duplicateError = checkDuplicateName(dto.getName(), dto.getId());
         if (duplicateError != null) {
             return R.err(duplicateError);
+        }
+        String duplicateAssetError = checkDuplicateAssetBinding(dto.getAssetId(), dto.getId());
+        if (duplicateAssetError != null) {
+            return R.err(duplicateAssetError);
         }
 
         existing.setName(dto.getName().trim());
@@ -266,15 +274,32 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
     }
 
     private String resolvePanelUrl(String panelUrl, Long assetId) {
-        String normalized = trimToNull(panelUrl);
-        if (normalized != null) {
-            return normalized;
+        if (assetId == null) {
+            return trimToNull(panelUrl);
         }
+        AssetHost asset = assetHostMapper.selectById(assetId);
+        if (asset == null || asset.getStatus() == 1) {
+            throw new IllegalStateException("绑定的服务器资产不存在");
+        }
+        String assetPanelUrl = trimToNull(asset.getPanelUrl());
+        if (!StringUtils.hasText(assetPanelUrl)) {
+            throw new IllegalStateException("绑定的服务器资产尚未录入 1Panel 地址");
+        }
+        return assetPanelUrl;
+    }
+
+    private String checkDuplicateAssetBinding(Long assetId, Long excludeId) {
         if (assetId == null) {
             return null;
         }
-        AssetHost asset = assetHostMapper.selectById(assetId);
-        return asset == null ? null : trimToNull(asset.getPanelUrl());
+        LambdaQueryWrapper<OnePanelInstance> wrapper = new LambdaQueryWrapper<OnePanelInstance>()
+                .eq(OnePanelInstance::getAssetId, assetId)
+                .eq(OnePanelInstance::getStatus, 0);
+        if (excludeId != null) {
+            wrapper.ne(OnePanelInstance::getId, excludeId);
+        }
+        Integer count = onePanelInstanceMapper.selectCount(wrapper);
+        return count != null && count > 0 ? "该服务器资产已存在 1Panel 摘要实例" : null;
     }
 
     private Map<Long, AssetHost> loadAssetHostMap(Set<Long> assetIds) {
@@ -295,9 +320,7 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
             dto.setAssetPrimaryIp(asset.getPrimaryIp());
             dto.setAssetEnvironment(asset.getEnvironment());
             dto.setAssetRegion(asset.getRegion());
-            if (!StringUtils.hasText(dto.getPanelUrl())) {
-                dto.setPanelUrl(asset.getPanelUrl());
-            }
+            dto.setPanelUrl(trimToNull(asset.getPanelUrl()));
         }
         return dto;
     }

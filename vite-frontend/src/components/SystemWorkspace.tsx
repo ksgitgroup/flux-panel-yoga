@@ -292,8 +292,8 @@ export function SystemWorkspace({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside className="space-y-4 lg:sticky lg:top-[84px] lg:self-start">
+    <div className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)]">
+      <aside className="space-y-4 lg:sticky lg:top-[68px] lg:self-start lg:max-h-[calc(100vh-84px)] lg:overflow-y-auto lg:[scrollbar-width:none]">
         <div className="rounded-[24px] border border-divider bg-white/90 p-3 shadow-sm dark:bg-default-100/10">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/10 text-primary">

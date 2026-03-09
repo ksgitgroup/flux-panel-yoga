@@ -76,6 +76,9 @@ public class AssetHost extends BaseEntity {
 
     private Integer swapTotalMb;
 
+    /** 核心用途 (简短描述服务器主要功能) */
+    private String purpose;
+
     private String remark;
 
     /** 1Panel 面板地址 (e.g. https://ip:port) */
@@ -83,4 +86,7 @@ public class AssetHost extends BaseEntity {
 
     /** 付费周期 (天): 30=月付, 90=季付, 180=半年付, 365=年付 */
     private Integer billingCycle;
+
+    /** 用户手动编辑过的字段列表 (JSON数组, 如 ["tags","label"]), 同步时跳过这些字段 */
+    private String userEditedFields;
 }

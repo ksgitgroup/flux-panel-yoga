@@ -1630,15 +1630,17 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             if (asset == null || asset.getStatus() != 0) return;
 
             boolean changed = false;
+            // Parse user-edited fields to skip during sync
+            Set<String> userEdited = AssetHostServiceImpl.parseUserEditedFields(asset.getUserEditedFields());
 
-            // Label: sync from probe name if asset label is empty
-            if (!StringUtils.hasText(asset.getLabel()) && StringUtils.hasText(node.getName())) {
+            // Label: sync from probe name if asset label is empty AND user hasn't edited it
+            if (!userEdited.contains("label") && !StringUtils.hasText(asset.getLabel()) && StringUtils.hasText(node.getName())) {
                 asset.setLabel(node.getName());
                 changed = true;
             }
 
-            // OS + osCategory: always sync from probe (probe knows the real running OS)
-            if (StringUtils.hasText(node.getOs())) {
+            // OS + osCategory: sync from probe unless user has manually edited
+            if (!userEdited.contains("os") && StringUtils.hasText(node.getOs())) {
                 String newOs = node.getOs();
                 String newCat = deriveOsCategory(newOs);
                 if (!newOs.equals(asset.getOs()) || !java.util.Objects.equals(newCat, asset.getOsCategory())) {
@@ -1651,15 +1653,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 changed = true;
             }
 
-            // Hardware: always sync from probe (probe has real-time hardware info)
-            if (node.getCpuCores() != null && !java.util.Objects.equals(node.getCpuCores(), asset.getCpuCores())) {
+            // Hardware: sync from probe unless user has manually edited specific fields
+            if (!userEdited.contains("cpuCores") && node.getCpuCores() != null && !java.util.Objects.equals(node.getCpuCores(), asset.getCpuCores())) {
                 asset.setCpuCores(node.getCpuCores()); changed = true;
             }
-            if (node.getMemTotal() != null) {
+            if (!userEdited.contains("memTotalMb") && node.getMemTotal() != null) {
                 Integer memMb = (int) (node.getMemTotal() / (1024 * 1024));
                 if (!java.util.Objects.equals(memMb, asset.getMemTotalMb())) { asset.setMemTotalMb(memMb); changed = true; }
             }
-            if (node.getDiskTotal() != null) {
+            if (!userEdited.contains("diskTotalGb") && node.getDiskTotal() != null) {
                 Integer diskGb = (int) (node.getDiskTotal() / (1024 * 1024 * 1024));
                 if (!java.util.Objects.equals(diskGb, asset.getDiskTotalGb())) { asset.setDiskTotalGb(diskGb); changed = true; }
             }
@@ -1683,22 +1685,24 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 if (!java.util.Objects.equals(swapMb, asset.getSwapTotalMb())) { asset.setSwapTotalMb(swapMb); changed = true; }
             }
 
-            // Billing: fill empty fields
-            String prevCost = asset.getMonthlyCost();
-            Integer prevCycle = asset.getBillingCycle();
-            String prevCurrency = asset.getCurrency();
-            Long prevExpire = asset.getExpireDate();
-            applyProbeBillingToAsset(asset, node);
-            if (!java.util.Objects.equals(prevCost, asset.getMonthlyCost())
-                    || !java.util.Objects.equals(prevCycle, asset.getBillingCycle())
-                    || !java.util.Objects.equals(prevCurrency, asset.getCurrency())
-                    || !java.util.Objects.equals(prevExpire, asset.getExpireDate())) {
-                changed = true;
+            // Billing: fill empty fields, skip user-edited ones
+            if (!userEdited.contains("monthlyCost") && !userEdited.contains("currency")
+                    && !userEdited.contains("billingCycle") && !userEdited.contains("expireDate")) {
+                String prevCost = asset.getMonthlyCost();
+                Integer prevCycle = asset.getBillingCycle();
+                String prevCurrency = asset.getCurrency();
+                Long prevExpire = asset.getExpireDate();
+                applyProbeBillingToAsset(asset, node);
+                if (!java.util.Objects.equals(prevCost, asset.getMonthlyCost())
+                        || !java.util.Objects.equals(prevCycle, asset.getBillingCycle())
+                        || !java.util.Objects.equals(prevCurrency, asset.getCurrency())
+                        || !java.util.Objects.equals(prevExpire, asset.getExpireDate())) {
+                    changed = true;
+                }
             }
 
-            // Tags: only fill probe tags on first sync (when asset has no tags)
-            // Do NOT merge on subsequent syncs - user may have manually removed tags
-            if (!StringUtils.hasText(asset.getTags())) {
+            // Tags: only fill if asset has no tags AND user hasn't edited tags
+            if (!userEdited.contains("tags") && !StringUtils.hasText(asset.getTags())) {
                 String prevTags = asset.getTags();
                 applyProbeTagsToAsset(asset, node);
                 if (!java.util.Objects.equals(prevTags, asset.getTags())) {

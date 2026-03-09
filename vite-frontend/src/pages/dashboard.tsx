@@ -143,6 +143,7 @@ export default function DashboardPage() {
     let expiringSoon = 0, expired = 0, totalMonthly = 0;
     const regionMap: Record<string, number> = {};
     const osMap: Record<string, number> = {};
+    const providerMap: Record<string, number> = {};
     const offlineAssets: AssetHost[] = [];
     assets.forEach(a => {
       if (a.expireDate) {
@@ -154,6 +155,8 @@ export default function DashboardPage() {
       regionMap[region] = (regionMap[region] || 0) + 1;
       const os = a.osCategory || a.os || '未知';
       osMap[os] = (osMap[os] || 0) + 1;
+      const provider = a.provider || '未设置';
+      providerMap[provider] = (providerMap[provider] || 0) + 1;
       if ((a.monitorNodeUuid || a.pikaNodeId) && a.monitorOnline !== 1) {
         offlineAssets.push(a);
       }
@@ -168,7 +171,10 @@ export default function DashboardPage() {
     const topOs = Object.entries(osMap)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 6);
-    return { total: assets.length, expiringSoon, expired, totalMonthly, topRegions, topOs, offlineAssets };
+    const topProviders = Object.entries(providerMap)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6);
+    return { total: assets.length, expiringSoon, expired, totalMonthly, topRegions, topOs, topProviders, offlineAssets };
   }, [assets]);
 
   // Traffic warning assets
@@ -406,6 +412,27 @@ export default function DashboardPage() {
                     <div key={os} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterOs=${encodeURIComponent(os)}`)}>
                       <span className="w-32 truncate">{os}</span>
                       <Progress size="sm" value={(count / assetStats.total) * 100} color="secondary" className="flex-1" />
+                      <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Provider distribution */}
+          {admin && assetStats.topProviders.length > 1 && (
+            <Card className="border border-divider/60">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold">厂商分布</p>
+                  <Link to="/assets" className="text-xs text-primary font-medium hover:underline">服务器资产</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {assetStats.topProviders.map(([provider, count]) => (
+                    <div key={provider} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-default-100 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?filterProvider=${encodeURIComponent(provider)}`)}>
+                      <span className="w-32 truncate">{provider}</span>
+                      <Progress size="sm" value={(count / assetStats.total) * 100} color="warning" className="flex-1" />
                       <span className="text-xs font-mono text-default-500 w-8 text-right">{count}</span>
                     </div>
                   ))}

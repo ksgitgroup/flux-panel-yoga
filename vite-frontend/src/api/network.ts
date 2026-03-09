@@ -88,12 +88,14 @@ const Network = {
         return;
       }
 
+      const token = window.localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = token;
+
       axios.get(path, {
         params: data,
         timeout: 30000,
-        headers: {
-          "Authorization": window.localStorage.getItem('token')
-        }
+        headers
       })
         .then(function(response: AxiosResponse<ApiResponse<T>>) {
           // 检查是否token失效
@@ -127,12 +129,13 @@ const Network = {
         return;
       }
 
+      const token = window.localStorage.getItem('token');
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = token;
+
       axios.post(path, data, {
         timeout: 30000,
-        headers: {
-          "Authorization": window.localStorage.getItem('token'),
-          "Content-Type": "application/json"
-        }
+        headers
       })
         .then(function(response: AxiosResponse<ApiResponse<T>>) {
           // 检查是否token失效

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
@@ -20,18 +21,18 @@ import {
 import { hasPermission } from '@/utils/auth';
 
 const METRICS = [
-  { value: 'cpu', label: 'CPU 使用率 (%)' },
-  { value: 'mem', label: '内存使用率 (%)' },
-  { value: 'disk', label: '磁盘使用率 (%)' },
-  { value: 'net_in', label: '入站流量 (B/s)' },
-  { value: 'net_out', label: '出站流量 (B/s)' },
-  { value: 'load', label: '系统负载 (1min)' },
-  { value: 'temperature', label: '温度 (°C)' },
-  { value: 'connections', label: 'TCP 连接数' },
-  { value: 'offline', label: '节点离线' },
-  { value: 'expiry', label: '到期提醒 (剩余天数)' },
-  { value: 'traffic_quota', label: '流量配额 (已用%)' },
-  { value: 'forward_health', label: '转发健康度 (低于阈值告警)' },
+  { value: 'cpu', label: 'CPU 使用率 (%)', needsProbe: true },
+  { value: 'mem', label: '内存使用率 (%)', needsProbe: true },
+  { value: 'disk', label: '磁盘使用率 (%)', needsProbe: true },
+  { value: 'net_in', label: '入站流量 (B/s)', needsProbe: true },
+  { value: 'net_out', label: '出站流量 (B/s)', needsProbe: true },
+  { value: 'load', label: '系统负载 (1min)', needsProbe: true },
+  { value: 'temperature', label: '温度 (°C)', needsProbe: true },
+  { value: 'connections', label: 'TCP 连接数', needsProbe: true },
+  { value: 'offline', label: '节点离线', needsProbe: true },
+  { value: 'expiry', label: '到期提醒 (剩余天数)', needsProbe: false },
+  { value: 'traffic_quota', label: '流量配额 (已用%)', needsProbe: false },
+  { value: 'forward_health', label: '转发健康度', needsProbe: false },
 ];
 
 const OPERATORS = [
@@ -67,12 +68,31 @@ const SEVERITIES = [
   { value: 'critical', label: '严重', color: 'danger' as const },
 ];
 
+// Metrics that don't need threshold input
+const NO_THRESHOLD_METRICS = ['offline'];
+// Metrics that don't need duration
+const NO_DURATION_METRICS = ['offline', 'expiry', 'traffic_quota', 'forward_health'];
+// Metrics with fixed operator (auto-set)
+const FIXED_OPERATOR_METRICS: Record<string, { operator: string; label: string; defaultThreshold: number; description: string }> = {
+  expiry: { operator: 'lte', label: '提前提醒天数', defaultThreshold: 7, description: '剩余天数 <= 此值时触发（已过期也触发）' },
+  traffic_quota: { operator: 'gte', label: '流量使用率 (%)', defaultThreshold: 80, description: '已用百分比 >= 此值时触发' },
+  forward_health: { operator: 'lt', label: '健康度阈值 (%)', defaultThreshold: 60, description: '健康度低于此值时触发（100=完美）' },
+};
+
 function formatTime(ts?: number | null): string {
   if (!ts) return '-';
   return new Date(ts).toLocaleString('zh-CN', { hour12: false });
 }
 
+/** Parse numeric input, allowing empty/partial typing */
+function parseNum(v: string, fallback?: number): number | undefined {
+  if (v === '' || v === '-') return fallback;
+  const n = Number(v);
+  return isNaN(n) ? fallback : n;
+}
+
 export default function AlertPage() {
+  const navigate = useNavigate();
   const canViewAlerts = hasPermission('alert.read');
   const canManageAlerts = hasPermission('alert.write');
   const [tab, setTab] = useState<'rules' | 'logs'>('rules');
@@ -121,19 +141,28 @@ export default function AlertPage() {
 
   const handleSave = async () => {
     if (!canManageAlerts) {
-      toast.error('权限不足，无法保存告警规则');
+      toast.error('权限不足');
       return;
     }
-    if (!editRule?.name || !editRule?.metric) {
-      toast.error('请填写必要字段');
+    if (!editRule?.name?.trim()) {
+      toast.error('请填写规则名称');
+      return;
+    }
+    if (!editRule?.metric) {
+      toast.error('请选择监控指标');
+      return;
+    }
+    if (!NO_THRESHOLD_METRICS.includes(editRule.metric) && (editRule.threshold == null || isNaN(editRule.threshold))) {
+      toast.error('请填写阈值');
       return;
     }
     try {
-      const res = editRule.id
-        ? await updateAlertRule(editRule)
-        : await createAlertRule(editRule);
+      const payload = { ...editRule, name: editRule.name.trim() };
+      const res = payload.id
+        ? await updateAlertRule(payload)
+        : await createAlertRule(payload);
       if (res.code === 0) {
-        toast.success(editRule.id ? '已更新' : '已创建');
+        toast.success(payload.id ? '已更新' : '已创建');
         onClose();
         fetchRules();
       } else {
@@ -144,7 +173,7 @@ export default function AlertPage() {
 
   const handleDelete = async (id: number) => {
     if (!canManageAlerts) {
-      toast.error('权限不足，无法删除告警规则');
+      toast.error('权限不足');
       return;
     }
     if (!confirm('确定删除此告警规则？')) return;
@@ -156,10 +185,7 @@ export default function AlertPage() {
   };
 
   const handleToggle = async (id: number) => {
-    if (!canManageAlerts) {
-      toast.error('权限不足，无法变更告警规则状态');
-      return;
-    }
+    if (!canManageAlerts) return;
     try {
       const res = await toggleAlertRule(id);
       if (res.code === 0) fetchRules();
@@ -168,25 +194,47 @@ export default function AlertPage() {
 
   const openCreate = () => {
     if (!canManageAlerts) {
-      toast.error('权限不足，无法创建告警规则');
+      toast.error('权限不足');
       return;
     }
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
       durationSeconds: 0, scopeType: 'all', notifyType: 'log',
       cooldownMinutes: 5, enabled: 1, severity: 'warning',
+      probeCondition: 'any',
     });
     onOpen();
   };
 
   const openEdit = (rule: AlertRule) => {
     if (!canManageAlerts) {
-      toast.error('权限不足，无法编辑告警规则');
+      toast.error('权限不足');
       return;
     }
     setEditRule({ ...rule });
     onOpen();
   };
+
+  const updateField = (fields: Partial<AlertRule>) => {
+    setEditRule(prev => prev ? { ...prev, ...fields } : prev);
+  };
+
+  // When metric changes, auto-set operator/threshold for fixed-operator metrics
+  const handleMetricChange = (metric: string) => {
+    const fixed = FIXED_OPERATOR_METRICS[metric];
+    if (fixed) {
+      updateField({ metric, operator: fixed.operator, threshold: fixed.defaultThreshold });
+    } else if (metric === 'offline') {
+      updateField({ metric, operator: 'gt', threshold: 0 });
+    } else {
+      updateField({ metric });
+    }
+  };
+
+  // Helper to check if current metric needs probe condition
+  const metricNeedsProbe = editRule?.metric
+    ? (METRICS.find(m => m.value === editRule.metric)?.needsProbe ?? true)
+    : true;
 
   if (!canViewAlerts) {
     return (
@@ -206,6 +254,7 @@ export default function AlertPage() {
         <div className="flex gap-2">
           <Button size="sm" variant={tab === 'rules' ? 'solid' : 'flat'} color="primary" onPress={() => setTab('rules')}>规则</Button>
           <Button size="sm" variant={tab === 'logs' ? 'solid' : 'flat'} color="primary" onPress={() => setTab('logs')}>日志</Button>
+          <Button size="sm" variant="flat" onPress={() => navigate('/notification')}>通知中心</Button>
         </div>
       </div>
 
@@ -255,7 +304,7 @@ export default function AlertPage() {
                       {rule.scopeValue ? ` (${rule.scopeValue})` : ''}
                       {' · '}通知: {NOTIFY_TYPES.find(n => n.value === rule.notifyType)?.label || rule.notifyType}
                       {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
-                      {rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
+                      {rule.durationSeconds && rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
                       {' · '}冷却: {rule.cooldownMinutes}分钟
                       {rule.escalateAfterMinutes ? ` · 升级: ${rule.escalateAfterMinutes}分钟后` : ''}
                       {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
@@ -329,107 +378,140 @@ export default function AlertPage() {
       )}
 
       {/* Edit/Create Rule Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
         <ModalContent>
           {editRule && (
             <>
-              <ModalHeader>{editRule.id ? '编辑告警规则' : '新建告警规则'}</ModalHeader>
-              <ModalBody className="space-y-3">
-                <Input label="规则名称" size="sm" value={editRule.name || ''} onValueChange={v => setEditRule({ ...editRule, name: v })} />
+              <ModalHeader className="pb-2">{editRule.id ? '编辑告警规则' : '新建告警规则'}</ModalHeader>
+              <ModalBody className="space-y-4">
 
-                <Select label="监控指标" size="sm" selectedKeys={editRule.metric ? [editRule.metric] : []}
-                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, metric: v }); }}>
-                  {METRICS.map(m => <SelectItem key={m.value}>{m.label}</SelectItem>)}
-                </Select>
+                {/* === Section 1: 触发条件 === */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">触发条件</p>
 
-                {editRule.metric === 'expiry' ? (
-                  <Input label="提前提醒天数" size="sm" type="number" placeholder="7"
-                    description="当剩余天数 <= 此值时触发告警（已过期也会触发）"
-                    value={String(editRule.threshold ?? 7)}
-                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 7, operator: 'lte' })} />
-                ) : editRule.metric === 'traffic_quota' ? (
-                  <Input label="流量使用率阈值 (%)" size="sm" type="number" placeholder="80"
-                    description="当流量已用百分比 >= 此值时触发告警"
-                    value={String(editRule.threshold ?? 80)}
-                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 80, operator: 'gte' })} />
-                ) : editRule.metric === 'forward_health' ? (
-                  <Input label="健康度阈值 (%)" size="sm" type="number" placeholder="60"
-                    description="当转发健康度低于此值时触发告警（100=完美，0=完全不可用）"
-                    value={String(editRule.threshold ?? 60)}
-                    onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 60, operator: 'lt' })} />
-                ) : editRule.metric !== 'offline' ? (
                   <div className="flex gap-2">
-                    <Select label="操作符" size="sm" className="w-28" selectedKeys={editRule.operator ? [editRule.operator] : ['gt']}
-                      onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, operator: v }); }}>
-                      {OPERATORS.map(o => <SelectItem key={o.value}>{o.label}</SelectItem>)}
+                    <Input label="规则名称" size="sm" className="flex-1"
+                      isRequired
+                      value={editRule.name || ''}
+                      onValueChange={v => updateField({ name: v })} />
+                    <Select label="严重等级" size="sm" className="w-32"
+                      disallowEmptySelection
+                      selectedKeys={[editRule.severity || 'warning']}
+                      onSelectionChange={keys => updateField({ severity: Array.from(keys)[0] as string })}>
+                      {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
                     </Select>
-                    <Input label="阈值" size="sm" type="number" className="flex-1"
-                      value={String(editRule.threshold ?? '')}
-                      onValueChange={v => setEditRule({ ...editRule, threshold: parseFloat(v) || 0 })} />
                   </div>
-                ) : null}
 
-                {editRule.metric && editRule.metric !== 'offline' && editRule.metric !== 'expiry' && (
-                  <Input label="持续时间 (秒)" size="sm" type="number" placeholder="0"
-                    description="指标持续超过阈值多少秒后触发告警，0 表示立即触发"
-                    value={String(editRule.durationSeconds ?? 0)}
-                    onValueChange={v => setEditRule({ ...editRule, durationSeconds: parseInt(v) || 0 })} />
-                )}
+                  <Select label="监控指标" size="sm"
+                    isRequired
+                    disallowEmptySelection
+                    selectedKeys={editRule.metric ? [editRule.metric] : []}
+                    onSelectionChange={keys => handleMetricChange(Array.from(keys)[0] as string)}>
+                    {METRICS.map(m => <SelectItem key={m.value}>{m.label}</SelectItem>)}
+                  </Select>
+
+                  {/* Threshold row — varies by metric */}
+                  {editRule.metric && FIXED_OPERATOR_METRICS[editRule.metric] ? (
+                    <Input label={FIXED_OPERATOR_METRICS[editRule.metric].label} size="sm"
+                      inputMode="decimal"
+                      description={FIXED_OPERATOR_METRICS[editRule.metric].description}
+                      value={editRule.threshold != null ? String(editRule.threshold) : ''}
+                      onValueChange={v => updateField({ threshold: parseNum(v), operator: FIXED_OPERATOR_METRICS[editRule.metric!].operator })} />
+                  ) : !NO_THRESHOLD_METRICS.includes(editRule.metric || '') ? (
+                    <div className="flex gap-2">
+                      <Select label="操作符" size="sm" className="w-24"
+                        disallowEmptySelection
+                        selectedKeys={[editRule.operator || 'gt']}
+                        onSelectionChange={keys => updateField({ operator: Array.from(keys)[0] as string })}>
+                        {OPERATORS.map(o => <SelectItem key={o.value}>{o.label}</SelectItem>)}
+                      </Select>
+                      <Input label="阈值" size="sm" className="flex-1"
+                        inputMode="decimal"
+                        value={editRule.threshold != null ? String(editRule.threshold) : ''}
+                        onValueChange={v => updateField({ threshold: parseNum(v) })} />
+                      {!NO_DURATION_METRICS.includes(editRule.metric || '') && (
+                        <Input label="持续 (秒)" size="sm" className="w-28"
+                          inputMode="numeric"
+                          description="0=立即"
+                          value={String(editRule.durationSeconds ?? 0)}
+                          onValueChange={v => updateField({ durationSeconds: parseNum(v, 0) ?? 0 })} />
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
+                      节点离线时自动触发告警，无需配置阈值。
+                    </p>
+                  )}
+                </div>
 
                 <Divider />
 
-                <Select label="监控范围" size="sm" selectedKeys={editRule.scopeType ? [editRule.scopeType] : ['all']}
-                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, scopeType: v }); }}>
-                  {SCOPE_TYPES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
-                </Select>
+                {/* === Section 2: 监控范围 === */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">监控范围</p>
+                  <div className="flex gap-2">
+                    <Select label="范围" size="sm" className="flex-1"
+                      disallowEmptySelection
+                      selectedKeys={[editRule.scopeType || 'all']}
+                      onSelectionChange={keys => updateField({ scopeType: Array.from(keys)[0] as string })}>
+                      {SCOPE_TYPES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
+                    </Select>
 
-                {editRule.scopeType && editRule.scopeType !== 'all' && (
-                  <Input label={editRule.scopeType === 'tag' ? '标签名' : '节点 ID'} size="sm"
-                    value={editRule.scopeValue || ''}
-                    onValueChange={v => setEditRule({ ...editRule, scopeValue: v })} />
-                )}
+                    {editRule.scopeType && editRule.scopeType !== 'all' && (
+                      <Input label={editRule.scopeType === 'tag' ? '标签名' : '节点 ID'} size="sm" className="flex-1"
+                        value={editRule.scopeValue || ''}
+                        onValueChange={v => updateField({ scopeValue: v })} />
+                    )}
 
-                <Divider />
-
-                <Select label="通知方式" size="sm" selectedKeys={editRule.notifyType ? [editRule.notifyType] : ['log']}
-                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, notifyType: v }); }}>
-                  {NOTIFY_TYPES.map(n => <SelectItem key={n.value}>{n.label}</SelectItem>)}
-                </Select>
-
-                {editRule.notifyType === 'webhook' && (
-                  <Input label="Webhook URL" size="sm" placeholder="https://..."
-                    value={editRule.notifyTarget || ''}
-                    onValueChange={v => setEditRule({ ...editRule, notifyTarget: v })} />
-                )}
-
-                {editRule.notifyType === 'wechat' && (
-                  <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
-                    将使用系统配置中的企业微信 Webhook 地址发送告警通知。请在「系统配置 → 企业微信」中设置 Webhook URL。
-                  </p>
-                )}
+                    {metricNeedsProbe && (
+                      <Select label="探针" size="sm" className="w-36"
+                        disallowEmptySelection
+                        selectedKeys={[editRule.probeCondition || 'any']}
+                        onSelectionChange={keys => updateField({ probeCondition: Array.from(keys)[0] as string })}>
+                        {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
+                      </Select>
+                    )}
+                  </div>
+                </div>
 
                 <Divider />
 
-                <Select label="探针条件" size="sm" description="选择触发告警时检查哪些探针的节点"
-                  selectedKeys={editRule.probeCondition ? [editRule.probeCondition] : ['any']}
-                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, probeCondition: v }); }}>
-                  {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
-                </Select>
+                {/* === Section 3: 通知与冷却 === */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">通知设置</p>
+                  <div className="flex gap-2">
+                    <Select label="通知方式" size="sm" className="flex-1"
+                      disallowEmptySelection
+                      selectedKeys={[editRule.notifyType || 'log']}
+                      onSelectionChange={keys => updateField({ notifyType: Array.from(keys)[0] as string })}>
+                      {NOTIFY_TYPES.map(n => <SelectItem key={n.value}>{n.label}</SelectItem>)}
+                    </Select>
+                    <Input label="冷却 (分钟)" size="sm" className="w-28"
+                      inputMode="numeric"
+                      value={String(editRule.cooldownMinutes ?? 5)}
+                      onValueChange={v => updateField({ cooldownMinutes: parseNum(v, 5) ?? 5 })} />
+                    <Input label="升级 (分钟)" size="sm" className="w-28"
+                      inputMode="numeric"
+                      placeholder="不升级"
+                      description="持续触发后自动升级等级"
+                      value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
+                      onValueChange={v => updateField({ escalateAfterMinutes: parseNum(v) })} />
+                  </div>
 
-                <Select label="严重等级" size="sm" description="影响通知标题和升级逻辑"
-                  selectedKeys={editRule.severity ? [editRule.severity] : ['warning']}
-                  onSelectionChange={keys => { const v = Array.from(keys)[0] as string; setEditRule({ ...editRule, severity: v }); }}>
-                  {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
-                </Select>
+                  {editRule.notifyType === 'webhook' && (
+                    <Input label="Webhook URL" size="sm" placeholder="https://..."
+                      value={editRule.notifyTarget || ''}
+                      onValueChange={v => updateField({ notifyTarget: v })} />
+                  )}
 
-                <Input label="冷却时间 (分钟)" size="sm" type="number"
-                  value={String(editRule.cooldownMinutes ?? 5)}
-                  onValueChange={v => setEditRule({ ...editRule, cooldownMinutes: parseInt(v) || 5 })} />
+                  {editRule.notifyType === 'wechat' && (
+                    <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
+                      将使用系统配置中的企业微信 Webhook 地址发送告警通知。
+                      前往「网站配置 → 告警通知」中设置 Webhook URL。
+                    </p>
+                  )}
+                </div>
 
-                <Input label="升级间隔 (分钟)" size="sm" type="number" placeholder="留空不升级"
-                  description="告警持续触发时，经过此间隔自动升级严重等级并重新通知"
-                  value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
-                  onValueChange={v => setEditRule({ ...editRule, escalateAfterMinutes: v ? parseInt(v) : undefined })} />
               </ModalBody>
               <ModalFooter>
                 <Button variant="flat" onPress={onClose}>取消</Button>

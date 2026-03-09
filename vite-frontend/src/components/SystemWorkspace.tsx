@@ -55,19 +55,6 @@ const navItems: WorkspaceItem[] = [
     ),
   },
   {
-    key: 'config-alerting',
-    label: '告警通知',
-    path: '/config',
-    search: 'section=alerting',
-    group: '网站配置',
-    requiredPermissions: ['site_config.read'],
-    icon: (
-      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.17V11a6 6 0 10-12 0v3.17a2 2 0 01-.6 1.43L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-      </svg>
-    ),
-  },
-  {
     key: 'user',
     label: '用户管理',
     path: '/user',

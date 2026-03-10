@@ -49,4 +49,10 @@ public interface MonitorService extends IService<MonitorInstance> {
     R getNodeProviderDetail(Long nodeId);
 
     R getKomariPingTaskDetail(Long nodeId, Long taskId, Integer hours);
+
+    /**
+     * Push asset label/name back to linked probes (Komari).
+     * Called after user edits asset name in Flux.
+     */
+    void pushNameToProbes(Long assetId, String newName);
 }

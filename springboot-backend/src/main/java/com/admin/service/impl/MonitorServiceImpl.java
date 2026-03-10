@@ -208,7 +208,35 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Override
     public R deleteInstance(Long id) {
-        getRequiredInstance(id);
+        MonitorInstance instance = getRequiredInstance(id);
+
+        // Clean up asset references before deleting snapshots
+        List<MonitorNodeSnapshot> nodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .eq(MonitorNodeSnapshot::getInstanceId, id)
+                        .isNotNull(MonitorNodeSnapshot::getAssetId));
+        for (MonitorNodeSnapshot node : nodes) {
+            if (node.getAssetId() != null && node.getRemoteNodeUuid() != null) {
+                AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+                if (asset != null) {
+                    boolean updated = false;
+                    if (node.getRemoteNodeUuid().equals(asset.getMonitorNodeUuid())) {
+                        asset.setMonitorNodeUuid("");
+                        updated = true;
+                    }
+                    if (node.getRemoteNodeUuid().equals(asset.getPikaNodeId())) {
+                        asset.setPikaNodeId("");
+                        updated = true;
+                    }
+                    if (updated) {
+                        assetHostMapper.updateById(asset);
+                    }
+                }
+            }
+        }
+        log.info("删除探针实例 [{}](type={}), 清理了 {} 个节点的资产关联",
+                instance.getName(), instance.getType(), nodes.size());
+
         monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .eq(MonitorMetricLatest::getInstanceId, id));
         monitorNodeSnapshotMapper.delete(new LambdaQueryWrapper<MonitorNodeSnapshot>()
@@ -429,6 +457,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 }
             }
         }
+
+        // Try to delete from remote probe (best-effort, don't block local deletion)
+        String remoteDeleteMsg = tryDeleteFromRemoteProbe(node);
+
         // Soft-delete: mark status=-1 so sync won't re-create, but keep metrics for history
         monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .eq(MonitorMetricLatest::getNodeSnapshotId, nodeId));
@@ -436,7 +468,76 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         node.setOnline(0);
         node.setUpdatedTime(System.currentTimeMillis());
         monitorNodeSnapshotMapper.updateById(node);
-        return R.ok("已删除探针节点");
+
+        String msg = "已删除探针节点";
+        if (remoteDeleteMsg != null) {
+            msg += "（" + remoteDeleteMsg + "）";
+        }
+        return R.ok(msg);
+    }
+
+    /**
+     * Best-effort delete node from remote probe (Komari/Pika).
+     * Returns a status message, or null if remote deletion succeeded silently.
+     */
+    private String tryDeleteFromRemoteProbe(MonitorNodeSnapshot node) {
+        if (node.getInstanceId() == null || node.getRemoteNodeUuid() == null) {
+            return null;
+        }
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) {
+            return null;
+        }
+        try {
+            if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+                // Komari: POST /api/admin/client/{uuid}/remove
+                String path = "/api/admin/client/" + node.getRemoteNodeUuid() + "/remove";
+                httpPost(instance, path, null, instance.getAllowInsecureTls());
+                log.info("已从 Komari 远程删除节点: {} (instance={})", node.getRemoteNodeUuid(), instance.getName());
+                return "已同步从探针端删除";
+            } else if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                // Pika: DELETE /api/admin/agents/{id} — requires JWT auth
+                String jwt = loginPika(instance);
+                if (jwt != null) {
+                    String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+                    String url = baseUrl + "/api/admin/agents/" + node.getRemoteNodeUuid();
+                    httpDeleteWithToken(url, jwt, instance.getAllowInsecureTls());
+                    log.info("已从 Pika 远程删除节点: {} (instance={})", node.getRemoteNodeUuid(), instance.getName());
+                    return "已同步从探针端删除";
+                }
+                return "Pika 登录失败，探针端节点未删除，请手动清理";
+            }
+        } catch (Exception e) {
+            log.warn("远程删除探针节点失败 (instance={}, node={}): {}", instance.getName(), node.getRemoteNodeUuid(), e.getMessage());
+            return "探针端删除失败: " + e.getMessage() + "，请手动清理";
+        }
+        return null;
+    }
+
+    /**
+     * Clear asset's probe reference when a node is removed or disappeared from probe.
+     * @param node the node snapshot being unlinked
+     * @param probeType "komari" or "pika" — determines which asset field to clear
+     */
+    private void unlinkNodeFromAsset(MonitorNodeSnapshot node, String probeType) {
+        if (node.getAssetId() == null || node.getRemoteNodeUuid() == null) return;
+        AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+        if (asset == null) return;
+        boolean updated = false;
+        if (TYPE_KOMARI.equalsIgnoreCase(probeType)
+                && node.getRemoteNodeUuid().equals(asset.getMonitorNodeUuid())) {
+            asset.setMonitorNodeUuid("");
+            updated = true;
+        }
+        if (TYPE_PIKA.equalsIgnoreCase(probeType)
+                && node.getRemoteNodeUuid().equals(asset.getPikaNodeId())) {
+            asset.setPikaNodeId("");
+            updated = true;
+        }
+        if (updated) {
+            assetHostMapper.updateById(asset);
+            log.info("探针端节点已消失，清理资产[{}]的{}关联: {}", asset.getId(), probeType, node.getRemoteNodeUuid());
+        }
     }
 
     // ==================== Historical Records (Charts) ====================
@@ -883,7 +984,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // Mark removed nodes
+        // Mark removed nodes (no longer in probe) and clean up asset references
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
@@ -891,9 +992,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         for (MonitorNodeSnapshot node : allNodes) {
             if (!seenUuids.contains(node.getRemoteNodeUuid())) {
                 node.setOnline(0);
-                node.setStatus(1);
+                node.setStatus(1); // Mark as "removed from probe"
                 node.setUpdatedTime(now);
                 monitorNodeSnapshotMapper.updateById(node);
+                // Clear asset's probe reference since probe no longer has this node
+                unlinkNodeFromAsset(node, TYPE_KOMARI);
                 removedNodes++;
             }
         }
@@ -1295,6 +1398,32 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
     }
 
+    /**
+     * HTTP DELETE with JWT Bearer token (used for Pika agent deletion).
+     */
+    private String httpDeleteWithToken(String url, String token, Integer allowInsecureTls) {
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
+            org.apache.http.client.methods.HttpDelete request = new org.apache.http.client.methods.HttpDelete(url);
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
+            request.setHeader("Authorization", "Bearer " + token);
+            request.setHeader("Accept", "application/json");
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
     private Map<String, Object> syncPika(MonitorInstance instance) {
         // 1. Login to get JWT
         String jwt = loginPika(instance);
@@ -1423,7 +1552,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // Mark removed nodes
+        // Mark removed nodes (no longer in probe) and clean up asset references
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
@@ -1431,9 +1560,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         for (MonitorNodeSnapshot node : allNodes) {
             if (!seenIds.contains(node.getRemoteNodeUuid())) {
                 node.setOnline(0);
-                node.setStatus(1);
+                node.setStatus(1); // Mark as "removed from probe"
                 node.setUpdatedTime(now);
                 monitorNodeSnapshotMapper.updateById(node);
+                // Clear asset's probe reference since probe no longer has this node
+                unlinkNodeFromAsset(node, TYPE_PIKA);
                 removedNodes++;
             }
         }
@@ -3329,5 +3460,35 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         if (lower.contains("macos") || lower.contains("darwin")) return "MacOS";
         if (lower.contains("freebsd")) return "FreeBSD";
         return "Other";
+    }
+
+    @Override
+    public void pushNameToProbes(Long assetId, String newName) {
+        if (assetId == null || !StringUtils.hasText(newName)) return;
+        // Find Komari nodes linked to this asset
+        List<MonitorNodeSnapshot> nodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .eq(MonitorNodeSnapshot::getAssetId, assetId)
+                        .ne(MonitorNodeSnapshot::getStatus, -1));
+        for (MonitorNodeSnapshot node : nodes) {
+            if (node.getInstanceId() == null || node.getRemoteNodeUuid() == null) continue;
+            MonitorInstance instance = this.getById(node.getInstanceId());
+            if (instance == null) continue;
+            try {
+                if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+                    // Komari: POST /api/admin/client/{uuid}/edit with {"name":"..."}
+                    String path = "/api/admin/client/" + node.getRemoteNodeUuid() + "/edit";
+                    String body = "{\"name\":\"" + newName.replace("\"", "\\\"") + "\"}";
+                    httpPost(instance, path, body, instance.getAllowInsecureTls());
+                    // Also update local snapshot name
+                    node.setName(newName);
+                    monitorNodeSnapshotMapper.updateById(node);
+                    log.info("已推送名称到 Komari: {} → {} (instance={})", node.getRemoteNodeUuid(), newName, instance.getName());
+                }
+                // Pika: no edit API available yet, skip
+            } catch (Exception e) {
+                log.warn("推送名称到探针失败 (instance={}, node={}): {}", instance.getName(), node.getRemoteNodeUuid(), e.getMessage());
+            }
+        }
     }
 }

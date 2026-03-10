@@ -83,9 +83,20 @@ source .env
 # ── 4. 复制 compose 文件 ──
 cp docker-compose-v6.yml docker-compose.yml
 
-# ── 5. 停旧容器、拉新镜像、启动 ──
+# ── 5. 停旧容器、清理空间、拉新镜像、启动 ──
 echo "🛑 停止旧容器..."
 $DC down --remove-orphans 2>/dev/null || true
+
+echo "🧹 清理 Docker 无用资源..."
+docker image prune -af --filter "until=72h" 2>/dev/null || true
+docker builder prune -af 2>/dev/null || true
+docker volume prune -f --filter "label!=keep" 2>/dev/null || true
+AVAIL_MB=$(df -m "$DEPLOY_DIR" | awk 'NR==2{print $4}')
+echo "📊 可用空间: ${AVAIL_MB}MB"
+if [ "${AVAIL_MB:-0}" -lt 500 ]; then
+  echo "⚠️  磁盘空间不足 500MB，尝试深度清理..."
+  docker system prune -af 2>/dev/null || true
+fi
 
 echo "📥 拉取最新镜像..."
 $DC pull

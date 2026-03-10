@@ -25,7 +25,6 @@ import {
   AssetHostDetail,
   MonitorInstance,
   MonitorNodeSnapshot,
-  MonitorProvisionResult,
   OnePanelBootstrap,
   XuiInstance,
   createAsset,
@@ -38,8 +37,8 @@ import {
   getMonitorList,
   getMonitorUnboundNodes,
   createXuiInstance,
-  provisionDualAgent,
-  provisionMonitorAgent,
+  provisionAllAgents,
+  ProvisionAllResult,
   rotateOnePanelToken,
   syncMonitorInstance,
   updateAsset,
@@ -422,19 +421,20 @@ export default function AssetsPage() {
   const [monitorInstances, setMonitorInstances] = useState<MonitorInstance[]>([]);
   const [provisionStep, setProvisionStep] = useState<'select' | 'result'>('select');
   const [provisionName, setProvisionName] = useState('');
-  const [provisionInstanceId, setProvisionInstanceId] = useState<string>('');
   const [provisionLoading, setProvisionLoading] = useState(false);
-  const [provisionResult, setProvisionResult] = useState<MonitorProvisionResult | null>(null);
-  const [provisionDualMode, setProvisionDualMode] = useState(false);
+  // Unified multi-agent provision state
+  const [provisionKomariEnabled, setProvisionKomariEnabled] = useState(false);
+  const [provisionPikaEnabled, setProvisionPikaEnabled] = useState(false);
+  const [provisionGostEnabled, setProvisionGostEnabled] = useState(false);
   const [provisionKomariId, setProvisionKomariId] = useState<string>('');
   const [provisionPikaId, setProvisionPikaId] = useState<string>('');
-  // Context when provisioning from an existing asset (single-probe deploy)
-  const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' } | null>(null);
+  const [provisionGostIp, setProvisionGostIp] = useState('');
+  const [provisionGostPortSta, setProvisionGostPortSta] = useState('10000');
+  const [provisionGostPortEnd, setProvisionGostPortEnd] = useState('20000');
+  // Context when provisioning from an existing asset
+  const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; assetIp?: string; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean } | null>(null);
   const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
-  const [dualProvisionResult, setDualProvisionResult] = useState<{
-    komari?: MonitorProvisionResult; pika?: MonitorProvisionResult;
-    komariError?: string; pikaError?: string; combinedCommand: string; combinedCommandCn?: string;
-  } | null>(null);
+  const [allProvisionResult, setAllProvisionResult] = useState<ProvisionAllResult | null>(null);
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
@@ -504,10 +504,10 @@ export default function AssetsPage() {
         openDetailModal(id);
         if (searchParams.get('deploy') === '1') {
           setTimeout(() => {
-            setProvisionContext({ assetId: id, assetName: asset.name, missingType: 'any' });
-            setProvisionDualMode(true);
-            setProvisionStep('select');
-            onProvisionOpen();
+            openProvisionModal({
+              assetId: id, assetName: asset.name, assetIp: asset.primaryIp || undefined,
+              missingKomari: !asset.monitorNodeUuid, missingPika: !asset.pikaNodeId, missingGost: !asset.gostNodeId,
+            });
           }, 300);
         }
       }
@@ -781,30 +781,32 @@ export default function AssetsPage() {
     toast.success(`已导入${isPika ? 'Pika' : 'Komari'}探针节点: ${node.name || node.ip}`);
   };
 
-  const openProvisionModal = async (ctx?: { assetId: number; assetName: string; missingType: 'komari' | 'pika' | 'any' }) => {
+  const openProvisionModal = async (ctx?: { assetId: number; assetName: string; assetIp?: string; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean }) => {
     if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法为资产部署探针');
       return;
     }
     setProvisionStep('select');
-    setProvisionResult(null);
-    setDualProvisionResult(null);
+    setAllProvisionResult(null);
     setProvisionSyncLoading(false);
     setProvisionContext(ctx || null);
+    setProvisionKomariId('');
+    setProvisionPikaId('');
+    setProvisionGostIp(ctx?.assetIp || '');
+    setProvisionGostPortSta('10000');
+    setProvisionGostPortEnd('20000');
 
     if (ctx) {
-      // Coming from asset context: pre-fill name, auto-select probe type
       setProvisionName(ctx.assetName);
-      setProvisionDualMode(false);
-      setProvisionKomariId('');
-      setProvisionPikaId('');
-      setProvisionInstanceId('');
+      // Auto-enable missing agent types
+      setProvisionKomariEnabled(!!ctx.missingKomari);
+      setProvisionPikaEnabled(!!ctx.missingPika);
+      setProvisionGostEnabled(!!ctx.missingGost);
     } else {
       setProvisionName('');
-      setProvisionInstanceId('');
-      setProvisionDualMode(false);
-      setProvisionKomariId('');
-      setProvisionPikaId('');
+      setProvisionKomariEnabled(true);
+      setProvisionPikaEnabled(false);
+      setProvisionGostEnabled(false);
     }
 
     onProvisionOpen();
@@ -813,10 +815,14 @@ export default function AssetsPage() {
       if (res.code === 0) {
         const instances = res.data || [];
         setMonitorInstances(instances);
-        // Auto-select first matching instance when coming from asset context
-        if (ctx && ctx.missingType !== 'any') {
-          const match = instances.find(i => i.type === ctx.missingType);
-          if (match) setProvisionInstanceId(match.id.toString());
+        // Auto-select first instance of each enabled type
+        if (ctx?.missingKomari) {
+          const km = instances.find(i => i.type === 'komari');
+          if (km) setProvisionKomariId(km.id.toString());
+        }
+        if (ctx?.missingPika) {
+          const pk = instances.find(i => i.type === 'pika');
+          if (pk) setProvisionPikaId(pk.id.toString());
         }
       }
     } catch { /* ignore */ }
@@ -824,45 +830,39 @@ export default function AssetsPage() {
 
   const handleProvision = async () => {
     if (!(canCreateAssets || canUpdateAssets)) {
-      toast.error('权限不足，无法创建探针安装命令');
+      toast.error('权限不足，无法创建安装命令');
       return;
     }
-    if (provisionDualMode) {
-      const kid = provisionKomariId ? parseInt(provisionKomariId) : null;
-      const pid = provisionPikaId ? parseInt(provisionPikaId) : null;
-      if (!kid && !pid) { toast.error('请至少选择一个探针实例'); return; }
-      setProvisionLoading(true);
-      try {
-        const res = await provisionDualAgent(kid, pid, provisionName || undefined);
-        if (res.code === 0 && res.data) {
-          setDualProvisionResult(res.data);
-          setProvisionStep('result');
-          if (res.data.komariError || res.data.pikaError) {
-            toast('部分探针创建成功', { icon: '⚠️' });
-          } else {
-            toast.success('双探针创建成功');
-          }
+    const kid = provisionKomariEnabled && provisionKomariId ? parseInt(provisionKomariId) : null;
+    const pid = provisionPikaEnabled && provisionPikaId ? parseInt(provisionPikaId) : null;
+    const gostCfg = provisionGostEnabled && provisionGostIp ? {
+      name: provisionName || 'gost-node',
+      serverIp: provisionGostIp,
+      portSta: parseInt(provisionGostPortSta) || 10000,
+      portEnd: parseInt(provisionGostPortEnd) || 20000,
+      assetId: provisionContext?.assetId,
+    } : null;
+
+    if (!kid && !pid && !gostCfg) { toast.error('请至少启用并配置一个组件'); return; }
+
+    setProvisionLoading(true);
+    try {
+      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined);
+      if (res.code === 0 && res.data) {
+        setAllProvisionResult(res.data);
+        setProvisionStep('result');
+        const errors = [res.data.komariError, res.data.pikaError, res.data.gostError].filter(Boolean);
+        if (errors.length > 0) {
+          toast('部分组件创建成功', { icon: '⚠️' });
         } else {
-          toast.error(res.msg || '创建失败');
+          const count = [res.data.komari, res.data.pika, res.data.gost].filter(Boolean).length;
+          toast.success(`${count} 个组件创建成功`);
         }
-      } catch { toast.error('请求失败'); }
-      finally { setProvisionLoading(false); }
-    } else {
-      const iid = parseInt(provisionInstanceId);
-      if (!iid) { toast.error('请选择探针实例'); return; }
-      setProvisionLoading(true);
-      try {
-        const res = await provisionMonitorAgent(iid, provisionName || undefined);
-        if (res.code === 0 && res.data) {
-          setProvisionResult(res.data);
-          setProvisionStep('result');
-          toast.success('客户端创建成功');
-        } else {
-          toast.error(res.msg || '创建失败');
-        }
-      } catch { toast.error('请求失败'); }
-      finally { setProvisionLoading(false); }
-    }
+      } else {
+        toast.error(res.msg || '创建失败');
+      }
+    } catch { toast.error('请求失败'); }
+    finally { setProvisionLoading(false); }
   };
 
   // After probe install, sync the instance to discover the new node
@@ -871,13 +871,10 @@ export default function AssetsPage() {
       toast.error('权限不足，无法同步探针实例');
       return;
     }
-    // Determine which instance(s) to sync
     const idsToSync: number[] = [];
-    if (provisionDualMode && dualProvisionResult) {
-      if (dualProvisionResult.komari) idsToSync.push(dualProvisionResult.komari.instanceId);
-      if (dualProvisionResult.pika) idsToSync.push(dualProvisionResult.pika.instanceId);
-    } else if (provisionResult) {
-      idsToSync.push(provisionResult.instanceId);
+    if (allProvisionResult) {
+      if (allProvisionResult.komari) idsToSync.push(allProvisionResult.komari.instanceId);
+      if (allProvisionResult.pika) idsToSync.push(allProvisionResult.pika.instanceId);
     }
     if (idsToSync.length === 0) { toast.error('没有可同步的实例'); return; }
 
@@ -1403,7 +1400,7 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* Sort buttons */}
+      {/* Sort buttons + Reset */}
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">排序:</span>
         {([
@@ -1417,16 +1414,14 @@ export default function AssetsPage() {
             {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
           </button>
         ))}
+        {(searchKeyword || filterRole || filterProbe || filterTag || filterRegion || filterOs || filterProvider || filterStatus || sortKey !== 'name') && (
+          <button onClick={() => { setSearchKeyword(''); setFilterRole(null); setFilterProbe(''); setFilterTag(''); setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterStatus(''); setSortKey('name'); setSortAsc(true); }}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-danger border border-danger/40 bg-danger-50/50 hover:bg-danger-100 dark:hover:bg-danger/20 transition-all cursor-pointer ml-2">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            重置筛选
+          </button>
+        )}
       </div>
-
-      {/* Reset filters button */}
-      {(searchKeyword || filterRole || filterProbe || filterTag || filterRegion || filterOs || filterProvider || filterStatus || sortKey !== 'name') && (
-        <button onClick={() => { setSearchKeyword(''); setFilterRole(null); setFilterProbe(''); setFilterTag(''); setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterStatus(''); setSortKey('name'); setSortAsc(true); }}
-          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold text-danger border border-danger/40 bg-danger-50/30 hover:bg-danger-50/60 transition-all cursor-pointer">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          重置筛选
-        </button>
-      )}
 
       {/* Region / OS / Provider quick filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -1498,13 +1493,6 @@ export default function AssetsPage() {
                 }`}>未设置 ({providerCounts.find(([p]) => !p)?.[1]})</button>
             )}
           </div>
-        )}
-        {/* Active filter count indicator + clear all */}
-        {(filterRegion || filterOs || filterProvider || filterTag || filterRole || filterProbe || filterStatus) && (
-          <button onClick={() => { setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterTag(''); setFilterRole(null); setFilterProbe(''); setFilterStatus(''); }}
-            className="rounded-full px-2.5 py-0.5 text-[10px] font-bold text-danger border border-danger/30 hover:bg-danger-50 transition-all cursor-pointer ml-auto">
-            清除所有筛选
-          </button>
         )}
       </div>
 
@@ -1870,15 +1858,22 @@ export default function AssetsPage() {
                   const hasPanelUrl = !!selectedAsset.panelUrl;
                   const hasOnePanelSummary = !!selectedAsset.onePanelInstanceId;
                   const hints: { label: string; action: () => void; color: 'warning' | 'secondary' }[] = [];
-                  if (!hasK || !hasP) hints.push({
-                    label: `缺少${!hasK && !hasP ? '探针' : !hasK ? 'Komari' : 'Pika'}探针`,
-                    action: () => {
-                      const missingType: 'komari' | 'pika' | 'any' = !hasK && !hasP ? 'any' : !hasK ? 'komari' : 'pika';
-                      onDetailClose();
-                      openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, missingType });
-                    },
-                    color: 'warning',
-                  });
+                  const hasG = !!selectedAsset.gostNodeId;
+                  if (!hasK || !hasP || !hasG) {
+                    const missingParts = [!hasK && 'Komari', !hasP && 'Pika', !hasG && 'GOST'].filter(Boolean);
+                    hints.push({
+                      label: `缺少 ${missingParts.join('/')}`,
+                      action: () => {
+                        onDetailClose();
+                        openProvisionModal({
+                          assetId: selectedAsset.id, assetName: selectedAsset.name,
+                          assetIp: selectedAsset.primaryIp || undefined,
+                          missingKomari: !hasK, missingPika: !hasP, missingGost: !hasG,
+                        });
+                      },
+                      color: 'warning',
+                    });
+                  }
                   if (!hasXui) hints.push({
                     label: '未绑定 X-UI',
                     action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
@@ -2586,14 +2581,17 @@ export default function AssetsPage() {
                               )}
                             </div>
                           </div>
-                          {(canCreateAssets || canUpdateAssets) && (!hasKomari || !hasPika) && editingAsset && (
+                          {(canCreateAssets || canUpdateAssets) && (!hasKomari || !hasPika || !editingAsset?.gostNodeId) && editingAsset && (
                             <Button size="sm" variant="flat" color="primary" className="h-7 text-[11px] min-w-0 px-3"
                               onPress={() => {
-                                const missingType: 'komari' | 'pika' | 'any' = !hasKomari && !hasPika ? 'any' : !hasKomari ? 'komari' : 'pika';
                                 onFormClose();
-                                openProvisionModal({ assetId: editingAsset.id, assetName: editingAsset.name, missingType });
+                                openProvisionModal({
+                                  assetId: editingAsset.id, assetName: editingAsset.name,
+                                  assetIp: editingAsset.primaryIp || undefined,
+                                  missingKomari: !hasKomari, missingPika: !hasPika, missingGost: !editingAsset.gostNodeId,
+                                });
                               }}>
-                              部署{!hasKomari && !hasPika ? '探针' : !hasKomari ? 'Komari' : 'Pika'}
+                              部署缺少的组件
                             </Button>
                           )}
                         </div>
@@ -3117,7 +3115,7 @@ export default function AssetsPage() {
         <ModalContent>
           <ModalHeader>
             {provisionContext
-              ? `为「${provisionContext.assetName}」部署${provisionContext.missingType === 'any' ? '' : provisionContext.missingType === 'komari' ? ' Komari' : ' Pika'}探针`
+              ? `为「${provisionContext.assetName}」部署组件`
               : '添加服务器'}
           </ModalHeader>
           <ModalBody>
@@ -3126,107 +3124,96 @@ export default function AssetsPage() {
                 {/* Context hint */}
                 {provisionContext && (
                   <div className="rounded-lg border border-primary/20 bg-primary-50/40 dark:bg-primary-50/5 p-3 text-xs text-default-600">
-                    {provisionContext.missingType === 'any'
-                      ? '该服务器尚未绑定任何探针，请选择探针实例并部署。'
-                      : `该服务器缺少 ${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 探针，已自动筛选对应类型的实例。`}
+                    已根据该服务器缺少的组件自动勾选，您也可以手动调整。
                   </div>
                 )}
 
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-default-500">
-                    {provisionDualMode
-                      ? '同时部署 Komari + Pika 双探针，获得更完整的监控覆盖。'
-                      : '选择探针实例，创建客户端并生成安装命令。'}
-                  </p>
-                  {/* Hide dual-mode toggle when deploying a specific missing probe type */}
-                  {(!provisionContext || provisionContext.missingType === 'any') && (
-                    <Switch size="sm" isSelected={provisionDualMode} onValueChange={(v) => {
-                      setProvisionDualMode(v);
-                      setProvisionInstanceId(''); setProvisionKomariId(''); setProvisionPikaId('');
-                    }}>
-                      <span className="text-xs whitespace-nowrap">双探针</span>
-                    </Switch>
-                  )}
-                </div>
+                <p className="text-sm text-default-500">
+                  选择需要安装的组件，生成一键安装命令。
+                </p>
 
-                {provisionDualMode ? (
-                  <>
-                    <Select
-                      label="Komari 实例"
-                      placeholder="选择 Komari 实例（可选）"
-                      selectedKeys={provisionKomariId ? [provisionKomariId] : []}
-                      onSelectionChange={(keys) => setProvisionKomariId(Array.from(keys)[0]?.toString() || '')}
-                    >
-                      {monitorInstances.filter(i => i.type === 'komari').map(inst => (
-                        <SelectItem key={inst.id.toString()}>
-                          {inst.name} ({inst.baseUrl})
-                        </SelectItem>
-                      ))}
-                    </Select>
-                    <Select
-                      label="Pika 实例"
-                      placeholder="选择 Pika 实例（可选）"
-                      selectedKeys={provisionPikaId ? [provisionPikaId] : []}
-                      onSelectionChange={(keys) => setProvisionPikaId(Array.from(keys)[0]?.toString() || '')}
-                    >
-                      {monitorInstances.filter(i => i.type === 'pika').map(inst => (
-                        <SelectItem key={inst.id.toString()}>
-                          {inst.name} ({inst.baseUrl})
-                        </SelectItem>
-                      ))}
-                    </Select>
-                    {monitorInstances.filter(i => i.type === 'komari').length === 0 && monitorInstances.filter(i => i.type === 'pika').length === 0 && (
-                      <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
-                        暂无探针实例。请先在
-                        <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
-                          {' '}探针管理{' '}
-                        </span>
-                        中添加实例。
+                {/* Agent type toggles */}
+                <div className="grid gap-3">
+                  {/* Komari toggle */}
+                  <div className={`rounded-lg border p-3 transition-all ${provisionKomariEnabled ? 'border-primary/40 bg-primary-50/30 dark:bg-primary-50/5' : 'border-divider'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm font-medium">Komari 监控探针</span>
+                        <p className="text-[11px] text-default-400">系统监控、CPU/内存/磁盘/网络/进程</p>
+                      </div>
+                      <Switch size="sm" isSelected={provisionKomariEnabled} onValueChange={setProvisionKomariEnabled} />
+                    </div>
+                    {provisionKomariEnabled && (
+                      <div className="mt-3">
+                        <Select size="sm" label="Komari 实例" placeholder="选择实例"
+                          selectedKeys={provisionKomariId ? [provisionKomariId] : []}
+                          onSelectionChange={(keys) => setProvisionKomariId(Array.from(keys)[0]?.toString() || '')}>
+                          {monitorInstances.filter(i => i.type === 'komari').map(inst => (
+                            <SelectItem key={inst.id.toString()}>{inst.name} ({inst.baseUrl})</SelectItem>
+                          ))}
+                        </Select>
+                        {monitorInstances.filter(i => i.type === 'komari').length === 0 && (
+                          <p className="mt-1 text-[11px] text-warning-600">暂无 Komari 实例，请先在<span className="cursor-pointer text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}> 探针管理 </span>中添加。</p>
+                        )}
                       </div>
                     )}
-                  </>
-                ) : (
-                  <>
-                    {(() => {
-                      // Filter instances by context probe type
-                      const filteredInstances = provisionContext && provisionContext.missingType !== 'any'
-                        ? monitorInstances.filter(i => i.type === provisionContext.missingType)
-                        : monitorInstances;
-                      return (
-                        <>
-                          <Select
-                            label={provisionContext && provisionContext.missingType !== 'any'
-                              ? `${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 实例`
-                              : '探针实例'}
-                            placeholder="选择探针实例"
-                            selectedKeys={provisionInstanceId ? [provisionInstanceId] : []}
-                            onSelectionChange={(keys) => setProvisionInstanceId(Array.from(keys)[0]?.toString() || '')}
-                          >
-                            {filteredInstances.map(inst => (
-                              <SelectItem key={inst.id.toString()} textValue={`${inst.name} (${inst.baseUrl})`}>
-                                <span className="flex items-center gap-2">
-                                  <span className={`inline-block w-2 h-2 rounded-full ${inst.type === 'komari' ? 'bg-primary' : 'bg-secondary'}`} />
-                                  {inst.name} ({inst.baseUrl})
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </Select>
-                          {filteredInstances.length === 0 && (
-                            <div className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">
-                              {provisionContext && provisionContext.missingType !== 'any'
-                                ? `暂无 ${provisionContext.missingType === 'komari' ? 'Komari' : 'Pika'} 类型的探针实例。`
-                                : '暂无探针实例。'}
-                              请先在
-                              <span className="cursor-pointer font-medium text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}>
-                                {' '}探针管理{' '}
-                              </span>
-                              中添加实例。
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </>
+                  </div>
+
+                  {/* Pika toggle */}
+                  <div className={`rounded-lg border p-3 transition-all ${provisionPikaEnabled ? 'border-secondary/40 bg-secondary-50/30 dark:bg-secondary-50/5' : 'border-divider'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm font-medium">Pika 监控探针</span>
+                        <p className="text-[11px] text-default-400">轻量监控、Ping 延迟测试</p>
+                      </div>
+                      <Switch size="sm" isSelected={provisionPikaEnabled} onValueChange={setProvisionPikaEnabled} />
+                    </div>
+                    {provisionPikaEnabled && (
+                      <div className="mt-3">
+                        <Select size="sm" label="Pika 实例" placeholder="选择实例"
+                          selectedKeys={provisionPikaId ? [provisionPikaId] : []}
+                          onSelectionChange={(keys) => setProvisionPikaId(Array.from(keys)[0]?.toString() || '')}>
+                          {monitorInstances.filter(i => i.type === 'pika').map(inst => (
+                            <SelectItem key={inst.id.toString()}>{inst.name} ({inst.baseUrl})</SelectItem>
+                          ))}
+                        </Select>
+                        {monitorInstances.filter(i => i.type === 'pika').length === 0 && (
+                          <p className="mt-1 text-[11px] text-warning-600">暂无 Pika 实例，请先在<span className="cursor-pointer text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}> 探针管理 </span>中添加。</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* GOST toggle */}
+                  <div className={`rounded-lg border p-3 transition-all ${provisionGostEnabled ? 'border-warning/40 bg-warning-50/30 dark:bg-warning-50/5' : 'border-divider'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm font-medium">GOST 代理节点</span>
+                        <p className="text-[11px] text-default-400">隧道代理、端口转发</p>
+                      </div>
+                      <Switch size="sm" isSelected={provisionGostEnabled} onValueChange={setProvisionGostEnabled} />
+                    </div>
+                    {provisionGostEnabled && (
+                      <div className="mt-3 space-y-2">
+                        <Input size="sm" label="服务器 IP" placeholder="例如 1.2.3.4"
+                          value={provisionGostIp} onValueChange={setProvisionGostIp} isRequired />
+                        <div className="flex gap-2">
+                          <Input size="sm" label="起始端口" value={provisionGostPortSta} onValueChange={setProvisionGostPortSta} type="number" />
+                          <Input size="sm" label="结束端口" value={provisionGostPortEnd} onValueChange={setProvisionGostPortEnd} type="number" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Summary bar */}
+                {(provisionKomariEnabled || provisionPikaEnabled || provisionGostEnabled) && (
+                  <div className="flex items-center gap-2 text-xs text-default-500">
+                    <span>将安装：</span>
+                    {provisionKomariEnabled && <Chip size="sm" color="primary" variant="flat">Komari</Chip>}
+                    {provisionPikaEnabled && <Chip size="sm" color="secondary" variant="flat">Pika</Chip>}
+                    {provisionGostEnabled && <Chip size="sm" color="warning" variant="flat">GOST</Chip>}
+                  </div>
                 )}
 
                 <Input
@@ -3235,111 +3222,122 @@ export default function AssetsPage() {
                   value={provisionName}
                   onValueChange={setProvisionName}
                   isRequired={!!provisionContext}
-                  description={provisionContext ? '探针节点将使用此名称，确保与资产名称一致以便自动关联' : '留空将自动生成随机名称'}
+                  description={provisionContext ? '探针节点将使用此名称' : '留空将自动生成随机名称'}
                 />
               </div>
-            ) : provisionDualMode && dualProvisionResult ? (
-              /* Dual-mode result */
+            ) : allProvisionResult ? (
+              /* Unified result display */
               <div className="space-y-4">
-                {/* Komari result */}
-                {dualProvisionResult.komari && (
+                {/* Per-component status banners */}
+                {allProvisionResult.komari && (
                   <div className="rounded-lg border border-success-200 bg-success-50 p-3 dark:border-success-800 dark:bg-success-950">
                     <p className="text-sm font-medium text-success-700 dark:text-success-400">Komari 客户端创建成功</p>
                     <p className="mt-1 text-xs text-success-600 dark:text-success-500">
-                      {dualProvisionResult.komari.instanceName} / UUID: {dualProvisionResult.komari.uuid?.slice(0, 8)}...
+                      {allProvisionResult.komari.instanceName} / UUID: {allProvisionResult.komari.uuid?.slice(0, 8)}...
                     </p>
                   </div>
                 )}
-                {dualProvisionResult.komariError && (
+                {allProvisionResult.komariError && (
                   <div className="rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-950">
                     <p className="text-sm font-medium text-danger-700 dark:text-danger-400">Komari 创建失败</p>
-                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{dualProvisionResult.komariError}</p>
+                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{allProvisionResult.komariError}</p>
                   </div>
                 )}
-                {/* Pika result */}
-                {dualProvisionResult.pika && (
+                {allProvisionResult.pika && (
                   <div className="rounded-lg border border-success-200 bg-success-50 p-3 dark:border-success-800 dark:bg-success-950">
                     <p className="text-sm font-medium text-success-700 dark:text-success-400">Pika 客户端创建成功</p>
                     <p className="mt-1 text-xs text-success-600 dark:text-success-500">
-                      {dualProvisionResult.pika.instanceName} / UUID: {dualProvisionResult.pika.uuid?.slice(0, 8)}...
+                      {allProvisionResult.pika.instanceName} / UUID: {allProvisionResult.pika.uuid?.slice(0, 8)}...
                     </p>
                   </div>
                 )}
-                {dualProvisionResult.pikaError && (
+                {allProvisionResult.pikaError && (
                   <div className="rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-950">
                     <p className="text-sm font-medium text-danger-700 dark:text-danger-400">Pika 创建失败</p>
-                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{dualProvisionResult.pikaError}</p>
+                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{allProvisionResult.pikaError}</p>
+                  </div>
+                )}
+                {allProvisionResult.gost && (
+                  <div className="rounded-lg border border-success-200 bg-success-50 p-3 dark:border-success-800 dark:bg-success-950">
+                    <p className="text-sm font-medium text-success-700 dark:text-success-400">GOST 节点创建成功</p>
+                    <p className="mt-1 text-xs text-success-600 dark:text-success-500">{allProvisionResult.gost.nodeName}</p>
+                  </div>
+                )}
+                {allProvisionResult.gostError && (
+                  <div className="rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-950">
+                    <p className="text-sm font-medium text-danger-700 dark:text-danger-400">GOST 创建失败</p>
+                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{allProvisionResult.gostError}</p>
                   </div>
                 )}
 
                 {/* Combined install command */}
-                <div>
-                  <p className="mb-2 text-sm font-medium">一键安装命令</p>
-                  <p className="mb-2 text-xs text-default-500">复制以下命令到 VPS 上以 root 执行，将同时安装所有探针：</p>
-                  <div className="relative rounded-lg bg-default-100 p-3 dark:bg-default-50">
-                    <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                      {dualProvisionResult.combinedCommand}
-                    </code>
-                    <Button
-                      size="sm" color="primary" variant="flat" className="absolute right-2 top-2"
-                      onPress={() => copyToClipboard(dualProvisionResult.combinedCommand)}
-                    >
-                      复制
-                    </Button>
-                  </div>
-                  {dualProvisionResult.combinedCommandCn && (
-                    <div className="mt-2">
-                      <p className="mb-1 text-xs text-warning-600 dark:text-warning-400">🇨🇳 国内服务器请使用加速命令：</p>
-                      <div className="relative rounded-lg bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 p-3">
-                        <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                          {dualProvisionResult.combinedCommandCn}
-                        </code>
-                        <Button
-                          size="sm" color="warning" variant="flat" className="absolute right-2 top-2"
-                          onPress={() => copyToClipboard(dualProvisionResult.combinedCommandCn!)}
-                        >
-                          复制
-                        </Button>
-                      </div>
+                {allProvisionResult.combinedCommand && (
+                  <div>
+                    <p className="mb-2 text-sm font-medium">一键安装命令</p>
+                    <p className="mb-2 text-xs text-default-500">复制以下命令到 VPS 上以 root 执行，将安装所有选中的组件：</p>
+                    <div className="relative rounded-lg bg-default-100 p-3 dark:bg-default-50">
+                      <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
+                        {allProvisionResult.combinedCommand}
+                      </code>
+                      <Button size="sm" color="primary" variant="flat" className="absolute right-2 top-2"
+                        onPress={() => copyToClipboard(allProvisionResult.combinedCommand)}>
+                        复制
+                      </Button>
                     </div>
-                  )}
-                </div>
-
-                {/* Per-probe details */}
-                {dualProvisionResult.komari && (
-                  <Accordion variant="light">
-                    <AccordionItem key="komari" title="Komari 安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="text-default-500 min-w-[70px]">Endpoint:</span>
-                          <code className="flex-1 rounded bg-default-100 px-2 py-1">{dualProvisionResult.komari.endpoint}</code>
-                          <Button size="sm" variant="light" onPress={() => copyToClipboard(dualProvisionResult.komari!.endpoint)}>复制</Button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-default-500 min-w-[70px]">Token:</span>
-                          <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{dualProvisionResult.komari.token}</code>
-                          <Button size="sm" variant="light" onPress={() => copyToClipboard(dualProvisionResult.komari!.token)}>复制</Button>
+                    {allProvisionResult.combinedCommandCn && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-xs text-warning-600 dark:text-warning-400">国内服务器请使用加速命令：</p>
+                        <div className="relative rounded-lg bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 p-3">
+                          <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
+                            {allProvisionResult.combinedCommandCn}
+                          </code>
+                          <Button size="sm" color="warning" variant="flat" className="absolute right-2 top-2"
+                            onPress={() => copyToClipboard(allProvisionResult.combinedCommandCn!)}>
+                            复制
+                          </Button>
                         </div>
                       </div>
-                    </AccordionItem>
-                  </Accordion>
+                    )}
+                  </div>
                 )}
-                {dualProvisionResult.pika && (
+
+                {/* Detail accordion for each component */}
+                {(allProvisionResult.komari || allProvisionResult.pika) && (
                   <Accordion variant="light">
-                    <AccordionItem key="pika" title="Pika 安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="text-default-500 min-w-[70px]">Endpoint:</span>
-                          <code className="flex-1 rounded bg-default-100 px-2 py-1">{dualProvisionResult.pika.endpoint}</code>
-                          <Button size="sm" variant="light" onPress={() => copyToClipboard(dualProvisionResult.pika!.endpoint)}>复制</Button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-default-500 min-w-[70px]">Token:</span>
-                          <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{dualProvisionResult.pika.token}</code>
-                          <Button size="sm" variant="light" onPress={() => copyToClipboard(dualProvisionResult.pika!.token)}>复制</Button>
-                        </div>
-                      </div>
-                    </AccordionItem>
+                    {[
+                      allProvisionResult.komari && (
+                        <AccordionItem key="komari" title="Komari 安装参数" classNames={{ title: "text-xs text-default-400" }}>
+                          <div className="space-y-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="text-default-500 min-w-[70px]">Endpoint:</span>
+                              <code className="flex-1 rounded bg-default-100 px-2 py-1">{allProvisionResult.komari!.endpoint}</code>
+                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.komari!.endpoint)}>复制</Button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-default-500 min-w-[70px]">Token:</span>
+                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{allProvisionResult.komari!.token}</code>
+                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.komari!.token)}>复制</Button>
+                            </div>
+                          </div>
+                        </AccordionItem>
+                      ),
+                      allProvisionResult.pika && (
+                        <AccordionItem key="pika" title="Pika 安装参数" classNames={{ title: "text-xs text-default-400" }}>
+                          <div className="space-y-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="text-default-500 min-w-[70px]">Endpoint:</span>
+                              <code className="flex-1 rounded bg-default-100 px-2 py-1">{allProvisionResult.pika!.endpoint}</code>
+                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.pika!.endpoint)}>复制</Button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-default-500 min-w-[70px]">Token:</span>
+                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{allProvisionResult.pika!.token}</code>
+                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.pika!.token)}>复制</Button>
+                            </div>
+                          </div>
+                        </AccordionItem>
+                      ),
+                    ].filter(Boolean) as React.ReactElement[]}
                   </Accordion>
                 )}
 
@@ -3351,74 +3349,7 @@ export default function AssetsPage() {
                   <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
                 </div>
               </div>
-            ) : (
-              /* Single-mode result */
-              <div className="space-y-4">
-                <div className="rounded-lg border border-success-200 bg-success-50 p-4 dark:border-success-800 dark:bg-success-950">
-                  <p className="text-sm font-medium text-success-700 dark:text-success-400">客户端创建成功</p>
-                  <p className="mt-1 text-xs text-success-600 dark:text-success-500">
-                    探针: {provisionResult?.instanceName} / UUID: {provisionResult?.uuid?.slice(0, 8)}...
-                  </p>
-                </div>
-
-                <div>
-                  <p className="mb-2 text-sm font-medium">一键安装命令</p>
-                  <p className="mb-2 text-xs text-default-500">复制以下命令到 VPS 上以 root 执行：</p>
-                  <div className="relative rounded-lg bg-default-100 p-3 dark:bg-default-50">
-                    <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                      {provisionResult?.installCommand}
-                    </code>
-                    <Button
-                      size="sm" color="primary" variant="flat" className="absolute right-2 top-2"
-                      onPress={() => provisionResult && copyToClipboard(provisionResult.installCommand)}
-                    >
-                      复制
-                    </Button>
-                  </div>
-                  {provisionResult?.installCommandCn && (
-                    <div className="mt-2">
-                      <p className="mb-1 text-xs text-warning-600 dark:text-warning-400">🇨🇳 国内服务器请使用加速命令：</p>
-                      <div className="relative rounded-lg bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 p-3">
-                        <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                          {provisionResult.installCommandCn}
-                        </code>
-                        <Button
-                          size="sm" color="warning" variant="flat" className="absolute right-2 top-2"
-                          onPress={() => provisionResult && copyToClipboard(provisionResult.installCommandCn!)}
-                        >
-                          复制
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <Accordion variant="light">
-                  <AccordionItem key="manual" title="手动安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="text-default-500 min-w-[70px]">Endpoint:</span>
-                        <code className="flex-1 rounded bg-default-100 px-2 py-1">{provisionResult?.endpoint}</code>
-                        <Button size="sm" variant="light" onPress={() => provisionResult && copyToClipboard(provisionResult.endpoint)}>复制</Button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-default-500 min-w-[70px]">Token:</span>
-                        <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{provisionResult?.token}</code>
-                        <Button size="sm" variant="light" onPress={() => provisionResult && copyToClipboard(provisionResult.token)}>复制</Button>
-                      </div>
-                    </div>
-                  </AccordionItem>
-                </Accordion>
-
-                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
-                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
-                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
-                    手动同步
-                  </Button>
-                  <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
-                </div>
-              </div>
-            )}
+            ) : null}
           </ModalBody>
           <ModalFooter>
             {provisionStep === 'select' ? (
@@ -3427,18 +3358,23 @@ export default function AssetsPage() {
                 <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
                   isDisabled={
                     !(canCreateAssets || canUpdateAssets) ||
-                    (provisionDualMode ? (!provisionKomariId && !provisionPikaId) : !provisionInstanceId) ||
+                    (!provisionKomariEnabled && !provisionPikaEnabled && !provisionGostEnabled) ||
+                    (provisionKomariEnabled && !provisionKomariId) ||
+                    (provisionPikaEnabled && !provisionPikaId) ||
+                    (provisionGostEnabled && !provisionGostIp) ||
                     (!!provisionContext && !provisionName.trim())
                   }>
-                  {provisionDualMode ? '创建双探针' : '创建并生成命令'}
+                  {(() => {
+                    const count = [provisionKomariEnabled, provisionPikaEnabled, provisionGostEnabled].filter(Boolean).length;
+                    return count > 1 ? `创建 ${count} 个组件` : '创建并生成命令';
+                  })()}
                 </Button>
               </>
             ) : (
               <>
                 <Button variant="flat" onPress={() => {
                   setProvisionStep('select');
-                  setProvisionResult(null);
-                  setDualProvisionResult(null);
+                  setAllProvisionResult(null);
                 }}>再添加一台</Button>
                 <Button color="primary" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
               </>

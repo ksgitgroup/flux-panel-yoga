@@ -14,6 +14,7 @@ import com.admin.common.auth.AuthContext;
 import com.admin.common.auth.AuthPrincipal;
 import com.admin.service.AlertService;
 import com.admin.service.MonitorService;
+import com.admin.service.NodeService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -98,6 +99,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private AlertService alertService;
+
+    @Resource
+    private NodeService nodeService;
 
     // ==================== CRUD ====================
 
@@ -3015,6 +3019,99 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 }
             } else {
                 result.put("pikaError", pikaResult.getMsg());
+            }
+        }
+
+        result.put("combinedCommand", String.join("\n\n", installCommands));
+        if (!installCommandsCn.isEmpty()) {
+            result.put("combinedCommandCn", String.join("\n\n", installCommandsCn));
+        }
+        return R.ok(result);
+    }
+
+    // ==================== Unified Multi-Agent Provision ====================
+
+    @Override
+    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name) {
+        if (komariInstanceId == null && pikaInstanceId == null && (gostConfig == null || gostConfig.isEmpty())) {
+            return R.err("至少需要选择一个组件进行安装");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<String> installCommands = new ArrayList<>();
+        List<String> installCommandsCn = new ArrayList<>();
+
+        // Provision Komari
+        if (komariInstanceId != null) {
+            MonitorProvisionDto komariDto = new MonitorProvisionDto();
+            komariDto.setInstanceId(komariInstanceId);
+            komariDto.setName(name);
+            R komariResult = provisionAgent(komariDto);
+            if (komariResult.getCode() == 0) {
+                Map<String, Object> data = (Map<String, Object>) komariResult.getData();
+                result.put("komari", data);
+                installCommands.add("# Komari 监控探针\n" + data.get("installCommand"));
+                if (data.get("installCommandCn") != null) {
+                    installCommandsCn.add("# Komari 监控探针\n" + data.get("installCommandCn"));
+                }
+            } else {
+                result.put("komariError", komariResult.getMsg());
+            }
+        }
+
+        // Provision Pika
+        if (pikaInstanceId != null) {
+            MonitorProvisionDto pikaDto = new MonitorProvisionDto();
+            pikaDto.setInstanceId(pikaInstanceId);
+            pikaDto.setName(name);
+            R pikaResult = provisionAgent(pikaDto);
+            if (pikaResult.getCode() == 0) {
+                Map<String, Object> data = (Map<String, Object>) pikaResult.getData();
+                result.put("pika", data);
+                installCommands.add("# Pika 监控探针\n" + data.get("installCommand"));
+                if (data.get("installCommandCn") != null) {
+                    installCommandsCn.add("# Pika 监控探针\n" + data.get("installCommandCn"));
+                }
+            } else {
+                result.put("pikaError", pikaResult.getMsg());
+            }
+        }
+
+        // Provision GOST
+        if (gostConfig != null && !gostConfig.isEmpty()) {
+            try {
+                String gostName = gostConfig.get("name") != null ? gostConfig.get("name").toString() : (name != null ? name : "gost-node");
+                String serverIp = gostConfig.get("serverIp") != null ? gostConfig.get("serverIp").toString() : "";
+                int portSta = gostConfig.get("portSta") != null ? ((Number) gostConfig.get("portSta")).intValue() : 10000;
+                int portEnd = gostConfig.get("portEnd") != null ? ((Number) gostConfig.get("portEnd")).intValue() : 20000;
+                Long assetId = gostConfig.get("assetId") != null ? ((Number) gostConfig.get("assetId")).longValue() : null;
+
+                com.admin.common.dto.NodeDto nodeDto = new com.admin.common.dto.NodeDto();
+                nodeDto.setName(gostName);
+                nodeDto.setServerIp(serverIp);
+                nodeDto.setIp(serverIp);
+                nodeDto.setPortSta(portSta);
+                nodeDto.setPortEnd(portEnd);
+                nodeDto.setAssetId(assetId);
+
+                R createResult = nodeService.createNode(nodeDto);
+                if (createResult.getCode() == 0) {
+                    com.admin.entity.Node node = (com.admin.entity.Node) createResult.getData();
+                    R cmdResult = nodeService.getInstallCommand(node.getId());
+                    if (cmdResult.getCode() == 0) {
+                        Map<String, Object> gostData = new LinkedHashMap<>();
+                        gostData.put("nodeId", node.getId());
+                        gostData.put("nodeName", gostName);
+                        gostData.put("installCommand", cmdResult.getData().toString());
+                        result.put("gost", gostData);
+                        installCommands.add("# GOST 代理节点\n" + cmdResult.getData().toString());
+                        installCommandsCn.add("# GOST 代理节点\n" + cmdResult.getData().toString());
+                    }
+                } else {
+                    result.put("gostError", createResult.getMsg());
+                }
+            } catch (Exception e) {
+                log.error("[Provision] GOST provision failed: {}", e.getMessage());
+                result.put("gostError", "GOST 节点创建失败: " + e.getMessage());
             }
         }
 

@@ -992,6 +992,32 @@ export const getTerminalAccessUrl = (nodeId: number) =>
 export const provisionDualAgent = (komariInstanceId: number | null, pikaInstanceId: number | null, name?: string) =>
   Network.post<{ komari?: MonitorProvisionResult; pika?: MonitorProvisionResult; komariError?: string; pikaError?: string; combinedCommand: string }>("/monitor/provision-dual", { komariInstanceId, pikaInstanceId, name });
 
+// Unified multi-agent provision (komari + pika + gost)
+export interface GostProvisionConfig {
+  name?: string;
+  serverIp: string;
+  portSta?: number;
+  portEnd?: number;
+  assetId?: number;
+}
+export interface ProvisionAllResult {
+  komari?: MonitorProvisionResult;
+  pika?: MonitorProvisionResult;
+  gost?: { nodeId: number; nodeName: string; installCommand: string };
+  komariError?: string;
+  pikaError?: string;
+  gostError?: string;
+  combinedCommand: string;
+  combinedCommandCn?: string;
+}
+export const provisionAllAgents = (
+  komariInstanceId: number | null,
+  pikaInstanceId: number | null,
+  gostConfig: GostProvisionConfig | null,
+  name?: string
+) =>
+  Network.post<ProvisionAllResult>("/monitor/provision-all", { komariInstanceId, pikaInstanceId, gostConfig, name });
+
 // Alert system
 export interface AlertRule {
   id: number;

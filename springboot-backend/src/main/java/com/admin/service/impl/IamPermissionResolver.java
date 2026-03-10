@@ -19,7 +19,7 @@ public class IamPermissionResolver {
     ));
 
     private static final Set<String> CREATE_ACTIONS = new HashSet<>(Arrays.asList(
-            "create", "copy", "provision", "provision-dual", "save", "install", "add"
+            "create", "copy", "provision", "provision-dual", "provision-all", "save", "install", "add"
     ));
 
     private static final Set<String> DELETE_ACTIONS = new HashSet<>(Arrays.asList(

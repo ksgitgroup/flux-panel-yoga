@@ -698,6 +698,13 @@ export default function ServerDashboardPage() {
               {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
             </button>
           ))}
+          {(search || statusFilter !== 'all' || probeFilter !== 'all' || tagFilter || regionFilter || osFilter || sortKey !== 'name') && (
+            <button onClick={() => { setSearch(''); setStatusFilter('all'); setProbeFilter('all'); setTagFilter(''); setRegionFilter(''); setOsFilter(''); setSortKey('name'); setSortAsc(true); }}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-danger border border-danger/40 bg-danger-50/50 hover:bg-danger-100 dark:hover:bg-danger/20 transition-all cursor-pointer ml-2">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              重置筛选
+            </button>
+          )}
         </div>
 
         <div className="w-full sm:flex-1 sm:min-w-[200px] sm:ml-auto sm:max-w-xs">
@@ -705,15 +712,6 @@ export default function ServerDashboardPage() {
             isClearable onClear={() => setSearch('')} className="w-full" />
         </div>
       </div>
-
-      {/* Reset filters button */}
-      {(search || statusFilter !== 'all' || probeFilter !== 'all' || tagFilter || regionFilter || osFilter || sortKey !== 'name') && (
-        <button onClick={() => { setSearch(''); setStatusFilter('all'); setProbeFilter('all'); setTagFilter(''); setRegionFilter(''); setOsFilter(''); setSortKey('name'); setSortAsc(true); }}
-          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold text-danger border border-danger/40 bg-danger-50/30 hover:bg-danger-50/60 transition-all cursor-pointer">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          重置筛选
-        </button>
-      )}
 
       {/* Region / OS quick filters */}
       <div className="flex flex-wrap items-center gap-3">

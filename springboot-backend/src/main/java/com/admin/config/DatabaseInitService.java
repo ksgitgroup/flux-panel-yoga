@@ -770,16 +770,20 @@ public class DatabaseInitService {
             } catch (Exception ignored) { }
             ensureIamRole("DEV_ADMIN", "开发主管", "核心运维全权限，配置只读，资产范围需显式配置", "system", 1, 10, 1);
             ensureIamRole("DEVELOPER", "普通开发", "需按服务器范围配置查看权限，默认只读", "system", 1, 20, 1);
-            ensureIamRole("DEPT_LEAD", "行政主管", "服务器看板与资产的查看和编辑权限，无删除权限", "system", 1, 25, 1);
-            ensureIamRole("STAFF", "普通专员", "仅服务器看板查看权限", "system", 1, 30, 1);
             // 存量数据重命名：开发管理员 → 开发主管
             try {
                 jdbcTemplate.update("UPDATE `sys_role` SET `name` = '开发主管', `description` = '核心运维全权限，配置只读，资产范围需显式配置' WHERE `code` = 'DEV_ADMIN' AND `name` = '开发管理员'");
             } catch (Exception ignored) { }
+            // 清理历史遗留角色：行政主管(DEPT_LEAD)、普通专员(STAFF)
+            try {
+                jdbcTemplate.update("DELETE rp FROM `sys_role_permission` rp JOIN `sys_role` r ON r.`id` = rp.`role_id` WHERE r.`code` IN ('DEPT_LEAD', 'STAFF')");
+                jdbcTemplate.update("DELETE ra FROM `sys_role_asset` ra JOIN `sys_role` r ON r.`id` = ra.`role_id` WHERE r.`code` IN ('DEPT_LEAD', 'STAFF')");
+                jdbcTemplate.update("DELETE FROM `sys_role` WHERE `code` IN ('DEPT_LEAD', 'STAFF')");
+            } catch (Exception ignored) { }
             // 管理员角色默认ALL，非管理员角色默认NONE（最小权限原则）
             try {
                 jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'ALL' WHERE `code` IN ('OWNER', 'SUPER_ADMIN') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
-                jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'NONE' WHERE `code` IN ('DEV_ADMIN', 'DEVELOPER', 'DEPT_LEAD', 'STAFF') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
+                jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'NONE' WHERE `code` IN ('DEV_ADMIN', 'DEVELOPER') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
             } catch (Exception ignored) { }
 
             ensureIamPermission("dashboard.read", "查看首页", "dashboard", "允许查看首页摘要与入口", 10, 1);
@@ -846,23 +850,7 @@ public class DatabaseInitService {
                 ensureIamPermission(m[0] + ".delete", "删除" + m[1], m[0], "允许删除" + m[1], Integer.parseInt(m[4]), 1);
             }
 
-            // ========== 角色权限分配（数据驱动，由低到高 E→A） ==========
-
-            // --- E. STAFF (普通专员): 仅服务器看板只读 ---
-            ensureIamRolePermission("STAFF", "dashboard.read");
-            ensureIamRolePermission("STAFF", "server_dashboard.read");
-
-            // --- D. DEPT_LEAD (行政主管): 服务器看板 + 资产 读+改，无删除；附带依赖模块只读 ---
-            ensureIamRolePermission("DEPT_LEAD", "dashboard.read");
-            ensureIamRolePermission("DEPT_LEAD", "server_dashboard.read");
-            ensureIamRolePermission("DEPT_LEAD", "asset.read");
-            ensureIamRolePermission("DEPT_LEAD", "asset.create");
-            ensureIamRolePermission("DEPT_LEAD", "asset.update");
-            // 依赖模块只读（查看资产需要看到监控、标签等关联数据）
-            String[] deptLeadReadModules = {"monitor", "tag", "topology", "biz_user"};
-            for (String m : deptLeadReadModules) {
-                ensureIamRolePermission("DEPT_LEAD", m + ".read");
-            }
+            // ========== 角色权限分配（数据驱动，由低到高 C→A） ==========
 
             // --- C. DEVELOPER (普通开发): 核心模块只读，后续通过服务器范围配置细粒度控制 ---
             ensureIamRolePermission("DEVELOPER", "dashboard.read");

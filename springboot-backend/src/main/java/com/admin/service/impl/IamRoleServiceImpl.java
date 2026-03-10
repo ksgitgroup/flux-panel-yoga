@@ -1,5 +1,7 @@
 package com.admin.service.impl;
 
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
 import com.admin.entity.*;
@@ -188,8 +190,15 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
     @Override
     public R deleteRole(Long id) {
         IamRole role = getRequiredRole(id);
+        if ("OWNER".equals(role.getCode())) {
+            return R.err("超级管理员角色不允许删除");
+        }
         if (Objects.equals(role.getBuiltin(), 1)) {
-            return R.err("系统内置角色不允许删除");
+            // 内置角色仅超级管理员(OWNER)可删除
+            AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+            if (principal == null || !principal.safeRoleCodes().contains("OWNER")) {
+                return R.err("系统内置角色仅超级管理员可删除");
+            }
         }
         if (getUserCount(id) > 0) {
             return R.err("该角色仍有关联用户，无法删除");

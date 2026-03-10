@@ -24,7 +24,7 @@ import {
   getIamUserList,
   updateIamRole,
 } from '@/api';
-import { hasPermission } from '@/utils/auth';
+import { hasPermission, getRoleCodes } from '@/utils/auth';
 
 interface RoleForm {
   id?: number;
@@ -182,6 +182,7 @@ export default function IamRolesPage() {
   const [form, setForm] = useState<RoleForm>(emptyRoleForm());
   const [roleToDelete, setRoleToDelete] = useState<IamRoleView | null>(null);
   const canWrite = hasPermission('iam_role.write') || hasPermission('iam_role.update');
+  const isOwner = getRoleCodes().includes('OWNER');
 
   useEffect(() => {
     void bootstrap();
@@ -693,7 +694,7 @@ export default function IamRolesPage() {
                             variant="flat"
                             color="danger"
                             onPress={() => handleOpenDelete(role)}
-                            isDisabled={role.builtin === 1}
+                            isDisabled={role.builtin === 1 && !isOwner}
                           >
                             删除
                           </Button>

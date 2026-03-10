@@ -90,18 +90,18 @@ $DC down --remove-orphans 2>/dev/null || true
 echo "📥 拉取最新镜像..."
 $DC pull
 
-echo "🚀 启动容器..."
-$DC up -d
+echo "🚀 启动 MySQL..."
+$DC up -d mysql
 
 # ── 6. 等待 MySQL 健康 ──
 echo "⏳ 等待 MySQL 启动..."
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   status=$(docker inspect --format='{{.State.Health.Status}}' gost-mysql 2>/dev/null || echo "starting")
   if [ "$status" = "healthy" ]; then
-    echo "✅ MySQL 已健康"
+    echo "✅ MySQL 已健康 (${i}次检查)"
     break
   fi
-  if [ "$i" -eq 30 ]; then
+  if [ "$i" -eq 60 ]; then
     echo "❌ MySQL 启动超时！"
     echo "📋 MySQL 日志："
     docker logs --tail=30 gost-mysql
@@ -109,6 +109,9 @@ for i in $(seq 1 30); do
   fi
   sleep 5
 done
+
+echo "🚀 启动其余容器..."
+$DC up -d
 
 # ── 7. 关键步骤：主动检测并导入数据库表 ──
 # Docker 的 initdb 机制极其脆弱（数据目录非空就跳过），

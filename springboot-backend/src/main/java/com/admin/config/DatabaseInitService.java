@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.util.List;
 
 @Slf4j
 @Component
@@ -618,6 +619,38 @@ public class DatabaseInitService {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM角色权限关系表'";
             jdbcTemplate.execute(createSysRolePermissionTable);
 
+            // 角色-资产关联表（资产级权限控制）
+            String createSysRoleAssetTable = "CREATE TABLE IF NOT EXISTS `sys_role_asset` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`role_id` bigint(20) NOT NULL COMMENT '角色ID'," +
+                    "`asset_id` bigint(20) NOT NULL COMMENT '资产ID'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_role_asset` (`role_id`, `asset_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM角色资产关系表'";
+            jdbcTemplate.execute(createSysRoleAssetTable);
+
+            // 增量添加 asset_scope 字段到 sys_role
+            updateColumn("sys_role", "asset_scope", "varchar(20) DEFAULT 'ALL' COMMENT '资产范围: ALL=全部, SELECTED=指定'");
+
+            // 用户-资产关联表（用户级资产权限，优先于角色级）
+            String createSysUserAssetTable = "CREATE TABLE IF NOT EXISTS `sys_user_asset` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`user_id` bigint(20) NOT NULL COMMENT 'IAM用户ID'," +
+                    "`asset_id` bigint(20) NOT NULL COMMENT '资产ID'," +
+                    "`created_time` bigint(20) NOT NULL COMMENT '创建时间'," +
+                    "`updated_time` bigint(20) NOT NULL COMMENT '更新时间'," +
+                    "`status` int(10) DEFAULT 0 COMMENT '状态（0：正常，1：删除）'," +
+                    "PRIMARY KEY (`id`)," +
+                    "UNIQUE KEY `uk_sys_user_asset` (`user_id`, `asset_id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业IAM用户资产关系表'";
+            jdbcTemplate.execute(createSysUserAssetTable);
+
+            // 增量添加 asset_scope 字段到 sys_user（NULL=继承角色, ALL=全部, SELECTED=指定, NONE=无）
+            updateColumn("sys_user", "asset_scope", "varchar(20) DEFAULT NULL COMMENT '用户资产范围: NULL=继承角色, ALL=全部, SELECTED=指定, NONE=无'");
+
             String createSysSessionTable = "CREATE TABLE IF NOT EXISTS `sys_session` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
                     "`user_id` bigint(20) NOT NULL COMMENT 'IAM用户ID'," +
@@ -728,11 +761,26 @@ public class DatabaseInitService {
             ensureConfig("jumpserver_access_key_id", "", "JumpServer Access Key ID");
             ensureConfig("jumpserver_access_key_secret", "", "JumpServer Access Key Secret");
 
-            ensureIamRole("SUPER_ADMIN", "超级管理员", "企业平台最高权限角色", "system", 1, 0, 1);
-            ensureIamRole("DEV_ADMIN", "开发管理员", "开发与运维管理角色", "system", 1, 10, 1);
-            ensureIamRole("DEVELOPER", "普通开发", "只读或受限操作的开发角色", "system", 1, 20, 1);
-            ensureIamRole("HR", "行政HR", "面向人员与组织信息的角色", "system", 1, 30, 1);
-            ensureIamRole("OPS_ASSISTANT", "行政专员", "可新增和编辑但无删除权限的运维角色", "system", 1, 25, 1);
+            // OWNER: 超级管理员，创建者独占，拥有全部权限，不可编辑
+            ensureIamRole("OWNER", "超级管理员", "系统创建者专属角色，拥有全部权限，不可修改", "system", 1, -1, 1);
+            ensureIamRole("SUPER_ADMIN", "管理员", "拥有绝大部分运维权限，但站点配置写入、角色权限管理写入等高风险操作仅创建者可执行", "system", 1, 0, 1);
+            // 存量数据重命名：超级管理员 → 管理员
+            try {
+                jdbcTemplate.update("UPDATE `sys_role` SET `name` = '管理员', `description` = '拥有绝大部分运维权限，但站点配置写入、角色权限管理写入等高风险操作仅创建者可执行' WHERE `code` = 'SUPER_ADMIN' AND `name` = '超级管理员'");
+            } catch (Exception ignored) { }
+            ensureIamRole("DEV_ADMIN", "开发主管", "核心运维全权限，配置只读，资产范围需显式配置", "system", 1, 10, 1);
+            ensureIamRole("DEVELOPER", "普通开发", "需按服务器范围配置查看权限，默认只读", "system", 1, 20, 1);
+            ensureIamRole("DEPT_LEAD", "行政主管", "服务器看板与资产的查看和编辑权限，无删除权限", "system", 1, 25, 1);
+            ensureIamRole("STAFF", "普通专员", "仅服务器看板查看权限", "system", 1, 30, 1);
+            // 存量数据重命名：开发管理员 → 开发主管
+            try {
+                jdbcTemplate.update("UPDATE `sys_role` SET `name` = '开发主管', `description` = '核心运维全权限，配置只读，资产范围需显式配置' WHERE `code` = 'DEV_ADMIN' AND `name` = '开发管理员'");
+            } catch (Exception ignored) { }
+            // 管理员角色默认ALL，非管理员角色默认NONE（最小权限原则）
+            try {
+                jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'ALL' WHERE `code` IN ('OWNER', 'SUPER_ADMIN') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
+                jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'NONE' WHERE `code` IN ('DEV_ADMIN', 'DEVELOPER', 'DEPT_LEAD', 'STAFF') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
+            } catch (Exception ignored) { }
 
             ensureIamPermission("dashboard.read", "查看首页", "dashboard", "允许查看首页摘要与入口", 10, 1);
             ensureIamPermission("asset.read", "查看服务器资产", "asset", "允许查看服务器资产", 20, 1);
@@ -798,69 +846,68 @@ public class DatabaseInitService {
                 ensureIamPermission(m[0] + ".delete", "删除" + m[1], m[0], "允许删除" + m[1], Integer.parseInt(m[4]), 1);
             }
 
-            // ========== 角色权限分配（数据驱动） ==========
+            // ========== 角色权限分配（数据驱动，由低到高 E→A） ==========
 
-            // 所有业务模块
-            String[] allModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
-                    "probe", "alert", "portal", "site_config", "protocol", "tag",
-                    "speed_limit", "biz_user", "iam_user", "iam_role", "onepanel"};
+            // --- E. STAFF (普通专员): 仅服务器看板只读 ---
+            ensureIamRolePermission("STAFF", "dashboard.read");
+            ensureIamRolePermission("STAFF", "server_dashboard.read");
 
-            // --- SUPER_ADMIN: 全部权限 (admin bypass 已覆盖, 这里显式授予用于 UI 展示) ---
-            ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
-            ensureIamRolePermission("SUPER_ADMIN", "server_dashboard.read");
-            ensureIamRolePermission("SUPER_ADMIN", "xui.sync");
-            for (String m : allModules) {
-                ensureIamRolePermission("SUPER_ADMIN", m + ".read");
-                ensureIamRolePermission("SUPER_ADMIN", m + ".write");
+            // --- D. DEPT_LEAD (行政主管): 服务器看板 + 资产 读+改，无删除；附带依赖模块只读 ---
+            ensureIamRolePermission("DEPT_LEAD", "dashboard.read");
+            ensureIamRolePermission("DEPT_LEAD", "server_dashboard.read");
+            ensureIamRolePermission("DEPT_LEAD", "asset.read");
+            ensureIamRolePermission("DEPT_LEAD", "asset.create");
+            ensureIamRolePermission("DEPT_LEAD", "asset.update");
+            // 依赖模块只读（查看资产需要看到监控、标签等关联数据）
+            String[] deptLeadReadModules = {"monitor", "tag", "topology", "biz_user"};
+            for (String m : deptLeadReadModules) {
+                ensureIamRolePermission("DEPT_LEAD", m + ".read");
             }
 
-            // --- DEV_ADMIN: 核心运维全权限 + 配置/用户管理只读 ---
-            ensureIamRolePermission("DEV_ADMIN", "dashboard.read");
-            ensureIamRolePermission("DEV_ADMIN", "server_dashboard.read");
-            ensureIamRolePermission("DEV_ADMIN", "xui.sync");
-            // 全 CRUD 模块
-            String[] devFullModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
-                    "probe", "alert", "portal", "onepanel"};
-            for (String m : devFullModules) {
-                ensureIamRolePermission("DEV_ADMIN", m + ".read");
-                ensureIamRolePermission("DEV_ADMIN", m + ".write");
-            }
-            // 只读模块
-            String[] devReadOnlyModules = {"site_config", "protocol", "tag", "speed_limit",
-                    "biz_user", "iam_user", "iam_role"};
-            for (String m : devReadOnlyModules) {
-                ensureIamRolePermission("DEV_ADMIN", m + ".read");
-            }
-
-            // --- OPS_ASSISTANT (行政专员): 全模块 read + create + update，无 delete ---
-            ensureIamRolePermission("OPS_ASSISTANT", "dashboard.read");
-            ensureIamRolePermission("OPS_ASSISTANT", "server_dashboard.read");
-            String[] opsFullReadModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
-                    "probe", "alert", "portal", "site_config", "protocol", "tag",
-                    "speed_limit", "biz_user", "onepanel"};
-            for (String m : opsFullReadModules) {
-                ensureIamRolePermission("OPS_ASSISTANT", m + ".read");
-            }
-            String[] opsCuModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
-                    "probe", "alert", "portal", "protocol", "tag", "speed_limit", "onepanel"};
-            for (String m : opsCuModules) {
-                ensureIamRolePermission("OPS_ASSISTANT", m + ".create");
-                ensureIamRolePermission("OPS_ASSISTANT", m + ".update");
-            }
-
-            // --- DEVELOPER (普通开发): 核心模块只读 ---
+            // --- C. DEVELOPER (普通开发): 核心模块只读，后续通过服务器范围配置细粒度控制 ---
             ensureIamRolePermission("DEVELOPER", "dashboard.read");
             ensureIamRolePermission("DEVELOPER", "server_dashboard.read");
             String[] devReadModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
-                    "probe", "alert", "portal", "onepanel"};
+                    "probe", "alert", "portal", "onepanel", "topology"};
             for (String m : devReadModules) {
                 ensureIamRolePermission("DEVELOPER", m + ".read");
             }
 
-            // --- HR (行政HR): 仅首页 + 用户相关 ---
-            ensureIamRolePermission("HR", "dashboard.read");
-            ensureIamRolePermission("HR", "iam_user.read");
-            ensureIamRolePermission("HR", "biz_user.read");
+            // --- B. DEV_ADMIN (开发主管): 核心运维全权限 + 配置只读，不可管理角色/用户 ---
+            ensureIamRolePermission("DEV_ADMIN", "dashboard.read");
+            ensureIamRolePermission("DEV_ADMIN", "server_dashboard.read");
+            ensureIamRolePermission("DEV_ADMIN", "xui.sync");
+            String[] devAdminFullModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "onepanel", "topology", "backup", "ip_quality"};
+            for (String m : devAdminFullModules) {
+                ensureIamRolePermission("DEV_ADMIN", m + ".read");
+                ensureIamRolePermission("DEV_ADMIN", m + ".write");
+            }
+            // 开发主管只读：配置/标签/限速/用户/角色/通知/流量（无write权限，不可修改角色和用户）
+            String[] devAdminReadModules = {"site_config", "protocol", "tag", "speed_limit",
+                    "biz_user", "iam_user", "iam_role", "notification", "traffic_analysis"};
+            for (String m : devAdminReadModules) {
+                ensureIamRolePermission("DEV_ADMIN", m + ".read");
+            }
+
+            // --- A. 管理员 (SUPER_ADMIN): 绝大部分运维权限 ---
+            // 高风险权限（仅创建者/旧登录管理员通过 admin bypass 拥有）: site_config.write, iam_role.write, audit.write
+            ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
+            ensureIamRolePermission("SUPER_ADMIN", "server_dashboard.read");
+            ensureIamRolePermission("SUPER_ADMIN", "xui.sync");
+            String[] allModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "onepanel", "topology", "backup",
+                    "ip_quality", "notification", "protocol", "tag", "speed_limit",
+                    "biz_user", "iam_user"};
+            for (String m : allModules) {
+                ensureIamRolePermission("SUPER_ADMIN", m + ".read");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".write");
+            }
+            // 超管可读但不可写的高风险模块（写入权限仅默认管理员通过admin bypass拥有）
+            ensureIamRolePermission("SUPER_ADMIN", "site_config.read");
+            ensureIamRolePermission("SUPER_ADMIN", "iam_role.read");
+            ensureIamRolePermission("SUPER_ADMIN", "audit.read");
+            ensureIamRolePermission("SUPER_ADMIN", "traffic_analysis.read");
 
             log.info("[DatabaseInit] 企业IAM基础表与默认角色权限初始化成功");
         } catch (Exception e) {
@@ -1159,6 +1206,7 @@ public class DatabaseInitService {
             ensureIamPermission("ip_quality.read", "查看IP质量", "ip_quality", "允许查看IP检测结果", 220, 1);
             ensureIamPermission("ip_quality.write", "管理IP质量", "ip_quality", "允许执行IP检测", 221, 1);
             ensureIamPermission("traffic_analysis.read", "查看流量分析", "traffic_analysis", "允许查看流量分析面板", 230, 1);
+            ensureIamPermission("cost_analysis.read", "查看成本分析", "cost_analysis", "允许查看成本分析面板", 240, 1);
 
             // Phase 5 CRUD 细粒度权限
             String[][] phase5CrudModules = {
@@ -1177,22 +1225,32 @@ public class DatabaseInitService {
             // SUPER_ADMIN gets all new permissions
             String[] newPerms = {"audit.read","audit.write","notification.read","notification.write",
                     "topology.read","topology.write","backup.read","backup.write",
-                    "ip_quality.read","ip_quality.write","traffic_analysis.read"};
+                    "ip_quality.read","ip_quality.write","traffic_analysis.read","cost_analysis.read"};
             for (String p : newPerms) {
                 ensureIamRolePermission("SUPER_ADMIN", p);
             }
             // DEV_ADMIN gets read + some write
             String[] devPerms = {"audit.read","notification.read","notification.write",
                     "topology.read","topology.write","backup.read","backup.write",
-                    "ip_quality.read","ip_quality.write","traffic_analysis.read"};
+                    "ip_quality.read","ip_quality.write","traffic_analysis.read","cost_analysis.read"};
             for (String p : devPerms) {
                 ensureIamRolePermission("DEV_ADMIN", p);
             }
             // DEVELOPER gets read only
-            String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read"};
+            String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read","cost_analysis.read"};
             for (String p : devReadPerms) {
                 ensureIamRolePermission("DEVELOPER", p);
             }
+
+            // OWNER 角色绑定全部权限（动态查所有 permission code）
+            try {
+                List<String> allPermCodes = jdbcTemplate.queryForList(
+                        "SELECT `code` FROM `sys_permission` WHERE `status` = 0 AND `enabled` = 1", String.class);
+                for (String pc : allPermCodes) {
+                    ensureIamRolePermission("OWNER", pc);
+                }
+                log.info("[DatabaseInit] OWNER 角色已绑定全部 {} 条权限", allPermCodes.size());
+            } catch (Exception e) { log.warn("[DatabaseInit] OWNER 权限绑定异常: {}", e.getMessage()); }
 
             log.info("[DatabaseInit] Phase 5 新模块权限种子数据初始化成功");
         } catch (Exception e) { log.error("[DatabaseInit] Phase 5 权限种子数据初始化失败: {}", e.getMessage()); }

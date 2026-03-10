@@ -5,8 +5,10 @@ import com.admin.common.lang.R;
 import com.admin.common.utils.Md5Util;
 import com.admin.entity.IamRole;
 import com.admin.entity.IamUser;
+import com.admin.entity.IamUserAsset;
 import com.admin.entity.IamUserRole;
 import com.admin.mapper.IamRoleMapper;
+import com.admin.mapper.IamUserAssetMapper;
 import com.admin.mapper.IamUserMapper;
 import com.admin.mapper.IamUserRoleMapper;
 import com.admin.service.IamUserService;
@@ -35,6 +37,9 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
     @Resource
     private IamUserRoleMapper iamUserRoleMapper;
 
+    @Resource
+    private IamUserAssetMapper iamUserAssetMapper;
+
     @Override
     public R getAllUsers() {
         List<IamUser> users = this.list(new LambdaQueryWrapper<IamUser>()
@@ -44,9 +49,15 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
             return R.ok(Collections.emptyList());
         }
 
-        Map<Long, List<IamRole>> rolesByUserId = loadRolesByUserIds(users.stream().map(IamUser::getId).collect(Collectors.toList()));
+        List<Long> userIds = users.stream().map(IamUser::getId).collect(Collectors.toList());
+        Map<Long, List<IamRole>> rolesByUserId = loadRolesByUserIds(userIds);
+        Map<Long, Integer> assetCountByUserId = countUserAssets(userIds);
         List<IamUserViewDto> result = users.stream()
-                .map(user -> toUserView(user, rolesByUserId.getOrDefault(user.getId(), Collections.emptyList())))
+                .map(user -> {
+                    IamUserViewDto view = toUserView(user, rolesByUserId.getOrDefault(user.getId(), Collections.emptyList()));
+                    view.setAssetCount(assetCountByUserId.getOrDefault(user.getId(), 0));
+                    return view;
+                })
                 .collect(Collectors.toList());
         return R.ok(result);
     }
@@ -56,9 +67,16 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         IamUser user = getRequiredUser(id);
         List<IamRole> roles = loadRolesByUserIds(Collections.singletonList(id)).getOrDefault(id, Collections.emptyList());
 
+        List<IamUserAsset> userAssets = iamUserAssetMapper.selectList(new LambdaQueryWrapper<IamUserAsset>()
+                .eq(IamUserAsset::getUserId, id)
+                .eq(IamUserAsset::getStatus, 0));
+
         IamUserDetailDto detail = new IamUserDetailDto();
-        detail.setUser(toUserView(user, roles));
+        IamUserViewDto view = toUserView(user, roles);
+        view.setAssetCount(userAssets.size());
+        detail.setUser(view);
         detail.setRoles(roles.stream().map(this::toRoleView).collect(Collectors.toList()));
+        detail.setAssetIds(userAssets.stream().map(IamUserAsset::getAssetId).collect(Collectors.toList()));
         return R.ok(detail);
     }
 
@@ -88,6 +106,7 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         this.save(user);
 
         replaceUserRoles(user.getId(), dto.getRoleIds());
+        replaceUserAssets(user.getId(), dto.getAssetScope(), dto.getAssetIds());
         return getUserDetail(user.getId());
     }
 
@@ -110,12 +129,14 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         applyUserPayload(user, authSource, dto.getDisplayName(), dto.getEmail(), dto.getLocalUsername(), dto.getPassword(),
                 dto.getMobile(), dto.getJobTitle(), dto.getDingtalkUserId(), dto.getDingtalkUnionId(),
                 dto.getDepartmentPath(), dto.getOrgActive(), dto.getEnabled(), dto.getRemark());
+        user.setAssetScope(dto.getAssetScope());
         user.setUpdatedTime(System.currentTimeMillis());
         this.updateById(user);
 
         if (dto.getRoleIds() != null) {
             replaceUserRoles(user.getId(), dto.getRoleIds());
         }
+        replaceUserAssets(user.getId(), dto.getAssetScope(), dto.getAssetIds());
         return getUserDetail(user.getId());
     }
 
@@ -123,6 +144,7 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
     public R deleteUser(Long id) {
         getRequiredUser(id);
         iamUserRoleMapper.delete(new LambdaQueryWrapper<IamUserRole>().eq(IamUserRole::getUserId, id));
+        iamUserAssetMapper.delete(new LambdaQueryWrapper<IamUserAsset>().eq(IamUserAsset::getUserId, id));
         this.removeById(id);
         return R.ok();
     }
@@ -318,11 +340,40 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         return value.trim();
     }
 
+    private void replaceUserAssets(Long userId, String assetScope, List<Long> assetIds) {
+        iamUserAssetMapper.delete(new LambdaQueryWrapper<IamUserAsset>().eq(IamUserAsset::getUserId, userId));
+        if (!"SELECTED".equals(assetScope) || assetIds == null || assetIds.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Long assetId : assetIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList())) {
+            IamUserAsset mapping = new IamUserAsset();
+            mapping.setUserId(userId);
+            mapping.setAssetId(assetId);
+            mapping.setCreatedTime(now);
+            mapping.setUpdatedTime(now);
+            mapping.setStatus(0);
+            iamUserAssetMapper.insert(mapping);
+        }
+    }
+
+    private Map<Long, Integer> countUserAssets(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<IamUserAsset> allAssets = iamUserAssetMapper.selectList(new LambdaQueryWrapper<IamUserAsset>()
+                .in(IamUserAsset::getUserId, userIds)
+                .eq(IamUserAsset::getStatus, 0));
+        return allAssets.stream().collect(Collectors.groupingBy(IamUserAsset::getUserId,
+                Collectors.collectingAndThen(Collectors.counting(), Long::intValue)));
+    }
+
     private IamUserViewDto toUserView(IamUser user, List<IamRole> roles) {
         IamUserViewDto dto = new IamUserViewDto();
         BeanUtils.copyProperties(user, dto);
         dto.setRoleIds(roles.stream().map(IamRole::getId).collect(Collectors.toList()));
         dto.setRoleNames(roles.stream().map(IamRole::getName).collect(Collectors.toList()));
+        dto.setAssetScope(user.getAssetScope());
         return dto;
     }
 

@@ -44,4 +44,9 @@ public class IamUserUpdateDto {
     private String remark;
 
     private List<Long> roleIds;
+
+    /** 用户资产范围: null=继承角色, ALL=全部, SELECTED=指定, NONE=无 */
+    private String assetScope;
+
+    private List<Long> assetIds;
 }

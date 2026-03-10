@@ -32,6 +32,32 @@ public class AuthPrincipal {
 
     private Set<String> roleCodes = new LinkedHashSet<>();
 
+    /** 资产范围: ALL=可看全部资产, SELECTED=只看指定资产 */
+    private String assetScope = "ALL";
+
+    /** 当 assetScope=SELECTED 时，可访问的资产ID集合（聚合自所有角色） */
+    private Set<Long> accessibleAssetIds = new LinkedHashSet<>();
+
+    /**
+     * 检查当前用户是否可以访问指定资产
+     */
+    public boolean canAccessAsset(Long assetId) {
+        if (admin || "ALL".equals(assetScope)) {
+            return true;
+        }
+        return assetId != null && accessibleAssetIds.contains(assetId);
+    }
+
+    /**
+     * 获取可访问资产ID集合，null 表示不限制（全部可见）
+     */
+    public Set<Long> getEffectiveAssetIds() {
+        if (admin || "ALL".equals(assetScope)) {
+            return null; // null = no restriction
+        }
+        return accessibleAssetIds == null ? Collections.emptySet() : accessibleAssetIds;
+    }
+
     public boolean hasPermission(String permissionCode) {
         if (admin) {
             return true;

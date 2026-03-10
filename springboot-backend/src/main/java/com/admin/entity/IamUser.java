@@ -40,4 +40,7 @@ public class IamUser extends BaseEntity {
     private Long lastLoginAt;
 
     private String remark;
+
+    /** 用户资产范围: NULL=继承角色, ALL=全部, SELECTED=指定, NONE=无 */
+    private String assetScope;
 }

@@ -39,6 +39,11 @@ public class IamUserViewDto {
 
     private List<String> roleNames;
 
+    /** 用户资产范围: null=继承角色 */
+    private String assetScope;
+
+    private Integer assetCount;
+
     private Long createdTime;
 
     private Long updatedTime;

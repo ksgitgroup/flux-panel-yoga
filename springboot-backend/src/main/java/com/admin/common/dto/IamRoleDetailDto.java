@@ -12,4 +12,8 @@ public class IamRoleDetailDto {
     private List<Long> permissionIds;
 
     private List<IamPermissionViewDto> permissions;
+
+    private List<Long> assetIds;
+
+    private List<Long> userIds;
 }

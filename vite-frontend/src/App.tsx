@@ -41,7 +41,7 @@ import H5Layout from "@/layouts/h5";
 import H5SimpleLayout from "@/layouts/h5-simple";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-import { getTwoFactorStatus } from "@/api";
+import { getTwoFactorStatus, getIamCurrentProfile } from "@/api";
 import { hasAnyPermission, isLoggedIn } from "@/utils/auth";
 import { siteConfig } from "@/config/site";
 
@@ -265,6 +265,38 @@ function App() {
     // 延迟检查，避免阻塞初始渲染
     const timer = setTimeout(checkTitleUpdate, 100);
 
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 登录用户每次页面加载时从后端刷新权限（管理员修改角色后无需退出登录）
+  useEffect(() => {
+    if (!isLoggedIn()) return;
+    const refreshPermissions = async () => {
+      try {
+        const res = await getIamCurrentProfile();
+        if (res.code === 0 && res.data) {
+          const { permissions, roleCodes, admin, assetScope, accessibleAssetIds } = res.data;
+          if (Array.isArray(permissions)) {
+            localStorage.setItem('permissions', JSON.stringify(permissions));
+          }
+          if (Array.isArray(roleCodes)) {
+            localStorage.setItem('role_codes', JSON.stringify(roleCodes));
+          }
+          if (typeof admin === 'boolean') {
+            localStorage.setItem('admin', String(admin));
+          }
+          if (assetScope) {
+            localStorage.setItem('asset_scope', assetScope);
+          }
+          if (accessibleAssetIds !== undefined) {
+            localStorage.setItem('accessible_asset_ids', JSON.stringify(accessibleAssetIds));
+          }
+        }
+      } catch {
+        // 静默失败，不影响页面加载
+      }
+    };
+    const timer = setTimeout(refreshPermissions, 500);
     return () => clearTimeout(timer);
   }, []);
 

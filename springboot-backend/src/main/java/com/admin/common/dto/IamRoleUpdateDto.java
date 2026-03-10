@@ -27,4 +27,8 @@ public class IamRoleUpdateDto {
     private Integer enabled;
 
     private List<Long> permissionIds;
+
+    private String assetScope;
+
+    private List<Long> assetIds;
 }

@@ -10,4 +10,7 @@ public class IamUserDetailDto {
     private IamUserViewDto user;
 
     private List<IamRoleViewDto> roles;
+
+    /** 用户级资产ID列表 */
+    private List<Long> assetIds;
 }

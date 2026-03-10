@@ -3158,7 +3158,7 @@ export default function AssetsPage() {
       </Modal>
 
       {/* Provision Modal */}
-      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => !open && onProvisionClose()} size="2xl">
+      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => { if (!open && provisionStep === 'select') onProvisionClose(); }} size="2xl" isDismissable={provisionStep === 'select'} hideCloseButton={provisionStep === 'result'}>
         <ModalContent>
           <ModalHeader>
             {provisionContext
@@ -3426,12 +3426,6 @@ export default function AssetsPage() {
               </>
             ) : (
               <>
-                <Button variant="flat" onPress={() => {
-                  setProvisionStep('select');
-                  setAllProvisionResult(null);
-                  setProvisionNodeVerified(false);
-                  setProvisionNodeStatus('');
-                }}>再添加一台</Button>
                 {provisionNodeVerified ? (
                   <Button color="success" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
                 ) : (

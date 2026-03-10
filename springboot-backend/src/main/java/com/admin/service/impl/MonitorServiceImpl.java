@@ -1066,6 +1066,50 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
 
         try {
+            // Check for recently created but not-yet-online nodes to avoid duplicates
+            // Look for snapshots created within last 30 minutes that are still offline
+            List<MonitorNodeSnapshot> recentOrphans = monitorNodeSnapshotMapper.selectList(
+                    new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                            .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
+                            .eq(MonitorNodeSnapshot::getOnline, 0)
+                            .ne(MonitorNodeSnapshot::getStatus, -1)
+                            .isNull(MonitorNodeSnapshot::getFirstSeenAt)  // never connected
+                            .gt(MonitorNodeSnapshot::getCreatedTime, System.currentTimeMillis() - 30 * 60 * 1000)
+                            .orderByDesc(MonitorNodeSnapshot::getCreatedTime));
+            if (!recentOrphans.isEmpty()) {
+                // Reuse the most recent orphan - get its token from Komari
+                MonitorNodeSnapshot orphan = recentOrphans.get(0);
+                String existingUuid = orphan.getRemoteNodeUuid();
+                try {
+                    String tokenJson = httpGet(instance, "/api/admin/client/" + existingUuid + "/token", instance.getAllowInsecureTls());
+                    if (tokenJson != null) {
+                        JSONObject tokenResp = JSON.parseObject(tokenJson);
+                        String existingToken = tokenResp.getString("token");
+                        if (StringUtils.hasText(existingToken)) {
+                            log.info("[MonitorProvision] Reusing existing orphan client {} for instance {}", existingUuid, instance.getName());
+                            String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
+                            String installCmd = String.format("curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, existingToken);
+                            String ghProxy = "https://ghfast.top";
+                            String installCmdCn = String.format("curl -fsSL %s/%s | bash -s -- --install-ghproxy %s --endpoint %s --token %s",
+                                    ghProxy, scriptUrl, ghProxy, baseUrl, existingToken);
+                            Map<String, Object> reuseResult = new LinkedHashMap<>();
+                            reuseResult.put("uuid", existingUuid);
+                            reuseResult.put("token", existingToken);
+                            reuseResult.put("instanceId", instance.getId());
+                            reuseResult.put("instanceName", instance.getName());
+                            reuseResult.put("endpoint", baseUrl);
+                            reuseResult.put("installCommand", installCmd);
+                            reuseResult.put("installCommandCn", installCmdCn);
+                            reuseResult.put("reused", true);
+                            return R.ok(reuseResult);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[MonitorProvision] Failed to get token for orphan {}, will create new: {}", existingUuid, e.getMessage());
+                }
+            }
+
+            // No reusable orphan found — create new client
             // Workaround: Komari <= 1.1.8 panics on audit log when using API key auth with name parameter.
             // Create without name (goes through no-audit-log branch), name will sync from agent basic info.
             String responseJson = httpPost(instance, "/api/admin/client/add", "{}", instance.getAllowInsecureTls());

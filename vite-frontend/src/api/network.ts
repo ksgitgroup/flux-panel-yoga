@@ -64,9 +64,11 @@ function handleTokenExpired() {
   window.localStorage.removeItem('email');
   window.localStorage.removeItem('force_password_change');
   window.localStorage.removeItem('force_two_factor_setup');
-  
+
   // 跳转到登录页面（replace 不污染浏览器历史）
-  if (window.location.pathname !== '/') {
+  // 排除钉钉回调页面 — 这些页面自行处理错误，不应被强制跳转
+  const path = window.location.pathname;
+  if (path !== '/' && !path.includes('dingtalk') && !path.includes('callback')) {
     window.location.replace('/');
   }
 }

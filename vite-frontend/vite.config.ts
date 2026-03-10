@@ -49,6 +49,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    assetsDir: '_static',
     sourcemap: false,
     minify: false,
     rollupOptions: {

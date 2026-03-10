@@ -769,21 +769,32 @@ public class DatabaseInitService {
                 jdbcTemplate.update("UPDATE `sys_role` SET `name` = '管理员', `description` = '拥有绝大部分运维权限，但站点配置写入、角色权限管理写入等高风险操作仅创建者可执行' WHERE `code` = 'SUPER_ADMIN' AND `name` = '超级管理员'");
             } catch (Exception ignored) { }
             ensureIamRole("DEV_ADMIN", "开发主管", "核心运维全权限，配置只读，资产范围需显式配置", "system", 1, 10, 1);
+            ensureIamRole("DEPT_LEAD", "行政主管", "用户与业务管理权限，可管理业务用户和查看资产", "system", 1, 15, 1);
             ensureIamRole("DEVELOPER", "普通开发", "需按服务器范围配置查看权限，默认只读", "system", 1, 20, 1);
+            ensureIamRole("STAFF", "行政专员", "基础只读权限，可查看资产与业务用户", "system", 1, 25, 1);
             // 存量数据重命名：开发管理员 → 开发主管
             try {
                 jdbcTemplate.update("UPDATE `sys_role` SET `name` = '开发主管', `description` = '核心运维全权限，配置只读，资产范围需显式配置' WHERE `code` = 'DEV_ADMIN' AND `name` = '开发管理员'");
             } catch (Exception ignored) { }
-            // 清理历史遗留角色：行政主管(DEPT_LEAD)、普通专员(STAFF)
+            // 存量数据重命名：行政主管/普通专员 名称标准化
             try {
-                jdbcTemplate.update("DELETE rp FROM `sys_role_permission` rp JOIN `sys_role` r ON r.`id` = rp.`role_id` WHERE r.`code` IN ('DEPT_LEAD', 'STAFF')");
-                jdbcTemplate.update("DELETE ra FROM `sys_role_asset` ra JOIN `sys_role` r ON r.`id` = ra.`role_id` WHERE r.`code` IN ('DEPT_LEAD', 'STAFF')");
-                jdbcTemplate.update("DELETE FROM `sys_role` WHERE `code` IN ('DEPT_LEAD', 'STAFF')");
+                jdbcTemplate.update("UPDATE `sys_role` SET `name` = '行政主管', `description` = '用户与业务管理权限，可管理业务用户和查看资产' WHERE `code` = 'DEPT_LEAD' AND `name` != '行政主管'");
+                jdbcTemplate.update("UPDATE `sys_role` SET `name` = '行政专员', `description` = '基础只读权限，可查看资产与业务用户' WHERE `code` = 'STAFF' AND `name` != '行政专员'");
+            } catch (Exception ignored) { }
+            // 清理历史遗留角色：行政HR（旧数据）
+            try {
+                jdbcTemplate.update("DELETE rp FROM `sys_role_permission` rp JOIN `sys_role` r ON r.`id` = rp.`role_id` WHERE r.`code` = 'HR_ADMIN'");
+                jdbcTemplate.update("DELETE ra FROM `sys_role_asset` ra JOIN `sys_role` r ON r.`id` = ra.`role_id` WHERE r.`code` = 'HR_ADMIN'");
+                jdbcTemplate.update("DELETE FROM `sys_role` WHERE `code` = 'HR_ADMIN'");
+                // 也按名称清理，防止 code 不一致
+                jdbcTemplate.update("DELETE rp FROM `sys_role_permission` rp JOIN `sys_role` r ON r.`id` = rp.`role_id` WHERE r.`name` = '行政HR'");
+                jdbcTemplate.update("DELETE ra FROM `sys_role_asset` ra JOIN `sys_role` r ON r.`id` = ra.`role_id` WHERE r.`name` = '行政HR'");
+                jdbcTemplate.update("DELETE FROM `sys_role` WHERE `name` = '行政HR'");
             } catch (Exception ignored) { }
             // 管理员角色默认ALL，非管理员角色默认NONE（最小权限原则）
             try {
                 jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'ALL' WHERE `code` IN ('OWNER', 'SUPER_ADMIN') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
-                jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'NONE' WHERE `code` IN ('DEV_ADMIN', 'DEVELOPER') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
+                jdbcTemplate.update("UPDATE `sys_role` SET `asset_scope` = 'NONE' WHERE `code` IN ('DEV_ADMIN', 'DEVELOPER', 'DEPT_LEAD', 'STAFF') AND (`asset_scope` IS NULL OR `asset_scope` = '')");
             } catch (Exception ignored) { }
 
             ensureIamPermission("dashboard.read", "查看首页", "dashboard", "允许查看首页摘要与入口", 10, 1);
@@ -851,6 +862,65 @@ public class DatabaseInitService {
             }
 
             // ========== 角色权限分配（数据驱动，由低到高 C→A） ==========
+
+            // --- E. STAFF (行政专员): 基础只读，可查看资产和业务用户 ---
+            ensureIamRolePermission("STAFF", "dashboard.read");
+            ensureIamRolePermission("STAFF", "server_dashboard.read");
+            String[] staffReadModules = {"asset", "biz_user", "monitor", "probe"};
+            for (String m : staffReadModules) {
+                ensureIamRolePermission("STAFF", m + ".read");
+            }
+            // 修正：STAFF 应仅有只读权限，撤销历史遗留的 write 权限
+            try {
+                jdbcTemplate.update(
+                        "DELETE rp FROM `sys_role_permission` rp " +
+                        "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
+                        "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                        "WHERE r.`code` = 'STAFF' AND (p.`code` LIKE '%.write' OR p.`code` LIKE '%.create' OR p.`code` LIKE '%.update' OR p.`code` LIKE '%.delete')");
+            } catch (Exception ignored) { }
+
+            // --- D. DEPT_LEAD (行政主管): 用户与业务管理，资产/监控只读，可管理业务用户和通知 ---
+            ensureIamRolePermission("DEPT_LEAD", "dashboard.read");
+            ensureIamRolePermission("DEPT_LEAD", "server_dashboard.read");
+            String[] deptLeadReadModules = {"asset", "xui", "forward", "tunnel", "node", "monitor",
+                    "probe", "alert", "portal", "topology"};
+            for (String m : deptLeadReadModules) {
+                ensureIamRolePermission("DEPT_LEAD", m + ".read");
+            }
+            // 行政主管可写：业务用户、通知
+            String[] deptLeadWriteModules = {"biz_user", "notification"};
+            for (String m : deptLeadWriteModules) {
+                ensureIamRolePermission("DEPT_LEAD", m + ".read");
+                ensureIamRolePermission("DEPT_LEAD", m + ".write");
+            }
+            // 修正：撤销 DEPT_LEAD 不应拥有的模块 write 权限（历史遗留）
+            try {
+                String readOnlyForDeptLead = "'asset.write','asset.create','asset.update','asset.delete'," +
+                        "'xui.write','xui.create','xui.update','xui.delete','xui.sync'," +
+                        "'forward.write','forward.create','forward.update','forward.delete'," +
+                        "'tunnel.write','tunnel.create','tunnel.update','tunnel.delete'," +
+                        "'node.write','node.create','node.update','node.delete'," +
+                        "'monitor.write','monitor.create','monitor.update','monitor.delete'," +
+                        "'probe.write','probe.create','probe.update','probe.delete'," +
+                        "'alert.write','alert.create','alert.update','alert.delete'," +
+                        "'portal.write','portal.create','portal.update','portal.delete'," +
+                        "'topology.write','topology.create','topology.update','topology.delete'," +
+                        "'site_config.write','site_config.create','site_config.update','site_config.delete'," +
+                        "'protocol.write','protocol.create','protocol.update','protocol.delete'," +
+                        "'tag.write','tag.create','tag.update','tag.delete'," +
+                        "'speed_limit.write','speed_limit.create','speed_limit.update','speed_limit.delete'," +
+                        "'iam_user.write','iam_user.create','iam_user.update','iam_user.delete'," +
+                        "'iam_role.write','iam_role.create','iam_role.update','iam_role.delete'," +
+                        "'backup.write','backup.create','backup.update','backup.delete'," +
+                        "'ip_quality.write','ip_quality.create','ip_quality.update','ip_quality.delete'," +
+                        "'onepanel.write','onepanel.create','onepanel.update','onepanel.delete'," +
+                        "'traffic_analysis.write','traffic_analysis.create','traffic_analysis.update','traffic_analysis.delete'";
+                jdbcTemplate.update(
+                        "DELETE rp FROM `sys_role_permission` rp " +
+                        "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
+                        "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                        "WHERE r.`code` = 'DEPT_LEAD' AND p.`code` IN (" + readOnlyForDeptLead + ")");
+            } catch (Exception ignored) { }
 
             // --- C. DEVELOPER (普通开发): 核心模块只读，后续通过服务器范围配置细粒度控制 ---
             ensureIamRolePermission("DEVELOPER", "dashboard.read");
@@ -1254,6 +1324,16 @@ public class DatabaseInitService {
             String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read","cost_analysis.read"};
             for (String p : devReadPerms) {
                 ensureIamRolePermission("DEVELOPER", p);
+            }
+            // DEPT_LEAD gets read + notification write
+            String[] deptLeadNewPerms = {"notification.read","notification.write","topology.read","cost_analysis.read"};
+            for (String p : deptLeadNewPerms) {
+                ensureIamRolePermission("DEPT_LEAD", p);
+            }
+            // STAFF gets limited read
+            String[] staffNewPerms = {"notification.read","cost_analysis.read"};
+            for (String p : staffNewPerms) {
+                ensureIamRolePermission("STAFF", p);
             }
 
             // OWNER 角色绑定全部权限（动态查所有 permission code）

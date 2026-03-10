@@ -1037,7 +1037,18 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     }
                 }
                 if (apiKey == null) {
-                    return R.err("Pika 中没有可用的 API Key，请在 Pika 管理面板中创建一个");
+                    // Auto-create an API key in Pika for agent installation
+                    log.info("[MonitorProvision] No API key found in Pika {}, auto-creating one", instance.getName());
+                    String createKeyJson = httpPostWithToken(
+                            baseUrl + "/api/admin/api-keys", jwt,
+                            "{\"name\":\"Flux Auto-Install\"}", instance.getAllowInsecureTls());
+                    if (createKeyJson != null) {
+                        JSONObject newKey = JSON.parseObject(createKeyJson);
+                        apiKey = newKey.getString("key");
+                    }
+                    if (apiKey == null) {
+                        return R.err("Pika 自动创建 API Key 失败，请手动在 Pika 管理面板中创建");
+                    }
                 }
 
                 String name = dto.getName() != null ? dto.getName().trim() : "";
@@ -1219,6 +1230,33 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             request.setHeader("Authorization", "Bearer " + token);
             request.setHeader("Accept", "application/json");
 
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String httpPostWithToken(String url, String token, String jsonBody, Integer allowInsecureTls) {
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
+            HttpPost request = new HttpPost(url);
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
+            request.setHeader("Authorization", "Bearer " + token);
+            request.setHeader("Accept", "application/json");
+            request.setHeader("Content-Type", "application/json");
+            if (jsonBody != null) {
+                request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+            }
             try (CloseableHttpResponse response = client.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);

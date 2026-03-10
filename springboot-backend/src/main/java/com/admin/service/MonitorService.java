@@ -42,6 +42,8 @@ public interface MonitorService extends IService<MonitorInstance> {
 
     R provisionDualAgent(Long komariInstanceId, Long pikaInstanceId, String name);
 
+    R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, java.util.Map<String, Object> gostConfig, String name);
+
     R getNodeProviderDetail(Long nodeId);
 
     R getKomariPingTaskDetail(Long nodeId, Long taskId, Integer hours);

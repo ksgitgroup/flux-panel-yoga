@@ -133,4 +133,16 @@ public class MonitorController extends BaseController {
         String name = body.get("name") != null ? body.get("name").toString() : null;
         return monitorService.provisionDualAgent(komariInstanceId, pikaInstanceId, name);
     }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/provision-all")
+    @SuppressWarnings("unchecked")
+    public R provisionAll(@RequestBody java.util.Map<String, Object> body) {
+        Long komariInstanceId = body.get("komariInstanceId") != null ? ((Number) body.get("komariInstanceId")).longValue() : null;
+        Long pikaInstanceId = body.get("pikaInstanceId") != null ? ((Number) body.get("pikaInstanceId")).longValue() : null;
+        java.util.Map<String, Object> gostConfig = body.get("gostConfig") != null ? (java.util.Map<String, Object>) body.get("gostConfig") : null;
+        String name = body.get("name") != null ? body.get("name").toString() : null;
+        return monitorService.provisionAllAgents(komariInstanceId, pikaInstanceId, gostConfig, name);
+    }
 }

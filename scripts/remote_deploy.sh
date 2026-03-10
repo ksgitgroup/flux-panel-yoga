@@ -83,25 +83,36 @@ source .env
 # ── 4. 复制 compose 文件 ──
 cp docker-compose-v6.yml docker-compose.yml
 
-# ── 5. 停旧容器、拉新镜像、启动 ──
+# ── 5. 停旧容器、清理空间、拉新镜像、启动 ──
 echo "🛑 停止旧容器..."
 $DC down --remove-orphans 2>/dev/null || true
+
+echo "🧹 清理 Docker 无用资源..."
+docker image prune -af --filter "until=72h" 2>/dev/null || true
+docker builder prune -af 2>/dev/null || true
+docker volume prune -f --filter "label!=keep" 2>/dev/null || true
+AVAIL_MB=$(df -m "$DEPLOY_DIR" | awk 'NR==2{print $4}')
+echo "📊 可用空间: ${AVAIL_MB}MB"
+if [ "${AVAIL_MB:-0}" -lt 500 ]; then
+  echo "⚠️  磁盘空间不足 500MB，尝试深度清理..."
+  docker system prune -af 2>/dev/null || true
+fi
 
 echo "📥 拉取最新镜像..."
 $DC pull
 
-echo "🚀 启动容器..."
-$DC up -d
+echo "🚀 启动 MySQL..."
+$DC up -d mysql
 
 # ── 6. 等待 MySQL 健康 ──
 echo "⏳ 等待 MySQL 启动..."
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   status=$(docker inspect --format='{{.State.Health.Status}}' gost-mysql 2>/dev/null || echo "starting")
   if [ "$status" = "healthy" ]; then
-    echo "✅ MySQL 已健康"
+    echo "✅ MySQL 已健康 (${i}次检查)"
     break
   fi
-  if [ "$i" -eq 30 ]; then
+  if [ "$i" -eq 60 ]; then
     echo "❌ MySQL 启动超时！"
     echo "📋 MySQL 日志："
     docker logs --tail=30 gost-mysql
@@ -109,6 +120,9 @@ for i in $(seq 1 30); do
   fi
   sleep 5
 done
+
+echo "🚀 启动其余容器..."
+$DC up -d
 
 # ── 7. 关键步骤：主动检测并导入数据库表 ──
 # Docker 的 initdb 机制极其脆弱（数据目录非空就跳过），

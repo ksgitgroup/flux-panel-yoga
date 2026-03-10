@@ -353,6 +353,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     nv.setRemark(a.getRemark());
                     nv.setPurchaseDate(a.getPurchaseDate());
                     nv.setMonthlyCost(a.getMonthlyCost());
+                    nv.setPurpose(a.getPurpose());
                     // Use asset tags as the single source of truth for tag display
                     if (a.getTags() != null) nv.setTags(a.getTags());
                 }

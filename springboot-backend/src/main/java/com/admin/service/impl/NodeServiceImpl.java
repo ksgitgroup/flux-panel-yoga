@@ -104,9 +104,22 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         Node node = buildNewNode(nodeDto);
         boolean result = this.save(node);
         if (result) {
+            // If assetId provided from frontend, set bidirectional link
+            if (nodeDto.getAssetId() != null) {
+                node.setAssetId(nodeDto.getAssetId());
+                this.updateById(node);
+                AssetHost asset = assetHostMapper.selectById(nodeDto.getAssetId());
+                if (asset != null && asset.getGostNodeId() == null) {
+                    asset.setGostNodeId(node.getId());
+                    assetHostMapper.updateById(asset);
+                }
+            }
             autoLinkAsset(node);
+            // Return node object so frontend can get the ID
+            node.setSecret(null);
+            return R.ok(node);
         }
-        return result ? R.ok(SUCCESS_CREATE_MSG) : R.err(ERROR_CREATE_MSG);
+        return R.err(ERROR_CREATE_MSG);
     }
 
 
@@ -223,19 +236,24 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     private Node buildNewNode(NodeDto nodeDto) {
         Node node = new Node();
         BeanUtils.copyProperties(nodeDto, node);
-        
+
+        // serverIp defaults to ip if not provided
+        if (StrUtil.isBlank(node.getServerIp())) {
+            node.setServerIp(node.getIp());
+        }
+
         // 验证端口范围
         validatePortRange(node.getPortSta(), node.getPortEnd());
-        
+
         // 设置默认属性
         node.setSecret(IdUtil.simpleUUID());
         node.setStatus(NODE_STATUS_ACTIVE);
-        
+
         // 设置时间戳
         long currentTime = System.currentTimeMillis();
         node.setCreatedTime(currentTime);
         node.setUpdatedTime(currentTime);
-        
+
         return node;
     }
 

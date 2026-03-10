@@ -442,6 +442,8 @@ export default function AssetsPage() {
   const [filterOs, setFilterOs] = useState<string>('');
   const [filterProvider, setFilterProvider] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [sortKey, setSortKey] = useState<'name' | 'cpu' | 'mem' | 'traffic' | 'expiry' | 'cost'>('name');
+  const [sortAsc, setSortAsc] = useState(true);
 
   // XUI inline binding form
   const [xuiBindOpen, setXuiBindOpen] = useState(false);
@@ -560,6 +562,19 @@ export default function AssetsPage() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [assets]);
 
+  // Probe type counts — K/P include dual (same logic as dashboard)
+  const probeCounts = useMemo(() => {
+    let komari = 0, pika = 0, dual = 0, local = 0;
+    assets.forEach(a => {
+      const src = a.probeSource || 'local';
+      if (src === 'dual') { dual++; komari++; pika++; }
+      else if (src === 'komari') komari++;
+      else if (src === 'pika') pika++;
+      else local++;
+    });
+    return { komari, pika, dual, local };
+  }, [assets]);
+
   const roleFilters = useMemo(() => {
     const counts: Record<string, number> = {};
     assets.forEach(a => {
@@ -655,8 +670,35 @@ export default function AssetsPage() {
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
-    return list;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus]);
+    // Sort
+    const sorted = [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'cpu': cmp = (a.monitorCpuUsage || 0) - (b.monitorCpuUsage || 0); break;
+        case 'mem': {
+          const aPct = a.monitorMemTotal ? ((a.monitorMemUsed || 0) / a.monitorMemTotal) : 0;
+          const bPct = b.monitorMemTotal ? ((b.monitorMemUsed || 0) / b.monitorMemTotal) : 0;
+          cmp = aPct - bPct; break;
+        }
+        case 'traffic': {
+          const aPct = a.probeTrafficLimit ? ((a.probeTrafficUsed || 0) / a.probeTrafficLimit) : 0;
+          const bPct = b.probeTrafficLimit ? ((b.probeTrafficUsed || 0) / b.probeTrafficLimit) : 0;
+          cmp = aPct - bPct; break;
+        }
+        case 'expiry': {
+          const aDate = a.expireDate ? new Date(a.expireDate).getTime() : 0;
+          const bDate = b.expireDate ? new Date(b.expireDate).getTime() : 0;
+          cmp = aDate - bDate; break;
+        }
+        case 'cost': {
+          cmp = (parseFloat(a.monthlyCost || '0') || 0) - (parseFloat(b.monthlyCost || '0') || 0); break;
+        }
+        default: cmp = (a.name || '').localeCompare(b.name || '', 'zh-CN');
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return sorted;
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, sortKey, sortAsc]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -1344,16 +1386,47 @@ export default function AssetsPage() {
         )}
         {/* Probe type filters */}
         <div className="flex gap-1 ml-auto">
-          {[{ v: '', l: '全部探针' }, { v: 'komari', l: 'Komari' }, { v: 'pika', l: 'Pika' }, { v: 'dual', l: '双探针' }, { v: 'local', l: '本地' }].map(({ v, l }) => (
+          {[
+            { v: '', l: '全部', c: assets.length },
+            { v: 'komari', l: 'K', c: probeCounts.komari },
+            { v: 'pika', l: 'P', c: probeCounts.pika },
+            { v: 'dual', l: '双探针', c: probeCounts.dual },
+            { v: 'local', l: '本地', c: probeCounts.local },
+          ].map(({ v, l, c }) => (
             <button key={v} onClick={() => setFilterProbe(filterProbe === v ? '' : v)}
               className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
                 filterProbe === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
               }`}>
-              {l}
+              {l}({c})
             </button>
           ))}
         </div>
       </div>
+
+      {/* Sort buttons */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">排序:</span>
+        {([
+          ['name', '名称'], ['cpu', 'CPU'], ['mem', '内存'], ['traffic', '流量'], ['expiry', '到期'], ['cost', '月费'],
+        ] as [typeof sortKey, string][]).map(([key, label]) => (
+          <button key={key}
+            onClick={() => { if (sortKey === key) setSortAsc(!sortAsc); else { setSortKey(key); setSortAsc(key === 'name'); } }}
+            className={`rounded-lg px-2 py-1 text-[10px] font-bold tracking-wider transition-all cursor-pointer border whitespace-nowrap ${
+              sortKey === key ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-400 hover:border-primary/40'
+            }`}>
+            {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
+          </button>
+        ))}
+      </div>
+
+      {/* Reset filters button */}
+      {(searchKeyword || filterRole || filterProbe || filterTag || filterRegion || filterOs || filterProvider || filterStatus || sortKey !== 'name') && (
+        <button onClick={() => { setSearchKeyword(''); setFilterRole(null); setFilterProbe(''); setFilterTag(''); setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterStatus(''); setSortKey('name'); setSortAsc(true); }}
+          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold text-danger border border-danger/40 bg-danger-50/30 hover:bg-danger-50/60 transition-all cursor-pointer">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          重置筛选
+        </button>
+      )}
 
       {/* Region / OS / Provider quick filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -1617,24 +1690,30 @@ export default function AssetsPage() {
                           </div>
                         </td>
 
-                        {/* Tags */}
+                        {/* Tags + meta chips */}
                         <td className="px-3 py-3">
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-0.5">
+                            {/* User tags - colored */}
                             {(() => {
                               const tagSrc = asset.tags;
-                              if (!tagSrc) return <span className="text-xs text-default-300">-</span>;
+                              if (!tagSrc) return null;
                               try {
                                 const arr = JSON.parse(tagSrc);
                                 if (Array.isArray(arr) && arr.length > 0) {
                                   return arr.slice(0, 3).map((t: string) => (
-                                    <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t}</span>
+                                    <span key={t} className="px-1.5 py-0.5 rounded-full bg-primary-100 text-[10px] text-primary-700 dark:bg-primary/15 dark:text-primary-300 font-medium">{t}</span>
                                   ));
                                 }
-                              } catch { /* not JSON */ }
+                              } catch { /* */ }
                               return tagSrc.split(/[;,]/).filter(Boolean).slice(0, 3).map((t: string) => (
-                                <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t.trim()}</span>
+                                <span key={t} className="px-1.5 py-0.5 rounded-full bg-primary-100 text-[10px] text-primary-700 dark:bg-primary/15 dark:text-primary-300 font-medium">{t.trim()}</span>
                               ));
                             })()}
+                            {/* Meta: region, provider, OS — muted style */}
+                            {asset.region && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{getRegionFlag(asset.region)}{asset.region}</span>}
+                            {asset.provider && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{asset.provider}</span>}
+                            {(asset.osCategory || asset.os) && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{asset.osCategory || asset.os}</span>}
+                            {!asset.tags && !asset.region && !asset.provider && !asset.osCategory && !asset.os && <span className="text-xs text-default-300">-</span>}
                           </div>
                         </td>
 
@@ -2783,6 +2862,34 @@ export default function AssetsPage() {
                               </Button>
                             ) : (
                               <div className="space-y-3">
+                                {/* Auto-detect: highlight matching node by IP */}
+                                {(() => {
+                                  const matchedNode = editingAsset.primaryIp
+                                    ? gostNodes.find(n => n.ip === editingAsset.primaryIp && !assets.some(a => a.gostNodeId === n.id && a.id !== editingAsset.id))
+                                    : null;
+                                  return matchedNode ? (
+                                    <div className="rounded-lg border-2 border-success bg-success-50/30 dark:bg-success-50/10 p-3 space-y-2">
+                                      <p className="text-xs font-semibold text-success-700 dark:text-success-400">
+                                        发现匹配的 GOST 节点（IP 一致）
+                                      </p>
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <span className={`w-2 h-2 rounded-full ${matchedNode.status === 1 ? 'bg-success' : 'bg-danger'}`} />
+                                          <span className="font-medium text-sm">{matchedNode.name}</span>
+                                          <span className="text-xs text-default-400 font-mono">{matchedNode.ip}</span>
+                                        </div>
+                                        <Button size="sm" color="success" variant="flat"
+                                          onPress={() => {
+                                            setForm(p => ({ ...p, gostNodeId: matchedNode.id.toString() }));
+                                            setGostBindOpen(false);
+                                            toast.success(`已自动匹配并绑定节点 "${matchedNode.name}"`);
+                                          }}>
+                                          一键绑定
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : null;
+                                })()}
                                 {/* Select from existing nodes */}
                                 {gostNodes.filter(n => !assets.some(a => a.gostNodeId === n.id && a.id !== editingAsset.id)).length > 0 ? (
                                   <div className="space-y-2">
@@ -2812,11 +2919,11 @@ export default function AssetsPage() {
                                 <div className="rounded-lg border border-primary/20 bg-primary-50/20 dark:bg-primary-50/5 p-3 space-y-3">
                                   <p className="text-[11px] font-medium text-default-600">或快速创建新节点：</p>
                                   <div className="grid gap-3 sm:grid-cols-2">
-                                    <Input size="sm" label="节点名称" placeholder={editingAsset.name || '节点名称'}
-                                      value={gostCreateForm.name}
+                                    <Input size="sm" label="节点名称" placeholder="默认使用资产名称"
+                                      value={gostCreateForm.name || editingAsset.name || ''}
                                       onValueChange={(v) => setGostCreateForm(p => ({ ...p, name: v }))} />
-                                    <Input size="sm" label="节点 IP" placeholder={editingAsset.primaryIp || '1.2.3.4'}
-                                      value={gostCreateForm.ip}
+                                    <Input size="sm" label="节点 IP" placeholder="默认使用资产 IP"
+                                      value={gostCreateForm.ip || editingAsset.primaryIp || ''}
                                       onValueChange={(v) => setGostCreateForm(p => ({ ...p, ip: v }))} />
                                     <Input size="sm" label="端口范围起始" placeholder="10000"
                                       value={gostCreateForm.portSta}
@@ -2842,13 +2949,14 @@ export default function AssetsPage() {
                                             assetId: editingAsset.id,
                                           });
                                           if (res.code === 0 && res.data) {
+                                            const nodeId = typeof res.data === 'object' ? res.data.id : res.data;
                                             toast.success('GOST 节点创建成功');
-                                            setForm(p => ({ ...p, gostNodeId: res.data.id?.toString() || res.data.toString() }));
+                                            setForm(p => ({ ...p, gostNodeId: nodeId?.toString() || '' }));
                                             setGostBindOpen(false);
                                             void loadGostNodes();
                                             // Try to get install command
                                             try {
-                                              const cmdRes = await getNodeInstallCommand(typeof res.data === 'object' ? res.data.id : res.data);
+                                              const cmdRes = await getNodeInstallCommand(nodeId);
                                               if (cmdRes.code === 0 && cmdRes.data) {
                                                 setGostInstallCmd(cmdRes.data);
                                               }

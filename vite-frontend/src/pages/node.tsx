@@ -11,8 +11,8 @@ import { Progress } from "@heroui/progress";
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
-
-import { 
+import { hasPermission } from '@/utils/auth';
+import {
   createNode, 
   getNodeList, 
   updateNode, 
@@ -52,6 +52,9 @@ interface NodeForm {
 }
 
 export default function NodePage() {
+  const canCreate = hasPermission('node.create');
+  const canUpdate = hasPermission('node.update');
+  const canDelete = hasPermission('node.delete');
   const [nodeList, setNodeList] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
@@ -567,15 +570,15 @@ export default function NodePage() {
         <div className="flex-1">
         </div>
 
-        <Button
+        {canCreate && <Button
               size="sm"
               variant="flat"
               color="primary"
               onPress={handleAdd}
-             
+
             >
               新增
-            </Button>
+            </Button>}
      
         </div>
 
@@ -769,7 +772,7 @@ export default function NodePage() {
                       >
                         安装
                       </Button>
-                      <Button
+                      {canUpdate && <Button
                         size="sm"
                         variant="flat"
                         color="primary"
@@ -777,8 +780,8 @@ export default function NodePage() {
                         className="flex-1 min-h-8"
                       >
                         编辑
-                      </Button>
-                      <Button
+                      </Button>}
+                      {canDelete && <Button
                         size="sm"
                         variant="flat"
                         color="danger"
@@ -786,7 +789,7 @@ export default function NodePage() {
                         className="flex-1 min-h-8"
                       >
                         删除
-                      </Button>
+                      </Button>}
                     </div>
                   </div>
                 </CardBody>

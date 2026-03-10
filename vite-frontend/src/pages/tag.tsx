@@ -9,6 +9,7 @@ import { Spinner } from "@heroui/spinner";
 import { Tabs, Tab } from "@heroui/tabs";
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { hasPermission } from '@/utils/auth';
 
 import {
     AssetHost,
@@ -28,6 +29,9 @@ interface Tag {
 
 export default function TagPage() {
     const navigate = useNavigate();
+    const canCreate = hasPermission('tag.create');
+    const canUpdate = hasPermission('tag.update');
+    const canDelete = hasPermission('tag.delete');
     const [loading, setLoading] = useState(true);
     const [tags, setTags] = useState<Tag[]>([]);
     const [assets, setAssets] = useState<AssetHost[]>([]);
@@ -292,9 +296,9 @@ export default function TagPage() {
                     <div className="space-y-4">
                         <div className="flex justify-between items-center">
                             <p className="text-xs text-default-400">用于转发规则分类的全局标签，支持颜色标记。</p>
-                            <Button size="sm" color="primary" onPress={handleOpenAddModal}>
+                            {canCreate && <Button size="sm" color="primary" onPress={handleOpenAddModal}>
                                 添加标签
-                            </Button>
+                            </Button>}
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
@@ -310,12 +314,12 @@ export default function TagPage() {
                                             {tag.createdTime ? new Date(tag.createdTime).toLocaleString('zh-CN') : '-'}
                                         </div>
                                         <div className="flex gap-2">
-                                            <Button size="sm" color="default" variant="flat" onPress={() => handleOpenEditModal(tag)} className="flex-1 h-7 text-xs">
+                                            {canUpdate && <Button size="sm" color="default" variant="flat" onPress={() => handleOpenEditModal(tag)} className="flex-1 h-7 text-xs">
                                                 编辑
-                                            </Button>
-                                            <Button size="sm" color="danger" variant="flat" onPress={() => handleOpenDeleteModal(tag)} className="flex-1 h-7 text-xs">
+                                            </Button>}
+                                            {canDelete && <Button size="sm" color="danger" variant="flat" onPress={() => handleOpenDeleteModal(tag)} className="flex-1 h-7 text-xs">
                                                 删除
-                                            </Button>
+                                            </Button>}
                                         </div>
                                     </CardBody>
                                 </Card>

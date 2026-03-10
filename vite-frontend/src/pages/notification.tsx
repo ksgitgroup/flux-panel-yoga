@@ -22,6 +22,7 @@ import {
   getNotifyPolicies, createNotifyPolicy, updateNotifyPolicy, deleteNotifyPolicy,
   NotificationItem, NotifyChannelItem, NotifyPolicyItem
 } from "@/api";
+import { hasPermission } from '@/utils/auth';
 
 const CHANNEL_TYPES = [
   { value: 'wechat', label: '企业微信' },
@@ -199,6 +200,10 @@ function NotificationsTab() {
 
 // ==================== Channels Tab ====================
 function ChannelsTab() {
+  const canCreate = hasPermission('notification.create');
+  const canUpdate = hasPermission('notification.update');
+  const canDelete = hasPermission('notification.delete');
+
   const [channels, setChannels] = useState<NotifyChannelItem[]>([]);
   const [loading, setLoading] = useState(true);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -252,7 +257,7 @@ function ChannelsTab() {
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center">
         <span className="text-default-500 text-sm">管理通知渠道（Telegram / Webhook / Email）</span>
-        <Button size="sm" color="primary" onPress={openCreate}>新建渠道</Button>
+        {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建渠道</Button>}
       </div>
 
       {loading ? (
@@ -283,9 +288,9 @@ function ChannelsTab() {
                 <TableCell className="text-sm text-default-500">{formatTime(ch.createdTime)}</TableCell>
                 <TableCell>
                   <div className="flex gap-1">
-                    <Button size="sm" variant="light" color="primary" onPress={() => openEdit(ch)}>编辑</Button>
+                    {canUpdate && <Button size="sm" variant="light" color="primary" onPress={() => openEdit(ch)}>编辑</Button>}
                     <Button size="sm" variant="light" color="secondary" isLoading={testing === ch.id} onPress={() => handleTest(ch.id)}>测试</Button>
-                    <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(ch.id)}>删除</Button>
+                    {canDelete && <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(ch.id)}>删除</Button>}
                   </div>
                 </TableCell>
               </TableRow>
@@ -345,6 +350,10 @@ function ChannelsTab() {
 
 // ==================== Policies Tab ====================
 function PoliciesTab() {
+  const canCreate = hasPermission('notification.create');
+  const canUpdate = hasPermission('notification.update');
+  const canDelete = hasPermission('notification.delete');
+
   const [policies, setPolicies] = useState<NotifyPolicyItem[]>([]);
   const [channels, setChannels] = useState<NotifyChannelItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -400,7 +409,7 @@ function PoliciesTab() {
           <span className="text-default-500 text-sm">策略决定哪些事件发送到哪个渠道。</span>
           <span className="text-default-400 text-xs ml-1">示例：创建策略 "告警→微信"，事件类型选 alert，渠道选企业微信</span>
         </div>
-        <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>
+        {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>}
       </div>
 
       {loading ? (
@@ -445,8 +454,8 @@ function PoliciesTab() {
                 <TableCell className="text-sm text-default-500">{formatTime(p.createdTime)}</TableCell>
                 <TableCell>
                   <div className="flex gap-1">
-                    <Button size="sm" variant="light" color="primary" onPress={() => openEdit(p)}>编辑</Button>
-                    <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(p.id)}>删除</Button>
+                    {canUpdate && <Button size="sm" variant="light" color="primary" onPress={() => openEdit(p)}>编辑</Button>}
+                    {canDelete && <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(p.id)}>删除</Button>}
                   </div>
                 </TableCell>
               </TableRow>

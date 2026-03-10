@@ -861,6 +861,15 @@ public class DatabaseInitService {
                 ensureIamRolePermission("DEVELOPER", m + ".read");
             }
 
+            // 修正：DEVELOPER 应仅有只读权限，撤销历史遗留的 write 权限
+            try {
+                jdbcTemplate.update(
+                        "DELETE rp FROM `sys_role_permission` rp " +
+                        "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
+                        "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                        "WHERE r.`code` = 'DEVELOPER' AND (p.`code` LIKE '%.write' OR p.`code` LIKE '%.create' OR p.`code` LIKE '%.update' OR p.`code` LIKE '%.delete')");
+            } catch (Exception ignored) { }
+
             // --- B. DEV_ADMIN (开发主管): 核心运维全权限 + 配置只读，不可管理角色/用户 ---
             ensureIamRolePermission("DEV_ADMIN", "dashboard.read");
             ensureIamRolePermission("DEV_ADMIN", "server_dashboard.read");
@@ -877,6 +886,23 @@ public class DatabaseInitService {
             for (String m : devAdminReadModules) {
                 ensureIamRolePermission("DEV_ADMIN", m + ".read");
             }
+            // 修正：撤销 DEV_ADMIN 不应拥有的只读模块 write/create/update/delete 权限（历史遗留）
+            try {
+                String readOnlyForDevAdmin = "'site_config.write','site_config.create','site_config.update','site_config.delete'," +
+                        "'protocol.write','protocol.create','protocol.update','protocol.delete'," +
+                        "'tag.write','tag.create','tag.update','tag.delete'," +
+                        "'speed_limit.write','speed_limit.create','speed_limit.update','speed_limit.delete'," +
+                        "'biz_user.write','biz_user.create','biz_user.update','biz_user.delete'," +
+                        "'iam_user.write','iam_user.create','iam_user.update','iam_user.delete'," +
+                        "'iam_role.write','iam_role.create','iam_role.update','iam_role.delete'," +
+                        "'notification.write','notification.create','notification.update','notification.delete'," +
+                        "'traffic_analysis.write','traffic_analysis.create','traffic_analysis.update','traffic_analysis.delete'";
+                jdbcTemplate.update(
+                        "DELETE rp FROM `sys_role_permission` rp " +
+                        "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
+                        "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                        "WHERE r.`code` = 'DEV_ADMIN' AND p.`code` IN (" + readOnlyForDevAdmin + ")");
+            } catch (Exception ignored) { }
 
             // --- A. 管理员 (SUPER_ADMIN): 绝大部分运维权限 ---
             // 高风险权限（仅创建者/旧登录管理员通过 admin bypass 拥有）: site_config.write, iam_role.write, audit.write

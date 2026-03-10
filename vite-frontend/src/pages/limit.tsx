@@ -9,13 +9,14 @@ import { Spinner } from "@heroui/spinner";
 import toast from 'react-hot-toast';
 
 
-import { 
-  createSpeedLimit, 
-  getSpeedLimitList, 
-  updateSpeedLimit, 
-  deleteSpeedLimit, 
-  getTunnelList 
+import {
+  createSpeedLimit,
+  getSpeedLimitList,
+  updateSpeedLimit,
+  deleteSpeedLimit,
+  getTunnelList
 } from "@/api";
+import { hasPermission } from '@/utils/auth';
 
 interface SpeedLimitRule {
   id: number;
@@ -43,6 +44,10 @@ interface SpeedLimitForm {
 }
 
 export default function LimitPage() {
+  const canCreate = hasPermission('speed_limit.create');
+  const canUpdate = hasPermission('speed_limit.update');
+  const canDelete = hasPermission('speed_limit.delete');
+
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState<SpeedLimitRule[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
@@ -228,15 +233,15 @@ export default function LimitPage() {
         <div className="flex-1">
         </div>
 
-        <Button
+        {canCreate && <Button
               size="sm"
               variant="flat"
               color="primary"
               onPress={handleAdd}
-             
+
             >
               新增
-            </Button>
+            </Button>}
         </div>
 
         {/* 统一卡片网格 */}
@@ -279,7 +284,7 @@ export default function LimitPage() {
                   </div>
                   
                   <div className="flex gap-2 mt-4">
-                    <Button
+                    {canUpdate && <Button
                       size="sm"
                       variant="flat"
                       color="primary"
@@ -292,8 +297,8 @@ export default function LimitPage() {
                       }
                     >
                       编辑
-                    </Button>
-                    <Button
+                    </Button>}
+                    {canDelete && <Button
                       size="sm"
                       variant="flat"
                       color="danger"
@@ -307,7 +312,7 @@ export default function LimitPage() {
                       }
                     >
                       删除
-                    </Button>
+                    </Button>}
                   </div>
                 </CardBody>
               </Card>

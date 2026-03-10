@@ -1098,6 +1098,17 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                         String existingToken = tokenResp.getString("token");
                         if (StringUtils.hasText(existingToken)) {
                             log.info("[MonitorProvision] Reusing existing orphan client {} for instance {}", existingUuid, instance.getName());
+                            // Rename reused client if a name was provided
+                            String reuseName = dto.getName() != null ? dto.getName().trim() : "";
+                            if (!reuseName.isEmpty()) {
+                                try {
+                                    httpPost(instance, "/api/admin/client/" + existingUuid + "/edit",
+                                            "{\"name\":\"" + reuseName.replace("\"", "\\\"") + "\"}",
+                                            instance.getAllowInsecureTls());
+                                } catch (Exception e) {
+                                    log.warn("[MonitorProvision] Failed to rename reused client {} to '{}': {}", existingUuid, reuseName, e.getMessage());
+                                }
+                            }
                             String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
                             String installCmd = String.format("curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, existingToken);
                             String ghProxy = "https://ghfast.top";
@@ -1138,6 +1149,18 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             String token = resp.getString("token");
             if (token == null || token.isEmpty()) {
                 return R.err("Komari 创建客户端成功但未返回 token，请检查 Komari 版本");
+            }
+
+            // Rename client if a name was provided (replaces default "client_xxxxxxxx")
+            String provisionName = dto.getName() != null ? dto.getName().trim() : "";
+            if (!provisionName.isEmpty()) {
+                try {
+                    httpPost(instance, "/api/admin/client/" + uuid + "/edit",
+                            "{\"name\":\"" + provisionName.replace("\"", "\\\"") + "\"}",
+                            instance.getAllowInsecureTls());
+                } catch (Exception e) {
+                    log.warn("[MonitorProvision] Failed to rename Komari client {} to '{}': {}", uuid, provisionName, e.getMessage());
+                }
             }
 
             // Build install command with optional GitHub proxy for China servers

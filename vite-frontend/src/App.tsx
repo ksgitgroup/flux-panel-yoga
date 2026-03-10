@@ -272,6 +272,7 @@ function App() {
     <Routes>
       <Route path="/" element={<LoginRoute />} />
       <Route path="/login/dingtalk/callback" element={<DingtalkCallbackPage />} />
+      <Route path="/dingtalk-callback" element={<DingtalkCallbackPage />} />
       <Route
         path="/change-password"
         element={

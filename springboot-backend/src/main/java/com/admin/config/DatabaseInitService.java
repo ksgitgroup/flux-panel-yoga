@@ -459,6 +459,9 @@ public class DatabaseInitService {
             // Offline diagnostics: track first connection time
             updateColumn("monitor_node_snapshot", "first_seen_at", "bigint(20) DEFAULT NULL COMMENT '首次上线时间'");
 
+            // Hardware fingerprint for server uniqueness identification
+            updateColumn("monitor_node_snapshot", "fingerprint", "varchar(32) DEFAULT NULL COMMENT '硬件复合指纹 SHA256 前16位'");
+
             // Add new columns to monitor_metric_latest (v2 expansion)
             updateColumn("monitor_metric_latest", "swap_used", "bigint(20) DEFAULT NULL COMMENT '已用 Swap (bytes)'");
             updateColumn("monitor_metric_latest", "swap_total", "bigint(20) DEFAULT NULL COMMENT '总 Swap (bytes)'");

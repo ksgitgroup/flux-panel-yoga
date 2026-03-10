@@ -76,10 +76,9 @@ const moduleLabels: Record<string, string> = {
   cost_analysis: '成本分析',
 };
 
-// 权限操作类型简称映射
+// 权限操作类型简称映射（不含已废弃的 write）
 const actionLabels: Record<string, string> = {
   read: '查看',
-  write: '管理',
   create: '新增',
   update: '编辑',
   delete: '删除',
@@ -819,31 +818,64 @@ export default function IamRolesPage() {
                                 groupedPermissions.forEach(([, items]) => {
                                   items.forEach(p => {
                                     const action = p.code.split('.').pop() || '';
-                                    allActions.add(action);
+                                    if (action !== 'write') allActions.add(action);
                                   });
                                 });
-                                const orderedActions = ['read', 'write', 'create', 'update', 'delete', 'sync']
+                                const orderedActions = ['read', 'create', 'update', 'delete', 'sync']
                                   .filter(a => allActions.has(a));
-                                return orderedActions.map(action => (
-                                  <th key={action} className="px-2 py-2 text-center font-medium text-default-600 w-[56px]">
-                                    {actionLabels[action] || action}
-                                  </th>
-                                ));
+                                return orderedActions.map(action => {
+                                  // 收集该列所有模块的权限 ID
+                                  const columnPermIds: string[] = [];
+                                  groupedPermissions.forEach(([, items]) => {
+                                    const p = items.find(i => i.code.split('.').pop() === action);
+                                    if (p) columnPermIds.push(p.id.toString());
+                                  });
+                                  const selectedInColumn = columnPermIds.filter(id => form.permissionIds.includes(id)).length;
+                                  const allSelected = selectedInColumn === columnPermIds.length && columnPermIds.length > 0;
+                                  return (
+                                    <th key={action} className="px-2 py-2 text-center font-medium text-default-600 w-[56px]">
+                                      <button
+                                        type="button"
+                                        className="hover:text-primary transition-colors"
+                                        title={allSelected ? `取消全部「${actionLabels[action] || action}」` : `全选「${actionLabels[action] || action}」`}
+                                        onClick={() => {
+                                          setForm(prev => {
+                                            const current = new Set(prev.permissionIds);
+                                            if (allSelected) {
+                                              columnPermIds.forEach(id => current.delete(id));
+                                            } else {
+                                              columnPermIds.forEach(id => current.add(id));
+                                            }
+                                            return { ...prev, permissionIds: [...current] };
+                                          });
+                                        }}
+                                      >
+                                        <div>{actionLabels[action] || action}</div>
+                                        <div className={`text-[10px] ${allSelected ? 'text-primary' : 'text-default-400'}`}>
+                                          {selectedInColumn}/{columnPermIds.length}
+                                        </div>
+                                      </button>
+                                    </th>
+                                  );
+                                });
                               })()}
                             </tr>
                           </thead>
                           <tbody>
                             {groupedPermissions.map(([moduleKey, items], idx) => {
                               const selectedCount = items.filter(p => form.permissionIds.includes(p.id.toString())).length;
-                              const allActions = ['read', 'write', 'create', 'update', 'delete', 'sync'];
+                              const allActions = ['read', 'create', 'update', 'delete', 'sync'];
                               const permByAction: Record<string, IamPermissionView | undefined> = {};
                               items.forEach(p => {
                                 const action = p.code.split('.').pop() || '';
-                                permByAction[action] = p;
+                                if (action !== 'write') permByAction[action] = p;
                               });
                               const globalActions = new Set<string>();
                               groupedPermissions.forEach(([, its]) => {
-                                its.forEach(p => globalActions.add(p.code.split('.').pop() || ''));
+                                its.forEach(p => {
+                                  const a = p.code.split('.').pop() || '';
+                                  if (a !== 'write') globalActions.add(a);
+                                });
                               });
                               const visibleActions = allActions.filter(a => globalActions.has(a));
 

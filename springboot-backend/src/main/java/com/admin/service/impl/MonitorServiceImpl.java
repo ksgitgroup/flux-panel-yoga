@@ -1062,12 +1062,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
 
         try {
-            // Use proper JSON serialization instead of string concatenation
-            JSONObject body = new JSONObject();
-            if (dto.getName() != null && !dto.getName().trim().isEmpty()) {
-                body.put("name", dto.getName().trim());
-            }
-            String responseJson = httpPost(instance, "/api/admin/client/add", body.toJSONString(), instance.getAllowInsecureTls());
+            // Workaround: Komari <= 1.1.8 panics on audit log when using API key auth with name parameter.
+            // Create without name (goes through no-audit-log branch), name will sync from agent basic info.
+            String responseJson = httpPost(instance, "/api/admin/client/add", "{}", instance.getAllowInsecureTls());
             if (responseJson == null || responseJson.isBlank()) {
                 return R.err("Komari 返回空响应，请检查探针实例连接和 API Key 配置");
             }

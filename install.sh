@@ -179,7 +179,7 @@ install_gost() {
 
   # 下载 gost
   echo "⬇️ 下载 gost 中..."
-  curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost"
+  curl -L --connect-timeout 15 --max-time 300 --retry 2 --retry-delay 3 "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost"
   if [[ ! -f "$INSTALL_DIR/gost" || ! -s "$INSTALL_DIR/gost" ]]; then
     echo "❌ 下载失败，请检查网络或下载链接。"
     exit 1
@@ -237,13 +237,34 @@ EOF
 
   # 检查状态
   echo "🔄 检查服务状态..."
+  sleep 2
   if systemctl is-active --quiet gost; then
     echo "✅ 安装完成，gost服务已启动并设置为开机启动。"
     echo "📁 配置目录: $INSTALL_DIR"
     echo "🔧 服务状态: $(systemctl is-active gost)"
+    # 验证 WebSocket 连接是否成功
+    echo "🔍 检查面板连接状态..."
+    sleep 3
+    RECENT_LOG=$(journalctl -u gost --since "10 seconds ago" --no-pager 2>/dev/null || echo "")
+    if echo "$RECENT_LOG" | grep -qi "WebSocket连接建立成功\|connected\|websocket.*success"; then
+      echo "✅ 已成功连接到面板"
+    elif echo "$RECENT_LOG" | grep -qi "error\|fail\|refused\|timeout\|dial"; then
+      echo "⚠️  服务已启动但连接面板可能失败，请检查："
+      echo "   1. 面板地址 $SERVER_ADDR 是否可达: curl -s -o /dev/null -w '%{http_code}' http://$SERVER_ADDR/"
+      echo "   2. 防火墙是否放行面板端口"
+      echo "   3. 查看详细日志: journalctl -u gost --since '1 minute ago' --no-pager"
+    else
+      echo "ℹ️  服务已启动，正在尝试连接面板..."
+      echo "   如面板仍显示离线，请检查: journalctl -u gost -f"
+    fi
   else
     echo "❌ gost服务启动失败，请执行以下命令查看日志："
-    echo "journalctl -u gost -f"
+    echo "   journalctl -u gost --since '1 minute ago' --no-pager"
+    echo ""
+    echo "常见原因："
+    echo "   1. 端口被占用"
+    echo "   2. 二进制文件与系统不兼容"
+    echo "   3. 配置文件格式错误: cat $INSTALL_DIR/config.json"
   fi
 }
 
@@ -263,7 +284,7 @@ update_gost() {
   
   # 先下载新版本
   echo "⬇️ 下载最新版本..."
-  curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"
+  curl -L --connect-timeout 15 --max-time 300 --retry 2 --retry-delay 3 "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"
   if [[ ! -f "$INSTALL_DIR/gost.new" || ! -s "$INSTALL_DIR/gost.new" ]]; then
     echo "❌ 下载失败。"
     return 1

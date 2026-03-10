@@ -1047,20 +1047,35 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
 
         try {
-            String bodyJson = dto.getName() != null ? "{\"name\":\"" + dto.getName().trim() + "\"}" : "{}";
-            String responseJson = httpPost(instance, "/api/admin/client/add", bodyJson, instance.getAllowInsecureTls());
+            // Use proper JSON serialization instead of string concatenation
+            JSONObject body = new JSONObject();
+            if (dto.getName() != null && !dto.getName().trim().isEmpty()) {
+                body.put("name", dto.getName().trim());
+            }
+            String responseJson = httpPost(instance, "/api/admin/client/add", body.toJSONString(), instance.getAllowInsecureTls());
+            if (responseJson == null || responseJson.isBlank()) {
+                return R.err("Komari 返回空响应，请检查探针实例连接和 API Key 配置");
+            }
             JSONObject resp = JSON.parseObject(responseJson);
 
             if (!"success".equals(resp.getString("status"))) {
-                return R.err("Komari 返回错误: " + resp.getString("message"));
+                String msg = resp.getString("message");
+                return R.err("Komari 返回错误: " + (msg != null ? msg : resp.toJSONString()));
             }
 
             String uuid = resp.getString("uuid");
             String token = resp.getString("token");
+            if (token == null || token.isEmpty()) {
+                return R.err("Komari 创建客户端成功但未返回 token，请检查 Komari 版本");
+            }
 
+            // Build install command with optional GitHub proxy for China servers
+            String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
             String installCmd = String.format(
-                    "curl -fsSL https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | " +
-                    "bash -s -- --endpoint %s --token %s", baseUrl, token);
+                    "curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, token);
+            // China-friendly variant with ghfast.top proxy
+            String installCmdCn = String.format(
+                    "curl -fsSL https://ghfast.top/%s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, token);
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("uuid", uuid);
@@ -1069,10 +1084,13 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             result.put("instanceName", instance.getName());
             result.put("endpoint", baseUrl);
             result.put("installCommand", installCmd);
+            result.put("installCommandCn", installCmdCn);
 
             return R.ok(result);
+        } catch (SimpleCircuitBreaker.CircuitBreakerOpenException e) {
+            return R.err("探针实例连接熔断中 (连续失败过多)，请稍后重试或检查 " + instance.getName() + " 是否可达");
         } catch (Exception e) {
-            log.error("[MonitorProvision] Failed to provision agent on {}: {}", instance.getName(), e.getMessage());
+            log.error("[MonitorProvision] Failed to provision agent on {}: {}", instance.getName(), e.getMessage(), e);
             return R.err("创建探针客户端失败: " + e.getMessage());
         }
     }
@@ -2948,6 +2966,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
         Map<String, Object> result = new LinkedHashMap<>();
         List<String> installCommands = new ArrayList<>();
+        List<String> installCommandsCn = new ArrayList<>();
 
         // Provision Komari
         if (komariInstanceId != null) {
@@ -2959,6 +2978,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 Map<String, Object> data = (Map<String, Object>) komariResult.getData();
                 result.put("komari", data);
                 installCommands.add("# Komari 探针\n" + data.get("installCommand"));
+                if (data.get("installCommandCn") != null) {
+                    installCommandsCn.add("# Komari 探针\n" + data.get("installCommandCn"));
+                }
             } else {
                 result.put("komariError", komariResult.getMsg());
             }
@@ -2974,12 +2996,18 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 Map<String, Object> data = (Map<String, Object>) pikaResult.getData();
                 result.put("pika", data);
                 installCommands.add("# Pika 探针\n" + data.get("installCommand"));
+                if (data.get("installCommandCn") != null) {
+                    installCommandsCn.add("# Pika 探针\n" + data.get("installCommandCn"));
+                }
             } else {
                 result.put("pikaError", pikaResult.getMsg());
             }
         }
 
         result.put("combinedCommand", String.join("\n\n", installCommands));
+        if (!installCommandsCn.isEmpty()) {
+            result.put("combinedCommandCn", String.join("\n\n", installCommandsCn));
+        }
         return R.ok(result);
     }
 

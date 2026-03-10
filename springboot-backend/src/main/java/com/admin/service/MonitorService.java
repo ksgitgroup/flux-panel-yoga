@@ -51,8 +51,20 @@ public interface MonitorService extends IService<MonitorInstance> {
     R getKomariPingTaskDetail(Long nodeId, Long taskId, Integer hours);
 
     /**
-     * Push asset label/name back to linked probes (Komari).
+     * Push asset label/name back to linked probes (Komari + Pika).
      * Called after user edits asset name in Flux.
      */
     void pushNameToProbes(Long assetId, String newName);
+
+    /** Execute a remote command on a Komari node, returns task info */
+    R executeKomariCommand(Long nodeId, String command);
+
+    /** Get Komari command task result */
+    R getKomariTaskResult(Long nodeId, String taskId);
+
+    /** Trigger VPS security audit on a Pika node */
+    R triggerPikaAudit(Long nodeId);
+
+    /** Get Pika SSH login events for a node */
+    R getPikaSshLoginEvents(Long nodeId, Integer pageSize);
 }

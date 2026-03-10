@@ -1,15 +1,11 @@
 package com.admin.service.impl;
 
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
-import com.admin.entity.IamPermission;
-import com.admin.entity.IamRole;
-import com.admin.entity.IamRolePermission;
-import com.admin.entity.IamUserRole;
-import com.admin.mapper.IamPermissionMapper;
-import com.admin.mapper.IamRoleMapper;
-import com.admin.mapper.IamRolePermissionMapper;
-import com.admin.mapper.IamUserRoleMapper;
+import com.admin.entity.*;
+import com.admin.mapper.*;
 import com.admin.service.IamRoleService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -25,6 +21,8 @@ import java.util.stream.Collectors;
 public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> implements IamRoleService {
 
     private static final String DEFAULT_ROLE_SCOPE = "custom";
+    private static final String ASSET_SCOPE_ALL = "ALL";
+    private static final String ASSET_SCOPE_SELECTED = "SELECTED";
 
     @Resource
     private IamRoleMapper iamRoleMapper;
@@ -37,6 +35,9 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
 
     @Resource
     private IamUserRoleMapper iamUserRoleMapper;
+
+    @Resource
+    private IamRoleAssetMapper iamRoleAssetMapper;
 
     @Override
     public R getAllRoles() {
@@ -59,11 +60,17 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
                         .eq(IamUserRole::getStatus, 0))
                 .stream()
                 .collect(Collectors.groupingBy(IamUserRole::getRoleId, Collectors.summingInt(item -> 1)));
+        Map<Long, Integer> assetCountMap = iamRoleAssetMapper.selectList(new LambdaQueryWrapper<IamRoleAsset>()
+                        .in(IamRoleAsset::getRoleId, roleIds)
+                        .eq(IamRoleAsset::getStatus, 0))
+                .stream()
+                .collect(Collectors.groupingBy(IamRoleAsset::getRoleId, Collectors.summingInt(item -> 1)));
 
         List<IamRoleViewDto> result = roles.stream()
                 .map(role -> toRoleView(role,
                         userCountMap.getOrDefault(role.getId(), 0),
-                        permissionCountMap.getOrDefault(role.getId(), 0)))
+                        permissionCountMap.getOrDefault(role.getId(), 0),
+                        assetCountMap.getOrDefault(role.getId(), 0)))
                 .collect(Collectors.toList());
         return R.ok(result);
     }
@@ -83,8 +90,17 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
                 ? Collections.emptyList()
                 : iamPermissionMapper.selectBatchIds(permissionIds);
 
+        // Load asset bindings
+        List<Long> assetIds = iamRoleAssetMapper.selectList(new LambdaQueryWrapper<IamRoleAsset>()
+                        .eq(IamRoleAsset::getRoleId, id)
+                        .eq(IamRoleAsset::getStatus, 0))
+                .stream()
+                .map(IamRoleAsset::getAssetId)
+                .distinct()
+                .collect(Collectors.toList());
+
         IamRoleDetailDto detail = new IamRoleDetailDto();
-        detail.setRole(toRoleView(role, getUserCount(id), permissionIds.size()));
+        detail.setRole(toRoleView(role, getUserCount(id), permissionIds.size(), assetIds.size()));
         detail.setPermissionIds(permissionIds);
         detail.setPermissions(permissions.stream()
                 .filter(item -> item.getStatus() != null && item.getStatus() == 0)
@@ -93,6 +109,17 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
                         .thenComparing(IamPermission::getCode, Comparator.nullsLast(String::compareTo)))
                 .map(this::toPermissionView)
                 .collect(Collectors.toList()));
+        detail.setAssetIds(assetIds);
+
+        // Load assigned user IDs
+        List<Long> userIds = iamUserRoleMapper.selectList(new LambdaQueryWrapper<IamUserRole>()
+                        .eq(IamUserRole::getRoleId, id)
+                        .eq(IamUserRole::getStatus, 0))
+                .stream()
+                .map(IamUserRole::getUserId)
+                .distinct()
+                .collect(Collectors.toList());
+        detail.setUserIds(userIds);
         return R.ok(detail);
     }
 
@@ -115,18 +142,23 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
         role.setBuiltin(0);
         role.setSortOrder(dto.getSortOrder() == null ? 100 : dto.getSortOrder());
         role.setEnabled(normalizeEnabled(dto.getEnabled()));
+        role.setAssetScope(normalizeAssetScope(dto.getAssetScope()));
         role.setCreatedTime(now);
         role.setUpdatedTime(now);
         role.setStatus(0);
         this.save(role);
 
         replaceRolePermissions(role.getId(), dto.getPermissionIds());
+        replaceRoleAssets(role.getId(), dto.getAssetScope(), dto.getAssetIds());
         return getRoleDetail(role.getId());
     }
 
     @Override
     public R updateRole(IamRoleUpdateDto dto) {
         IamRole role = getRequiredRole(dto.getId());
+        if ("OWNER".equals(role.getCode())) {
+            return R.err("超级管理员角色不允许修改");
+        }
         String code = normalizeCode(dto.getCode());
         if (!StringUtils.hasText(code)) {
             return R.err("角色编码不能为空");
@@ -144,25 +176,35 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
         role.setRoleScope(normalizeScope(dto.getRoleScope()));
         role.setSortOrder(dto.getSortOrder() == null ? role.getSortOrder() : dto.getSortOrder());
         role.setEnabled(normalizeEnabled(dto.getEnabled()));
+        role.setAssetScope(normalizeAssetScope(dto.getAssetScope()));
         role.setUpdatedTime(System.currentTimeMillis());
         this.updateById(role);
 
         if (dto.getPermissionIds() != null) {
             replaceRolePermissions(role.getId(), dto.getPermissionIds());
         }
+        replaceRoleAssets(role.getId(), dto.getAssetScope(), dto.getAssetIds());
         return getRoleDetail(role.getId());
     }
 
     @Override
     public R deleteRole(Long id) {
         IamRole role = getRequiredRole(id);
+        if ("OWNER".equals(role.getCode())) {
+            return R.err("超级管理员角色不允许删除");
+        }
         if (Objects.equals(role.getBuiltin(), 1)) {
-            return R.err("系统内置角色不允许删除");
+            // 内置角色仅超级管理员(OWNER)可删除
+            AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+            if (principal == null || !principal.safeRoleCodes().contains("OWNER")) {
+                return R.err("系统内置角色仅超级管理员可删除");
+            }
         }
         if (getUserCount(id) > 0) {
             return R.err("该角色仍有关联用户，无法删除");
         }
         iamRolePermissionMapper.delete(new LambdaQueryWrapper<IamRolePermission>().eq(IamRolePermission::getRoleId, id));
+        iamRoleAssetMapper.delete(new LambdaQueryWrapper<IamRoleAsset>().eq(IamRoleAsset::getRoleId, id));
         this.removeById(id);
         return R.ok();
     }
@@ -219,6 +261,35 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
         }
     }
 
+    private void replaceRoleAssets(Long roleId, String assetScope, List<Long> assetIds) {
+        // Clear existing asset bindings
+        iamRoleAssetMapper.delete(new LambdaQueryWrapper<IamRoleAsset>().eq(IamRoleAsset::getRoleId, roleId));
+
+        // Only insert bindings when scope is SELECTED
+        if (!ASSET_SCOPE_SELECTED.equalsIgnoreCase(assetScope) || assetIds == null || assetIds.isEmpty()) {
+            return;
+        }
+
+        List<Long> distinctIds = assetIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (distinctIds.isEmpty()) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        for (Long assetId : distinctIds) {
+            IamRoleAsset binding = new IamRoleAsset();
+            binding.setRoleId(roleId);
+            binding.setAssetId(assetId);
+            binding.setCreatedTime(now);
+            binding.setUpdatedTime(now);
+            binding.setStatus(0);
+            iamRoleAssetMapper.insert(binding);
+        }
+    }
+
     private IamRole getRequiredRole(Long id) {
         IamRole role = this.getById(id);
         if (role == null || (role.getStatus() != null && role.getStatus() != 0)) {
@@ -244,11 +315,12 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
         return count == null ? 0 : count;
     }
 
-    private IamRoleViewDto toRoleView(IamRole role, int userCount, int permissionCount) {
+    private IamRoleViewDto toRoleView(IamRole role, int userCount, int permissionCount, int assetCount) {
         IamRoleViewDto dto = new IamRoleViewDto();
         BeanUtils.copyProperties(role, dto);
         dto.setUserCount(userCount);
         dto.setPermissionCount(permissionCount);
+        dto.setAssetCount(assetCount);
         return dto;
     }
 
@@ -264,6 +336,13 @@ public class IamRoleServiceImpl extends ServiceImpl<IamRoleMapper, IamRole> impl
 
     private String normalizeScope(String roleScope) {
         return StringUtils.hasText(roleScope) ? roleScope.trim().toLowerCase(Locale.ROOT) : DEFAULT_ROLE_SCOPE;
+    }
+
+    private String normalizeAssetScope(String assetScope) {
+        if (ASSET_SCOPE_SELECTED.equalsIgnoreCase(assetScope)) {
+            return ASSET_SCOPE_SELECTED;
+        }
+        return ASSET_SCOPE_ALL;
     }
 
     private Integer normalizeEnabled(Integer enabled) {

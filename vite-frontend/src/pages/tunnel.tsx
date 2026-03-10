@@ -11,7 +11,7 @@ import { Alert } from "@heroui/alert";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import toast from 'react-hot-toast';
 
-
+import { hasPermission } from '@/utils/auth';
 import {
   createTunnel,
   getTunnelList,
@@ -116,6 +116,9 @@ const parseDiagnosisSteps = (resultsJson?: string): DiagnosisResult['results'] =
 };
 
 export default function TunnelPage() {
+  const canCreate = hasPermission('tunnel.create');
+  const canUpdate = hasPermission('tunnel.update');
+  const canDelete = hasPermission('tunnel.delete');
   const [loading, setLoading] = useState(true);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -527,7 +530,7 @@ export default function TunnelPage() {
         <div className="flex-1">
         </div>
 
-        <Button
+        {canCreate && <Button
           size="sm"
           variant="flat"
           color="primary"
@@ -535,7 +538,7 @@ export default function TunnelPage() {
 
         >
           新增
-        </Button>
+        </Button>}
 
       </div>
 
@@ -715,7 +718,7 @@ export default function TunnelPage() {
                   </div>
 
                   <div className="flex gap-1.5 mt-3">
-                    <Button
+                    {canUpdate && <Button
                       size="sm"
                       variant="flat"
                       color="primary"
@@ -728,7 +731,7 @@ export default function TunnelPage() {
                       }
                     >
                       编辑
-                    </Button>
+                    </Button>}
                     <Button
                       size="sm"
                       variant="flat"
@@ -743,7 +746,7 @@ export default function TunnelPage() {
                     >
                       诊断
                     </Button>
-                    <Button
+                    {canDelete && <Button
                       size="sm"
                       variant="flat"
                       color="danger"
@@ -757,7 +760,7 @@ export default function TunnelPage() {
                       }
                     >
                       删除
-                    </Button>
+                    </Button>}
                   </div>
                 </CardBody>
               </Card>

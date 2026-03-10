@@ -40,4 +40,8 @@ public class IamUserDto {
     private String remark;
 
     private List<Long> roleIds;
+
+    private String assetScope;
+
+    private List<Long> assetIds;
 }

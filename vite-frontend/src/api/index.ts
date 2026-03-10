@@ -1066,6 +1066,8 @@ export interface IamRoleView {
   enabled: number;
   userCount: number;
   permissionCount: number;
+  assetScope?: string | null;
+  assetCount?: number | null;
   createdTime: number;
   updatedTime: number;
 }
@@ -1074,6 +1076,8 @@ export interface IamRoleDetail {
   role: IamRoleView;
   permissionIds: number[];
   permissions: IamPermissionView[];
+  assetIds: number[];
+  userIds: number[];
 }
 
 export interface IamUserView {
@@ -1093,6 +1097,8 @@ export interface IamUserView {
   remark?: string | null;
   roleIds: number[];
   roleNames: string[];
+  assetScope?: string | null;
+  assetCount?: number;
   createdTime: number;
   updatedTime: number;
 }
@@ -1100,6 +1106,7 @@ export interface IamUserView {
 export interface IamUserDetail {
   user: IamUserView;
   roles: IamRoleView[];
+  assetIds: number[];
 }
 
 export const getIamRoleList = () => Network.post<IamRoleView[]>("/iam/role/list");

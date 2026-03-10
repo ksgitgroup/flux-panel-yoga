@@ -21,6 +21,7 @@ import {
   updateBackupSchedule, deleteBackupSchedule, getNodeList, getXuiList,
   BackupRecordItem, BackupScheduleItem
 } from '@/api';
+import { hasPermission } from '@/utils/auth';
 
 const TYPE_CHIP_MAP: Record<string, { label: string; color: 'primary' | 'secondary' | 'warning' }> = {
   gost_config: { label: 'GOST 配置', color: 'primary' },
@@ -40,6 +41,10 @@ function formatTime(ts?: number | null): string {
 }
 
 export default function BackupPage() {
+  const canCreate = hasPermission('backup.create');
+  const canUpdate = hasPermission('backup.update');
+  const canDelete = hasPermission('backup.delete');
+
   const [tab, setTab] = useState<string>('records');
 
   // ===== Records State =====
@@ -378,14 +383,14 @@ export default function BackupPage() {
                             >
                               查看数据
                             </Button>
-                            <Button
+                            {canDelete && <Button
                               size="sm"
                               variant="flat"
                               color="danger"
                               onPress={() => handleDeleteRecord(record.id)}
                             >
                               删除
-                            </Button>
+                            </Button>}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -405,9 +410,9 @@ export default function BackupPage() {
                 <span className="text-default-500 text-sm">
                   配置定时备份任务，系统将按计划自动执行备份
                 </span>
-                <Button color="primary" size="sm" onPress={openCreateSchedule}>
+                {canCreate && <Button color="primary" size="sm" onPress={openCreateSchedule}>
                   新建计划
-                </Button>
+                </Button>}
               </div>
 
               {schedulesLoading ? (
@@ -448,21 +453,21 @@ export default function BackupPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button
+                            {canUpdate && <Button
                               size="sm"
                               variant="flat"
                               onPress={() => openEditSchedule(schedule)}
                             >
                               编辑
-                            </Button>
-                            <Button
+                            </Button>}
+                            {canDelete && <Button
                               size="sm"
                               variant="flat"
                               color="danger"
                               onPress={() => handleDeleteSchedule(schedule.id)}
                             >
                               删除
-                            </Button>
+                            </Button>}
                           </div>
                         </TableCell>
                       </TableRow>

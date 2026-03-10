@@ -70,6 +70,12 @@ public class IamAuthServiceImpl implements IamAuthService {
     private IamLoginAuditMapper iamLoginAuditMapper;
 
     @Resource
+    private IamRoleAssetMapper iamRoleAssetMapper;
+
+    @Resource
+    private IamUserAssetMapper iamUserAssetMapper;
+
+    @Resource
     private PanelTokenService panelTokenService;
 
     @Override
@@ -244,6 +250,9 @@ public class IamAuthServiceImpl implements IamAuthService {
         data.put("admin", principal.isAdmin());
         data.put("permissions", principal.safePermissions());
         data.put("roleCodes", principal.safeRoleCodes());
+        data.put("assetScope", principal.getAssetScope());
+        Set<Long> effectiveAssetIds = principal.getEffectiveAssetIds();
+        data.put("accessibleAssetIds", effectiveAssetIds); // null = no restriction
         return R.ok(data);
     }
 
@@ -275,9 +284,11 @@ public class IamAuthServiceImpl implements IamAuthService {
         principal.setPrincipalId(JwtUtil.getUserIdFromToken(token));
         principal.setDisplayName(JwtUtil.getNameFromToken());
         principal.setLegacyRoleId(JwtUtil.getRoleIdFromToken(token));
-        principal.setAdmin(Objects.equals(principal.getLegacyRoleId(), 0));
-        if (principal.isAdmin()) {
+        boolean isOwner = Objects.equals(principal.getLegacyRoleId(), 0);
+        principal.setAdmin(isOwner);
+        if (isOwner) {
             principal.getPermissions().add("*");
+            principal.getRoleCodes().add("OWNER");
         }
         return principal;
     }
@@ -379,16 +390,59 @@ public class IamAuthServiceImpl implements IamAuthService {
         principal.setDisplayName(user.getDisplayName());
         principal.setEmail(user.getEmail());
         principal.setAuthSource(user.getAuthSource());
-        principal.setAdmin(roles.stream().map(IamRole::getCode).anyMatch(code -> "SUPER_ADMIN".equalsIgnoreCase(code)));
-        principal.setLegacyRoleId(principal.isAdmin() ? 0 : 1);
-        principal.setRoleCodes(roles.stream()
+        Set<String> roleCodes = roles.stream()
                 .map(IamRole::getCode)
                 .filter(StringUtils::hasText)
-                .collect(Collectors.toCollection(LinkedHashSet::new)));
-        principal.setPermissions(permissions.stream()
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        principal.setRoleCodes(roleCodes);
+        // OWNER 角色 = 超级管理员，拥有全部权限
+        boolean isOwner = roleCodes.contains("OWNER");
+        principal.setAdmin(isOwner);
+        principal.setLegacyRoleId(isOwner ? 0 : 1);
+        Set<String> permCodes = permissions.stream()
                 .map(IamPermission::getCode)
                 .filter(StringUtils::hasText)
-                .collect(Collectors.toCollection(LinkedHashSet::new)));
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (isOwner) {
+            permCodes.add("*");
+        }
+        principal.setPermissions(permCodes);
+
+        // Load asset scope: user-level overrides role-level
+        if (!principal.isAdmin()) {
+            String userAssetScope = user.getAssetScope();
+            if (StringUtils.hasText(userAssetScope)) {
+                // User has explicit asset scope → use it directly, ignore role-level
+                principal.setAssetScope(userAssetScope);
+                if ("SELECTED".equalsIgnoreCase(userAssetScope)) {
+                    List<IamUserAsset> userAssets = iamUserAssetMapper.selectList(new LambdaQueryWrapper<IamUserAsset>()
+                            .eq(IamUserAsset::getUserId, user.getId())
+                            .eq(IamUserAsset::getStatus, 0));
+                    principal.setAccessibleAssetIds(userAssets.stream()
+                            .map(IamUserAsset::getAssetId)
+                            .collect(Collectors.toCollection(LinkedHashSet::new)));
+                } else if ("NONE".equalsIgnoreCase(userAssetScope)) {
+                    principal.setAccessibleAssetIds(Collections.emptySet());
+                }
+                // ALL → no restriction (accessibleAssetIds stays null)
+            } else {
+                // Fall back to role-level merge: union of all role assets
+                // Non-admin roles default to NONE unless explicitly configured
+                boolean hasAllScope = roles.stream()
+                        .anyMatch(r -> "ALL".equalsIgnoreCase(r.getAssetScope()));
+                if (hasAllScope) {
+                    principal.setAssetScope("ALL");
+                } else {
+                    principal.setAssetScope("SELECTED");
+                    List<IamRoleAsset> roleAssets = iamRoleAssetMapper.selectList(new LambdaQueryWrapper<IamRoleAsset>()
+                            .in(IamRoleAsset::getRoleId, activeRoleIds)
+                            .eq(IamRoleAsset::getStatus, 0));
+                    principal.setAccessibleAssetIds(roleAssets.stream()
+                            .map(IamRoleAsset::getAssetId)
+                            .collect(Collectors.toCollection(LinkedHashSet::new)));
+                }
+            }
+        }
         return principal;
     }
 

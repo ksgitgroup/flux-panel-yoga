@@ -24,4 +24,7 @@ public class IamRole extends BaseEntity {
     private Integer sortOrder;
 
     private Integer enabled;
+
+    /** 资产范围: ALL=全部资产, SELECTED=指定资产 */
+    private String assetScope;
 }

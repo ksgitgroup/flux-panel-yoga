@@ -8,15 +8,21 @@ import { Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from "@herou
 import { Spinner } from "@heroui/spinner";
 import toast from 'react-hot-toast';
 
+import { Checkbox } from "@heroui/checkbox";
+
 import {
+  AssetHost,
   IamRoleView,
   IamUserView,
   createIamUser,
   deleteIamUser,
+  getAssetList,
   getIamRoleList,
+  getIamUserDetail,
   getIamUserList,
   updateIamUser,
 } from '@/api';
+import { hasPermission } from '@/utils/auth';
 
 interface IamUserForm {
   id?: number;
@@ -33,6 +39,8 @@ interface IamUserForm {
   enabled: string;
   remark: string;
   roleIds: string[];
+  assetScope: string;
+  assetIds: number[];
 }
 
 const emptyUserForm = (): IamUserForm => ({
@@ -49,6 +57,8 @@ const emptyUserForm = (): IamUserForm => ({
   enabled: '1',
   remark: '',
   roleIds: [],
+  assetScope: '',
+  assetIds: [],
 });
 
 const formatDateTime = (timestamp?: number | null) => {
@@ -56,7 +66,7 @@ const formatDateTime = (timestamp?: number | null) => {
   return new Date(timestamp).toLocaleString();
 };
 
-const toUserForm = (user: IamUserView): IamUserForm => ({
+const toUserForm = (user: IamUserView, assetIds?: number[]): IamUserForm => ({
   id: user.id,
   displayName: user.displayName || '',
   email: user.email || '',
@@ -71,6 +81,8 @@ const toUserForm = (user: IamUserView): IamUserForm => ({
   enabled: user.enabled === 0 ? '0' : '1',
   remark: user.remark || '',
   roleIds: (user.roleIds || []).map((id) => id.toString()),
+  assetScope: user.assetScope || '',
+  assetIds: assetIds || [],
 });
 
 export default function IamUsersPage() {
@@ -79,6 +91,7 @@ export default function IamUsersPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [users, setUsers] = useState<IamUserView[]>([]);
   const [roles, setRoles] = useState<IamRoleView[]>([]);
+  const [assets, setAssets] = useState<AssetHost[]>([]);
   const [keyword, setKeyword] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'enabled'>('all');
   const [modalOpen, setModalOpen] = useState(false);
@@ -86,6 +99,7 @@ export default function IamUsersPage() {
   const [isEdit, setIsEdit] = useState(false);
   const [form, setForm] = useState<IamUserForm>(emptyUserForm());
   const [userToDelete, setUserToDelete] = useState<IamUserView | null>(null);
+  const canWrite = hasPermission('iam_user.write') || hasPermission('iam_user.update');
 
   useEffect(() => {
     void bootstrap();
@@ -94,7 +108,7 @@ export default function IamUsersPage() {
   const bootstrap = async () => {
     setLoading(true);
     try {
-      const [usersRes, rolesRes] = await Promise.all([getIamUserList(), getIamRoleList()]);
+      const [usersRes, rolesRes, assetsRes] = await Promise.all([getIamUserList(), getIamRoleList(), getAssetList()]);
       if (usersRes.code !== 0) {
         toast.error(usersRes.msg || '加载组织用户失败');
       } else {
@@ -104,6 +118,9 @@ export default function IamUsersPage() {
         toast.error(rolesRes.msg || '加载角色清单失败');
       } else {
         setRoles(rolesRes.data || []);
+      }
+      if (assetsRes.code === 0) {
+        setAssets(assetsRes.data || []);
       }
     } catch (error) {
       toast.error('加载组织用户模块失败');
@@ -157,10 +174,17 @@ export default function IamUsersPage() {
     setModalOpen(true);
   };
 
-  const handleOpenEdit = (user: IamUserView) => {
+  const handleOpenEdit = async (user: IamUserView) => {
     setIsEdit(true);
     setForm(toUserForm(user));
     setModalOpen(true);
+    // Load user detail to get assetIds
+    try {
+      const detailRes = await getIamUserDetail(user.id);
+      if (detailRes.code === 0 && detailRes.data) {
+        setForm(toUserForm(detailRes.data.user, detailRes.data.assetIds));
+      }
+    } catch { /* ignore, form already has basic data */ }
   };
 
   const handleOpenDelete = (user: IamUserView) => {
@@ -169,12 +193,20 @@ export default function IamUsersPage() {
   };
 
   // 快速审批：启用用户 + 跳转编辑分配角色
-  const handleQuickApprove = (user: IamUserView) => {
+  const handleQuickApprove = async (user: IamUserView) => {
     setIsEdit(true);
     const f = toUserForm(user);
     f.enabled = '1';
     setForm(f);
     setModalOpen(true);
+    try {
+      const detailRes = await getIamUserDetail(user.id);
+      if (detailRes.code === 0 && detailRes.data) {
+        const f2 = toUserForm(detailRes.data.user, detailRes.data.assetIds);
+        f2.enabled = '1';
+        setForm(f2);
+      }
+    } catch { /* ignore */ }
   };
 
   const validateForm = () => {
@@ -217,6 +249,8 @@ export default function IamUsersPage() {
         enabled: form.enabled === '1' ? 1 : 0,
         remark: form.remark.trim() || undefined,
         roleIds: form.roleIds.map((id) => Number(id)),
+        assetScope: form.assetScope || null,
+        assetIds: form.assetScope === 'SELECTED' ? form.assetIds : undefined,
       };
 
       if (form.password.trim()) {
@@ -293,9 +327,11 @@ export default function IamUsersPage() {
               onValueChange={setKeyword}
               className="sm:w-80"
             />
-            <Button color="primary" onPress={handleOpenCreate}>
-              新建组织用户
-            </Button>
+            {canWrite && (
+              <Button color="primary" onPress={handleOpenCreate}>
+                新建组织用户
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -377,6 +413,11 @@ export default function IamUsersPage() {
                         <span className="text-xs text-default-400">未绑定角色</span>
                       )}
                     </div>
+                    {user.assetScope && (
+                      <div className="mt-1 text-xs text-default-400">
+                        资产: {user.assetScope === 'ALL' ? '全部' : user.assetScope === 'NONE' ? '无' : `${user.assetCount || 0} 台`}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-4 align-top">
                     <div className="flex flex-wrap gap-2">
@@ -398,17 +439,21 @@ export default function IamUsersPage() {
                   </td>
                   <td className="px-4 py-4 align-top">
                     <div className="flex justify-end gap-2">
-                      {user.enabled === 0 && (
+                      {canWrite && user.enabled === 0 && (
                         <Button size="sm" variant="flat" color="warning" onPress={() => handleQuickApprove(user)}>
                           审批
                         </Button>
                       )}
-                      <Button size="sm" variant="flat" color="primary" onPress={() => handleOpenEdit(user)}>
-                        编辑
-                      </Button>
-                      <Button size="sm" variant="flat" color="danger" onPress={() => handleOpenDelete(user)}>
-                        删除
-                      </Button>
+                      {canWrite && (
+                        <Button size="sm" variant="flat" color="primary" onPress={() => handleOpenEdit(user)}>
+                          编辑
+                        </Button>
+                      )}
+                      {canWrite && (
+                        <Button size="sm" variant="flat" color="danger" onPress={() => handleOpenDelete(user)}>
+                          删除
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -565,6 +610,87 @@ export default function IamUsersPage() {
                     onValueChange={(value) => setForm((prev) => ({ ...prev, remark: value }))}
                     minRows={2}
                   />
+
+                  {/* 用户级资产权限配置 */}
+                  <div className="space-y-3 rounded-xl border border-divider p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">资产权限</p>
+                        <p className="text-xs text-default-400">
+                          用户级配置优先于角色级。留空"继承角色"则使用角色合并后的资产范围。
+                        </p>
+                      </div>
+                      <Select
+                        label="资产范围"
+                        className="w-48"
+                        size="sm"
+                        selectedKeys={[form.assetScope]}
+                        onSelectionChange={(keys) => {
+                          const value = Array.from(keys)[0] as string;
+                          setForm((prev) => ({
+                            ...prev,
+                            assetScope: value || '',
+                            assetIds: value === 'SELECTED' ? prev.assetIds : [],
+                          }));
+                        }}
+                      >
+                        <SelectItem key="">继承角色</SelectItem>
+                        <SelectItem key="ALL">全部资产</SelectItem>
+                        <SelectItem key="SELECTED">指定资产</SelectItem>
+                        <SelectItem key="NONE">无资产权限</SelectItem>
+                      </Select>
+                    </div>
+
+                    {form.assetScope === 'SELECTED' && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-default-500">
+                            已选 {form.assetIds.length} / {assets.length} 台服务器
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            onPress={() => {
+                              const allIds = assets.map((a) => a.id);
+                              const allSelected = allIds.length === form.assetIds.length;
+                              setForm((prev) => ({ ...prev, assetIds: allSelected ? [] : allIds }));
+                            }}
+                          >
+                            {assets.length === form.assetIds.length ? '取消全选' : '全选'}
+                          </Button>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto rounded-lg border border-divider">
+                          {assets.map((asset) => (
+                            <label
+                              key={asset.id}
+                              className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-default-100"
+                            >
+                              <Checkbox
+                                isSelected={form.assetIds.includes(asset.id)}
+                                onValueChange={(checked) => {
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    assetIds: checked
+                                      ? [...prev.assetIds, asset.id]
+                                      : prev.assetIds.filter((id) => id !== asset.id),
+                                  }));
+                                }}
+                              />
+                              <div className="flex-1 text-sm">
+                                <span className="font-medium">{asset.name}</span>
+                                {asset.primaryIp && (
+                                  <span className="ml-2 text-xs text-default-400">{asset.primaryIp}</span>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                          {assets.length === 0 && (
+                            <p className="px-3 py-4 text-center text-xs text-default-400">暂无资产</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </ModalBody>
               <ModalFooter>

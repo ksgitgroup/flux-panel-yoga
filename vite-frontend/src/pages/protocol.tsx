@@ -5,6 +5,7 @@ import { Input } from "@heroui/input";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { Spinner } from "@heroui/spinner";
 import toast from 'react-hot-toast';
+import { hasPermission } from '@/utils/auth';
 
 import {
     createProtocol,
@@ -22,6 +23,9 @@ interface Protocol {
 }
 
 export default function ProtocolPage() {
+    const canCreate = hasPermission('protocol.create');
+    const canUpdate = hasPermission('protocol.update');
+    const canDelete = hasPermission('protocol.delete');
     const [loading, setLoading] = useState(true);
     const [protocols, setProtocols] = useState<Protocol[]>([]);
 
@@ -155,9 +159,9 @@ export default function ProtocolPage() {
                     <h1 className="text-2xl font-bold">协议管理</h1>
                     <p className="text-default-500 text-sm mt-1">管理支持的转发协议及其配置模板</p>
                 </div>
-                <Button color="primary" onPress={handleOpenAddModal}>
+                {canCreate && <Button color="primary" onPress={handleOpenAddModal}>
                     添加协议
-                </Button>
+                </Button>}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -175,12 +179,12 @@ export default function ProtocolPage() {
                                 </div>
                             </div>
                             <div className="flex gap-2 mt-4">
-                                <Button size="sm" color="primary" variant="flat" onPress={() => handleOpenEditModal(protocol)} className="flex-1">
+                                {canUpdate && <Button size="sm" color="primary" variant="flat" onPress={() => handleOpenEditModal(protocol)} className="flex-1">
                                     编辑
-                                </Button>
-                                <Button size="sm" color="danger" variant="flat" onPress={() => handleOpenDeleteModal(protocol)} className="flex-1">
+                                </Button>}
+                                {canDelete && <Button size="sm" color="danger" variant="flat" onPress={() => handleOpenDeleteModal(protocol)} className="flex-1">
                                     删除
-                                </Button>
+                                </Button>}
                             </div>
                         </CardBody>
                     </Card>

@@ -10,6 +10,8 @@ import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.MonitorInstanceMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
 import com.admin.mapper.MonitorNodeSnapshotMapper;
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.service.AlertService;
 import com.admin.service.MonitorService;
 import com.alibaba.fastjson2.JSON;
@@ -381,13 +383,26 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        long online = allNodes.stream().filter(n -> n.getOnline() != null && n.getOnline() == 1).count();
+        // 按资产范围过滤（非管理员只能看到有权限的资产关联的节点）
+        List<MonitorNodeSnapshotViewDto> filteredViews = filterNodeViewsByAssetScope(nodeViews);
+
+        long online = filteredViews.stream().filter(n -> n.getOnline() != null && n.getOnline() == 1).count();
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("nodes", nodeViews);
-        result.put("total", allNodes.size());
+        result.put("nodes", filteredViews);
+        result.put("total", filteredViews.size());
         result.put("online", online);
-        result.put("offline", allNodes.size() - online);
+        result.put("offline", filteredViews.size() - online);
         return R.ok(result);
+    }
+
+    private List<MonitorNodeSnapshotViewDto> filterNodeViewsByAssetScope(List<MonitorNodeSnapshotViewDto> views) {
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal == null) return views;
+        Set<Long> effectiveIds = principal.getEffectiveAssetIds();
+        if (effectiveIds == null) return views; // null = no restriction
+        return views.stream()
+                .filter(v -> v.getAssetId() != null && effectiveIds.contains(v.getAssetId()))
+                .collect(Collectors.toList());
     }
 
     @Override

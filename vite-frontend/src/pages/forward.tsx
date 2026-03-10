@@ -58,7 +58,7 @@ import {
 } from "@/api";
 import { getDiagnosisHistory } from "@/api";
 import { JwtUtil } from "@/utils/jwt";
-import { isAdmin } from "@/utils/auth";
+import { isAdmin, hasPermission } from "@/utils/auth";
 
 interface Protocol {
   id: number;
@@ -228,6 +228,9 @@ const parseDiagnosisResultsJson = (resultsJson?: string): Array<any> => {
 
 export default function ForwardPage() {
   const adminUser = isAdmin();
+  const canCreate = hasPermission('forward.create');
+  const canUpdate = hasPermission('forward.update');
+  const canDelete = hasPermission('forward.delete');
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
@@ -1949,7 +1952,7 @@ export default function ForwardPage() {
 
           {/* 操作按钮 2x2 网格 */}
           <div className="grid grid-cols-2 gap-1.5 mt-3">
-            <Button
+            {canUpdate && <Button
               size="sm"
               variant="flat"
               color="primary"
@@ -1962,7 +1965,7 @@ export default function ForwardPage() {
               }
             >
               编辑
-            </Button>
+            </Button>}
             <Button
               size="sm"
               variant="flat"
@@ -1992,7 +1995,7 @@ export default function ForwardPage() {
             >
               复制
             </Button>
-            <Button
+            {canDelete && <Button
               size="sm"
               variant="flat"
               color="danger"
@@ -2006,7 +2009,7 @@ export default function ForwardPage() {
               }
             >
               删除
-            </Button>
+            </Button>}
           </div>
           <div className="mt-4 pt-3 border-t border-divider">
             <div className="flex items-center justify-between mb-2">
@@ -2206,11 +2209,11 @@ export default function ForwardPage() {
                 onValueChange={() => handleServiceToggle(forward)}
                 isDisabled={forward.status !== 1 && forward.status !== 0}
               />
-              <Button isIconOnly size="sm" variant="flat" color="primary" onPress={() => handleEdit(forward)}>
+              {canUpdate && <Button isIconOnly size="sm" variant="flat" color="primary" onPress={() => handleEdit(forward)}>
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                 </svg>
-              </Button>
+              </Button>}
               <Button isIconOnly size="sm" variant="flat" color="warning" onPress={() => handleDiagnose(forward)}>
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -2222,12 +2225,12 @@ export default function ForwardPage() {
                   <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
                 </svg>
               </Button>
-              <Button isIconOnly size="sm" variant="flat" color="danger" onPress={() => handleDelete(forward)}>
+              {canDelete && <Button isIconOnly size="sm" variant="flat" color="danger" onPress={() => handleDelete(forward)}>
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 012 0v4a1 1 0 11-2 0V7zM12 7a1 1 0 012 0v4a1 1 0 11-2 0V7z" clipRule="evenodd" />
                 </svg>
-              </Button>
+              </Button>}
             </div>
           </div>
 
@@ -2399,7 +2402,7 @@ export default function ForwardPage() {
               >
                 {isMobile ? null : '导出'}
               </Button>
-              <Button
+              {canCreate && <Button
                 size="sm"
                 variant="solid"
                 color="primary"
@@ -2411,7 +2414,7 @@ export default function ForwardPage() {
                 }
               >
                 {isMobile ? null : '新增转发'}
-              </Button>
+              </Button>}
             </div>
           </div>
 
@@ -2669,7 +2672,7 @@ export default function ForwardPage() {
               >
                 {isMobile ? null : '批量标签'}
               </Button>
-              <Button
+              {canDelete && <Button
                 size="sm"
                 variant="flat"
                 color="danger"
@@ -2682,7 +2685,7 @@ export default function ForwardPage() {
                 }
               >
                 {isMobile ? null : '批量删除'}
-              </Button>
+              </Button>}
             </div>
           </div>
 

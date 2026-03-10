@@ -1,5 +1,7 @@
 package com.admin.service.impl;
 
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
 import com.admin.entity.*;
@@ -62,14 +64,14 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         long now = System.currentTimeMillis();
         List<AssetHostViewDto> cached = cachedAssetViews;
         if (cached != null && (now - cachedAssetViewsAt) < ASSET_VIEW_CACHE_TTL_MS) {
-            return R.ok(cached);
+            return R.ok(filterByAssetScope(cached));
         }
         List<AssetHost> assets = this.list(new LambdaQueryWrapper<AssetHost>()
                 .orderByDesc(AssetHost::getUpdatedTime, AssetHost::getId));
         List<AssetHostViewDto> views = buildAssetViews(assets);
         cachedAssetViews = views;
         cachedAssetViewsAt = now;
-        return R.ok(views);
+        return R.ok(filterByAssetScope(views));
     }
 
     /** 写操作后主动失效缓存 */
@@ -80,6 +82,11 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     @Override
     public R getAssetDetail(Long id) {
+        // Check asset scope access
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal != null && !principal.canAccessAsset(id)) {
+            return R.err("无权访问该资产");
+        }
         AssetHost asset = getRequiredAsset(id);
         List<AssetHostViewDto> views = buildAssetViews(Collections.singletonList(asset));
         AssetHostViewDto assetView = views.isEmpty() ? null : views.get(0);
@@ -149,6 +156,10 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     @Override
     public R updateAsset(AssetHostUpdateDto dto) {
+        AuthPrincipal p = AuthContext.getCurrentPrincipal();
+        if (p != null && !p.canAccessAsset(dto.getId())) {
+            return R.err("无权修改该资产");
+        }
         AssetHost asset = getRequiredAsset(dto.getId());
         validateDuplicate(dto.getName(), dto.getLabel(), dto.getId());
         // Track which sync-protected fields the user is editing
@@ -164,6 +175,10 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     @Override
     public R deleteAsset(Long id) {
+        AuthPrincipal dp = AuthContext.getCurrentPrincipal();
+        if (dp != null && !dp.canAccessAsset(id)) {
+            return R.err("无权删除该资产");
+        }
         AssetHost asset = getRequiredAsset(id);
         Integer xuiCount = xuiInstanceMapper.selectCount(new LambdaQueryWrapper<XuiInstance>()
                 .eq(XuiInstance::getAssetId, id));
@@ -298,6 +313,21 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     }
 
     // ==================== Private Helpers ====================
+
+    /** 根据当前用户的资产范围过滤资产列表 */
+    private List<AssetHostViewDto> filterByAssetScope(List<AssetHostViewDto> views) {
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal == null) {
+            return views;
+        }
+        Set<Long> effectiveIds = principal.getEffectiveAssetIds();
+        if (effectiveIds == null) {
+            return views; // null = no restriction
+        }
+        return views.stream()
+                .filter(v -> v.getId() != null && effectiveIds.contains(v.getId()))
+                .collect(Collectors.toList());
+    }
 
     private AssetHost getRequiredAsset(Long id) {
         AssetHost asset = this.getById(id);

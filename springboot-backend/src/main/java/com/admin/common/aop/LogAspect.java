@@ -2,6 +2,8 @@ package com.admin.common.aop;
 
 
 import cn.hutool.core.util.ArrayUtil;
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.utils.JwtUtil;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
@@ -92,35 +94,31 @@ public class LogAspect {
         // 获取请求方法类型（POST/GET等）
         String requestMethod = request.getMethod();
         
-        // 获取用户ID
-        String authorization = request.getHeader("Authorization") + "";
-        Object user_id = "未登录"; // 请求用户的id
-        if (!authorization.equals("null")) {
-            user_id = JwtUtil.getUserIdFromToken(authorization);
-        }
-        
+        // 获取当前操作用户
+        String username = resolveCurrentUsername();
+
         // 获取请求IP
         String ipAddr = IpUtils.getIpAddr(request);
-        
+
         // 获取方法签名信息
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         Method method = signature.getMethod();
-        
+
         // 获取控制器方法名
         String className = joinPoint.getTarget().getClass().getName();
         String methodName = signature.getName();
         String controllerMethod = className + "." + methodName;
-        
+
 
         // 获取请求参数
         String requestParams = getRequestParams(joinPoint);
-        
+
         // 获取返回参数
         String responseParams = serializeForLog(returnValue);
-        
+
         // 合并为一条完整的日志信息
         String logMessage = String.format(
-            "【请求日志】用户ID:[%s], IP地址:[%s], 请求方式:[%s], 控制器方法:[%s], 请求参数:[%s], 返回参数:[%s]", user_id, ipAddr, requestMethod, controllerMethod, requestParams, responseParams
+            "【请求日志】用户:[%s], IP地址:[%s], 请求方式:[%s], 控制器方法:[%s], 请求参数:[%s], 返回参数:[%s]", username, ipAddr, requestMethod, controllerMethod, requestParams, responseParams
         );
 
         // 打印单条完整日志
@@ -131,7 +129,6 @@ public class LogAspect {
             try {
                 String module = extractModule(className);
                 String action = methodName;
-                String username = String.valueOf(user_id);
                 String detail = requestParams.length() > 500 ? requestParams.substring(0, 500) : requestParams;
                 auditLogService.log(username, action, module, null, controllerMethod, detail, ipAddr, "success");
             } catch (Exception e) {
@@ -159,36 +156,30 @@ public class LogAspect {
             // 获取请求方法类型（POST/GET等）
             String requestMethod = request.getMethod();
             
-            // 获取用户ID
-            String authorization = request.getHeader("Authorization") + "";
-            Object user_id = "未登录"; // 请求用户的id
-            if (!authorization.equals("null")) {
-                user_id = JwtUtil.getUserIdFromToken(authorization);
-            }
-            
+            // 获取当前操作用户
+            String username = resolveCurrentUsername();
+
             // 获取请求IP
             String ipAddr = IpUtils.getIpAddr(request);
-            
+
             // 获取方法签名信息
             MethodSignature signature = (MethodSignature) joinPoint.getSignature();
             Method method = signature.getMethod();
-            
+
             // 获取控制器方法名
             String className = joinPoint.getTarget().getClass().getName();
             String methodName = signature.getName();
             String controllerMethod = className + "." + methodName;
-            
 
-            
             // 获取请求参数
             String requestParams = getRequestParams(joinPoint);
-            
+
             // 获取异常信息
             String exceptionMsg = ex != null ? ex.getMessage() : "未知异常";
-            
+
             // 合并为一条完整的异常日志信息
             String errorMessage = String.format(
-                "【异常日志】用户ID:[%s], IP地址:[%s], 请求方式:[%s], 控制器方法:[%s], 请求参数:[%s], 异常信息:[%s]", user_id, ipAddr, requestMethod, controllerMethod, requestParams, exceptionMsg
+                "【异常日志】用户:[%s], IP地址:[%s], 请求方式:[%s], 控制器方法:[%s], 请求参数:[%s], 异常信息:[%s]", username, ipAddr, requestMethod, controllerMethod, requestParams, exceptionMsg
             );
 
             // 打印单条完整异常日志
@@ -197,12 +188,29 @@ public class LogAspect {
             // Write to audit log database
             if (auditLogService != null) {
                 String module = extractModule(className);
-                String username = String.valueOf(user_id);
                 auditLogService.log(username, methodName, module, null, controllerMethod, exceptionMsg, ipAddr, "failed");
             }
         } catch (Exception e) {
             log.info("记录异常日志时出错: {}", e.getMessage());
         }
+    }
+
+    /** Resolve current user display name from AuthPrincipal, fallback to JWT name */
+    private String resolveCurrentUsername() {
+        try {
+            AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+            if (principal != null && principal.getDisplayName() != null && !principal.getDisplayName().isBlank()) {
+                return principal.getDisplayName();
+            }
+        } catch (Exception ignored) { }
+        // Fallback: try JWT token name field
+        try {
+            String name = JwtUtil.getNameFromToken();
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+        } catch (Exception ignored) { }
+        return "未登录";
     }
 
     /** Extract module name from controller class name, e.g. "AssetHostController" → "asset" */

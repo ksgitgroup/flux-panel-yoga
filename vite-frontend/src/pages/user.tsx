@@ -50,6 +50,7 @@ import {
 } from '@/api';
 import { SearchIcon, EditIcon, DeleteIcon, UserIcon, SettingsIcon } from '@/components/icons';
 import { parseDate } from "@internationalized/date";
+import { hasPermission } from '@/utils/auth';
 
 
 // 工具函数
@@ -103,6 +104,10 @@ const calculateTunnelUsedFlow = (tunnel: UserTunnel): number => {
 };
 
 export default function UserPage() {
+  const canCreate = hasPermission('biz_user.create');
+  const canUpdate = hasPermission('biz_user.update');
+  const canDelete = hasPermission('biz_user.delete');
+
   // 状态管理
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
@@ -560,14 +565,14 @@ export default function UserPage() {
             </Button>
           </div>
           
-          <Button
+          {canCreate && <Button
               variant="flat"
               color="primary"
               onPress={handleAdd}
-             
+
             >
               新增
-            </Button>
+            </Button>}
         </div>
       </div>
 
@@ -683,7 +688,7 @@ export default function UserPage() {
                   <div className="space-y-1.5 mt-3">
                     {/* 第一行：编辑和重置 */}
                     <div className="flex gap-1.5">
-                      <Button
+                      {canUpdate && <Button
                         size="sm"
                         variant="flat"
                         color="primary"
@@ -692,7 +697,7 @@ export default function UserPage() {
                         startContent={<EditIcon className="w-3 h-3" />}
                       >
                         编辑
-                      </Button>
+                      </Button>}
                       <Button
                         size="sm"
                         variant="flat"
@@ -721,7 +726,7 @@ export default function UserPage() {
                       >
                         权限
                       </Button>
-                      <Button
+                      {canDelete && <Button
                         size="sm"
                         variant="flat"
                         color="danger"
@@ -730,7 +735,7 @@ export default function UserPage() {
                         startContent={<DeleteIcon className="w-3 h-3" />}
                       >
                         删除
-                      </Button>
+                      </Button>}
                     </div>
                   </div>
                 </CardBody>

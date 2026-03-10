@@ -25,6 +25,10 @@ public class IamRoleViewDto {
 
     private Integer permissionCount;
 
+    private String assetScope;
+
+    private Integer assetCount;
+
     private Long createdTime;
 
     private Long updatedTime;

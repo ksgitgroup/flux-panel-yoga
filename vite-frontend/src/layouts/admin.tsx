@@ -327,7 +327,7 @@ export default function AdminLayout({
         </svg>
       ),
 
-      requiredPermissions: ['asset.read']
+      requiredPermissions: ['cost_analysis.read']
     },
     {
       path: '/traffic',
@@ -339,7 +339,7 @@ export default function AdminLayout({
         </svg>
       ),
 
-      requiredPermissions: ['server_dashboard.read']
+      requiredPermissions: ['traffic_analysis.read']
     },
     {
       path: '/topology',

@@ -442,6 +442,8 @@ export default function AssetsPage() {
   const [filterOs, setFilterOs] = useState<string>('');
   const [filterProvider, setFilterProvider] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [sortKey, setSortKey] = useState<'name' | 'cpu' | 'mem' | 'traffic' | 'expiry' | 'cost'>('name');
+  const [sortAsc, setSortAsc] = useState(true);
 
   // XUI inline binding form
   const [xuiBindOpen, setXuiBindOpen] = useState(false);
@@ -560,6 +562,19 @@ export default function AssetsPage() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [assets]);
 
+  // Probe type counts — K/P include dual (same logic as dashboard)
+  const probeCounts = useMemo(() => {
+    let komari = 0, pika = 0, dual = 0, local = 0;
+    assets.forEach(a => {
+      const src = a.probeSource || 'local';
+      if (src === 'dual') { dual++; komari++; pika++; }
+      else if (src === 'komari') komari++;
+      else if (src === 'pika') pika++;
+      else local++;
+    });
+    return { komari, pika, dual, local };
+  }, [assets]);
+
   const roleFilters = useMemo(() => {
     const counts: Record<string, number> = {};
     assets.forEach(a => {
@@ -655,8 +670,35 @@ export default function AssetsPage() {
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
-    return list;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus]);
+    // Sort
+    const sorted = [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'cpu': cmp = (a.monitorCpuUsage || 0) - (b.monitorCpuUsage || 0); break;
+        case 'mem': {
+          const aPct = a.monitorMemTotal ? ((a.monitorMemUsed || 0) / a.monitorMemTotal) : 0;
+          const bPct = b.monitorMemTotal ? ((b.monitorMemUsed || 0) / b.monitorMemTotal) : 0;
+          cmp = aPct - bPct; break;
+        }
+        case 'traffic': {
+          const aPct = a.probeTrafficLimit ? ((a.probeTrafficUsed || 0) / a.probeTrafficLimit) : 0;
+          const bPct = b.probeTrafficLimit ? ((b.probeTrafficUsed || 0) / b.probeTrafficLimit) : 0;
+          cmp = aPct - bPct; break;
+        }
+        case 'expiry': {
+          const aDate = a.expireDate ? new Date(a.expireDate).getTime() : 0;
+          const bDate = b.expireDate ? new Date(b.expireDate).getTime() : 0;
+          cmp = aDate - bDate; break;
+        }
+        case 'cost': {
+          cmp = (parseFloat(a.monthlyCost || '0') || 0) - (parseFloat(b.monthlyCost || '0') || 0); break;
+        }
+        default: cmp = (a.name || '').localeCompare(b.name || '', 'zh-CN');
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return sorted;
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, sortKey, sortAsc]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -1344,15 +1386,37 @@ export default function AssetsPage() {
         )}
         {/* Probe type filters */}
         <div className="flex gap-1 ml-auto">
-          {[{ v: '', l: '全部探针' }, { v: 'komari', l: 'Komari' }, { v: 'pika', l: 'Pika' }, { v: 'dual', l: '双探针' }, { v: 'local', l: '本地' }].map(({ v, l }) => (
+          {[
+            { v: '', l: '全部', c: assets.length },
+            { v: 'komari', l: 'K', c: probeCounts.komari },
+            { v: 'pika', l: 'P', c: probeCounts.pika },
+            { v: 'dual', l: '双探针', c: probeCounts.dual },
+            { v: 'local', l: '本地', c: probeCounts.local },
+          ].map(({ v, l, c }) => (
             <button key={v} onClick={() => setFilterProbe(filterProbe === v ? '' : v)}
               className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
                 filterProbe === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
               }`}>
-              {l}
+              {l}({c})
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Sort buttons */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">排序:</span>
+        {([
+          ['name', '名称'], ['cpu', 'CPU'], ['mem', '内存'], ['traffic', '流量'], ['expiry', '到期'], ['cost', '月费'],
+        ] as [typeof sortKey, string][]).map(([key, label]) => (
+          <button key={key}
+            onClick={() => { if (sortKey === key) setSortAsc(!sortAsc); else { setSortKey(key); setSortAsc(key === 'name'); } }}
+            className={`rounded-lg px-2 py-1 text-[10px] font-bold tracking-wider transition-all cursor-pointer border whitespace-nowrap ${
+              sortKey === key ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-400 hover:border-primary/40'
+            }`}>
+            {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
+          </button>
+        ))}
       </div>
 
       {/* Region / OS / Provider quick filters */}

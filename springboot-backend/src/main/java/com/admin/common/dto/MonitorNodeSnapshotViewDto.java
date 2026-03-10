@@ -93,6 +93,7 @@ public class MonitorNodeSnapshotViewDto {
     private String remark;
     private Long purchaseDate;
     private String monthlyCost;
+    private String purpose;
 
     /** Peer probe node ID (same server, different probe type). Null if no peer. */
     private Long peerNodeId;

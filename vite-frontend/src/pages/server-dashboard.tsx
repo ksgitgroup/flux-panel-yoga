@@ -30,7 +30,7 @@ import { hasPermission } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
 import {
   formatFlow as formatBytes, formatSpeedBits as formatSpeed, formatUptime,
-  barColor, barColorClass, memPercent, getRegionFlag,
+  barColor, barColorClass, memPercent, getRegionFlag, normalizeRegion,
 } from '@/utils/formatters';
 
 // ===================== Chart Helpers =====================
@@ -279,9 +279,11 @@ interface MergedServer {
   trafficUsed: number;
   trafficLimit: number;
   tags: string;
+  expiredAt: number;
+  purpose: string;
 }
 
-type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime';
+type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime' | 'expiry';
 type ViewMode = 'card' | 'list';
 
 const OFFLINE_REASON_LABELS: Record<string, string> = {
@@ -331,7 +333,7 @@ function mergeNodes(nodes: MonitorNodeSnapshot[]): MergedServer[] {
       peer,
       name: primary.assetName || primary.name || primary.ip || primary.remoteNodeUuid?.slice(0, 8) || '-',
       ip: primary.ip || peer?.ip || '-',
-      region: primary.region || peer?.region || '',
+      region: normalizeRegion(primary.region) || normalizeRegion(peer?.region) || '',
       os: primary.os || peer?.os || '',
       assetId: primary.assetId,
       assetName: primary.assetName,
@@ -346,6 +348,8 @@ function mergeNodes(nodes: MonitorNodeSnapshot[]): MergedServer[] {
       trafficUsed: primary.trafficUsed || peer?.trafficUsed || 0,
       trafficLimit: primary.trafficLimit || peer?.trafficLimit || 0,
       tags: primary.tags || peer?.tags || '',
+      expiredAt: primary.expiredAt || peer?.expiredAt || 0,
+      purpose: primary.purpose || peer?.purpose || '',
     });
   });
   return servers;
@@ -372,8 +376,6 @@ export default function ServerDashboardPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [cardProviderDetails, setCardProviderDetails] = useState<Record<number, MonitorNodeProviderDetail>>({});
-  const [cardLoadingIds, setCardLoadingIds] = useState<Record<number, boolean>>({});
 
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
   const [selectedNode, setSelectedNode] = useState<MonitorNodeSnapshot | null>(null);
@@ -488,15 +490,15 @@ export default function ServerDashboardPage() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [allServers]);
 
-  // Count by probe type (based on merged servers)
+  // Count by probe type — K/P include dual (same logic as assets page)
   const probeCounts = useMemo(() => {
-    const counts = { komari: 0, pika: 0, dual: 0 };
+    let komari = 0, pika = 0, dual = 0;
     allServers.forEach(s => {
-      if (s.isDual) counts.dual++;
-      else if ((s.primary.instanceType || 'komari') === 'pika') counts.pika++;
-      else counts.komari++;
+      if (s.isDual) { dual++; komari++; pika++; }
+      else if ((s.primary.instanceType || 'komari') === 'pika') pika++;
+      else komari++;
     });
-    return counts;
+    return { komari, pika, dual };
   }, [allServers]);
 
   // Region counts from servers
@@ -534,8 +536,8 @@ export default function ServerDashboardPage() {
     if (statusFilter === 'online') list = list.filter(s => s.isOnline);
     else if (statusFilter === 'offline') list = list.filter(s => !s.isOnline);
     if (probeFilter === 'dual') list = list.filter(s => s.isDual);
-    else if (probeFilter === 'komari') list = list.filter(s => !s.isDual && (s.primary.instanceType || 'komari') === 'komari');
-    else if (probeFilter === 'pika') list = list.filter(s => !s.isDual && s.primary.instanceType === 'pika');
+    else if (probeFilter === 'komari') list = list.filter(s => s.isDual || (s.primary.instanceType || 'komari') === 'komari');
+    else if (probeFilter === 'pika') list = list.filter(s => s.isDual || s.primary.instanceType === 'pika');
     if (regionFilter) {
       list = list.filter(s => regionFilter === '_empty' ? !s.region : s.region === regionFilter);
     }
@@ -580,6 +582,7 @@ export default function ServerDashboardPage() {
           break;
         }
         case 'uptime': cmp = a.uptime - b.uptime; break;
+        case 'expiry': cmp = (a.expiredAt || 0) - (b.expiredAt || 0); break;
         default: cmp = a.name.localeCompare(b.name, 'zh-CN');
       }
       return sortAsc ? cmp : -cmp;
@@ -587,45 +590,6 @@ export default function ServerDashboardPage() {
     return sorted;
   }, [allServers, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter, sortKey, sortAsc]);
 
-  const cardLoadingRef = useRef<Set<number>>(new Set());
-  useEffect(() => {
-    const candidates = filteredServers
-      .slice(0, 12)
-      .map((s) => s.primary.id)
-      .filter((id) => !cardProviderDetails[id] && !cardLoadingRef.current.has(id));
-    if (candidates.length === 0) return;
-    let cancelled = false;
-    candidates.forEach((id) => {
-      cardLoadingRef.current.add(id);
-      setCardLoadingIds((prev) => ({ ...prev, [id]: true }));
-      getMonitorNodeProviderDetail(id)
-        .then((res) => {
-          if (cancelled) return;
-          if (res.code === 0 && res.data) {
-            setCardProviderDetails((prev) => ({ ...prev, [id]: res.data as MonitorNodeProviderDetail }));
-          } else {
-            // Mark as loaded (empty) to prevent infinite retry
-            setCardProviderDetails((prev) => ({ ...prev, [id]: {} as MonitorNodeProviderDetail }));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setCardProviderDetails((prev) => ({ ...prev, [id]: {} as MonitorNodeProviderDetail }));
-          }
-        })
-        .finally(() => {
-          cardLoadingRef.current.delete(id);
-          if (!cancelled) {
-            setCardLoadingIds((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-          }
-        });
-    });
-    return () => { cancelled = true; };
-  }, [filteredServers, cardProviderDetails]);
 
   if (!canViewServerDashboard) {
     return (
@@ -724,6 +688,7 @@ export default function ServerDashboardPage() {
             ['disk', '磁盘'],
             ['traffic', '流量'],
             ['uptime', '运行'],
+            ['expiry', '到期'],
           ] as [SortKey, string][]).map(([key, label]) => (
             <button key={key}
               onClick={() => { if (sortKey === key) setSortAsc(!sortAsc); else { setSortKey(key); setSortAsc(key === 'name'); } }}
@@ -822,7 +787,10 @@ export default function ServerDashboardPage() {
                 <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">内存</th>
                 <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">磁盘</th>
                 <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">网络</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">流量</th>
                 <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">运行</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">用途</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">到期</th>
                 <th className="text-left px-3 py-2.5 text-[10px] font-bold tracking-widest text-default-400 uppercase">地区</th>
               </tr>
             </thead>
@@ -893,7 +861,28 @@ export default function ServerDashboardPage() {
                       ) : '-'}
                     </td>
                     <td className="px-3 py-2 text-[11px] font-mono text-default-500">
+                      {server.trafficLimit > 0 ? (() => {
+                        const pct = Math.min((server.trafficUsed / server.trafficLimit) * 100, 100);
+                        return (
+                          <span className={pct > 90 ? 'text-danger font-bold' : pct > 75 ? 'text-warning' : ''}>
+                            {pct.toFixed(0)}% <span className="text-default-300">{formatBytes(server.trafficUsed)}</span>
+                          </span>
+                        );
+                      })() : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] font-mono text-default-500">
                       {server.isOnline && m ? formatUptime(m.uptime) : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-default-500 truncate max-w-[100px]">
+                      {server.purpose ? <span className="text-primary-500">{server.purpose}</span> : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] font-mono text-default-500 whitespace-nowrap">
+                      {server.expiredAt > 0 ? (
+                        <span className={server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}>
+                          {new Date(server.expiredAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                          {server.expiredAt < Date.now() ? ' 过期' : ` (${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天)`}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-default-500">
                       {server.region ? `${getRegionFlag(server.region)}${server.region}` : '-'}
@@ -910,8 +899,6 @@ export default function ServerDashboardPage() {
           {filteredServers.map((server) => {
             const node = server.primary;
             const m = node.latestMetric;
-            const cardDetail = cardProviderDetails[node.id];
-            const cardLoading = !!cardLoadingIds[node.id];
 
             return (
               <button
@@ -999,55 +986,36 @@ export default function ServerDashboardPage() {
                       <span>{formatUptime(m.uptime)}</span>
                     </div>
                     {/* Traffic quota bar */}
-                    {server.trafficLimit > 0 && (
-                      <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
-                        <span className="flex-shrink-0">流量</span>
-                        <div className="flex-1 h-1 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
-                          <div className={`h-full rounded-sm ${server.trafficUsed / server.trafficLimit > 0.9 ? 'bg-danger' : 'bg-primary'}`}
-                            style={{ width: `${Math.min((server.trafficUsed / server.trafficLimit) * 100, 100)}%` }} />
+                    {server.trafficLimit > 0 && (() => {
+                      const pct = Math.min((server.trafficUsed / server.trafficLimit) * 100, 100);
+                      return (
+                        <div className="flex items-center gap-1.5 text-[10px] text-default-400 font-mono">
+                          <span className="flex-shrink-0">流量</span>
+                          <div className="flex-1 h-2 bg-default-200 dark:bg-default-100 rounded-sm overflow-hidden">
+                            <div className={`h-full rounded-sm transition-all ${pct > 90 ? 'bg-danger' : pct > 75 ? 'bg-warning' : 'bg-primary'}`}
+                              style={{ width: `${Math.max(pct, 2)}%` }} />
+                          </div>
+                          <span className={`flex-shrink-0 font-medium ${pct > 90 ? 'text-danger' : pct > 75 ? 'text-warning' : ''}`}>
+                            {pct.toFixed(0)}%
+                          </span>
+                          <span className="flex-shrink-0">{formatBytes(server.trafficUsed)}/{formatBytes(server.trafficLimit)}</span>
                         </div>
-                        <span className="flex-shrink-0">{formatBytes(server.trafficUsed)} / {formatBytes(server.trafficLimit)}</span>
+                      );
+                    })()}
+
+                    {/* Purpose + Expiry footer */}
+                    {(server.purpose || server.expiredAt > 0) && (
+                      <div className="flex items-center justify-between gap-2 text-[10px] text-default-400 font-mono pt-0.5">
+                        {server.purpose ? (
+                          <span className="truncate text-primary-500 font-medium">{server.purpose}</span>
+                        ) : <span />}
+                        {server.expiredAt > 0 && (
+                          <span className={`flex-shrink-0 ${server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}`}>
+                            {server.expiredAt < Date.now() ? '已过期' : `${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天`}
+                          </span>
+                        )}
                       </div>
                     )}
-
-                    <div className="rounded-lg bg-default-50 dark:bg-default-100/5 px-2.5 py-2">
-                      {cardLoading ? (
-                        <p className="text-[10px] text-default-400 font-mono">加载探针摘要...</p>
-                      ) : node.instanceType === 'pika' ? (
-                        cardDetail?.pikaSecurity ? (
-                          <div className="space-y-1 text-[10px] text-default-500 font-mono">
-                            <p>
-                              安全: 端口 {cardDetail.pikaSecurity.publicListeningPortCount ?? 0}
-                              <span className="mx-1 text-default-300">·</span>
-                              进程 {cardDetail.pikaSecurity.suspiciousProcessCount ?? 0}
-                            </p>
-                            <p>
-                              防篡改 {cardDetail.pikaSecurity.tamperEnabled ? 'on' : 'off'}
-                              {cardDetail.pikaSecurity.auditEndTime ? ` · 审计 ${new Date(cardDetail.pikaSecurity.auditEndTime).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}` : ''}
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-default-400 font-mono">点击查看安全详情</p>
-                        )
-                      ) : (
-                        cardDetail?.komariOperations ? (
-                          <div className="space-y-1 text-[10px] text-default-500 font-mono">
-                            <p>
-                              任务: Ping {cardDetail.komariOperations.pingTasks?.length ?? 0}
-                              <span className="mx-1 text-default-300">·</span>
-                              负载 {cardDetail.komariOperations.loadNotifications?.length ?? 0}
-                            </p>
-                            <p>
-                              离线 {cardDetail.komariOperations.offlineNotifications?.length ?? 0}
-                              <span className="mx-1 text-default-300">·</span>
-                              公开 {cardDetail.komariOperations.publicVisible ? 'yes' : 'no'}
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-default-400 font-mono">点击查看任务详情</p>
-                        )
-                      )}
-                    </div>
                   </div>
                 ) : (
                   <div className="py-3 text-center space-y-0.5">

@@ -96,7 +96,33 @@ export const REGION_FLAGS: Record<string, string> = {
   '罗马尼亚': '🇷🇴', '卢森堡': '🇱🇺',
 };
 
+/** 探针/IP-API 返回的英文国家名 → 标准中文地区名 */
+const COUNTRY_TO_REGION: Record<string, string> = {
+  'China': '中国大陆', '中国': '中国大陆',
+  'Hong Kong': '香港', 'Taiwan': '台湾', '台湾': '台湾',
+  'Japan': '日本', 'Singapore': '新加坡', 'South Korea': '韩国',
+  'United States': '美国', 'US': '美国',
+  'United Kingdom': '英国', 'UK': '英国',
+  'Germany': '德国', 'France': '法国', 'Netherlands': '荷兰',
+  'Canada': '加拿大', 'Australia': '澳大利亚', 'India': '印度',
+  'Russia': '俄罗斯', 'Turkey': '土耳其', 'Brazil': '巴西',
+  'Malaysia': '马来西亚', 'Thailand': '泰国', 'Vietnam': '越南',
+  'Philippines': '菲律宾', 'Indonesia': '印度尼西亚',
+  'Argentina': '阿根廷', 'South Africa': '南非', 'Poland': '波兰',
+  'Sweden': '瑞典', 'Switzerland': '瑞士', 'Ireland': '爱尔兰',
+  'Italy': '意大利', 'Spain': '西班牙', 'Romania': '罗马尼亚',
+  'Luxembourg': '卢森堡',
+};
+
+/** 将地区名标准化为中文 (英文/中文均可输入) */
+export function normalizeRegion(region?: string | null): string {
+  if (!region) return '';
+  return COUNTRY_TO_REGION[region] || region;
+}
+
 /** 获取地区对应的国旗 emoji */
 export function getRegionFlag(region?: string | null): string {
-  return region ? (REGION_FLAGS[region] || '') : '';
+  if (!region) return '';
+  const normalized = COUNTRY_TO_REGION[region] || region;
+  return REGION_FLAGS[normalized] || '';
 }

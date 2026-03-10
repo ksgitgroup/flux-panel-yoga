@@ -32,7 +32,9 @@ export default function DingtalkCallbackPage() {
 
     const completeLogin = async () => {
       try {
+        console.log('[DingTalk] 开始登录，authCode:', authCode?.slice(0, 8) + '...');
         const response = await completeDingtalkAuth(authCode, stateParam);
+        console.log('[DingTalk] API 响应:', JSON.stringify(response).slice(0, 500));
         if (cancelled) return;
 
         // code=1001: 账号待审批（首次登录自动创建或已存在但未启用）
@@ -43,15 +45,16 @@ export default function DingtalkCallbackPage() {
         }
 
         if (response.code !== 0 || !response.data) {
-          setMessage(response.msg || "钉钉登录失败");
+          setMessage(response.msg || "钉钉登录失败（code=" + response.code + "）");
           setState('error');
           return;
         }
 
         const authData: LoginResponse = response.data;
+        console.log('[DingTalk] 登录数据:', { token: !!authData.token, name: authData.name, role_id: authData.role_id });
 
         if (!persistAuthSession(authData)) {
-          setMessage("登录响应不完整（缺少 token/name），请联系管理员");
+          setMessage("登录响应不完整（缺少 token/name/role_id），请联系管理员");
           setState('error');
           return;
         }
@@ -75,8 +78,9 @@ export default function DingtalkCallbackPage() {
         toast.success("钉钉登录成功");
         navigate("/dashboard", { replace: true });
       } catch (error) {
+        console.error('[DingTalk] 登录异常:', error);
         if (!cancelled) {
-          setMessage("钉钉登录请求失败，请检查网络连接");
+          setMessage("钉钉登录请求失败: " + (error instanceof Error ? error.message : String(error)));
           setState('error');
         }
       }

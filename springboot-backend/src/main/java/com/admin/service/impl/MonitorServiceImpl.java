@@ -2952,6 +2952,67 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return normalized;
     }
 
+    // ==================== Node Status Query ====================
+
+    @Override
+    public R getNodeStatusByUuid(Long instanceId, String uuid) {
+        if (instanceId == null || !StringUtils.hasText(uuid)) {
+            return R.err("instanceId 和 uuid 不能为空");
+        }
+        MonitorInstance instance = getRequiredInstance(instanceId);
+
+        // 1. Check if snapshot exists locally (already synced before)
+        MonitorNodeSnapshot snapshot = monitorNodeSnapshotMapper.selectOne(new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                .eq(MonitorNodeSnapshot::getInstanceId, instanceId)
+                .eq(MonitorNodeSnapshot::getRemoteNodeUuid, uuid));
+
+        // 2. Query Komari directly for live online status
+        boolean remoteOnline = false;
+        boolean remoteExists = false;
+        String remoteName = null;
+        String remoteIp = null;
+        try {
+            JSONObject allMetrics = fetchAllMetricsViaRpc(instance);
+            if (allMetrics != null && allMetrics.containsKey(uuid)) {
+                remoteExists = true;
+                JSONObject m = allMetrics.getJSONObject(uuid);
+                remoteOnline = m != null && m.getBooleanValue("online");
+            }
+            // Also check client list for name/ip
+            String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
+            if (clientsJson != null) {
+                JSONArray clients = clientsJson.trim().startsWith("[")
+                        ? JSON.parseArray(clientsJson.trim())
+                        : JSON.parseObject(clientsJson.trim()).getJSONArray("data");
+                if (clients != null) {
+                    for (int i = 0; i < clients.size(); i++) {
+                        JSONObject c = clients.getJSONObject(i);
+                        if (uuid.equals(c.getString("uuid"))) {
+                            remoteExists = true;
+                            remoteName = c.getString("name");
+                            remoteIp = c.getString("ipv4");
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Failed to query node status from remote: {}", e.getMessage());
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("uuid", uuid);
+        result.put("remoteExists", remoteExists);
+        result.put("remoteOnline", remoteOnline);
+        result.put("remoteName", remoteName);
+        result.put("remoteIp", remoteIp);
+        result.put("snapshotExists", snapshot != null);
+        result.put("snapshotOnline", snapshot != null && Integer.valueOf(1).equals(snapshot.getOnline()));
+        result.put("assetLinked", snapshot != null && snapshot.getAssetId() != null);
+        result.put("assetId", snapshot != null ? snapshot.getAssetId() : null);
+        return R.ok(result);
+    }
+
     // ==================== Terminal Access ====================
 
     @Override

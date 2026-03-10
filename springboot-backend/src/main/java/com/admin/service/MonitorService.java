@@ -40,6 +40,8 @@ public interface MonitorService extends IService<MonitorInstance> {
 
     R getTerminalAccessUrl(Long nodeId);
 
+    R getNodeStatusByUuid(Long instanceId, String uuid);
+
     R provisionDualAgent(Long komariInstanceId, Long pikaInstanceId, String name);
 
     R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, java.util.Map<String, Object> gostConfig, String name);

@@ -134,6 +134,14 @@ public class MonitorController extends BaseController {
         return monitorService.provisionDualAgent(komariInstanceId, pikaInstanceId, name);
     }
 
+    @RequireRole
+    @PostMapping("/node-status")
+    public R nodeStatus(@RequestBody java.util.Map<String, Object> body) {
+        Long instanceId = body.get("instanceId") != null ? ((Number) body.get("instanceId")).longValue() : null;
+        String uuid = body.get("uuid") != null ? body.get("uuid").toString() : null;
+        return monitorService.getNodeStatusByUuid(instanceId, uuid);
+    }
+
     @LogAnnotation
     @RequireRole
     @PostMapping("/provision-all")

@@ -1419,6 +1419,15 @@ export default function AssetsPage() {
         ))}
       </div>
 
+      {/* Reset filters button */}
+      {(searchKeyword || filterRole || filterProbe || filterTag || filterRegion || filterOs || filterProvider || filterStatus || sortKey !== 'name') && (
+        <button onClick={() => { setSearchKeyword(''); setFilterRole(null); setFilterProbe(''); setFilterTag(''); setFilterRegion(''); setFilterOs(''); setFilterProvider(''); setFilterStatus(''); setSortKey('name'); setSortAsc(true); }}
+          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold text-danger border border-danger/40 bg-danger-50/30 hover:bg-danger-50/60 transition-all cursor-pointer">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          重置筛选
+        </button>
+      )}
+
       {/* Region / OS / Provider quick filters */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Region filter */}
@@ -1681,24 +1690,30 @@ export default function AssetsPage() {
                           </div>
                         </td>
 
-                        {/* Tags */}
+                        {/* Tags + meta chips */}
                         <td className="px-3 py-3">
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-0.5">
+                            {/* User tags - colored */}
                             {(() => {
                               const tagSrc = asset.tags;
-                              if (!tagSrc) return <span className="text-xs text-default-300">-</span>;
+                              if (!tagSrc) return null;
                               try {
                                 const arr = JSON.parse(tagSrc);
                                 if (Array.isArray(arr) && arr.length > 0) {
                                   return arr.slice(0, 3).map((t: string) => (
-                                    <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t}</span>
+                                    <span key={t} className="px-1.5 py-0.5 rounded-full bg-primary-100 text-[10px] text-primary-700 dark:bg-primary/15 dark:text-primary-300 font-medium">{t}</span>
                                   ));
                                 }
-                              } catch { /* not JSON */ }
+                              } catch { /* */ }
                               return tagSrc.split(/[;,]/).filter(Boolean).slice(0, 3).map((t: string) => (
-                                <span key={t} className="px-1.5 py-0.5 rounded bg-default-100 text-[11px] text-default-600">{t.trim()}</span>
+                                <span key={t} className="px-1.5 py-0.5 rounded-full bg-primary-100 text-[10px] text-primary-700 dark:bg-primary/15 dark:text-primary-300 font-medium">{t.trim()}</span>
                               ));
                             })()}
+                            {/* Meta: region, provider, OS — muted style */}
+                            {asset.region && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{getRegionFlag(asset.region)}{asset.region}</span>}
+                            {asset.provider && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{asset.provider}</span>}
+                            {(asset.osCategory || asset.os) && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{asset.osCategory || asset.os}</span>}
+                            {!asset.tags && !asset.region && !asset.provider && !asset.osCategory && !asset.os && <span className="text-xs text-default-300">-</span>}
                           </div>
                         </td>
 
@@ -2847,6 +2862,34 @@ export default function AssetsPage() {
                               </Button>
                             ) : (
                               <div className="space-y-3">
+                                {/* Auto-detect: highlight matching node by IP */}
+                                {(() => {
+                                  const matchedNode = editingAsset.primaryIp
+                                    ? gostNodes.find(n => n.ip === editingAsset.primaryIp && !assets.some(a => a.gostNodeId === n.id && a.id !== editingAsset.id))
+                                    : null;
+                                  return matchedNode ? (
+                                    <div className="rounded-lg border-2 border-success bg-success-50/30 dark:bg-success-50/10 p-3 space-y-2">
+                                      <p className="text-xs font-semibold text-success-700 dark:text-success-400">
+                                        发现匹配的 GOST 节点（IP 一致）
+                                      </p>
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <span className={`w-2 h-2 rounded-full ${matchedNode.status === 1 ? 'bg-success' : 'bg-danger'}`} />
+                                          <span className="font-medium text-sm">{matchedNode.name}</span>
+                                          <span className="text-xs text-default-400 font-mono">{matchedNode.ip}</span>
+                                        </div>
+                                        <Button size="sm" color="success" variant="flat"
+                                          onPress={() => {
+                                            setForm(p => ({ ...p, gostNodeId: matchedNode.id.toString() }));
+                                            setGostBindOpen(false);
+                                            toast.success(`已自动匹配并绑定节点 "${matchedNode.name}"`);
+                                          }}>
+                                          一键绑定
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : null;
+                                })()}
                                 {/* Select from existing nodes */}
                                 {gostNodes.filter(n => !assets.some(a => a.gostNodeId === n.id && a.id !== editingAsset.id)).length > 0 ? (
                                   <div className="space-y-2">
@@ -2876,11 +2919,11 @@ export default function AssetsPage() {
                                 <div className="rounded-lg border border-primary/20 bg-primary-50/20 dark:bg-primary-50/5 p-3 space-y-3">
                                   <p className="text-[11px] font-medium text-default-600">或快速创建新节点：</p>
                                   <div className="grid gap-3 sm:grid-cols-2">
-                                    <Input size="sm" label="节点名称" placeholder={editingAsset.name || '节点名称'}
-                                      value={gostCreateForm.name}
+                                    <Input size="sm" label="节点名称" placeholder="默认使用资产名称"
+                                      value={gostCreateForm.name || editingAsset.name || ''}
                                       onValueChange={(v) => setGostCreateForm(p => ({ ...p, name: v }))} />
-                                    <Input size="sm" label="节点 IP" placeholder={editingAsset.primaryIp || '1.2.3.4'}
-                                      value={gostCreateForm.ip}
+                                    <Input size="sm" label="节点 IP" placeholder="默认使用资产 IP"
+                                      value={gostCreateForm.ip || editingAsset.primaryIp || ''}
                                       onValueChange={(v) => setGostCreateForm(p => ({ ...p, ip: v }))} />
                                     <Input size="sm" label="端口范围起始" placeholder="10000"
                                       value={gostCreateForm.portSta}
@@ -2906,13 +2949,14 @@ export default function AssetsPage() {
                                             assetId: editingAsset.id,
                                           });
                                           if (res.code === 0 && res.data) {
+                                            const nodeId = typeof res.data === 'object' ? res.data.id : res.data;
                                             toast.success('GOST 节点创建成功');
-                                            setForm(p => ({ ...p, gostNodeId: res.data.id?.toString() || res.data.toString() }));
+                                            setForm(p => ({ ...p, gostNodeId: nodeId?.toString() || '' }));
                                             setGostBindOpen(false);
                                             void loadGostNodes();
                                             // Try to get install command
                                             try {
-                                              const cmdRes = await getNodeInstallCommand(typeof res.data === 'object' ? res.data.id : res.data);
+                                              const cmdRes = await getNodeInstallCommand(nodeId);
                                               if (cmdRes.code === 0 && cmdRes.data) {
                                                 setGostInstallCmd(cmdRes.data);
                                               }

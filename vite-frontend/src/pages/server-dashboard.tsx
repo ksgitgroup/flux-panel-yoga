@@ -706,6 +706,15 @@ export default function ServerDashboardPage() {
         </div>
       </div>
 
+      {/* Reset filters button */}
+      {(search || statusFilter !== 'all' || probeFilter !== 'all' || tagFilter || regionFilter || osFilter || sortKey !== 'name') && (
+        <button onClick={() => { setSearch(''); setStatusFilter('all'); setProbeFilter('all'); setTagFilter(''); setRegionFilter(''); setOsFilter(''); setSortKey('name'); setSortAsc(true); }}
+          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold text-danger border border-danger/40 bg-danger-50/30 hover:bg-danger-50/60 transition-all cursor-pointer">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          重置筛选
+        </button>
+      )}
+
       {/* Region / OS quick filters */}
       <div className="flex flex-wrap items-center gap-3">
         {regionCounts.filter(([r]) => r).length > 0 && (

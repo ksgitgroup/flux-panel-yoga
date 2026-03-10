@@ -41,6 +41,7 @@ import {
   ProvisionAllResult,
   rotateOnePanelToken,
   syncMonitorInstance,
+  getMonitorNodeStatus,
   updateAsset,
   batchUpdateAsset,
   geolocateIp,
@@ -435,6 +436,8 @@ export default function AssetsPage() {
   const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; assetIp?: string; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean } | null>(null);
   const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
   const [allProvisionResult, setAllProvisionResult] = useState<ProvisionAllResult | null>(null);
+  const [provisionNodeVerified, setProvisionNodeVerified] = useState(false);
+  const [provisionNodeStatus, setProvisionNodeStatus] = useState<string>('');
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
@@ -789,6 +792,8 @@ export default function AssetsPage() {
     setProvisionStep('select');
     setAllProvisionResult(null);
     setProvisionSyncLoading(false);
+    setProvisionNodeVerified(false);
+    setProvisionNodeStatus('');
     setProvisionContext(ctx || null);
     setProvisionKomariId('');
     setProvisionPikaId('');
@@ -865,31 +870,73 @@ export default function AssetsPage() {
     finally { setProvisionLoading(false); }
   };
 
-  // After probe install, sync the instance to discover the new node
+  // After probe install, sync the instance and verify the new node is online
   const handleProvisionSync = async () => {
     if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法同步探针实例');
       return;
     }
     const idsToSync: number[] = [];
+    const uuidsToCheck: { instanceId: number; uuid: string }[] = [];
     if (allProvisionResult) {
-      if (allProvisionResult.komari) idsToSync.push(allProvisionResult.komari.instanceId);
-      if (allProvisionResult.pika) idsToSync.push(allProvisionResult.pika.instanceId);
+      if (allProvisionResult.komari) {
+        idsToSync.push(allProvisionResult.komari.instanceId);
+        uuidsToCheck.push({ instanceId: allProvisionResult.komari.instanceId, uuid: allProvisionResult.komari.uuid });
+      }
+      if (allProvisionResult.pika) {
+        idsToSync.push(allProvisionResult.pika.instanceId);
+        uuidsToCheck.push({ instanceId: allProvisionResult.pika.instanceId, uuid: allProvisionResult.pika.uuid });
+      }
     }
     if (idsToSync.length === 0) { toast.error('没有可同步的实例'); return; }
 
     setProvisionSyncLoading(true);
+    setProvisionNodeStatus('正在同步...');
+    setProvisionNodeVerified(false);
     try {
-      let allOk = true;
+      // Step 1: Sync instances
+      let syncOk = true;
       for (const id of idsToSync) {
         const res = await syncMonitorInstance(id);
-        if (res.code !== 0) { toast.error(res.msg || '同步失败'); allOk = false; }
+        if (res.code !== 0) { toast.error(res.msg || '同步失败'); syncOk = false; }
       }
-      if (allOk) {
-        toast.success('同步完成，新节点将自动关联到服务器资产');
+      if (!syncOk) { setProvisionNodeStatus('同步失败，请检查探针配置'); return; }
+
+      // Step 2: Verify each provisioned node's status
+      let allOnline = true;
+      let anyFound = false;
+      const statusMessages: string[] = [];
+      for (const { instanceId, uuid } of uuidsToCheck) {
+        const statusRes = await getMonitorNodeStatus(instanceId, uuid);
+        if (statusRes.code === 0 && statusRes.data) {
+          const s = statusRes.data;
+          if (s.remoteOnline) {
+            statusMessages.push(`${s.remoteName || uuid.substring(0, 8)}: 在线 ✓${s.remoteIp ? ' (' + s.remoteIp + ')' : ''}`);
+            anyFound = true;
+          } else if (s.remoteExists) {
+            statusMessages.push(`${s.remoteName || uuid.substring(0, 8)}: 已注册但未上线，请确认探针已在目标服务器安装并启动`);
+            allOnline = false;
+            anyFound = true;
+          } else {
+            statusMessages.push(`${uuid.substring(0, 8)}: 未找到节点，请检查安装命令是否正确`);
+            allOnline = false;
+          }
+        }
+      }
+
+      if (allOnline && anyFound) {
+        setProvisionNodeVerified(true);
+        setProvisionNodeStatus(statusMessages.join('\n'));
+        toast.success('节点已上线，同步成功');
         void loadAssets();
+      } else if (anyFound) {
+        setProvisionNodeStatus(statusMessages.join('\n'));
+        toast('节点尚未完全上线，请在目标服务器安装探针后重试', { icon: '⚠️' });
+      } else {
+        setProvisionNodeStatus('未检测到任何节点上线，请确认探针已安装');
+        toast.error('未检测到节点上线');
       }
-    } catch { toast.error('同步请求失败'); }
+    } catch { toast.error('同步请求失败'); setProvisionNodeStatus('请求异常'); }
     finally { setProvisionSyncLoading(false); }
   };
 
@@ -3111,7 +3158,7 @@ export default function AssetsPage() {
       </Modal>
 
       {/* Provision Modal */}
-      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => !open && onProvisionClose()} size="2xl">
+      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => { if (!open && provisionStep === 'select') onProvisionClose(); }} size="2xl" isDismissable={provisionStep === 'select'} hideCloseButton={provisionStep === 'result'}>
         <ModalContent>
           <ModalHeader>
             {provisionContext
@@ -3342,11 +3389,18 @@ export default function AssetsPage() {
                 )}
 
                 <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
-                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮同步探针数据：</p>
-                  <Button size="sm" color="primary" variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
-                    手动同步
+                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮验证探针状态：</p>
+                  <Button size="sm" color={provisionNodeVerified ? 'success' : 'primary'} variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
+                    {provisionNodeVerified ? '已验证 ✓ (可重新检测)' : '同步并验证节点'}
                   </Button>
-                  <p className="text-[10px] text-default-400">同步后系统将自动发现新节点并关联到服务器资产。</p>
+                  {provisionNodeStatus && (
+                    <div className={`text-xs whitespace-pre-wrap rounded p-2 ${provisionNodeVerified ? 'bg-success-50 dark:bg-success-950/30 text-success-700 dark:text-success-400' : 'bg-warning-50 dark:bg-warning-950/30 text-warning-700 dark:text-warning-400'}`}>
+                      {provisionNodeStatus}
+                    </div>
+                  )}
+                  {!provisionNodeVerified && !provisionNodeStatus && (
+                    <p className="text-[10px] text-default-400">同步后系统将验证节点是否上线并自动关联到服务器资产。</p>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -3372,11 +3426,15 @@ export default function AssetsPage() {
               </>
             ) : (
               <>
-                <Button variant="flat" onPress={() => {
-                  setProvisionStep('select');
-                  setAllProvisionResult(null);
-                }}>再添加一台</Button>
-                <Button color="primary" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
+                {provisionNodeVerified ? (
+                  <Button color="success" onPress={() => { onProvisionClose(); void loadAssets(); }}>完成</Button>
+                ) : (
+                  <Button color="default" variant="flat" onPress={() => {
+                    if (window.confirm('节点尚未验证上线，确定要关闭吗？您可以稍后在探针页面手动同步。')) {
+                      onProvisionClose(); void loadAssets();
+                    }
+                  }}>跳过验证并关闭</Button>
+                )}
               </>
             )}
           </ModalFooter>

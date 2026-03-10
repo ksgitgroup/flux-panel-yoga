@@ -82,4 +82,7 @@ public class MonitorNodeSnapshot extends BaseEntity {
 
     /** 首次上线时间 (首次 online=1 时记录) */
     private Long firstSeenAt;
+
+    /** 硬件复合指纹 SHA256(cpuName+cpuCores+memTotal+diskTotal+arch+virtualization+kernelVersion) */
+    private String fingerprint;
 }

@@ -20,4 +20,9 @@ public class KomariNodeOperationsDetailDto {
     private List<KomariLoadNotificationViewDto> loadNotifications;
 
     private List<KomariOfflineNotificationViewDto> offlineNotifications;
+
+    // Remote command execution support
+    private Boolean commandSupported;
+
+    private String terminalUrl;
 }

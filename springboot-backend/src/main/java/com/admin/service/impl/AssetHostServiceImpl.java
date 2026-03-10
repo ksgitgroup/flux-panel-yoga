@@ -59,6 +59,9 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
     @Resource
     private MonitorInstanceMapper monitorInstanceMapper;
 
+    @Resource
+    private MonitorService monitorService;
+
     @Override
     public R getAllAssets() {
         long now = System.currentTimeMillis();
@@ -170,6 +173,16 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setUpdatedTime(System.currentTimeMillis());
         this.updateById(asset);
         invalidateAssetViewCache();
+
+        // Push name change to linked probes (Komari) if label was edited
+        if (editedFields.contains("label") && StringUtils.hasText(asset.getLabel())) {
+            try {
+                monitorService.pushNameToProbes(asset.getId(), asset.getLabel());
+            } catch (Exception e) {
+                log.warn("推送名称到探针失败: {}", e.getMessage());
+            }
+        }
+
         return R.ok(buildAssetViews(Collections.singletonList(asset)).stream().findFirst().orElse(null));
     }
 

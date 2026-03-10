@@ -34,4 +34,13 @@ public class PikaNodeSecurityDetailDto {
     private List<PikaTamperAlertViewDto> recentTamperAlerts;
 
     private List<PikaAuditRunViewDto> recentAuditRuns;
+
+    // SSH login monitoring
+    private Boolean sshLoginMonitorEnabled;
+
+    private List<String> sshLoginWhitelistIps;
+
+    private List<PikaSshLoginEventViewDto> recentSshLoginEvents;
+
+    private Integer recentSshLoginFailCount;
 }

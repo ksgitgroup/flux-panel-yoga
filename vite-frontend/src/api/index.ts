@@ -931,6 +931,20 @@ export const getMonitorNodeProviderDetail = (id: number) =>
 export const getKomariPingTaskDetail = (nodeId: number, taskId: number, hours: number = 12) =>
   Network.post<KomariPingTaskDetail>("/monitor/komari-ping-task-detail", { nodeId, taskId, hours });
 
+export interface MonitorNodeStatus {
+  uuid: string;
+  remoteExists: boolean;
+  remoteOnline: boolean;
+  remoteName?: string;
+  remoteIp?: string;
+  snapshotExists: boolean;
+  snapshotOnline: boolean;
+  assetLinked: boolean;
+  assetId?: number;
+}
+export const getMonitorNodeStatus = (instanceId: number, uuid: string) =>
+  Network.post<MonitorNodeStatus>("/monitor/node-status", { instanceId, uuid });
+
 export interface MonitorProvisionResult {
   uuid: string;
   token: string;

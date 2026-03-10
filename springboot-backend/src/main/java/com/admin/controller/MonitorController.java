@@ -134,6 +134,47 @@ public class MonitorController extends BaseController {
         return monitorService.provisionDualAgent(komariInstanceId, pikaInstanceId, name);
     }
 
+    @RequireRole
+    @PostMapping("/node-status")
+    public R nodeStatus(@RequestBody java.util.Map<String, Object> body) {
+        Long instanceId = body.get("instanceId") != null ? ((Number) body.get("instanceId")).longValue() : null;
+        String uuid = body.get("uuid") != null ? body.get("uuid").toString() : null;
+        return monitorService.getNodeStatusByUuid(instanceId, uuid);
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/execute-command")
+    public R executeCommand(@RequestBody java.util.Map<String, Object> body) {
+        Long nodeId = body.get("nodeId") != null ? ((Number) body.get("nodeId")).longValue() : null;
+        String command = body.get("command") != null ? body.get("command").toString() : null;
+        return monitorService.executeKomariCommand(nodeId, command);
+    }
+
+    @RequireRole
+    @PostMapping("/task-result")
+    public R taskResult(@RequestBody java.util.Map<String, Object> body) {
+        Long nodeId = body.get("nodeId") != null ? ((Number) body.get("nodeId")).longValue() : null;
+        String taskId = body.get("taskId") != null ? body.get("taskId").toString() : null;
+        return monitorService.getKomariTaskResult(nodeId, taskId);
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/trigger-audit")
+    public R triggerAudit(@RequestBody java.util.Map<String, Object> body) {
+        Long nodeId = body.get("nodeId") != null ? ((Number) body.get("nodeId")).longValue() : null;
+        return monitorService.triggerPikaAudit(nodeId);
+    }
+
+    @RequireRole
+    @PostMapping("/ssh-login-events")
+    public R sshLoginEvents(@RequestBody java.util.Map<String, Object> body) {
+        Long nodeId = body.get("nodeId") != null ? ((Number) body.get("nodeId")).longValue() : null;
+        Integer pageSize = body.get("pageSize") != null ? ((Number) body.get("pageSize")).intValue() : 20;
+        return monitorService.getPikaSshLoginEvents(nodeId, pageSize);
+    }
+
     @LogAnnotation
     @RequireRole
     @PostMapping("/provision-all")

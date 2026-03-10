@@ -42,6 +42,7 @@ import javax.annotation.Resource;
 import javax.net.ssl.SSLContext;
 import java.nio.charset.StandardCharsets;
 import java.net.URLEncoder;
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -208,7 +209,35 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Override
     public R deleteInstance(Long id) {
-        getRequiredInstance(id);
+        MonitorInstance instance = getRequiredInstance(id);
+
+        // Clean up asset references before deleting snapshots
+        List<MonitorNodeSnapshot> nodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .eq(MonitorNodeSnapshot::getInstanceId, id)
+                        .isNotNull(MonitorNodeSnapshot::getAssetId));
+        for (MonitorNodeSnapshot node : nodes) {
+            if (node.getAssetId() != null && node.getRemoteNodeUuid() != null) {
+                AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+                if (asset != null) {
+                    boolean updated = false;
+                    if (node.getRemoteNodeUuid().equals(asset.getMonitorNodeUuid())) {
+                        asset.setMonitorNodeUuid("");
+                        updated = true;
+                    }
+                    if (node.getRemoteNodeUuid().equals(asset.getPikaNodeId())) {
+                        asset.setPikaNodeId("");
+                        updated = true;
+                    }
+                    if (updated) {
+                        assetHostMapper.updateById(asset);
+                    }
+                }
+            }
+        }
+        log.info("删除探针实例 [{}](type={}), 清理了 {} 个节点的资产关联",
+                instance.getName(), instance.getType(), nodes.size());
+
         monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .eq(MonitorMetricLatest::getInstanceId, id));
         monitorNodeSnapshotMapper.delete(new LambdaQueryWrapper<MonitorNodeSnapshot>()
@@ -429,6 +458,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 }
             }
         }
+
+        // Try to delete from remote probe (best-effort, don't block local deletion)
+        String remoteDeleteMsg = tryDeleteFromRemoteProbe(node);
+
         // Soft-delete: mark status=-1 so sync won't re-create, but keep metrics for history
         monitorMetricLatestMapper.delete(new LambdaQueryWrapper<MonitorMetricLatest>()
                 .eq(MonitorMetricLatest::getNodeSnapshotId, nodeId));
@@ -436,8 +469,103 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         node.setOnline(0);
         node.setUpdatedTime(System.currentTimeMillis());
         monitorNodeSnapshotMapper.updateById(node);
-        return R.ok("已删除探针节点");
+
+        String msg = "已删除探针节点";
+        if (remoteDeleteMsg != null) {
+            msg += "（" + remoteDeleteMsg + "）";
+        }
+        return R.ok(msg);
     }
+
+    /**
+     * Best-effort delete node from remote probe (Komari/Pika).
+     * Returns a status message, or null if remote deletion succeeded silently.
+     */
+    private String tryDeleteFromRemoteProbe(MonitorNodeSnapshot node) {
+        if (node.getInstanceId() == null || node.getRemoteNodeUuid() == null) {
+            return null;
+        }
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) {
+            return null;
+        }
+        try {
+            if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+                // Komari: POST /api/admin/client/{uuid}/remove
+                String path = "/api/admin/client/" + node.getRemoteNodeUuid() + "/remove";
+                httpPost(instance, path, null, instance.getAllowInsecureTls());
+                log.info("已从 Komari 远程删除节点: {} (instance={})", node.getRemoteNodeUuid(), instance.getName());
+                return "已同步从探针端删除";
+            } else if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                // Pika: DELETE /api/admin/agents/{id} — requires JWT auth
+                String jwt = loginPika(instance);
+                if (jwt != null) {
+                    String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+                    String url = baseUrl + "/api/admin/agents/" + node.getRemoteNodeUuid();
+                    httpDeleteWithToken(url, jwt, instance.getAllowInsecureTls());
+                    log.info("已从 Pika 远程删除节点: {} (instance={})", node.getRemoteNodeUuid(), instance.getName());
+                    return "已同步从探针端删除";
+                }
+                return "Pika 登录失败，探针端节点未删除，请手动清理";
+            }
+        } catch (Exception e) {
+            log.warn("远程删除探针节点失败 (instance={}, node={}): {}", instance.getName(), node.getRemoteNodeUuid(), e.getMessage());
+            return "探针端删除失败: " + e.getMessage() + "，请手动清理";
+        }
+        return null;
+    }
+
+    /**
+     * Clear asset's probe reference when a node is removed or disappeared from probe.
+     * @param node the node snapshot being unlinked
+     * @param probeType "komari" or "pika" — determines which asset field to clear
+     */
+    private void unlinkNodeFromAsset(MonitorNodeSnapshot node, String probeType) {
+        if (node.getAssetId() == null || node.getRemoteNodeUuid() == null) return;
+        AssetHost asset = assetHostMapper.selectById(node.getAssetId());
+        if (asset == null) return;
+        boolean updated = false;
+        if (TYPE_KOMARI.equalsIgnoreCase(probeType)
+                && node.getRemoteNodeUuid().equals(asset.getMonitorNodeUuid())) {
+            asset.setMonitorNodeUuid("");
+            updated = true;
+        }
+        if (TYPE_PIKA.equalsIgnoreCase(probeType)
+                && node.getRemoteNodeUuid().equals(asset.getPikaNodeId())) {
+            asset.setPikaNodeId("");
+            updated = true;
+        }
+        if (updated) {
+            assetHostMapper.updateById(asset);
+            log.info("探针端节点已消失，清理资产[{}]的{}关联: {}", asset.getId(), probeType, node.getRemoteNodeUuid());
+        }
+    }
+
+    /**
+     * Compute a hardware fingerprint for server uniqueness identification.
+     * Uses SHA-256 of hardware fields that distinguish different machines.
+     */
+    static String computeFingerprint(MonitorNodeSnapshot node) {
+        String raw = String.join("|",
+                nullSafe(node.getCpuName()),
+                String.valueOf(node.getCpuCores() != null ? node.getCpuCores() : 0),
+                String.valueOf(node.getMemTotal() != null ? node.getMemTotal() : 0),
+                String.valueOf(node.getDiskTotal() != null ? node.getDiskTotal() : 0),
+                nullSafe(node.getArch()),
+                nullSafe(node.getVirtualization()),
+                nullSafe(node.getKernelVersion()));
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString().substring(0, 16); // short fingerprint (64-bit)
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String nullSafe(String s) { return s != null ? s.trim() : ""; }
 
     // ==================== Historical Records (Charts) ====================
 
@@ -844,6 +972,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             existing.setTrafficLimit(client.getLong("traffic_limit"));
             existing.setTrafficLimitType(client.getString("traffic_limit_type"));
 
+            // Compute hardware fingerprint for server uniqueness
+            existing.setFingerprint(computeFingerprint(existing));
+
             // Parse expired_at timestamp
             String expiredAtStr = client.getString("expired_at");
             if (StringUtils.hasText(expiredAtStr) && !"0001-01-01T00:00:00Z".equals(expiredAtStr)) {
@@ -883,7 +1014,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // Mark removed nodes
+        // Mark removed nodes (no longer in probe) and clean up asset references
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
@@ -891,9 +1022,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         for (MonitorNodeSnapshot node : allNodes) {
             if (!seenUuids.contains(node.getRemoteNodeUuid())) {
                 node.setOnline(0);
-                node.setStatus(1);
+                node.setStatus(1); // Mark as "removed from probe"
                 node.setUpdatedTime(now);
                 monitorNodeSnapshotMapper.updateById(node);
+                // Clear asset's probe reference since probe no longer has this node
+                unlinkNodeFromAsset(node, TYPE_KOMARI);
                 removedNodes++;
             }
         }
@@ -1037,7 +1170,18 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     }
                 }
                 if (apiKey == null) {
-                    return R.err("Pika 中没有可用的 API Key，请在 Pika 管理面板中创建一个");
+                    // Auto-create an API key in Pika for agent installation
+                    log.info("[MonitorProvision] No API key found in Pika {}, auto-creating one", instance.getName());
+                    String createKeyJson = httpPostWithToken(
+                            baseUrl + "/api/admin/api-keys", jwt,
+                            "{\"name\":\"Flux Auto-Install\"}", instance.getAllowInsecureTls());
+                    if (createKeyJson != null) {
+                        JSONObject newKey = JSON.parseObject(createKeyJson);
+                        apiKey = newKey.getString("key");
+                    }
+                    if (apiKey == null) {
+                        return R.err("Pika 自动创建 API Key 失败，请手动在 Pika 管理面板中创建");
+                    }
                 }
 
                 String name = dto.getName() != null ? dto.getName().trim() : "";
@@ -1066,6 +1210,61 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         }
 
         try {
+            // Check for recently created but not-yet-online nodes to avoid duplicates
+            // Look for snapshots created within last 30 minutes that are still offline
+            List<MonitorNodeSnapshot> recentOrphans = monitorNodeSnapshotMapper.selectList(
+                    new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                            .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
+                            .eq(MonitorNodeSnapshot::getOnline, 0)
+                            .ne(MonitorNodeSnapshot::getStatus, -1)
+                            .isNull(MonitorNodeSnapshot::getFirstSeenAt)  // never connected
+                            .gt(MonitorNodeSnapshot::getCreatedTime, System.currentTimeMillis() - 30 * 60 * 1000)
+                            .orderByDesc(MonitorNodeSnapshot::getCreatedTime));
+            if (!recentOrphans.isEmpty()) {
+                // Reuse the most recent orphan - get its token from Komari
+                MonitorNodeSnapshot orphan = recentOrphans.get(0);
+                String existingUuid = orphan.getRemoteNodeUuid();
+                try {
+                    String tokenJson = httpGet(instance, "/api/admin/client/" + existingUuid + "/token", instance.getAllowInsecureTls());
+                    if (tokenJson != null) {
+                        JSONObject tokenResp = JSON.parseObject(tokenJson);
+                        String existingToken = tokenResp.getString("token");
+                        if (StringUtils.hasText(existingToken)) {
+                            log.info("[MonitorProvision] Reusing existing orphan client {} for instance {}", existingUuid, instance.getName());
+                            // Rename reused client if a name was provided
+                            String reuseName = dto.getName() != null ? dto.getName().trim() : "";
+                            if (!reuseName.isEmpty()) {
+                                try {
+                                    httpPost(instance, "/api/admin/client/" + existingUuid + "/edit",
+                                            "{\"name\":\"" + reuseName.replace("\"", "\\\"") + "\"}",
+                                            instance.getAllowInsecureTls());
+                                } catch (Exception e) {
+                                    log.warn("[MonitorProvision] Failed to rename reused client {} to '{}': {}", existingUuid, reuseName, e.getMessage());
+                                }
+                            }
+                            String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
+                            String installCmd = String.format("curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, existingToken);
+                            String ghProxy = "https://ghfast.top";
+                            String installCmdCn = String.format("curl -fsSL %s/%s | bash -s -- --install-ghproxy %s --endpoint %s --token %s",
+                                    ghProxy, scriptUrl, ghProxy, baseUrl, existingToken);
+                            Map<String, Object> reuseResult = new LinkedHashMap<>();
+                            reuseResult.put("uuid", existingUuid);
+                            reuseResult.put("token", existingToken);
+                            reuseResult.put("instanceId", instance.getId());
+                            reuseResult.put("instanceName", instance.getName());
+                            reuseResult.put("endpoint", baseUrl);
+                            reuseResult.put("installCommand", installCmd);
+                            reuseResult.put("installCommandCn", installCmdCn);
+                            reuseResult.put("reused", true);
+                            return R.ok(reuseResult);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[MonitorProvision] Failed to get token for orphan {}, will create new: {}", existingUuid, e.getMessage());
+                }
+            }
+
+            // No reusable orphan found — create new client
             // Workaround: Komari <= 1.1.8 panics on audit log when using API key auth with name parameter.
             // Create without name (goes through no-audit-log branch), name will sync from agent basic info.
             String responseJson = httpPost(instance, "/api/admin/client/add", "{}", instance.getAllowInsecureTls());
@@ -1083,6 +1282,18 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             String token = resp.getString("token");
             if (token == null || token.isEmpty()) {
                 return R.err("Komari 创建客户端成功但未返回 token，请检查 Komari 版本");
+            }
+
+            // Rename client if a name was provided (replaces default "client_xxxxxxxx")
+            String provisionName = dto.getName() != null ? dto.getName().trim() : "";
+            if (!provisionName.isEmpty()) {
+                try {
+                    httpPost(instance, "/api/admin/client/" + uuid + "/edit",
+                            "{\"name\":\"" + provisionName.replace("\"", "\\\"") + "\"}",
+                            instance.getAllowInsecureTls());
+                } catch (Exception e) {
+                    log.warn("[MonitorProvision] Failed to rename Komari client {} to '{}': {}", uuid, provisionName, e.getMessage());
+                }
             }
 
             // Build install command with optional GitHub proxy for China servers
@@ -1175,6 +1386,59 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             request.setHeader("Authorization", "Bearer " + token);
             request.setHeader("Accept", "application/json");
 
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String httpPostWithToken(String url, String token, String jsonBody, Integer allowInsecureTls) {
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
+            HttpPost request = new HttpPost(url);
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
+            request.setHeader("Authorization", "Bearer " + token);
+            request.setHeader("Accept", "application/json");
+            request.setHeader("Content-Type", "application/json");
+            if (jsonBody != null) {
+                request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+            }
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * HTTP DELETE with JWT Bearer token (used for Pika agent deletion).
+     */
+    private String httpDeleteWithToken(String url, String token, Integer allowInsecureTls) {
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
+            org.apache.http.client.methods.HttpDelete request = new org.apache.http.client.methods.HttpDelete(url);
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
+            request.setHeader("Authorization", "Bearer " + token);
+            request.setHeader("Accept", "application/json");
             try (CloseableHttpResponse response = client.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
@@ -1318,7 +1582,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // Mark removed nodes
+        // Mark removed nodes (no longer in probe) and clean up asset references
         int removedNodes = 0;
         List<MonitorNodeSnapshot> allNodes = monitorNodeSnapshotMapper.selectList(new LambdaQueryWrapper<MonitorNodeSnapshot>()
                 .eq(MonitorNodeSnapshot::getInstanceId, instance.getId())
@@ -1326,9 +1590,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         for (MonitorNodeSnapshot node : allNodes) {
             if (!seenIds.contains(node.getRemoteNodeUuid())) {
                 node.setOnline(0);
-                node.setStatus(1);
+                node.setStatus(1); // Mark as "removed from probe"
                 node.setUpdatedTime(now);
                 monitorNodeSnapshotMapper.updateById(node);
+                // Clear asset's probe reference since probe no longer has this node
+                unlinkNodeFromAsset(node, TYPE_PIKA);
                 removedNodes++;
             }
         }
@@ -1465,6 +1731,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 monitorMetricLatestMapper.updateById(metric);
             }
 
+            // Compute hardware fingerprint after enriching from metrics
+            nodeSnapshot.setFingerprint(computeFingerprint(nodeSnapshot));
             // Update node snapshot with enriched data from metrics
             monitorNodeSnapshotMapper.updateById(nodeSnapshot);
         } catch (Exception e) {
@@ -2316,6 +2584,8 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         detail.setRecentTamperEvents(Collections.emptyList());
         detail.setRecentTamperAlerts(Collections.emptyList());
         detail.setRecentAuditRuns(Collections.emptyList());
+        detail.setRecentSshLoginEvents(Collections.emptyList());
+        detail.setSshLoginWhitelistIps(Collections.emptyList());
 
         try {
             JSONObject tamperConfig = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
@@ -2378,6 +2648,31 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             detail.setRecentAuditRuns(buildAuditRuns(extractItemsArray(auditRuns), 5));
         } catch (Exception e) {
             log.debug("[MonitorDetail] Skip Pika audit history for {}: {}", agentId, e.getMessage());
+        }
+
+        // SSH login monitoring
+        try {
+            JSONObject sshConfig = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/ssh-login/config", jwt, tls)));
+            detail.setSshLoginMonitorEnabled(sshConfig.getBoolean("enabled"));
+            detail.setSshLoginWhitelistIps(toStringList(sshConfig.getJSONArray("whitelistIps"), 20));
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika SSH login config for {}: {}", agentId, e.getMessage());
+        }
+
+        try {
+            JSONObject sshEvents = parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/ssh-login/events?pageIndex=1&pageSize=10",
+                    jwt, tls));
+            List<PikaSshLoginEventViewDto> events = buildSshLoginEvents(extractItemsArray(sshEvents), 10);
+            detail.setRecentSshLoginEvents(events);
+            int failCount = 0;
+            for (PikaSshLoginEventViewDto ev : events) {
+                if (ev.getSuccess() != null && !ev.getSuccess()) failCount++;
+            }
+            detail.setRecentSshLoginFailCount(failCount);
+        } catch (Exception e) {
+            log.debug("[MonitorDetail] Skip Pika SSH login events for {}: {}", agentId, e.getMessage());
         }
 
         if (detail.getPublicListeningPortCount() == null) {
@@ -2468,6 +2763,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             offlineNotifications.add(dto);
         }
         detail.setOfflineNotifications(offlineNotifications);
+
+        // Terminal & command support
+        detail.setCommandSupported(true);
+        String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+        detail.setTerminalUrl(baseUrl + "/terminal/" + nodeUuid);
+
         return detail;
     }
 
@@ -2952,6 +3253,67 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         return normalized;
     }
 
+    // ==================== Node Status Query ====================
+
+    @Override
+    public R getNodeStatusByUuid(Long instanceId, String uuid) {
+        if (instanceId == null || !StringUtils.hasText(uuid)) {
+            return R.err("instanceId 和 uuid 不能为空");
+        }
+        MonitorInstance instance = getRequiredInstance(instanceId);
+
+        // 1. Check if snapshot exists locally (already synced before)
+        MonitorNodeSnapshot snapshot = monitorNodeSnapshotMapper.selectOne(new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                .eq(MonitorNodeSnapshot::getInstanceId, instanceId)
+                .eq(MonitorNodeSnapshot::getRemoteNodeUuid, uuid));
+
+        // 2. Query Komari directly for live online status
+        boolean remoteOnline = false;
+        boolean remoteExists = false;
+        String remoteName = null;
+        String remoteIp = null;
+        try {
+            JSONObject allMetrics = fetchAllMetricsViaRpc(instance);
+            if (allMetrics != null && allMetrics.containsKey(uuid)) {
+                remoteExists = true;
+                JSONObject m = allMetrics.getJSONObject(uuid);
+                remoteOnline = m != null && m.getBooleanValue("online");
+            }
+            // Also check client list for name/ip
+            String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
+            if (clientsJson != null) {
+                JSONArray clients = clientsJson.trim().startsWith("[")
+                        ? JSON.parseArray(clientsJson.trim())
+                        : JSON.parseObject(clientsJson.trim()).getJSONArray("data");
+                if (clients != null) {
+                    for (int i = 0; i < clients.size(); i++) {
+                        JSONObject c = clients.getJSONObject(i);
+                        if (uuid.equals(c.getString("uuid"))) {
+                            remoteExists = true;
+                            remoteName = c.getString("name");
+                            remoteIp = c.getString("ipv4");
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[MonitorSync] Failed to query node status from remote: {}", e.getMessage());
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("uuid", uuid);
+        result.put("remoteExists", remoteExists);
+        result.put("remoteOnline", remoteOnline);
+        result.put("remoteName", remoteName);
+        result.put("remoteIp", remoteIp);
+        result.put("snapshotExists", snapshot != null);
+        result.put("snapshotOnline", snapshot != null && Integer.valueOf(1).equals(snapshot.getOnline()));
+        result.put("assetLinked", snapshot != null && snapshot.getAssetId() != null);
+        result.put("assetId", snapshot != null ? snapshot.getAssetId() : null);
+        return R.ok(result);
+    }
+
     // ==================== Terminal Access ====================
 
     @Override
@@ -3039,87 +3401,177 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         Map<String, Object> result = new LinkedHashMap<>();
         List<String> installCommands = new ArrayList<>();
         List<String> installCommandsCn = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
 
-        // Provision Komari
+        // Resolve target asset for duplicate detection (from gostConfig.assetId or serverIp)
+        AssetHost targetAsset = resolveTargetAsset(gostConfig);
+
+        // Provision Komari (with duplicate check)
         if (komariInstanceId != null) {
-            MonitorProvisionDto komariDto = new MonitorProvisionDto();
-            komariDto.setInstanceId(komariInstanceId);
-            komariDto.setName(name);
-            R komariResult = provisionAgent(komariDto);
-            if (komariResult.getCode() == 0) {
-                Map<String, Object> data = (Map<String, Object>) komariResult.getData();
-                result.put("komari", data);
-                installCommands.add("# Komari 监控探针\n" + data.get("installCommand"));
-                if (data.get("installCommandCn") != null) {
-                    installCommandsCn.add("# Komari 监控探针\n" + data.get("installCommandCn"));
+            if (targetAsset != null && StringUtils.hasText(targetAsset.getMonitorNodeUuid())) {
+                // Check if linked node is still active
+                MonitorNodeSnapshot existingNode = monitorNodeSnapshotMapper.selectOne(
+                        new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                                .eq(MonitorNodeSnapshot::getRemoteNodeUuid, targetAsset.getMonitorNodeUuid())
+                                .ne(MonitorNodeSnapshot::getStatus, -1)
+                                .last("LIMIT 1"));
+                if (existingNode != null && Integer.valueOf(1).equals(existingNode.getOnline())) {
+                    skipped.add("Komari（该服务器已有在线探针 " + existingNode.getName() + "）");
+                    result.put("komariSkipped", "该服务器已安装 Komari 探针且在线");
+                } else {
+                    // Existing but offline — proceed (will reuse via orphan logic)
+                    provisionKomariInto(komariInstanceId, name, result, installCommands, installCommandsCn);
                 }
             } else {
-                result.put("komariError", komariResult.getMsg());
+                provisionKomariInto(komariInstanceId, name, result, installCommands, installCommandsCn);
             }
         }
 
-        // Provision Pika
+        // Provision Pika (with duplicate check)
         if (pikaInstanceId != null) {
-            MonitorProvisionDto pikaDto = new MonitorProvisionDto();
-            pikaDto.setInstanceId(pikaInstanceId);
-            pikaDto.setName(name);
-            R pikaResult = provisionAgent(pikaDto);
-            if (pikaResult.getCode() == 0) {
-                Map<String, Object> data = (Map<String, Object>) pikaResult.getData();
-                result.put("pika", data);
-                installCommands.add("# Pika 监控探针\n" + data.get("installCommand"));
-                if (data.get("installCommandCn") != null) {
-                    installCommandsCn.add("# Pika 监控探针\n" + data.get("installCommandCn"));
+            if (targetAsset != null && StringUtils.hasText(targetAsset.getPikaNodeId())) {
+                MonitorNodeSnapshot existingNode = monitorNodeSnapshotMapper.selectOne(
+                        new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                                .eq(MonitorNodeSnapshot::getRemoteNodeUuid, targetAsset.getPikaNodeId())
+                                .ne(MonitorNodeSnapshot::getStatus, -1)
+                                .last("LIMIT 1"));
+                if (existingNode != null && Integer.valueOf(1).equals(existingNode.getOnline())) {
+                    skipped.add("Pika（该服务器已有在线探针 " + existingNode.getName() + "）");
+                    result.put("pikaSkipped", "该服务器已安装 Pika 探针且在线");
+                } else {
+                    provisionPikaInto(pikaInstanceId, name, result, installCommands, installCommandsCn);
                 }
             } else {
-                result.put("pikaError", pikaResult.getMsg());
+                provisionPikaInto(pikaInstanceId, name, result, installCommands, installCommandsCn);
             }
         }
 
-        // Provision GOST
+        // Provision GOST (with duplicate check)
         if (gostConfig != null && !gostConfig.isEmpty()) {
-            try {
-                String gostName = gostConfig.get("name") != null ? gostConfig.get("name").toString() : (name != null ? name : "gost-node");
-                String serverIp = gostConfig.get("serverIp") != null ? gostConfig.get("serverIp").toString() : "";
-                int portSta = gostConfig.get("portSta") != null ? ((Number) gostConfig.get("portSta")).intValue() : 10000;
-                int portEnd = gostConfig.get("portEnd") != null ? ((Number) gostConfig.get("portEnd")).intValue() : 20000;
-                Long assetId = gostConfig.get("assetId") != null ? ((Number) gostConfig.get("assetId")).longValue() : null;
-
-                com.admin.common.dto.NodeDto nodeDto = new com.admin.common.dto.NodeDto();
-                nodeDto.setName(gostName);
-                nodeDto.setServerIp(serverIp);
-                nodeDto.setIp(serverIp);
-                nodeDto.setPortSta(portSta);
-                nodeDto.setPortEnd(portEnd);
-                nodeDto.setAssetId(assetId);
-
-                R createResult = nodeService.createNode(nodeDto);
-                if (createResult.getCode() == 0) {
-                    com.admin.entity.Node node = (com.admin.entity.Node) createResult.getData();
-                    R cmdResult = nodeService.getInstallCommand(node.getId());
-                    if (cmdResult.getCode() == 0) {
+            // Check if asset already has GOST node linked
+            if (targetAsset != null && targetAsset.getGostNodeId() != null) {
+                com.admin.entity.Node existingGost = nodeService.getById(targetAsset.getGostNodeId());
+                if (existingGost != null) {
+                    skipped.add("GOST（该服务器已有 GOST 节点 " + existingGost.getName() + "）");
+                    result.put("gostSkipped", "该服务器已有 GOST 节点");
+                    // Return existing node info for reference
+                    R existingCmd = nodeService.getInstallCommand(existingGost.getId());
+                    if (existingCmd.getCode() == 0) {
                         Map<String, Object> gostData = new LinkedHashMap<>();
-                        gostData.put("nodeId", node.getId());
-                        gostData.put("nodeName", gostName);
-                        gostData.put("installCommand", cmdResult.getData().toString());
+                        gostData.put("nodeId", existingGost.getId());
+                        gostData.put("nodeName", existingGost.getName());
+                        gostData.put("installCommand", existingCmd.getData().toString());
+                        gostData.put("reused", true);
                         result.put("gost", gostData);
-                        installCommands.add("# GOST 代理节点\n" + cmdResult.getData().toString());
-                        installCommandsCn.add("# GOST 代理节点\n" + cmdResult.getData().toString());
+                        installCommands.add("# GOST 代理节点 (已存在)\n" + existingCmd.getData().toString());
                     }
                 } else {
-                    result.put("gostError", createResult.getMsg());
+                    provisionGostInto(gostConfig, name, result, installCommands, installCommandsCn);
                 }
-            } catch (Exception e) {
-                log.error("[Provision] GOST provision failed: {}", e.getMessage());
-                result.put("gostError", "GOST 节点创建失败: " + e.getMessage());
+            } else {
+                provisionGostInto(gostConfig, name, result, installCommands, installCommandsCn);
             }
         }
 
+        if (!skipped.isEmpty()) {
+            result.put("skippedComponents", skipped);
+        }
         result.put("combinedCommand", String.join("\n\n", installCommands));
         if (!installCommandsCn.isEmpty()) {
             result.put("combinedCommandCn", String.join("\n\n", installCommandsCn));
         }
         return R.ok(result);
+    }
+
+    /** Resolve asset from gostConfig (assetId or serverIp match) for provision duplicate detection */
+    private AssetHost resolveTargetAsset(Map<String, Object> gostConfig) {
+        if (gostConfig == null) return null;
+        // Try assetId first
+        if (gostConfig.get("assetId") != null) {
+            Long assetId = ((Number) gostConfig.get("assetId")).longValue();
+            return assetHostMapper.selectById(assetId);
+        }
+        // Try serverIp match
+        String serverIp = gostConfig.get("serverIp") != null ? gostConfig.get("serverIp").toString() : "";
+        if (StringUtils.hasText(serverIp)) {
+            return assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getPrimaryIp, serverIp)
+                    .last("LIMIT 1"));
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void provisionKomariInto(Long instanceId, String name, Map<String, Object> result,
+                                      List<String> cmds, List<String> cmdsCn) {
+        MonitorProvisionDto dto = new MonitorProvisionDto();
+        dto.setInstanceId(instanceId);
+        dto.setName(name);
+        R r = provisionAgent(dto);
+        if (r.getCode() == 0) {
+            Map<String, Object> data = (Map<String, Object>) r.getData();
+            result.put("komari", data);
+            cmds.add("# Komari 监控探针\n" + data.get("installCommand"));
+            if (data.get("installCommandCn") != null) cmdsCn.add("# Komari 监控探针\n" + data.get("installCommandCn"));
+        } else {
+            result.put("komariError", r.getMsg());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void provisionPikaInto(Long instanceId, String name, Map<String, Object> result,
+                                    List<String> cmds, List<String> cmdsCn) {
+        MonitorProvisionDto dto = new MonitorProvisionDto();
+        dto.setInstanceId(instanceId);
+        dto.setName(name);
+        R r = provisionAgent(dto);
+        if (r.getCode() == 0) {
+            Map<String, Object> data = (Map<String, Object>) r.getData();
+            result.put("pika", data);
+            cmds.add("# Pika 监控探针\n" + data.get("installCommand"));
+            if (data.get("installCommandCn") != null) cmdsCn.add("# Pika 监控探针\n" + data.get("installCommandCn"));
+        } else {
+            result.put("pikaError", r.getMsg());
+        }
+    }
+
+    private void provisionGostInto(Map<String, Object> gostConfig, String name, Map<String, Object> result,
+                                    List<String> cmds, List<String> cmdsCn) {
+        try {
+            String gostName = gostConfig.get("name") != null ? gostConfig.get("name").toString() : (name != null ? name : "gost-node");
+            String serverIp = gostConfig.get("serverIp") != null ? gostConfig.get("serverIp").toString() : "";
+            int portSta = gostConfig.get("portSta") != null ? ((Number) gostConfig.get("portSta")).intValue() : 10000;
+            int portEnd = gostConfig.get("portEnd") != null ? ((Number) gostConfig.get("portEnd")).intValue() : 20000;
+            Long assetId = gostConfig.get("assetId") != null ? ((Number) gostConfig.get("assetId")).longValue() : null;
+
+            com.admin.common.dto.NodeDto nodeDto = new com.admin.common.dto.NodeDto();
+            nodeDto.setName(gostName);
+            nodeDto.setServerIp(serverIp);
+            nodeDto.setIp(serverIp);
+            nodeDto.setPortSta(portSta);
+            nodeDto.setPortEnd(portEnd);
+            nodeDto.setAssetId(assetId);
+
+            R createResult = nodeService.createNode(nodeDto);
+            if (createResult.getCode() == 0) {
+                com.admin.entity.Node node = (com.admin.entity.Node) createResult.getData();
+                R cmdResult = nodeService.getInstallCommand(node.getId());
+                if (cmdResult.getCode() == 0) {
+                    Map<String, Object> gostData = new LinkedHashMap<>();
+                    gostData.put("nodeId", node.getId());
+                    gostData.put("nodeName", gostName);
+                    gostData.put("installCommand", cmdResult.getData().toString());
+                    result.put("gost", gostData);
+                    cmds.add("# GOST 代理节点\n" + cmdResult.getData().toString());
+                    cmdsCn.add("# GOST 代理节点\n" + cmdResult.getData().toString());
+                }
+            } else {
+                result.put("gostError", createResult.getMsg());
+            }
+        } catch (Exception e) {
+            log.error("[Provision] GOST provision failed: {}", e.getMessage());
+            result.put("gostError", "GOST 节点创建失败: " + e.getMessage());
+        }
     }
 
     private static final java.util.regex.Pattern SAFE_PATH_SEGMENT = java.util.regex.Pattern.compile("^[a-zA-Z0-9._-]{1,128}$");
@@ -3163,5 +3615,251 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         if (lower.contains("macos") || lower.contains("darwin")) return "MacOS";
         if (lower.contains("freebsd")) return "FreeBSD";
         return "Other";
+    }
+
+    @Override
+    public void pushNameToProbes(Long assetId, String newName) {
+        if (assetId == null || !StringUtils.hasText(newName)) return;
+        // Find Komari nodes linked to this asset
+        List<MonitorNodeSnapshot> nodes = monitorNodeSnapshotMapper.selectList(
+                new LambdaQueryWrapper<MonitorNodeSnapshot>()
+                        .eq(MonitorNodeSnapshot::getAssetId, assetId)
+                        .ne(MonitorNodeSnapshot::getStatus, -1));
+        for (MonitorNodeSnapshot node : nodes) {
+            if (node.getInstanceId() == null || node.getRemoteNodeUuid() == null) continue;
+            MonitorInstance instance = this.getById(node.getInstanceId());
+            if (instance == null) continue;
+            try {
+                if (TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+                    // Komari: POST /api/admin/client/{uuid}/edit with {"name":"..."}
+                    String path = "/api/admin/client/" + node.getRemoteNodeUuid() + "/edit";
+                    String body = "{\"name\":\"" + newName.replace("\"", "\\\"") + "\"}";
+                    httpPost(instance, path, body, instance.getAllowInsecureTls());
+                    // Also update local snapshot name
+                    node.setName(newName);
+                    monitorNodeSnapshotMapper.updateById(node);
+                    log.info("已推送名称到 Komari: {} → {} (instance={})", node.getRemoteNodeUuid(), newName, instance.getName());
+                }
+                else if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                    // Pika: PUT /api/admin/agents/{id} with {"name":"..."}
+                    String jwt = loginPika(instance);
+                    String url = instance.getBaseUrl().replaceAll("/+$", "")
+                            + "/api/admin/agents/" + node.getRemoteNodeUuid();
+                    String payload = "{\"name\":\"" + newName.replace("\"", "\\\"") + "\"}";
+                    httpPutWithToken(url, jwt, payload, instance.getAllowInsecureTls());
+                    node.setName(newName);
+                    monitorNodeSnapshotMapper.updateById(node);
+                    log.info("已推送名称到 Pika: {} → {} (instance={})", node.getRemoteNodeUuid(), newName, instance.getName());
+                }
+            } catch (Exception e) {
+                log.warn("推送名称到探针失败 (instance={}, node={}): {}", instance.getName(), node.getRemoteNodeUuid(), e.getMessage());
+            }
+        }
+    }
+
+    // ==================== Komari Remote Command Execution ====================
+
+    @Override
+    public R executeKomariCommand(Long nodeId, String command) {
+        if (nodeId == null) return R.err("节点 ID 不能为空");
+        if (!StringUtils.hasText(command)) return R.err("命令不能为空");
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) return R.err("探针节点不存在");
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) return R.err("探针实例不存在");
+        if (!TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            return R.err("远程命令执行仅支持 Komari 探针");
+        }
+        String nodeUuid = trimToNull(node.getRemoteNodeUuid());
+        if (!StringUtils.hasText(nodeUuid)) return R.err("节点标识不合法");
+
+        try {
+            JSONObject body = new JSONObject();
+            body.put("command", command);
+            body.put("clients", new JSONArray(Collections.singletonList(nodeUuid)));
+            String response = httpPost(instance, "/api/admin/task/exec", body.toJSONString(), instance.getAllowInsecureTls());
+            JSONObject resp = parseFlexiblePayload(response);
+            JSONObject data = resp.containsKey("data") ? resp.getJSONObject("data") : resp;
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("taskId", data.getString("task_id"));
+            result.put("clients", data.getJSONArray("clients"));
+            result.put("nodeName", node.getName());
+            log.info("[Komari] Command executed on node {} ({}): {}", node.getName(), nodeUuid, truncate(command, 80));
+            return R.ok(result);
+        } catch (Exception e) {
+            log.warn("[Komari] Command execution failed for node {}: {}", nodeUuid, e.getMessage());
+            return R.err("命令执行失败: " + shortenError(e.getMessage()));
+        }
+    }
+
+    @Override
+    public R getKomariTaskResult(Long nodeId, String taskId) {
+        if (nodeId == null) return R.err("节点 ID 不能为空");
+        if (!StringUtils.hasText(taskId)) return R.err("任务 ID 不能为空");
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) return R.err("探针节点不存在");
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) return R.err("探针实例不存在");
+        if (!TYPE_KOMARI.equalsIgnoreCase(instance.getType())) {
+            return R.err("仅 Komari 节点支持任务查询");
+        }
+        if (!isSafePathSegment(taskId)) return R.err("任务 ID 不合法");
+
+        try {
+            String response = httpGet(instance, "/api/admin/task/" + taskId + "/result", instance.getAllowInsecureTls());
+            JSONObject resp = parseFlexiblePayload(response);
+            JSONArray items = extractItemsArray(resp);
+            List<KomariCommandResultViewDto> results = new ArrayList<>();
+            for (int i = 0; i < items.size(); i++) {
+                JSONObject item = items.getJSONObject(i);
+                KomariCommandResultViewDto dto = new KomariCommandResultViewDto();
+                dto.setClientUuid(trimToNull(item.getString("client")));
+                dto.setResult(item.getString("result"));
+                dto.setExitCode(item.getInteger("exit_code"));
+                dto.setFinishedAt(firstPositive(item.getLong("finished_at")));
+                results.add(dto);
+            }
+            return R.ok(results);
+        } catch (Exception e) {
+            log.warn("[Komari] Task result query failed for task {}: {}", taskId, e.getMessage());
+            return R.err("获取任务结果失败: " + shortenError(e.getMessage()));
+        }
+    }
+
+    // ==================== Pika VPS Audit Trigger ====================
+
+    @Override
+    public R triggerPikaAudit(Long nodeId) {
+        if (nodeId == null) return R.err("节点 ID 不能为空");
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) return R.err("探针节点不存在");
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) return R.err("探针实例不存在");
+        if (!TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+            return R.err("VPS 审计仅支持 Pika 探针");
+        }
+        String agentId = trimToNull(node.getRemoteNodeUuid());
+        if (!StringUtils.hasText(agentId) || !isSafePathSegment(agentId)) return R.err("节点标识不合法");
+
+        try {
+            String jwt = loginPika(instance);
+            String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+            Integer tls = instance.getAllowInsecureTls();
+            String body = "{\"command\":\"vps_audit\"}";
+            httpPostWithToken(baseUrl + "/api/admin/agents/" + agentId + "/command", jwt, body, tls);
+            log.info("[Pika] VPS audit triggered for node {} ({})", node.getName(), agentId);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("nodeName", node.getName());
+            result.put("message", "审计命令已下发，请稍后查看结果");
+            return R.ok(result);
+        } catch (Exception e) {
+            log.warn("[Pika] VPS audit trigger failed for node {}: {}", agentId, e.getMessage());
+            return R.err("触发审计失败: " + shortenError(e.getMessage()));
+        }
+    }
+
+    // ==================== Pika SSH Login Events ====================
+
+    @Override
+    public R getPikaSshLoginEvents(Long nodeId, Integer pageSize) {
+        if (nodeId == null) return R.err("节点 ID 不能为空");
+        MonitorNodeSnapshot node = monitorNodeSnapshotMapper.selectById(nodeId);
+        if (node == null) return R.err("探针节点不存在");
+        MonitorInstance instance = this.getById(node.getInstanceId());
+        if (instance == null) return R.err("探针实例不存在");
+        if (!TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+            return R.err("SSH 登录监控仅支持 Pika 探针");
+        }
+        String agentId = trimToNull(node.getRemoteNodeUuid());
+        if (!StringUtils.hasText(agentId) || !isSafePathSegment(agentId)) return R.err("节点标识不合法");
+
+        int safePageSize = pageSize != null && pageSize > 0 && pageSize <= 100 ? pageSize : 20;
+
+        try {
+            String jwt = loginPika(instance);
+            String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+            Integer tls = instance.getAllowInsecureTls();
+
+            Map<String, Object> result = new LinkedHashMap<>();
+
+            // 1. Get SSH login config
+            try {
+                JSONObject configResp = unwrapDataObject(parseFlexiblePayload(httpGetWithToken(
+                        baseUrl + "/api/admin/agents/" + agentId + "/ssh-login/config", jwt, tls)));
+                result.put("enabled", configResp.getBoolean("enabled"));
+                result.put("whitelistIps", toStringList(configResp.getJSONArray("whitelistIps"), 20));
+            } catch (Exception e) {
+                log.debug("[Pika] Skip SSH login config for {}: {}", agentId, e.getMessage());
+                result.put("enabled", null);
+            }
+
+            // 2. Get SSH login events
+            JSONObject eventsResp = parseFlexiblePayload(httpGetWithToken(
+                    baseUrl + "/api/admin/agents/" + agentId + "/ssh-login/events?pageIndex=1&pageSize=" + safePageSize,
+                    jwt, tls));
+            JSONArray eventItems = extractItemsArray(eventsResp);
+            List<PikaSshLoginEventViewDto> events = buildSshLoginEvents(eventItems, safePageSize);
+            result.put("events", events);
+            result.put("totalCount", eventsResp.getInteger("totalCount"));
+
+            // Count failed logins
+            int failCount = 0;
+            for (PikaSshLoginEventViewDto ev : events) {
+                if (ev.getSuccess() != null && !ev.getSuccess()) failCount++;
+            }
+            result.put("recentFailCount", failCount);
+
+            return R.ok(result);
+        } catch (Exception e) {
+            log.warn("[Pika] SSH login events query failed for node {}: {}", agentId, e.getMessage());
+            return R.err("获取 SSH 登录事件失败: " + shortenError(e.getMessage()));
+        }
+    }
+
+    // ==================== SSH Login & PUT Helpers ====================
+
+    private List<PikaSshLoginEventViewDto> buildSshLoginEvents(JSONArray items, int maxSize) {
+        if (items == null || items.isEmpty()) return Collections.emptyList();
+        List<PikaSshLoginEventViewDto> result = new ArrayList<>();
+        for (int i = 0; i < items.size() && result.size() < maxSize; i++) {
+            JSONObject item = items.getJSONObject(i);
+            PikaSshLoginEventViewDto dto = new PikaSshLoginEventViewDto();
+            dto.setUser(trimToNull(item.getString("user")));
+            dto.setIp(trimToNull(firstNonBlank(item.getString("ip"), item.getString("sourceIp"))));
+            dto.setMethod(trimToNull(item.getString("method")));
+            dto.setSuccess(item.getBoolean("success"));
+            dto.setTimestamp(firstPositive(item.getLong("timestamp"), item.getLong("createdAt")));
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private String httpPutWithToken(String url, String token, String jsonBody, Integer allowInsecureTls) {
+        boolean insecure = allowInsecureTls != null && allowInsecureTls == 1;
+        CloseableHttpClient client = insecure ? POOLED_INSECURE_CLIENT : POOLED_CLIENT;
+        try {
+            org.apache.http.client.methods.HttpPut request = new org.apache.http.client.methods.HttpPut(url);
+            request.setConfig(RequestConfig.custom().setConnectTimeout(10_000).setSocketTimeout(15_000).build());
+            request.setHeader("Authorization", "Bearer " + token);
+            request.setHeader("Accept", "application/json");
+            request.setHeader("Content-Type", "application/json");
+            if (jsonBody != null) {
+                request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
+            }
+            try (CloseableHttpResponse response = client.execute(request)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return body;
+                }
+                throw new RuntimeException("HTTP " + statusCode + ": " + truncate(body, 200));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Request failed: " + e.getMessage(), e);
+        }
     }
 }

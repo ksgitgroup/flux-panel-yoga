@@ -1085,9 +1085,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
             String installCmd = String.format(
                     "curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, token);
-            // China-friendly variant with ghfast.top proxy
+            // China-friendly variant: proxy both script download AND binary download via --install-ghproxy
+            String ghProxy = "https://ghfast.top";
             String installCmdCn = String.format(
-                    "curl -fsSL https://ghfast.top/%s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, token);
+                    "curl -fsSL %s/%s | bash -s -- --install-ghproxy %s --endpoint %s --token %s",
+                    ghProxy, scriptUrl, ghProxy, baseUrl, token);
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("uuid", uuid);

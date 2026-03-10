@@ -433,7 +433,7 @@ export default function AssetsPage() {
   const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
   const [dualProvisionResult, setDualProvisionResult] = useState<{
     komari?: MonitorProvisionResult; pika?: MonitorProvisionResult;
-    komariError?: string; pikaError?: string; combinedCommand: string;
+    komariError?: string; pikaError?: string; combinedCommand: string; combinedCommandCn?: string;
   } | null>(null);
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
@@ -3287,6 +3287,22 @@ export default function AssetsPage() {
                       复制
                     </Button>
                   </div>
+                  {dualProvisionResult.combinedCommandCn && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-xs text-warning-600 dark:text-warning-400">🇨🇳 国内服务器请使用加速命令：</p>
+                      <div className="relative rounded-lg bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 p-3">
+                        <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
+                          {dualProvisionResult.combinedCommandCn}
+                        </code>
+                        <Button
+                          size="sm" color="warning" variant="flat" className="absolute right-2 top-2"
+                          onPress={() => copyToClipboard(dualProvisionResult.combinedCommandCn!)}
+                        >
+                          复制
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Per-probe details */}
@@ -3359,6 +3375,22 @@ export default function AssetsPage() {
                       复制
                     </Button>
                   </div>
+                  {provisionResult?.installCommandCn && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-xs text-warning-600 dark:text-warning-400">🇨🇳 国内服务器请使用加速命令：</p>
+                      <div className="relative rounded-lg bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 p-3">
+                        <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
+                          {provisionResult.installCommandCn}
+                        </code>
+                        <Button
+                          size="sm" color="warning" variant="flat" className="absolute right-2 top-2"
+                          onPress={() => provisionResult && copyToClipboard(provisionResult.installCommandCn!)}
+                        >
+                          复制
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <Accordion variant="light">

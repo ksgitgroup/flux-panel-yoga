@@ -938,6 +938,7 @@ export interface MonitorProvisionResult {
   instanceName: string;
   endpoint: string;
   installCommand: string;
+  installCommandCn?: string;
 }
 export const provisionMonitorAgent = (instanceId: number, name?: string) =>
   Network.post<MonitorProvisionResult>("/monitor/provision", { instanceId, name });

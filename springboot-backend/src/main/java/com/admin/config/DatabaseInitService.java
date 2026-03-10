@@ -799,43 +799,26 @@ public class DatabaseInitService {
 
             ensureIamPermission("dashboard.read", "查看首页", "dashboard", "允许查看首页摘要与入口", 10, 1);
             ensureIamPermission("asset.read", "查看服务器资产", "asset", "允许查看服务器资产", 20, 1);
-            ensureIamPermission("asset.write", "管理服务器资产", "asset", "允许增删改服务器资产", 21, 1);
             ensureIamPermission("xui.read", "查看X-UI", "xui", "允许查看X-UI与3X-UI登记信息", 30, 1);
-            ensureIamPermission("xui.write", "管理X-UI", "xui", "允许维护X-UI与3X-UI实例", 31, 1);
             ensureIamPermission("xui.sync", "同步X-UI", "xui", "允许触发X-UI与3X-UI同步", 32, 1);
             ensureIamPermission("forward.read", "查看转发", "forward", "允许查看转发配置", 40, 1);
-            ensureIamPermission("forward.write", "管理转发", "forward", "允许维护转发配置", 41, 1);
             ensureIamPermission("tunnel.read", "查看隧道", "tunnel", "允许查看隧道", 50, 1);
-            ensureIamPermission("tunnel.write", "管理隧道", "tunnel", "允许维护隧道", 51, 1);
             ensureIamPermission("node.read", "查看节点", "node", "允许查看节点配置", 55, 1);
-            ensureIamPermission("node.write", "管理节点", "node", "允许维护节点配置", 56, 1);
             ensureIamPermission("monitor.read", "查看监控", "monitor", "允许查看监控与探针数据", 60, 1);
-            ensureIamPermission("monitor.write", "管理监控", "monitor", "允许管理探针与监控配置", 61, 1);
             ensureIamPermission("probe.read", "查看探针配置", "probe", "允许查看探针配置", 70, 1);
-            ensureIamPermission("probe.write", "管理探针配置", "probe", "允许管理探针配置", 71, 1);
             ensureIamPermission("alert.read", "查看告警", "alert", "允许查看告警规则与日志", 80, 1);
-            ensureIamPermission("alert.write", "管理告警", "alert", "允许管理告警规则", 81, 1);
             ensureIamPermission("portal.read", "查看自定义导航", "portal", "允许查看导航入口", 90, 1);
-            ensureIamPermission("portal.write", "管理自定义导航", "portal", "允许维护导航入口", 91, 1);
             ensureIamPermission("server_dashboard.read", "查看服务器看板", "server_dashboard", "允许查看服务器看板", 100, 1);
             ensureIamPermission("site_config.read", "查看网站配置", "site_config", "允许查看站点配置", 110, 1);
-            ensureIamPermission("site_config.write", "管理网站配置", "site_config", "允许修改站点配置", 111, 1);
             ensureIamPermission("protocol.read", "查看协议", "protocol", "允许查看协议字典", 120, 1);
-            ensureIamPermission("protocol.write", "管理协议", "protocol", "允许维护协议字典", 121, 1);
             ensureIamPermission("tag.read", "查看标签", "tag", "允许查看标签", 130, 1);
-            ensureIamPermission("tag.write", "管理标签", "tag", "允许维护标签", 131, 1);
             ensureIamPermission("speed_limit.read", "查看限速规则", "speed_limit", "允许查看限速规则", 140, 1);
-            ensureIamPermission("speed_limit.write", "管理限速规则", "speed_limit", "允许维护限速规则", 141, 1);
             ensureIamPermission("biz_user.read", "查看业务用户", "biz_user", "允许查看现有业务用户模块", 150, 1);
-            ensureIamPermission("biz_user.write", "管理业务用户", "biz_user", "允许维护现有业务用户模块", 151, 1);
             ensureIamPermission("iam_user.read", "查看组织用户", "iam_user", "允许查看企业IAM用户", 160, 1);
-            ensureIamPermission("iam_user.write", "管理组织用户", "iam_user", "允许维护企业IAM用户", 161, 1);
             ensureIamPermission("iam_role.read", "查看角色", "iam_role", "允许查看企业IAM角色", 170, 1);
-            ensureIamPermission("iam_role.write", "管理角色", "iam_role", "允许维护企业IAM角色与授权", 171, 1);
             ensureIamPermission("onepanel.read", "查看1Panel摘要", "onepanel", "允许查看1Panel exporter汇总信息", 180, 1);
-            ensureIamPermission("onepanel.write", "管理1Panel实例", "onepanel", "允许维护1Panel exporter实例与token", 181, 1);
 
-            // CRUD 细粒度权限（write 作为聚合权限保留，create/update/delete 可单独授予）
+            // CRUD 细粒度权限（read + create/update/delete，不再使用 .write 聚合权限）
             String[][] crudModules = {
                     {"asset", "服务器资产", "22", "23", "24"},
                     {"xui", "X-UI实例", "33", "34", "35"},
@@ -887,40 +870,14 @@ public class DatabaseInitService {
             for (String m : deptLeadReadModules) {
                 ensureIamRolePermission("DEPT_LEAD", m + ".read");
             }
-            // 行政主管可写：业务用户、通知
+            // 行政主管可写：业务用户、通知（显式 create/update/delete）
             String[] deptLeadWriteModules = {"biz_user", "notification"};
             for (String m : deptLeadWriteModules) {
                 ensureIamRolePermission("DEPT_LEAD", m + ".read");
-                ensureIamRolePermission("DEPT_LEAD", m + ".write");
+                ensureIamRolePermission("DEPT_LEAD", m + ".create");
+                ensureIamRolePermission("DEPT_LEAD", m + ".update");
+                ensureIamRolePermission("DEPT_LEAD", m + ".delete");
             }
-            // 修正：撤销 DEPT_LEAD 不应拥有的模块 write 权限（历史遗留）
-            try {
-                String readOnlyForDeptLead = "'asset.write','asset.create','asset.update','asset.delete'," +
-                        "'xui.write','xui.create','xui.update','xui.delete','xui.sync'," +
-                        "'forward.write','forward.create','forward.update','forward.delete'," +
-                        "'tunnel.write','tunnel.create','tunnel.update','tunnel.delete'," +
-                        "'node.write','node.create','node.update','node.delete'," +
-                        "'monitor.write','monitor.create','monitor.update','monitor.delete'," +
-                        "'probe.write','probe.create','probe.update','probe.delete'," +
-                        "'alert.write','alert.create','alert.update','alert.delete'," +
-                        "'portal.write','portal.create','portal.update','portal.delete'," +
-                        "'topology.write','topology.create','topology.update','topology.delete'," +
-                        "'site_config.write','site_config.create','site_config.update','site_config.delete'," +
-                        "'protocol.write','protocol.create','protocol.update','protocol.delete'," +
-                        "'tag.write','tag.create','tag.update','tag.delete'," +
-                        "'speed_limit.write','speed_limit.create','speed_limit.update','speed_limit.delete'," +
-                        "'iam_user.write','iam_user.create','iam_user.update','iam_user.delete'," +
-                        "'iam_role.write','iam_role.create','iam_role.update','iam_role.delete'," +
-                        "'backup.write','backup.create','backup.update','backup.delete'," +
-                        "'ip_quality.write','ip_quality.create','ip_quality.update','ip_quality.delete'," +
-                        "'onepanel.write','onepanel.create','onepanel.update','onepanel.delete'," +
-                        "'traffic_analysis.write','traffic_analysis.create','traffic_analysis.update','traffic_analysis.delete'";
-                jdbcTemplate.update(
-                        "DELETE rp FROM `sys_role_permission` rp " +
-                        "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
-                        "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
-                        "WHERE r.`code` = 'DEPT_LEAD' AND p.`code` IN (" + readOnlyForDeptLead + ")");
-            } catch (Exception ignored) { }
 
             // --- C. DEVELOPER (普通开发): 核心模块只读，后续通过服务器范围配置细粒度控制 ---
             ensureIamRolePermission("DEVELOPER", "dashboard.read");
@@ -948,34 +905,19 @@ public class DatabaseInitService {
                     "probe", "alert", "portal", "onepanel", "topology", "backup", "ip_quality"};
             for (String m : devAdminFullModules) {
                 ensureIamRolePermission("DEV_ADMIN", m + ".read");
-                ensureIamRolePermission("DEV_ADMIN", m + ".write");
+                ensureIamRolePermission("DEV_ADMIN", m + ".create");
+                ensureIamRolePermission("DEV_ADMIN", m + ".update");
+                ensureIamRolePermission("DEV_ADMIN", m + ".delete");
             }
-            // 开发主管只读：配置/标签/限速/用户/角色/通知/流量（无write权限，不可修改角色和用户）
+            // 开发主管只读：配置/标签/限速/用户/角色/通知/流量
             String[] devAdminReadModules = {"site_config", "protocol", "tag", "speed_limit",
                     "biz_user", "iam_user", "iam_role", "notification", "traffic_analysis"};
             for (String m : devAdminReadModules) {
                 ensureIamRolePermission("DEV_ADMIN", m + ".read");
             }
-            // 修正：撤销 DEV_ADMIN 不应拥有的只读模块 write/create/update/delete 权限（历史遗留）
-            try {
-                String readOnlyForDevAdmin = "'site_config.write','site_config.create','site_config.update','site_config.delete'," +
-                        "'protocol.write','protocol.create','protocol.update','protocol.delete'," +
-                        "'tag.write','tag.create','tag.update','tag.delete'," +
-                        "'speed_limit.write','speed_limit.create','speed_limit.update','speed_limit.delete'," +
-                        "'biz_user.write','biz_user.create','biz_user.update','biz_user.delete'," +
-                        "'iam_user.write','iam_user.create','iam_user.update','iam_user.delete'," +
-                        "'iam_role.write','iam_role.create','iam_role.update','iam_role.delete'," +
-                        "'notification.write','notification.create','notification.update','notification.delete'," +
-                        "'traffic_analysis.write','traffic_analysis.create','traffic_analysis.update','traffic_analysis.delete'";
-                jdbcTemplate.update(
-                        "DELETE rp FROM `sys_role_permission` rp " +
-                        "JOIN `sys_role` r ON r.`id` = rp.`role_id` " +
-                        "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
-                        "WHERE r.`code` = 'DEV_ADMIN' AND p.`code` IN (" + readOnlyForDevAdmin + ")");
-            } catch (Exception ignored) { }
 
             // --- A. 管理员 (SUPER_ADMIN): 绝大部分运维权限 ---
-            // 高风险权限（仅创建者/旧登录管理员通过 admin bypass 拥有）: site_config.write, iam_role.write, audit.write
+            // 高风险权限（仅创建者/旧登录管理员通过 admin bypass 拥有）: site_config CUD, iam_role CUD, audit CUD
             ensureIamRolePermission("SUPER_ADMIN", "dashboard.read");
             ensureIamRolePermission("SUPER_ADMIN", "server_dashboard.read");
             ensureIamRolePermission("SUPER_ADMIN", "xui.sync");
@@ -985,7 +927,9 @@ public class DatabaseInitService {
                     "biz_user", "iam_user"};
             for (String m : allModules) {
                 ensureIamRolePermission("SUPER_ADMIN", m + ".read");
-                ensureIamRolePermission("SUPER_ADMIN", m + ".write");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".create");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".update");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".delete");
             }
             // 超管可读但不可写的高风险模块（写入权限仅默认管理员通过admin bypass拥有）
             ensureIamRolePermission("SUPER_ADMIN", "site_config.read");
@@ -1306,35 +1250,77 @@ public class DatabaseInitService {
                 ensureIamPermission(m[0] + ".delete", "删除" + m[1], m[0], "允许删除" + m[1], Integer.parseInt(m[4]), 1);
             }
 
-            // SUPER_ADMIN gets all new permissions
-            String[] newPerms = {"audit.read","audit.write","notification.read","notification.write",
-                    "topology.read","topology.write","backup.read","backup.write",
-                    "ip_quality.read","ip_quality.write","traffic_analysis.read","cost_analysis.read"};
-            for (String p : newPerms) {
-                ensureIamRolePermission("SUPER_ADMIN", p);
+            // SUPER_ADMIN gets all new permissions (read + CUD, except audit write only for OWNER)
+            for (String m : new String[]{"notification","topology","backup","ip_quality"}) {
+                ensureIamRolePermission("SUPER_ADMIN", m + ".read");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".create");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".update");
+                ensureIamRolePermission("SUPER_ADMIN", m + ".delete");
             }
-            // DEV_ADMIN gets read + some write
-            String[] devPerms = {"audit.read","notification.read","notification.write",
-                    "topology.read","topology.write","backup.read","backup.write",
-                    "ip_quality.read","ip_quality.write","traffic_analysis.read","cost_analysis.read"};
-            for (String p : devPerms) {
-                ensureIamRolePermission("DEV_ADMIN", p);
+            ensureIamRolePermission("SUPER_ADMIN", "audit.read");
+            ensureIamRolePermission("SUPER_ADMIN", "traffic_analysis.read");
+            ensureIamRolePermission("SUPER_ADMIN", "cost_analysis.read");
+            // DEV_ADMIN gets read + CUD for operational modules
+            for (String m : new String[]{"notification","topology","backup","ip_quality"}) {
+                ensureIamRolePermission("DEV_ADMIN", m + ".read");
+                ensureIamRolePermission("DEV_ADMIN", m + ".create");
+                ensureIamRolePermission("DEV_ADMIN", m + ".update");
+                ensureIamRolePermission("DEV_ADMIN", m + ".delete");
             }
+            ensureIamRolePermission("DEV_ADMIN", "audit.read");
+            ensureIamRolePermission("DEV_ADMIN", "traffic_analysis.read");
+            ensureIamRolePermission("DEV_ADMIN", "cost_analysis.read");
             // DEVELOPER gets read only
             String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read","cost_analysis.read"};
             for (String p : devReadPerms) {
                 ensureIamRolePermission("DEVELOPER", p);
             }
-            // DEPT_LEAD gets read + notification write
-            String[] deptLeadNewPerms = {"notification.read","notification.write","topology.read","cost_analysis.read"};
-            for (String p : deptLeadNewPerms) {
-                ensureIamRolePermission("DEPT_LEAD", p);
-            }
+            // DEPT_LEAD gets read + notification CUD
+            ensureIamRolePermission("DEPT_LEAD", "notification.read");
+            ensureIamRolePermission("DEPT_LEAD", "notification.create");
+            ensureIamRolePermission("DEPT_LEAD", "notification.update");
+            ensureIamRolePermission("DEPT_LEAD", "notification.delete");
+            ensureIamRolePermission("DEPT_LEAD", "topology.read");
+            ensureIamRolePermission("DEPT_LEAD", "cost_analysis.read");
             // STAFF gets limited read
             String[] staffNewPerms = {"notification.read","cost_analysis.read"};
             for (String p : staffNewPerms) {
                 ensureIamRolePermission("STAFF", p);
             }
+
+            // 迁移：将所有角色的 .write 绑定展开为 .create/.update/.delete，然后删除 .write 权限
+            try {
+                // 对每个拥有 .write 权限的角色，补齐对应的 .create/.update/.delete
+                jdbcTemplate.update(
+                    "INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_id`, `created_time`, `updated_time`, `status`) " +
+                    "SELECT rp.`role_id`, p2.`id`, UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 0 " +
+                    "FROM `sys_role_permission` rp " +
+                    "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                    "JOIN `sys_permission` p2 ON p2.`module_key` = p.`module_key` AND p2.`code` LIKE CONCAT(p.`module_key`, '.create') " +
+                    "WHERE p.`code` LIKE '%.write'");
+                jdbcTemplate.update(
+                    "INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_id`, `created_time`, `updated_time`, `status`) " +
+                    "SELECT rp.`role_id`, p2.`id`, UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 0 " +
+                    "FROM `sys_role_permission` rp " +
+                    "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                    "JOIN `sys_permission` p2 ON p2.`module_key` = p.`module_key` AND p2.`code` LIKE CONCAT(p.`module_key`, '.update') " +
+                    "WHERE p.`code` LIKE '%.write'");
+                jdbcTemplate.update(
+                    "INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_id`, `created_time`, `updated_time`, `status`) " +
+                    "SELECT rp.`role_id`, p2.`id`, UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 0 " +
+                    "FROM `sys_role_permission` rp " +
+                    "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                    "JOIN `sys_permission` p2 ON p2.`module_key` = p.`module_key` AND p2.`code` LIKE CONCAT(p.`module_key`, '.delete') " +
+                    "WHERE p.`code` LIKE '%.write'");
+                // 删除所有 .write 角色绑定
+                jdbcTemplate.update(
+                    "DELETE rp FROM `sys_role_permission` rp " +
+                    "JOIN `sys_permission` p ON p.`id` = rp.`permission_id` " +
+                    "WHERE p.`code` LIKE '%.write'");
+                // 删除 .write 权限定义
+                jdbcTemplate.update("DELETE FROM `sys_permission` WHERE `code` LIKE '%.write'");
+                log.info("[DatabaseInit] 已迁移 .write 权限为细粒度 create/update/delete");
+            } catch (Exception e) { log.warn("[DatabaseInit] .write 迁移异常（可能已完成）: {}", e.getMessage()); }
 
             // OWNER 角色绑定全部权限（动态查所有 permission code）
             try {

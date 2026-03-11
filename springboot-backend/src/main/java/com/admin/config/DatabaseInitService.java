@@ -119,6 +119,10 @@ public class DatabaseInitService {
             updateColumn("vite_config", "description", "varchar(255) DEFAULT NULL COMMENT '配置描述'");
             modifyColumn("vite_config", "value", "TEXT NULL COMMENT '配置值'");
 
+            ensureConfig("exchange_rates",
+                    "{\"CNY\":1,\"USD\":7.24,\"EUR\":7.88,\"GBP\":9.15,\"JPY\":0.048,\"HKD\":0.93,\"TWD\":0.22,\"KRW\":0.0053,\"RUB\":0.078,\"CAD\":5.28,\"AUD\":4.72,\"SGD\":5.42,\"MYR\":1.55,\"THB\":0.2,\"INR\":0.086,\"TRY\":0.19,\"BRL\":1.25}",
+                    "汇率表(1外币=?CNY)，每日自动更新");
+            ensureConfig("exchange_rates_updated", "0", "汇率最后更新时间戳");
             ensureConfig("auto_diagnosis_enabled", "true", "是否开启后台自动诊断任务");
             ensureConfig("auto_diagnosis_interval", "30", "自动诊断间隔时间(分钟)");
             ensureConfig("site_environment_name", "默认环境", "当前部署环境名称，例如 LOCAL / DEV / PROD");

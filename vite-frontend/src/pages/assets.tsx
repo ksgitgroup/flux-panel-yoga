@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from "@heroui/button";
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -17,7 +17,9 @@ import { Switch } from "@heroui/switch";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Tabs, Tab } from "@heroui/tabs";
 import { Progress } from "@heroui/progress";
-// Table imports removed - using native HTML table for better control
+import { DatePicker } from "@heroui/date-picker";
+import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
+import { parseDate } from "@internationalized/date";
 import toast from 'react-hot-toast';
 
 import {
@@ -35,7 +37,6 @@ import {
   getAssetDetail,
   getAssetList,
   getMonitorList,
-  getMonitorUnboundNodes,
   createXuiInstance,
   provisionAllAgents,
   ProvisionAllResult,
@@ -109,12 +110,29 @@ const ROLES = [
 ];
 
 const CURRENCIES = [
-  { key: 'CNY', label: 'CNY' },
-  { key: 'USD', label: 'USD' },
-  { key: 'EUR', label: 'EUR' },
-  { key: 'JPY', label: 'JPY' },
-  { key: '$', label: '$' },
+  { key: 'CNY', label: '¥ CNY', symbol: '¥' },
+  { key: 'USD', label: '$ USD', symbol: '$' },
+  { key: 'EUR', label: '€ EUR', symbol: '€' },
+  { key: 'GBP', label: '£ GBP', symbol: '£' },
+  { key: 'JPY', label: '¥ JPY', symbol: '¥' },
+  { key: 'HKD', label: 'HK$ HKD', symbol: 'HK$' },
+  { key: 'TWD', label: 'NT$ TWD', symbol: 'NT$' },
+  { key: 'KRW', label: '₩ KRW', symbol: '₩' },
+  { key: 'RUB', label: '₽ RUB', symbol: '₽' },
+  { key: 'CAD', label: 'C$ CAD', symbol: 'C$' },
+  { key: 'AUD', label: 'A$ AUD', symbol: 'A$' },
+  { key: 'SGD', label: 'S$ SGD', symbol: 'S$' },
+  { key: 'MYR', label: 'RM MYR', symbol: 'RM' },
+  { key: 'THB', label: '฿ THB', symbol: '฿' },
+  { key: 'INR', label: '₹ INR', symbol: '₹' },
+  { key: 'TRY', label: '₺ TRY', symbol: '₺' },
+  { key: 'BRL', label: 'R$ BRL', symbol: 'R$' },
 ];
+
+/** Get currency symbol */
+const getCurrencySymbol = (code: string): string => {
+  return CURRENCIES.find(c => c.key === code)?.symbol || code;
+};
 
 const OS_CATEGORIES = [
   { key: '', label: '未指定' },
@@ -285,6 +303,47 @@ const BILLING_CYCLES = [
   { key: '1095', label: '三年付' },
 ];
 
+// Provision form for new server creation within provision modal
+interface ProvisionForm {
+  primaryIp: string;
+  provider: string;
+  region: string;
+  purchaseDate: string;
+  expireDate: string;
+  neverExpire: boolean;
+  billingCycle: string;
+  monthlyCost: string;
+  currency: string;
+  bandwidthMbps: string;
+  monthlyTrafficGb: string;
+  trafficUnlimited: boolean;
+  trafficUnit: 'GB' | 'TB';
+  purpose: string;
+  tags: string;
+  remark: string;
+}
+const emptyProvisionForm = (): ProvisionForm => ({
+  primaryIp: '', provider: '', region: '',
+  purchaseDate: new Date().toISOString().split('T')[0], // default to today
+  expireDate: '', neverExpire: false, billingCycle: '', monthlyCost: '', currency: 'CNY',
+  bandwidthMbps: '', monthlyTrafficGb: '', trafficUnlimited: false, trafficUnit: 'GB',
+  purpose: '', tags: '', remark: '',
+});
+
+/** Check if provision form has any user input (for unsaved changes warning) */
+const isProvisionFormDirty = (f: ProvisionForm, name: string) =>
+  !!(name || f.primaryIp || f.provider || f.purchaseDate || f.expireDate || f.monthlyCost || f.bandwidthMbps || f.monthlyTrafficGb || f.purpose || f.tags || f.remark);
+
+/** Calculate daily cost and yearly cost from billing cycle + price */
+const calcCostBreakdown = (monthlyCost: string, billingCycle: string, currency: string) => {
+  const price = parseFloat(monthlyCost);
+  const days = parseInt(billingCycle);
+  if (isNaN(price) || price <= 0 || isNaN(days) || days <= 0) return null;
+  const dailyCost = price / days;
+  const yearlyCost = dailyCost * 365;
+  return { dailyCost: dailyCost.toFixed(2), yearlyCost: yearlyCost.toFixed(2), currency: currency || '' };
+};
+
 const getRegionFlag = (region?: string | null) => {
   if (!region) return '';
   const match = REGIONS.find(r => r.key === region);
@@ -302,9 +361,10 @@ const formatBillingCycle = (days?: number | null) => {
   return `${days}天`;
 };
 
-/** Calculate remaining value: (remaining days / billing cycle days) * price */
+/** Calculate remaining value: (remaining days / billing cycle days) * price. expireDate=-1 means never expire. */
 const calcRemainingValue = (expireDate?: number | null, monthlyCost?: string | null, billingCycle?: number | null, currency?: string | null) => {
   if (!expireDate || !monthlyCost || !billingCycle || billingCycle <= 0) return null;
+  if (expireDate === -1) return { remainingDays: Infinity, remainingValue: '∞', currency: currency || '' };
   const price = parseFloat(monthlyCost);
   if (isNaN(price) || price <= 0) return null;
   const remainingDays = Math.max(0, Math.ceil((expireDate - Date.now()) / 86400000));
@@ -316,6 +376,7 @@ const normalizeKeyword = (value?: string | null) => (value || '').trim().toLower
 
 const formatDateShort = (timestamp?: number | null) => {
   if (!timestamp) return '-';
+  if (timestamp === -1) return '永不到期';
   return new Date(timestamp).toLocaleDateString();
 };
 
@@ -412,13 +473,14 @@ export default function AssetsPage() {
   const [detail, setDetail] = useState<AssetHostDetail | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [form, setForm] = useState<AssetForm>(emptyForm());
+  const formSnapshotRef = useRef<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [isEdit, setIsEdit] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState<AssetHost | null>(null);
-  const [unboundNodes, setUnboundNodes] = useState<MonitorNodeSnapshot[]>([]);
-  const [importLoading, setImportLoading] = useState(false);
+  const unboundNodes: MonitorNodeSnapshot[] = [];
+  const importLoading = false;
   const [monitorInstances, setMonitorInstances] = useState<MonitorInstance[]>([]);
   const [provisionStep, setProvisionStep] = useState<'select' | 'result'>('select');
   const [provisionName, setProvisionName] = useState('');
@@ -429,11 +491,12 @@ export default function AssetsPage() {
   const [provisionGostEnabled, setProvisionGostEnabled] = useState(false);
   const [provisionKomariId, setProvisionKomariId] = useState<string>('');
   const [provisionPikaId, setProvisionPikaId] = useState<string>('');
-  const [provisionGostIp, setProvisionGostIp] = useState('');
   const [provisionGostPortSta, setProvisionGostPortSta] = useState('10000');
   const [provisionGostPortEnd, setProvisionGostPortEnd] = useState('20000');
   // Context when provisioning from an existing asset
   const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; assetIp?: string; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean } | null>(null);
+  const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm());
+  const [provisionFormErrors, setProvisionFormErrors] = useState<Record<string, string>>({});
   const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
   const [allProvisionResult, setAllProvisionResult] = useState<ProvisionAllResult | null>(null);
   const [provisionNodeVerified, setProvisionNodeVerified] = useState(false);
@@ -732,25 +795,6 @@ export default function AssetsPage() {
     finally { setDetailLoading(false); }
   };
 
-  const openCreateModal = () => {
-    if (!canCreateAssets) {
-      toast.error('权限不足，无法新建资产');
-      return;
-    }
-    setIsEdit(false); setErrors({}); setForm(emptyForm()); setUnboundNodes([]);
-    onFormOpen();
-    void loadUnboundNodes();
-  };
-
-  const loadUnboundNodes = async () => {
-    setImportLoading(true);
-    try {
-      const res = await getMonitorUnboundNodes();
-      if (res.code === 0) setUnboundNodes(res.data || []);
-    } catch { /* ignore */ }
-    finally { setImportLoading(false); }
-  };
-
   const importFromNode = (node: MonitorNodeSnapshot) => {
     if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法导入探针节点');
@@ -797,7 +841,6 @@ export default function AssetsPage() {
     setProvisionContext(ctx || null);
     setProvisionKomariId('');
     setProvisionPikaId('');
-    setProvisionGostIp(ctx?.assetIp || '');
     setProvisionGostPortSta('10000');
     setProvisionGostPortEnd('20000');
 
@@ -810,9 +853,11 @@ export default function AssetsPage() {
     } else {
       setProvisionName('');
       setProvisionKomariEnabled(true);
-      setProvisionPikaEnabled(false);
-      setProvisionGostEnabled(false);
+      setProvisionPikaEnabled(true);
+      setProvisionGostEnabled(true);
     }
+    // Reset provision form fields
+    setProvisionForm(emptyProvisionForm());
 
     onProvisionOpen();
     try {
@@ -820,15 +865,11 @@ export default function AssetsPage() {
       if (res.code === 0) {
         const instances = res.data || [];
         setMonitorInstances(instances);
-        // Auto-select first instance of each enabled type
-        if (ctx?.missingKomari) {
-          const km = instances.find(i => i.type === 'komari');
-          if (km) setProvisionKomariId(km.id.toString());
-        }
-        if (ctx?.missingPika) {
-          const pk = instances.find(i => i.type === 'pika');
-          if (pk) setProvisionPikaId(pk.id.toString());
-        }
+        // Auto-select first instance of each type
+        const km = instances.find(i => i.type === 'komari');
+        if (km) setProvisionKomariId(km.id.toString());
+        const pk = instances.find(i => i.type === 'pika');
+        if (pk) setProvisionPikaId(pk.id.toString());
       }
     } catch { /* ignore */ }
   };
@@ -838,20 +879,90 @@ export default function AssetsPage() {
       toast.error('权限不足，无法创建安装命令');
       return;
     }
+    // Validate required fields
+    const pf = provisionForm;
+    const errs: Record<string, string> = {};
+    if (!provisionName.trim()) errs.name = '必填';
+    if (!pf.primaryIp.trim()) errs.primaryIp = '必填';
+    if (!pf.provider) errs.provider = '必填';
+    if (!pf.purchaseDate) errs.purchaseDate = '必填';
+    if (!pf.neverExpire && !pf.expireDate) errs.expireDate = '必填';
+    if (!pf.billingCycle) errs.billingCycle = '必填';
+    if (!pf.monthlyCost) errs.monthlyCost = '必填';
+    if (!pf.currency) errs.currency = '必填';
+    if (!pf.bandwidthMbps) errs.bandwidthMbps = '必填';
+    if (!pf.trafficUnlimited && !pf.monthlyTrafficGb) errs.monthlyTrafficGb = '必填';
+    setProvisionFormErrors(errs);
+    if (Object.keys(errs).length > 0) { toast.error('请填写必填字段'); return; }
+
     const kid = provisionKomariEnabled && provisionKomariId ? parseInt(provisionKomariId) : null;
     const pid = provisionPikaEnabled && provisionPikaId ? parseInt(provisionPikaId) : null;
-    const gostCfg = provisionGostEnabled && provisionGostIp ? {
+    const gostCfg = provisionGostEnabled && pf.primaryIp ? {
       name: provisionName || 'gost-node',
-      serverIp: provisionGostIp,
+      serverIp: pf.primaryIp,
       portSta: parseInt(provisionGostPortSta) || 10000,
       portEnd: parseInt(provisionGostPortEnd) || 20000,
       assetId: provisionContext?.assetId,
     } : null;
 
-    if (!kid && !pid && !gostCfg) { toast.error('请至少启用并配置一个组件'); return; }
-
     setProvisionLoading(true);
     try {
+      // Step 1: Create asset record (if not editing existing)
+      if (!provisionContext) {
+        // Convert traffic: TB → GB
+        let trafficGb = pf.trafficUnlimited ? '-1' : pf.monthlyTrafficGb;
+        if (!pf.trafficUnlimited && pf.trafficUnit === 'TB' && pf.monthlyTrafficGb) {
+          trafficGb = String(parseFloat(pf.monthlyTrafficGb) * 1024);
+        }
+        const assetPayload: Record<string, any> = {
+          name: provisionName.trim(),
+          primaryIp: pf.primaryIp.trim(),
+          provider: pf.provider,
+          region: pf.region || undefined,
+          purchaseDate: pf.purchaseDate ? new Date(pf.purchaseDate).getTime() : undefined,
+          expireDate: pf.neverExpire ? -1 : (pf.expireDate ? new Date(pf.expireDate).getTime() : undefined),
+          billingCycle: pf.billingCycle ? parseInt(pf.billingCycle) : undefined,
+          monthlyCost: pf.monthlyCost,
+          currency: pf.currency,
+          bandwidthMbps: pf.bandwidthMbps ? parseInt(pf.bandwidthMbps) : undefined,
+          monthlyTrafficGb: trafficGb ? parseInt(trafficGb) : undefined,
+          purpose: pf.purpose || undefined,
+          tags: pf.tags ? JSON.stringify(pf.tags.split(/[;,，]/).map(t => t.trim()).filter(Boolean)) : undefined,
+          remark: pf.remark || undefined,
+        };
+        const createRes = await createAsset(assetPayload);
+        if (createRes.code !== 0) {
+          toast.error(createRes.msg || '创建服务器资产失败');
+          setProvisionLoading(false);
+          return;
+        }
+        // If GOST enabled, link to new asset
+        if (gostCfg && createRes.data?.id) {
+          gostCfg.assetId = createRes.data.id;
+        }
+        // Auto-geolocate IP → region (background, don't block)
+        if (!pf.region && pf.primaryIp && createRes.data?.id) {
+          geolocateIp(pf.primaryIp).then(geoRes => {
+            if (geoRes.code === 0 && geoRes.data?.country) {
+              const region = COUNTRY_TO_REGION[geoRes.data.country];
+              if (region) {
+                updateAsset({ id: createRes.data!.id, region } as any).catch(() => {});
+              }
+            }
+          }).catch(() => {});
+        }
+      }
+
+      // Step 2: Provision agents
+      if (!kid && !pid && !gostCfg) {
+        // No agents selected, just asset creation — done
+        setProvisionStep('result');
+        setAllProvisionResult({ combinedCommand: '' } as any);
+        toast.success('服务器创建成功');
+        setProvisionLoading(false);
+        return;
+      }
+
       const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined);
       if (res.code === 0 && res.data) {
         setAllProvisionResult(res.data);
@@ -861,7 +972,7 @@ export default function AssetsPage() {
           toast('部分组件创建成功', { icon: '⚠️' });
         } else {
           const count = [res.data.komari, res.data.pika, res.data.gost].filter(Boolean).length;
-          toast.success(`${count} 个组件创建成功`);
+          toast.success(`服务器创建成功，${count} 个组件已配置`);
         }
       } else {
         toast.error(res.msg || '创建失败');
@@ -1069,6 +1180,11 @@ export default function AssetsPage() {
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
       swapTotalMb: asset.swapTotalMb?.toString() || '', purpose: asset.purpose || '', remark: asset.remark || '',
       panelUrl: asset.panelUrl || '', gostNodeId: asset.gostNodeId?.toString() || '',
+    });
+    formSnapshotRef.current = JSON.stringify({
+      name: asset.name, primaryIp: asset.primaryIp || '', provider: asset.provider || '',
+      region: asset.region || '', monthlyCost: asset.monthlyCost || '', tags: asset.tags || '',
+      purpose: asset.purpose || '', remark: asset.remark || '', label: asset.label || '',
     });
     onFormOpen();
   };
@@ -1327,7 +1443,7 @@ export default function AssetsPage() {
     return <div className="flex h-64 items-center justify-center"><Spinner size="lg" /></div>;
   }
 
-  const expiringSoon = assets.filter(a => a.expireDate && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
+  const expiringSoon = assets.filter(a => a.expireDate && a.expireDate !== -1 && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
 
   const selectedAsset = assets.find(a => a.id === expandedAssetId) || null;
 
@@ -1352,7 +1468,6 @@ export default function AssetsPage() {
                 {batchMode ? '退出批量' : '批量操作'}
               </Button>
               <Button color="primary" size="sm" onPress={() => openProvisionModal()}>添加服务器</Button>
-              <Button variant="flat" size="sm" onPress={openCreateModal}>手动新建</Button>
             </>
           )}
         </div>
@@ -1866,7 +1981,7 @@ export default function AssetsPage() {
 
                   {/* Footer */}
                   <div className="mt-2 flex items-center justify-between text-[10px] text-default-400 border-t border-divider/40 pt-1.5">
-                    <span>{asset.provider || '-'}{asset.monthlyCost ? ` / ${asset.monthlyCost}${asset.currency || ''}` : ''}</span>
+                    <span>{asset.provider || '-'}{asset.monthlyCost ? ` / ${getCurrencySymbol(asset.currency || 'CNY')}${asset.monthlyCost}` : ''}</span>
                     <div className="flex gap-1.5">
                       {asset.totalXuiInstances > 0 && <span>{asset.totalXuiInstances} XUI</span>}
                       {asset.totalForwards > 0 && <span>{asset.totalForwards} 转发</span>}
@@ -2066,13 +2181,13 @@ export default function AssetsPage() {
                         <div className="space-y-1 text-xs">
                           {selectedAsset.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider}</span></p>}
                           {selectedAsset.region && <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region}</span></p>}
-                          {selectedAsset.monthlyCost && <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{selectedAsset.currency || ''}{selectedAsset.monthlyCost}/{formatBillingCycle(selectedAsset.billingCycle) || '周期'}</span></p>}
-                          {selectedAsset.monthlyTrafficGb && <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb} GB/月</span></p>}
+                          {selectedAsset.monthlyCost && <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{getCurrencySymbol(selectedAsset.currency || 'CNY')}{selectedAsset.monthlyCost}/{formatBillingCycle(selectedAsset.billingCycle) || '周期'}</span></p>}
+                          {selectedAsset.monthlyTrafficGb && <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb === -1 ? '不限量' : `${selectedAsset.monthlyTrafficGb >= 1024 ? (selectedAsset.monthlyTrafficGb / 1024).toFixed(1) + ' TB' : selectedAsset.monthlyTrafficGb + ' GB'}/月`}</span></p>}
                           {selectedAsset.purchaseDate && <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>}
                           {selectedAsset.expireDate && (
                             <p className="flex justify-between">
                               <span className="text-default-400">到期</span>
-                              <span className={`font-mono ${selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
+                              <span className={`font-mono ${selectedAsset.expireDate !== -1 && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
                                 {formatDateShort(selectedAsset.expireDate)}
                               </span>
                             </p>
@@ -2339,7 +2454,17 @@ export default function AssetsPage() {
       </Modal>
 
       {/* Create/Edit Modal */}
-      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="3xl" scrollBehavior="inside">
+      <Modal isOpen={isFormOpen} onOpenChange={(open) => {
+        if (!open) {
+          const current = JSON.stringify({
+            name: form.name, primaryIp: form.primaryIp, provider: form.provider,
+            region: form.region, monthlyCost: form.monthlyCost, tags: form.tags,
+            purpose: form.purpose, remark: form.remark, label: form.label,
+          });
+          if (current !== formSnapshotRef.current && !window.confirm('表单已修改，确定要放弃更改吗？')) return;
+          onFormClose();
+        }
+      }} size="3xl" scrollBehavior="inside">
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑资产' : '新建资产'}</ModalHeader>
           <ModalBody className="px-3 pb-2">
@@ -3158,7 +3283,15 @@ export default function AssetsPage() {
       </Modal>
 
       {/* Provision Modal */}
-      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => { if (!open && provisionStep === 'select') onProvisionClose(); }} size="2xl" isDismissable={provisionStep === 'select'} hideCloseButton={provisionStep === 'result'}>
+      <Modal isOpen={isProvisionOpen} onOpenChange={(open) => {
+        if (!open) {
+          if (provisionStep === 'result') return; // result step uses explicit buttons
+          if (isProvisionFormDirty(provisionForm, provisionName)) {
+            if (!window.confirm('表单已填写内容，确定要放弃吗？')) return;
+          }
+          onProvisionClose();
+        }
+      }} size="4xl" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
         <ModalContent>
           <ModalHeader>
             {provisionContext
@@ -3170,107 +3303,196 @@ export default function AssetsPage() {
               <div className="space-y-4">
                 {/* Context hint */}
                 {provisionContext && (
-                  <div className="rounded-lg border border-primary/20 bg-primary-50/40 dark:bg-primary-50/5 p-3 text-xs text-default-600">
+                  <div className="rounded-lg border border-primary/20 bg-primary-50/40 dark:bg-primary-50/5 p-2.5 text-xs text-default-600">
                     已根据该服务器缺少的组件自动勾选，您也可以手动调整。
                   </div>
                 )}
 
-                <p className="text-sm text-default-500">
-                  选择需要安装的组件，生成一键安装命令。
-                </p>
-
-                {/* Agent type toggles */}
-                <div className="grid gap-3">
-                  {/* Komari toggle */}
-                  <div className={`rounded-lg border p-3 transition-all ${provisionKomariEnabled ? 'border-primary/40 bg-primary-50/30 dark:bg-primary-50/5' : 'border-divider'}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-sm font-medium">Komari 监控探针</span>
-                        <p className="text-[11px] text-default-400">系统监控、CPU/内存/磁盘/网络/进程</p>
-                      </div>
-                      <Switch size="sm" isSelected={provisionKomariEnabled} onValueChange={setProvisionKomariEnabled} />
-                    </div>
-                    {provisionKomariEnabled && (
-                      <div className="mt-3">
-                        <Select size="sm" label="Komari 实例" placeholder="选择实例"
-                          selectedKeys={provisionKomariId ? [provisionKomariId] : []}
-                          onSelectionChange={(keys) => setProvisionKomariId(Array.from(keys)[0]?.toString() || '')}>
-                          {monitorInstances.filter(i => i.type === 'komari').map(inst => (
-                            <SelectItem key={inst.id.toString()}>{inst.name} ({inst.baseUrl})</SelectItem>
-                          ))}
-                        </Select>
-                        {monitorInstances.filter(i => i.type === 'komari').length === 0 && (
-                          <p className="mt-1 text-[11px] text-warning-600">暂无 Komari 实例，请先在<span className="cursor-pointer text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}> 探针管理 </span>中添加。</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Pika toggle */}
-                  <div className={`rounded-lg border p-3 transition-all ${provisionPikaEnabled ? 'border-secondary/40 bg-secondary-50/30 dark:bg-secondary-50/5' : 'border-divider'}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-sm font-medium">Pika 监控探针</span>
-                        <p className="text-[11px] text-default-400">轻量监控、Ping 延迟测试</p>
-                      </div>
-                      <Switch size="sm" isSelected={provisionPikaEnabled} onValueChange={setProvisionPikaEnabled} />
-                    </div>
-                    {provisionPikaEnabled && (
-                      <div className="mt-3">
-                        <Select size="sm" label="Pika 实例" placeholder="选择实例"
-                          selectedKeys={provisionPikaId ? [provisionPikaId] : []}
-                          onSelectionChange={(keys) => setProvisionPikaId(Array.from(keys)[0]?.toString() || '')}>
-                          {monitorInstances.filter(i => i.type === 'pika').map(inst => (
-                            <SelectItem key={inst.id.toString()}>{inst.name} ({inst.baseUrl})</SelectItem>
-                          ))}
-                        </Select>
-                        {monitorInstances.filter(i => i.type === 'pika').length === 0 && (
-                          <p className="mt-1 text-[11px] text-warning-600">暂无 Pika 实例，请先在<span className="cursor-pointer text-primary hover:underline" onClick={() => { onProvisionClose(); navigate('/probe'); }}> 探针管理 </span>中添加。</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* GOST toggle */}
-                  <div className={`rounded-lg border p-3 transition-all ${provisionGostEnabled ? 'border-warning/40 bg-warning-50/30 dark:bg-warning-50/5' : 'border-divider'}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-sm font-medium">GOST 代理节点</span>
-                        <p className="text-[11px] text-default-400">隧道代理、端口转发</p>
-                      </div>
-                      <Switch size="sm" isSelected={provisionGostEnabled} onValueChange={setProvisionGostEnabled} />
-                    </div>
-                    {provisionGostEnabled && (
-                      <div className="mt-3 space-y-2">
-                        <Input size="sm" label="服务器 IP" placeholder="例如 1.2.3.4"
-                          value={provisionGostIp} onValueChange={setProvisionGostIp} isRequired />
-                        <div className="flex gap-2">
-                          <Input size="sm" label="起始端口" value={provisionGostPortSta} onValueChange={setProvisionGostPortSta} type="number" />
-                          <Input size="sm" label="结束端口" value={provisionGostPortEnd} onValueChange={setProvisionGostPortEnd} type="number" />
-                        </div>
-                      </div>
-                    )}
+                {/* ===== Row 1: Name + IP + Provider + Region (4-col) ===== */}
+                <div>
+                  <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
+                      value={provisionName} onValueChange={setProvisionName}
+                      isInvalid={!!provisionFormErrors.name} errorMessage={provisionFormErrors.name} />
+                    <Input size="sm" label="IP / 域名" placeholder="1.2.3.4" isRequired
+                      value={provisionForm.primaryIp} isInvalid={!!provisionFormErrors.primaryIp} errorMessage={provisionFormErrors.primaryIp}
+                      onValueChange={v => setProvisionForm(p => ({ ...p, primaryIp: v }))} />
+                    <Autocomplete size="sm" label="供应商" isRequired allowsCustomValue
+                      defaultItems={allProviderOptions.filter(p => p.key)}
+                      inputValue={provisionForm.provider}
+                      onInputChange={v => setProvisionForm(p => ({ ...p, provider: v }))}
+                      onSelectionChange={key => { if (key) setProvisionForm(p => ({ ...p, provider: key.toString() })); }}
+                      isInvalid={!!provisionFormErrors.provider} errorMessage={provisionFormErrors.provider}>
+                      {(item) => <AutocompleteItem key={item.key}>{item.label}</AutocompleteItem>}
+                    </Autocomplete>
+                    <Select size="sm" label="地区（自动识别）"
+                      classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
+                      selectedKeys={provisionForm.region ? [provisionForm.region] : []}
+                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
+                      {REGIONS.map(r => <SelectItem key={r.key}>{r.flag ? `${r.flag} ${r.label}` : r.label}</SelectItem>)}
+                    </Select>
                   </div>
                 </div>
 
-                {/* Summary bar */}
-                {(provisionKomariEnabled || provisionPikaEnabled || provisionGostEnabled) && (
-                  <div className="flex items-center gap-2 text-xs text-default-500">
-                    <span>将安装：</span>
-                    {provisionKomariEnabled && <Chip size="sm" color="primary" variant="flat">Komari</Chip>}
-                    {provisionPikaEnabled && <Chip size="sm" color="secondary" variant="flat">Pika</Chip>}
-                    {provisionGostEnabled && <Chip size="sm" color="warning" variant="flat">GOST</Chip>}
+                {/* ===== Row 2: Billing - dates + cost (compact) ===== */}
+                <div>
+                  <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">计费</p>
+                  <div className="grid grid-cols-5 gap-2">
+                    <DatePicker size="sm" label="购买日期" isRequired granularity="day"
+                      popoverProps={{ placement: "bottom" }}
+                      value={provisionForm.purchaseDate ? parseDate(provisionForm.purchaseDate) : null}
+                      isInvalid={!!provisionFormErrors.purchaseDate} errorMessage={provisionFormErrors.purchaseDate}
+                      onChange={d => setProvisionForm(p => ({ ...p, purchaseDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
+                    <div className="flex gap-1.5 items-start">
+                      {provisionForm.neverExpire ? (
+                        <Input size="sm" label="到期" value="永不到期" isReadOnly className="flex-1" classNames={{ input: "text-success font-medium" }} />
+                      ) : (
+                        <DatePicker size="sm" label="到期日期" isRequired granularity="day" className="flex-1"
+                          popoverProps={{ placement: "bottom" }}
+                          value={provisionForm.expireDate ? parseDate(provisionForm.expireDate) : null}
+                          isInvalid={!!provisionFormErrors.expireDate} errorMessage={provisionFormErrors.expireDate}
+                          onChange={d => setProvisionForm(p => ({ ...p, expireDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
+                      )}
+                      <Button size="sm" isIconOnly variant={provisionForm.neverExpire ? 'solid' : 'flat'}
+                        color={provisionForm.neverExpire ? 'success' : 'default'} className="shrink-0 mt-1"
+                        title={provisionForm.neverExpire ? '取消永久' : '设为永不到期'}
+                        onPress={() => setProvisionForm(p => ({ ...p, neverExpire: !p.neverExpire, expireDate: '' }))}>
+                        ∞
+                      </Button>
+                    </div>
+                    <Select size="sm" label="周期" isRequired
+                      classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
+                      selectedKeys={provisionForm.billingCycle ? [provisionForm.billingCycle] : []}
+                      isInvalid={!!provisionFormErrors.billingCycle} errorMessage={provisionFormErrors.billingCycle}
+                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
+                      {BILLING_CYCLES.filter(c => c.key).map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                    </Select>
+                    <Input size="sm" label="周期费用" placeholder="10.00" type="number" isRequired
+                      value={provisionForm.monthlyCost} isInvalid={!!provisionFormErrors.monthlyCost} errorMessage={provisionFormErrors.monthlyCost}
+                      onValueChange={v => setProvisionForm(p => ({ ...p, monthlyCost: v }))} />
+                    <Select size="sm" label="币种" isRequired
+                      classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
+                      selectedKeys={provisionForm.currency ? [provisionForm.currency] : []}
+                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || '' }))}>
+                      {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                    </Select>
                   </div>
-                )}
+                  {/* Cost breakdown inline */}
+                  {(() => {
+                    const b = calcCostBreakdown(provisionForm.monthlyCost, provisionForm.billingCycle, provisionForm.currency);
+                    if (!b) return null;
+                    return (
+                      <p className="text-[11px] text-default-400 mt-1.5 text-right">
+                        日均 <strong className="text-default-600">{b.currency} {b.dailyCost}</strong>
+                        <span className="mx-2">·</span>
+                        年化 <strong className="text-default-600">{b.currency} {b.yearlyCost}</strong>
+                      </p>
+                    );
+                  })()}
+                </div>
 
-                <Input
-                  label={provisionContext ? '服务器名称' : '服务器名称（可选）'}
-                  placeholder="例如 HK-VPS-01"
-                  value={provisionName}
-                  onValueChange={setProvisionName}
-                  isRequired={!!provisionContext}
-                  description={provisionContext ? '探针节点将使用此名称' : '留空将自动生成随机名称'}
-                />
+                {/* ===== Row 3: Network (single row) ===== */}
+                <div>
+                  <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">网络</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input size="sm" label="带宽 (Mbps)" placeholder="1000" type="number" isRequired
+                      value={provisionForm.bandwidthMbps} isInvalid={!!provisionFormErrors.bandwidthMbps} errorMessage={provisionFormErrors.bandwidthMbps}
+                      onValueChange={v => setProvisionForm(p => ({ ...p, bandwidthMbps: v }))} />
+                    <div className="flex gap-1.5 items-start">
+                      {provisionForm.trafficUnlimited ? (
+                        <Input size="sm" label="月流量" value="不限量" isReadOnly className="flex-1"
+                          classNames={{ input: "text-success font-medium" }} />
+                      ) : (
+                        <Input size="sm" label={`月流量 (${provisionForm.trafficUnit})`} placeholder="1000" type="number" isRequired className="flex-1"
+                          value={provisionForm.monthlyTrafficGb} isInvalid={!!provisionFormErrors.monthlyTrafficGb} errorMessage={provisionFormErrors.monthlyTrafficGb}
+                          onValueChange={v => setProvisionForm(p => ({ ...p, monthlyTrafficGb: v }))} />
+                      )}
+                      {!provisionForm.trafficUnlimited && (
+                        <Button size="sm" isIconOnly variant="flat" className="shrink-0 mt-1"
+                          onPress={() => setProvisionForm(p => ({ ...p, trafficUnit: p.trafficUnit === 'GB' ? 'TB' : 'GB' }))}>
+                          {provisionForm.trafficUnit === 'GB' ? 'TB' : 'GB'}
+                        </Button>
+                      )}
+                      <Button size="sm" isIconOnly variant={provisionForm.trafficUnlimited ? 'solid' : 'flat'}
+                        color={provisionForm.trafficUnlimited ? 'success' : 'default'} className="shrink-0 mt-1"
+                        title={provisionForm.trafficUnlimited ? '取消不限量' : '设为不限量'}
+                        onPress={() => setProvisionForm(p => ({ ...p, trafficUnlimited: !p.trafficUnlimited, monthlyTrafficGb: '' }))}>
+                        ∞
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ===== Row 4: Optional ===== */}
+                <div>
+                  <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">其他（选填）</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input size="sm" label="核心用途" placeholder="Nginx反代 / 博客站"
+                      value={provisionForm.purpose}
+                      onValueChange={v => setProvisionForm(p => ({ ...p, purpose: v }))} />
+                    <Input size="sm" label="标签" placeholder="逗号分隔"
+                      value={provisionForm.tags}
+                      onValueChange={v => setProvisionForm(p => ({ ...p, tags: v }))} />
+                    <Input size="sm" label="备注" placeholder="可选"
+                      value={provisionForm.remark}
+                      onValueChange={v => setProvisionForm(p => ({ ...p, remark: v }))} />
+                  </div>
+                </div>
+
+                {/* ===== Row 5: Agent Deployment (compact inline) ===== */}
+                <div>
+                  <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">探针部署</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* Komari */}
+                    <div className={`rounded-lg border p-2 transition-all ${provisionKomariEnabled ? 'border-primary/40 bg-primary-50/20 dark:bg-primary-50/5' : 'border-divider'}`}>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Switch size="sm" isSelected={provisionKomariEnabled} onValueChange={setProvisionKomariEnabled} />
+                        <span className="text-xs font-medium">Komari</span>
+                      </div>
+                      {provisionKomariEnabled && (
+                        <Select size="sm" placeholder="选择实例" className="w-full"
+                          classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
+                          selectedKeys={provisionKomariId ? [provisionKomariId] : []}
+                          onSelectionChange={keys => setProvisionKomariId(Array.from(keys)[0]?.toString() || '')}>
+                          {monitorInstances.filter(i => i.type === 'komari').map(inst => (
+                            <SelectItem key={inst.id.toString()}>{inst.name}</SelectItem>
+                          ))}
+                        </Select>
+                      )}
+                    </div>
+                    {/* Pika */}
+                    <div className={`rounded-lg border p-2 transition-all ${provisionPikaEnabled ? 'border-secondary/40 bg-secondary-50/20 dark:bg-secondary-50/5' : 'border-divider'}`}>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Switch size="sm" isSelected={provisionPikaEnabled} onValueChange={setProvisionPikaEnabled} />
+                        <span className="text-xs font-medium">Pika</span>
+                      </div>
+                      {provisionPikaEnabled && (
+                        <Select size="sm" placeholder="选择实例" className="w-full"
+                          classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
+                          selectedKeys={provisionPikaId ? [provisionPikaId] : []}
+                          onSelectionChange={keys => setProvisionPikaId(Array.from(keys)[0]?.toString() || '')}>
+                          {monitorInstances.filter(i => i.type === 'pika').map(inst => (
+                            <SelectItem key={inst.id.toString()}>{inst.name}</SelectItem>
+                          ))}
+                        </Select>
+                      )}
+                    </div>
+                    {/* GOST */}
+                    <div className={`rounded-lg border p-2 transition-all ${provisionGostEnabled ? 'border-warning/40 bg-warning-50/20 dark:bg-warning-50/5' : 'border-divider'}`}>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Switch size="sm" isSelected={provisionGostEnabled} onValueChange={setProvisionGostEnabled} />
+                        <span className="text-xs font-medium">GOST</span>
+                      </div>
+                      {provisionGostEnabled && (
+                        <div className="flex gap-1">
+                          <Input size="sm" label="起始" value={provisionGostPortSta} onValueChange={setProvisionGostPortSta} type="number" />
+                          <Input size="sm" label="结束" value={provisionGostPortEnd} onValueChange={setProvisionGostPortEnd} type="number" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : allProvisionResult ? (
               /* Unified result display */
@@ -3412,16 +3634,19 @@ export default function AssetsPage() {
                 <Button color="primary" isLoading={provisionLoading} onPress={handleProvision}
                   isDisabled={
                     !(canCreateAssets || canUpdateAssets) ||
-                    (!provisionKomariEnabled && !provisionPikaEnabled && !provisionGostEnabled) ||
+                    !provisionName.trim() ||
+                    !provisionForm.primaryIp.trim() ||
+                    !provisionForm.provider ||
+                    !provisionForm.purchaseDate ||
+                    (!provisionForm.neverExpire && !provisionForm.expireDate) ||
+                    !provisionForm.billingCycle ||
+                    !provisionForm.monthlyCost ||
+                    !provisionForm.bandwidthMbps ||
+                    (!provisionForm.trafficUnlimited && !provisionForm.monthlyTrafficGb) ||
                     (provisionKomariEnabled && !provisionKomariId) ||
-                    (provisionPikaEnabled && !provisionPikaId) ||
-                    (provisionGostEnabled && !provisionGostIp) ||
-                    (!!provisionContext && !provisionName.trim())
+                    (provisionPikaEnabled && !provisionPikaId)
                   }>
-                  {(() => {
-                    const count = [provisionKomariEnabled, provisionPikaEnabled, provisionGostEnabled].filter(Boolean).length;
-                    return count > 1 ? `创建 ${count} 个组件` : '创建并生成命令';
-                  })()}
+                  添加服务器
                 </Button>
               </>
             ) : (

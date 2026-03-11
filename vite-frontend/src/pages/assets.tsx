@@ -305,6 +305,7 @@ const BILLING_CYCLES = [
 
 // Provision form for new server creation within provision modal
 interface ProvisionForm {
+  osPlatform: 'linux' | 'windows' | 'macos';
   primaryIp: string;
   provider: string;
   region: string;
@@ -322,8 +323,14 @@ interface ProvisionForm {
   tags: string;
   remark: string;
 }
+const OS_PLATFORMS = [
+  { key: 'linux', label: 'Linux' },
+  { key: 'windows', label: 'Windows' },
+  { key: 'macos', label: 'macOS' },
+];
+
 const emptyProvisionForm = (): ProvisionForm => ({
-  primaryIp: '', provider: '', region: '',
+  osPlatform: 'linux', primaryIp: '', provider: '', region: '',
   purchaseDate: new Date().toISOString().split('T')[0], // default to today
   expireDate: '', neverExpire: false, billingCycle: '', monthlyCost: '', currency: 'CNY',
   bandwidthMbps: '', monthlyTrafficGb: '', trafficUnlimited: false, trafficUnit: 'GB',
@@ -963,7 +970,7 @@ export default function AssetsPage() {
         return;
       }
 
-      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined);
+      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform);
       if (res.code === 0 && res.data) {
         setAllProvisionResult(res.data);
         setProvisionStep('result');
@@ -1171,8 +1178,10 @@ export default function AssetsPage() {
       region: asset.region || '', role: asset.role || '', os: asset.os || '', osCategory: asset.osCategory || '',
       cpuCores: asset.cpuCores?.toString() || '', memTotalMb: asset.memTotalMb?.toString() || '',
       diskTotalGb: asset.diskTotalGb?.toString() || '', bandwidthMbps: asset.bandwidthMbps?.toString() || '',
-      monthlyTrafficGb: asset.monthlyTrafficGb?.toString() || '', sshPort: asset.sshPort?.toString() || '',
-      purchaseDate: tsToDateInput(asset.purchaseDate), expireDate: tsToDateInput(asset.expireDate),
+      monthlyTrafficGb: asset.monthlyTrafficGb === -1 ? '-1' : (asset.monthlyTrafficGb?.toString() || ''),
+      sshPort: asset.sshPort?.toString() || '',
+      purchaseDate: tsToDateInput(asset.purchaseDate),
+      expireDate: asset.expireDate && asset.expireDate > 4102444800000 ? 'never' : tsToDateInput(asset.expireDate),
       monthlyCost: asset.monthlyCost || '', currency: asset.currency || 'CNY',
       billingCycle: asset.billingCycle?.toString() || '',
       tags: asset.tags || '', monitorNodeUuid: asset.monitorNodeUuid || '', pikaNodeId: asset.pikaNodeId || '',
@@ -1220,10 +1229,10 @@ export default function AssetsPage() {
         memTotalMb: form.memTotalMb ? parseInt(form.memTotalMb) : null,
         diskTotalGb: form.diskTotalGb ? parseInt(form.diskTotalGb) : null,
         bandwidthMbps: form.bandwidthMbps ? parseInt(form.bandwidthMbps) : null,
-        monthlyTrafficGb: form.monthlyTrafficGb ? parseInt(form.monthlyTrafficGb) : null,
+        monthlyTrafficGb: form.monthlyTrafficGb === '-1' ? -1 : (form.monthlyTrafficGb ? parseInt(form.monthlyTrafficGb) : null),
         sshPort: form.sshPort ? parseInt(form.sshPort) : null,
         purchaseDate: dateInputToTs(form.purchaseDate) ?? null,
-        expireDate: dateInputToTs(form.expireDate) ?? null,
+        expireDate: form.expireDate === 'never' ? 4102444800000 : (dateInputToTs(form.expireDate) ?? null),
         monthlyCost: form.monthlyCost.trim() || null,
         currency: form.currency || null,
         billingCycle: form.billingCycle ? parseInt(form.billingCycle) : null,
@@ -2520,14 +2529,14 @@ export default function AssetsPage() {
                       <div className="grid gap-3 md:grid-cols-4">
                         <Input size="sm" label="名称" placeholder="HK-VPS-01" value={form.name}
                           onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
-                        <Input size="sm" label="标识 (Label)" placeholder="唯一别名" value={form.label}
-                          onValueChange={(v) => setForm(p => ({ ...p, label: v }))} />
                         <Input size="sm" label="主 IP / 域名" value={form.primaryIp}
                           onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
                         <Select size="sm" label="角色" selectedKeys={form.role ? [form.role] : []}
                           onSelectionChange={(keys) => setForm(p => ({ ...p, role: Array.from(keys)[0]?.toString() || '' }))}>
                           {ROLES.map(r => <SelectItem key={r.key}>{r.label}</SelectItem>)}
                         </Select>
+                        <Input size="sm" label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
+                          onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-4">
@@ -2590,41 +2599,59 @@ export default function AssetsPage() {
                               <SelectItem key="__custom__">+ 自定义输入...</SelectItem>]}
                           </Select>
                         )}
-                        <Input size="sm" label="SSH 端口" type="number" placeholder="22" value={form.sshPort}
-                          onValueChange={(v) => setForm(p => ({ ...p, sshPort: v }))} />
                       </div>
 
                       {/* Cost row */}
                       <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
-                        <Input size="sm" label="购买日期" type="date" value={form.purchaseDate}
-                          onValueChange={(v) => setForm(p => ({ ...p, purchaseDate: v }))} />
-                        <Input size="sm" label="到期日期" type="date" value={form.expireDate}
-                          onValueChange={(v) => setForm(p => ({ ...p, expireDate: v }))} />
-                        <Input size="sm" label="费用" placeholder="10.00" value={form.monthlyCost}
+                        <DatePicker size="sm" label="购买日期" granularity="day"
+                          popoverProps={{ placement: "bottom" }}
+                          value={form.purchaseDate ? parseDate(form.purchaseDate) : null}
+                          onChange={d => setForm(p => ({ ...p, purchaseDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
+                        <div className="flex gap-1.5 items-start">
+                          {form.expireDate === 'never' ? (
+                            <Input size="sm" label="到期" value="永不到期" isReadOnly className="flex-1" classNames={{ input: "text-success font-medium" }} />
+                          ) : (
+                            <DatePicker size="sm" label="到期日期" granularity="day" className="flex-1"
+                              popoverProps={{ placement: "bottom" }}
+                              value={form.expireDate ? parseDate(form.expireDate) : null}
+                              onChange={d => setForm(p => ({ ...p, expireDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
+                          )}
+                          <Button size="sm" isIconOnly variant={form.expireDate === 'never' ? 'solid' : 'flat'}
+                            color={form.expireDate === 'never' ? 'success' : 'default'} className="shrink-0 mt-1"
+                            title={form.expireDate === 'never' ? '取消永久' : '设为永不到期'}
+                            onPress={() => setForm(p => ({ ...p, expireDate: p.expireDate === 'never' ? '' : 'never' }))}>
+                            ∞
+                          </Button>
+                        </div>
+                        <Select size="sm" label="付费周期" selectedKeys={form.billingCycle ? [form.billingCycle] : []}
+                          onSelectionChange={(keys) => setForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
+                          {BILLING_CYCLES.filter(c => c.key).map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+                        </Select>
+                        <Input size="sm" label="周期费用" placeholder="10.00" value={form.monthlyCost}
                           onValueChange={(v) => setForm(p => ({ ...p, monthlyCost: v }))} />
                         <Select size="sm" label="币种" selectedKeys={form.currency ? [form.currency] : ['CNY']}
                           onSelectionChange={(keys) => setForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || 'CNY' }))}>
                           {CURRENCIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
                         </Select>
-                        <Select size="sm" label="付费周期" selectedKeys={form.billingCycle ? [form.billingCycle] : []}
-                          onSelectionChange={(keys) => setForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
-                          {BILLING_CYCLES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
-                        </Select>
                       </div>
 
-                      {/* Remaining value hint */}
+                      {/* Cost breakdown + Remaining value hint */}
                       {(() => {
-                        const rv = calcRemainingValue(
+                        const b = calcCostBreakdown(form.monthlyCost, form.billingCycle, form.currency);
+                        const rv = form.expireDate === 'never' ? null : calcRemainingValue(
                           dateInputToTs(form.expireDate),
                           form.monthlyCost,
                           form.billingCycle ? parseInt(form.billingCycle) : null,
                           form.currency,
                         );
-                        if (!rv) return null;
+                        if (!b && !rv) return null;
                         return (
-                          <div className="rounded-lg bg-default-100/60 dark:bg-default-50/10 px-3 py-1.5 text-xs text-default-500">
-                            剩余 <span className="font-semibold text-default-700">{rv.remainingDays}</span> 天，
-                            剩余价值约 <span className="font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                          <div className="rounded-lg bg-default-100/60 dark:bg-default-50/10 px-3 py-1.5 text-xs text-default-500 text-right">
+                            {b && <>日均 <span className="font-semibold text-default-700">{b.currency} {b.dailyCost}</span>
+                              <span className="mx-1.5">·</span>年化 <span className="font-semibold text-default-700">{b.currency} {b.yearlyCost}</span></>}
+                            {b && rv && <span className="mx-1.5">·</span>}
+                            {rv && <>剩余 <span className="font-semibold text-default-700">{rv.remainingDays}</span> 天，
+                              价值约 <span className="font-semibold text-primary">{rv.currency}{rv.remainingValue}</span></>}
                           </div>
                         );
                       })()}
@@ -2634,8 +2661,22 @@ export default function AssetsPage() {
                           onValueChange={(v) => setForm(p => ({ ...p, purpose: v }))} />
                         <Input size="sm" label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
                           onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
-                        <Input size="sm" label="月流量 (GB)" type="number" value={form.monthlyTrafficGb}
-                          onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
+                        <div className="flex gap-1.5 items-start">
+                          {form.monthlyTrafficGb === '-1' ? (
+                            <Input size="sm" label="月流量" value="不限量" isReadOnly className="flex-1"
+                              classNames={{ input: "text-success font-medium" }} />
+                          ) : (
+                            <Input size="sm" label="月流量 (GB)" type="number" className="flex-1"
+                              value={form.monthlyTrafficGb}
+                              onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
+                          )}
+                          <Button size="sm" isIconOnly variant={form.monthlyTrafficGb === '-1' ? 'solid' : 'flat'}
+                            color={form.monthlyTrafficGb === '-1' ? 'success' : 'default'} className="shrink-0 mt-1"
+                            title={form.monthlyTrafficGb === '-1' ? '取消不限量' : '设为不限量'}
+                            onPress={() => setForm(p => ({ ...p, monthlyTrafficGb: p.monthlyTrafficGb === '-1' ? '' : '-1' }))}>
+                            ∞
+                          </Button>
+                        </div>
                       </div>
 
                       {/* Tag chip input */}
@@ -3308,10 +3349,16 @@ export default function AssetsPage() {
                   </div>
                 )}
 
-                {/* ===== Row 1: Name + IP + Provider + Region (4-col) ===== */}
+                {/* ===== Row 1: OS + Name + IP + Provider + Region (5-col) ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-5 gap-2">
+                    <Select size="sm" label="系统平台" isRequired
+                      classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
+                      selectedKeys={[provisionForm.osPlatform]}
+                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, osPlatform: (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'] }))}>
+                      {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                    </Select>
                     <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
                       value={provisionName} onValueChange={setProvisionName}
                       isInvalid={!!provisionFormErrors.name} errorMessage={provisionFormErrors.name} />
@@ -3481,10 +3528,15 @@ export default function AssetsPage() {
                     {/* GOST */}
                     <div className={`rounded-lg border p-2 transition-all ${provisionGostEnabled ? 'border-warning/40 bg-warning-50/20 dark:bg-warning-50/5' : 'border-divider'}`}>
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <Switch size="sm" isSelected={provisionGostEnabled} onValueChange={setProvisionGostEnabled} />
+                        <Switch size="sm" isSelected={provisionGostEnabled}
+                          isDisabled={provisionForm.osPlatform !== 'linux'}
+                          onValueChange={setProvisionGostEnabled} />
                         <span className="text-xs font-medium">GOST</span>
+                        {provisionForm.osPlatform !== 'linux' && (
+                          <span className="text-[10px] text-warning">仅 Linux</span>
+                        )}
                       </div>
-                      {provisionGostEnabled && (
+                      {provisionGostEnabled && provisionForm.osPlatform === 'linux' && (
                         <div className="flex gap-1">
                           <Input size="sm" label="起始" value={provisionGostPortSta} onValueChange={setProvisionGostPortSta} type="number" />
                           <Input size="sm" label="结束" value={provisionGostPortEnd} onValueChange={setProvisionGostPortEnd} type="number" />

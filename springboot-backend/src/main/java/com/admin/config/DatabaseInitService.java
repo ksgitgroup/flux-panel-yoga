@@ -99,6 +99,13 @@ public class DatabaseInitService {
             updateColumn("forward", "remote_source_inbound_id", "bigint(20) DEFAULT NULL COMMENT '关联的 x-ui inbound 快照ID'");
             updateColumn("forward", "remote_source_label", "varchar(255) DEFAULT NULL COMMENT '远端来源标签'");
             updateColumn("forward", "remote_source_protocol", "varchar(40) DEFAULT NULL COMMENT '远端来源协议'");
+            // Fix NULL flow values that cause SQL NULL arithmetic (NULL + x = NULL)
+            jdbcTemplate.execute("UPDATE forward SET in_flow = 0 WHERE in_flow IS NULL");
+            jdbcTemplate.execute("UPDATE forward SET out_flow = 0 WHERE out_flow IS NULL");
+            jdbcTemplate.execute("UPDATE user SET in_flow = 0 WHERE in_flow IS NULL");
+            jdbcTemplate.execute("UPDATE user SET out_flow = 0 WHERE out_flow IS NULL");
+            jdbcTemplate.execute("UPDATE user_tunnel SET in_flow = 0 WHERE in_flow IS NULL");
+            jdbcTemplate.execute("UPDATE user_tunnel SET out_flow = 0 WHERE out_flow IS NULL");
             log.info("[DatabaseInit] Forward 表字段增量升级检测完成");
         } catch (Exception e) {
             log.error("[DatabaseInit] Forward 表属性升级失败: {}", e.getMessage());

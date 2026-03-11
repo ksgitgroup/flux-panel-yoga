@@ -1049,6 +1049,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         forward.setOutPort(portAllocation.getOutPort());
         forward.setUserId(currentUser.getUserId());
         forward.setUserName(currentUser.getUserName());
+        forward.setInFlow(0L);
+        forward.setOutFlow(0L);
         forward.setCreatedTime(System.currentTimeMillis());
         forward.setUpdatedTime(System.currentTimeMillis());
         return forward;

@@ -348,8 +348,8 @@ public class FlowController extends BaseController {
         synchronized (getForwardLock(forwardId)) {
             UpdateWrapper<Forward> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", forwardId);
-            updateWrapper.setSql("in_flow = in_flow + " + d);
-            updateWrapper.setSql("out_flow = out_flow + " + u);
+            updateWrapper.setSql("in_flow = IFNULL(in_flow, 0) + " + d);
+            updateWrapper.setSql("out_flow = IFNULL(out_flow, 0) + " + u);
 
             forwardService.update(null, updateWrapper);
         }
@@ -364,8 +364,8 @@ public class FlowController extends BaseController {
             UpdateWrapper<User> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", userId);
 
-            updateWrapper.setSql("in_flow = in_flow + " + d);
-            updateWrapper.setSql("out_flow = out_flow + " + u);
+            updateWrapper.setSql("in_flow = IFNULL(in_flow, 0) + " + d);
+            updateWrapper.setSql("out_flow = IFNULL(out_flow, 0) + " + u);
 
             userService.update(null, updateWrapper);
         }
@@ -383,8 +383,8 @@ public class FlowController extends BaseController {
         synchronized (getTunnelLock(userTunnelId)) {
             UpdateWrapper<UserTunnel> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", userTunnelId);
-            updateWrapper.setSql("in_flow = in_flow + " + d);
-            updateWrapper.setSql("out_flow = out_flow + " + u);
+            updateWrapper.setSql("in_flow = IFNULL(in_flow, 0) + " + d);
+            updateWrapper.setSql("out_flow = IFNULL(out_flow, 0) + " + u);
             userTunnelService.update(null, updateWrapper);
         }
     }

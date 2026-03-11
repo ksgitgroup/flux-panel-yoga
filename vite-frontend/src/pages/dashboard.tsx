@@ -8,6 +8,7 @@ import { Spinner } from "@heroui/spinner";
 import {
   AssetHost,
   getAssetList,
+  getConfigs,
   getDiagnosisRuntimeStatus,
   getDiagnosisSummary,
   getMonitorList,
@@ -99,6 +100,12 @@ export default function DashboardPage() {
   const [nodes, setNodes] = useState<DashboardNode[]>([]);
   const [probeInstances, setProbeInstances] = useState<MonitorInstance[]>([]);
   const [assets, setAssets] = useState<AssetHost[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({
+    CNY: 1, USD: 7.24, EUR: 7.88, GBP: 9.15, JPY: 0.048,
+    HKD: 0.93, TWD: 0.22, KRW: 0.0053, RUB: 0.078, CAD: 5.28,
+    AUD: 4.72, SGD: 5.42, MYR: 1.55, THB: 0.20, INR: 0.086,
+    TRY: 0.19, BRL: 1.25,
+  });
 
   const loadHome = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -112,8 +119,9 @@ export default function DashboardPage() {
         promises.push(getNodeList().catch(() => null));
         promises.push(getMonitorList().catch(() => null));
         promises.push(getAssetList().catch(() => null));
+        promises.push(getConfigs().catch(() => null));
       }
-      const [packageResp, summaryResp, runtimeResp, nodeResp, monitorResp, assetResp] = await Promise.all(promises);
+      const [packageResp, summaryResp, runtimeResp, nodeResp, monitorResp, assetResp, configResp] = await Promise.all(promises);
 
       if (packageResp.code !== 0) {
         if (!silent) toast.error(packageResp.msg || '加载失败');
@@ -130,6 +138,9 @@ export default function DashboardPage() {
       if (admin && nodeResp?.code === 0) setNodes(Array.isArray(nodeResp.data) ? nodeResp.data : []);
       if (admin && monitorResp?.code === 0) setProbeInstances(Array.isArray(monitorResp.data) ? monitorResp.data : []);
       if (admin && assetResp?.code === 0) setAssets(Array.isArray(assetResp.data) ? assetResp.data : []);
+      if (admin && configResp?.code === 0 && configResp.data?.exchange_rates) {
+        try { setExchangeRates(JSON.parse(configResp.data.exchange_rates)); } catch { /* use fallback */ }
+      }
     } catch {
       if (!silent) toast.error('加载首页失败');
     } finally {
@@ -160,13 +171,15 @@ export default function DashboardPage() {
   // Asset stats
   const assetStats = useMemo(() => {
     const now = Date.now();
-    let expiringSoon = 0, expired = 0, totalMonthly = 0;
+    let expiringSoon = 0, expired = 0, totalMonthlyCNY = 0;
+    const costByCurrency: Record<string, number> = {};
     const regionMap: Record<string, number> = {};
     const osMap: Record<string, number> = {};
     const providerMap: Record<string, number> = {};
     const offlineAssets: AssetHost[] = [];
+    const rates = exchangeRates;
     assets.forEach(a => {
-      if (a.expireDate) {
+      if (a.expireDate && a.expireDate !== -1) {
         const days = (a.expireDate - now) / 86400000;
         if (days < 0) expired++;
         else if (days <= 30) expiringSoon++;
@@ -180,9 +193,15 @@ export default function DashboardPage() {
       if ((a.monitorNodeUuid || a.pikaNodeId) && a.monitorOnline !== 1) {
         offlineAssets.push(a);
       }
-      if (a.monthlyCost) {
+      if (a.monthlyCost && a.billingCycle && a.billingCycle > 0) {
         const v = parseFloat(a.monthlyCost);
-        if (!isNaN(v)) totalMonthly += v;
+        if (!isNaN(v) && v > 0) {
+          const monthlyEquiv = (v / a.billingCycle) * 30; // normalize to monthly
+          const cur = a.currency || 'CNY';
+          costByCurrency[cur] = (costByCurrency[cur] || 0) + monthlyEquiv;
+          const rate = rates[cur] || 1;
+          totalMonthlyCNY += monthlyEquiv * rate;
+        }
       }
     });
     const topRegions = Object.entries(regionMap)
@@ -194,8 +213,8 @@ export default function DashboardPage() {
     const topProviders = Object.entries(providerMap)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 6);
-    return { total: assets.length, expiringSoon, expired, totalMonthly, topRegions, topOs, topProviders, offlineAssets };
-  }, [assets]);
+    return { total: assets.length, expiringSoon, expired, totalMonthlyCNY, costByCurrency, topRegions, topOs, topProviders, offlineAssets };
+  }, [assets, exchangeRates]);
 
   // Traffic warning assets
   const trafficWarnings = useMemo(() =>
@@ -309,13 +328,15 @@ export default function DashboardPage() {
                 />
               )}
 
-              {/* Monthly cost */}
-              {admin && assetStats.totalMonthly > 0 && (
+              {/* Monthly cost (converted to CNY) */}
+              {admin && assetStats.totalMonthlyCNY > 0 && (
                 <InfraCell
                   label="月度成本"
-                  value={`¥${assetStats.totalMonthly.toFixed(0)}`}
+                  value={`¥${assetStats.totalMonthlyCNY.toFixed(0)}`}
                   color="text-foreground"
-                  subtext={`均 ¥${assetStats.total > 0 ? (assetStats.totalMonthly / assetStats.total).toFixed(0) : 0}/台`}
+                  subtext={Object.keys(assetStats.costByCurrency).length > 1
+                    ? `${Object.keys(assetStats.costByCurrency).length}种币 · 均¥${assetStats.total > 0 ? (assetStats.totalMonthlyCNY / assetStats.total).toFixed(0) : 0}/台`
+                    : `均 ¥${assetStats.total > 0 ? (assetStats.totalMonthlyCNY / assetStats.total).toFixed(0) : 0}/台`}
                   onClick={() => navigate('/cost')}
                 />
               )}

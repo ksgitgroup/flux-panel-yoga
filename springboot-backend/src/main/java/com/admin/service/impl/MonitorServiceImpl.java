@@ -1186,10 +1186,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
                 String name = dto.getName() != null ? dto.getName().trim() : "";
                 String installCmd = String.format(
-                        "curl -fsSL %s/api/agent/install.sh?token=%s%s | bash",
+                        "curl -fsSL \"%s/api/agent/install.sh?token=%s%s\" | sudo bash",
                         baseUrl, apiKey, name.isEmpty() ? "" : "&name=" + name);
 
                 Map<String, Object> result = new LinkedHashMap<>();
+                // Pika agents self-register on install, so there's no pre-created UUID.
+                // Use the provision name as a matching key for post-install verification.
+                result.put("uuid", name.isEmpty() ? "pika-" + System.currentTimeMillis() : name);
+                result.put("token", apiKey);
                 result.put("instanceId", instance.getId());
                 result.put("instanceName", instance.getName());
                 result.put("endpoint", baseUrl);
@@ -3267,38 +3271,72 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 .eq(MonitorNodeSnapshot::getInstanceId, instanceId)
                 .eq(MonitorNodeSnapshot::getRemoteNodeUuid, uuid));
 
-        // 2. Query Komari directly for live online status
         boolean remoteOnline = false;
         boolean remoteExists = false;
         String remoteName = null;
         String remoteIp = null;
+
         try {
-            JSONObject allMetrics = fetchAllMetricsViaRpc(instance);
-            if (allMetrics != null && allMetrics.containsKey(uuid)) {
-                remoteExists = true;
-                JSONObject m = allMetrics.getJSONObject(uuid);
-                remoteOnline = m != null && m.getBooleanValue("online");
-            }
-            // Also check client list for name/ip
-            String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
-            if (clientsJson != null) {
-                JSONArray clients = clientsJson.trim().startsWith("[")
-                        ? JSON.parseArray(clientsJson.trim())
-                        : JSON.parseObject(clientsJson.trim()).getJSONArray("data");
-                if (clients != null) {
-                    for (int i = 0; i < clients.size(); i++) {
-                        JSONObject c = clients.getJSONObject(i);
-                        if (uuid.equals(c.getString("uuid"))) {
+            if (TYPE_PIKA.equalsIgnoreCase(instance.getType())) {
+                // Pika: query agent list via JWT auth
+                String jwt = loginPika(instance);
+                String baseUrl = instance.getBaseUrl().replaceAll("/+$", "");
+                String agentsJson = httpGetWithToken(baseUrl + "/api/admin/agents", jwt, instance.getAllowInsecureTls());
+                JSONArray agents = null;
+                if (agentsJson != null) {
+                    String trimmed = agentsJson.trim();
+                    agents = trimmed.startsWith("[") ? JSON.parseArray(trimmed)
+                            : JSON.parseObject(trimmed).getJSONArray("data");
+                }
+                if (agents != null) {
+                    for (int i = 0; i < agents.size(); i++) {
+                        JSONObject agent = agents.getJSONObject(i);
+                        String agentId = agent.getString("id");
+                        // Match by uuid (agentId) or by name (for newly provisioned agents)
+                        if (uuid.equals(agentId) || uuid.equals(agent.getString("name"))) {
                             remoteExists = true;
-                            remoteName = c.getString("name");
-                            remoteIp = c.getString("ipv4");
+                            remoteName = agent.getString("name");
+                            remoteIp = agent.getString("ip");
+                            // Pika agent online: check "isOnline" or "status" field
+                            Boolean isOnline = agent.getBoolean("isOnline");
+                            if (isOnline == null) isOnline = agent.getBoolean("online");
+                            if (isOnline == null) {
+                                String status = agent.getString("status");
+                                isOnline = "online".equalsIgnoreCase(status);
+                            }
+                            remoteOnline = Boolean.TRUE.equals(isOnline);
                             break;
+                        }
+                    }
+                }
+            } else {
+                // Komari: query metrics + client list
+                JSONObject allMetrics = fetchAllMetricsViaRpc(instance);
+                if (allMetrics != null && allMetrics.containsKey(uuid)) {
+                    remoteExists = true;
+                    JSONObject m = allMetrics.getJSONObject(uuid);
+                    remoteOnline = m != null && m.getBooleanValue("online");
+                }
+                String clientsJson = httpGet(instance, "/api/admin/client/list", instance.getAllowInsecureTls());
+                if (clientsJson != null) {
+                    JSONArray clients = clientsJson.trim().startsWith("[")
+                            ? JSON.parseArray(clientsJson.trim())
+                            : JSON.parseObject(clientsJson.trim()).getJSONArray("data");
+                    if (clients != null) {
+                        for (int i = 0; i < clients.size(); i++) {
+                            JSONObject c = clients.getJSONObject(i);
+                            if (uuid.equals(c.getString("uuid"))) {
+                                remoteExists = true;
+                                remoteName = c.getString("name");
+                                remoteIp = c.getString("ipv4");
+                                break;
+                            }
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            log.warn("[MonitorSync] Failed to query node status from remote: {}", e.getMessage());
+            log.warn("[MonitorSync] Failed to query node status from remote {}: {}", instance.getType(), e.getMessage());
         }
 
         Map<String, Object> result = new LinkedHashMap<>();

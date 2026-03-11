@@ -1,11 +1,12 @@
 package com.admin.service.impl;
 
 import com.admin.common.lang.R;
-import com.admin.entity.TrafficAnomaly;
-import com.admin.entity.TrafficHourlyStat;
+import com.admin.entity.*;
 import com.admin.mapper.TrafficAnomalyMapper;
 import com.admin.mapper.TrafficHourlyStatMapper;
+import com.admin.service.ForwardService;
 import com.admin.service.TrafficAnalysisService;
+import com.admin.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -24,6 +29,15 @@ public class TrafficAnalysisServiceImpl implements TrafficAnalysisService {
     private TrafficHourlyStatMapper trafficHourlyStatMapper;
     @Resource
     private TrafficAnomalyMapper trafficAnomalyMapper;
+    @Resource
+    private ForwardService forwardService;
+    @Resource
+    private UserService userService;
+
+    private static final DateTimeFormatter HOUR_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH").withZone(ZoneId.systemDefault());
+
+    /** Stores last-seen flow values for delta calculation: key = "forward_{id}" or "user_{id}" */
+    private final ConcurrentHashMap<String, long[]> lastFlowSnapshot = new ConcurrentHashMap<>();
 
     @Override
     public R getOverview() {
@@ -179,7 +193,105 @@ public class TrafficAnalysisServiceImpl implements TrafficAnalysisService {
 
     @Override
     public void aggregateHourlyStats() {
-        log.info("[TrafficAnalysis] Hourly aggregation triggered (placeholder)");
+        long now = System.currentTimeMillis();
+        String hourKey = HOUR_FMT.format(Instant.ofEpochMilli(now));
+        log.info("[TrafficAnalysis] Hourly aggregation started for {}", hourKey);
+
+        int count = 0;
+
+        // Aggregate per-forward traffic
+        List<Forward> forwards = forwardService.list();
+        for (Forward f : forwards) {
+            long inFlow = f.getInFlow() != null ? f.getInFlow() : 0;
+            long outFlow = f.getOutFlow() != null ? f.getOutFlow() : 0;
+            if (inFlow == 0 && outFlow == 0) continue;
+
+            String snapshotKey = "forward_" + f.getId();
+            long[] last = lastFlowSnapshot.get(snapshotKey);
+            long deltaIn = 0, deltaOut = 0;
+
+            if (last != null) {
+                // Calculate delta; handle flow reset (value decreased = reset happened)
+                deltaIn = inFlow >= last[0] ? inFlow - last[0] : inFlow;
+                deltaOut = outFlow >= last[1] ? outFlow - last[1] : outFlow;
+            } else {
+                // First run after startup: record snapshot, skip writing (no delta yet)
+                lastFlowSnapshot.put(snapshotKey, new long[]{inFlow, outFlow});
+                continue;
+            }
+
+            lastFlowSnapshot.put(snapshotKey, new long[]{inFlow, outFlow});
+
+            if (deltaIn > 0 || deltaOut > 0) {
+                upsertHourlyStat("forward", f.getId().longValue(), f.getName(), hourKey, deltaOut, deltaIn, now);
+                count++;
+            }
+        }
+
+        // Aggregate per-user traffic
+        List<User> users = userService.list();
+        for (User u : users) {
+            long inFlow = u.getInFlow() != null ? u.getInFlow() : 0;
+            long outFlow = u.getOutFlow() != null ? u.getOutFlow() : 0;
+            if (inFlow == 0 && outFlow == 0) continue;
+
+            String snapshotKey = "user_" + u.getId();
+            long[] last = lastFlowSnapshot.get(snapshotKey);
+            long deltaIn = 0, deltaOut = 0;
+
+            if (last != null) {
+                deltaIn = inFlow >= last[0] ? inFlow - last[0] : inFlow;
+                deltaOut = outFlow >= last[1] ? outFlow - last[1] : outFlow;
+            } else {
+                lastFlowSnapshot.put(snapshotKey, new long[]{inFlow, outFlow});
+                continue;
+            }
+
+            lastFlowSnapshot.put(snapshotKey, new long[]{inFlow, outFlow});
+
+            if (deltaIn > 0 || deltaOut > 0) {
+                upsertHourlyStat("user", u.getId().longValue(), u.getUser(), hourKey, deltaOut, deltaIn, now);
+                count++;
+            }
+        }
+
+        log.info("[TrafficAnalysis] Hourly aggregation done: {} records for {}", count, hourKey);
+    }
+
+    /**
+     * Insert or update an hourly stat record. If a record for the same dimension+hourKey
+     * already exists (e.g. scheduler runs multiple times in the same hour), accumulate.
+     */
+    private void upsertHourlyStat(String dimType, Long dimId, String dimName,
+                                   String hourKey, long uploadBytes, long downloadBytes, long now) {
+        TrafficHourlyStat existing = trafficHourlyStatMapper.selectOne(
+                new LambdaQueryWrapper<TrafficHourlyStat>()
+                        .eq(TrafficHourlyStat::getDimensionType, dimType)
+                        .eq(TrafficHourlyStat::getDimensionId, dimId)
+                        .eq(TrafficHourlyStat::getHourKey, hourKey)
+                        .last("LIMIT 1"));
+
+        if (existing != null) {
+            existing.setUploadBytes((existing.getUploadBytes() != null ? existing.getUploadBytes() : 0) + uploadBytes);
+            existing.setDownloadBytes((existing.getDownloadBytes() != null ? existing.getDownloadBytes() : 0) + downloadBytes);
+            existing.setTotalBytes(existing.getUploadBytes() + existing.getDownloadBytes());
+            existing.setUpdatedTime(now);
+            trafficHourlyStatMapper.updateById(existing);
+        } else {
+            TrafficHourlyStat stat = new TrafficHourlyStat();
+            stat.setDimensionType(dimType);
+            stat.setDimensionId(dimId);
+            stat.setDimensionName(dimName);
+            stat.setHourKey(hourKey);
+            stat.setUploadBytes(uploadBytes);
+            stat.setDownloadBytes(downloadBytes);
+            stat.setTotalBytes(uploadBytes + downloadBytes);
+            stat.setPeakRateBps(0L);
+            stat.setCreatedTime(now);
+            stat.setUpdatedTime(now);
+            stat.setStatus(0);
+            trafficHourlyStatMapper.insert(stat);
+        }
     }
 
     private long resolveRange(long now, String range) {

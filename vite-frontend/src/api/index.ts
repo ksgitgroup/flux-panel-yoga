@@ -802,6 +802,10 @@ export const checkNodeStatus = (nodeId?: number) => {
   const params = nodeId ? { nodeId } : {};
   return Network.post("/node/check-status", params);
 };
+export const getNodeTrafficSummary = () => Network.post<Record<string, {
+  forwardCount: number; totalInFlow: number; totalOutFlow: number;
+  forwards: { id: number; name: string; inFlow: number; outFlow: number; inPort: number; remoteAddr: string }[];
+}>>("/node/traffic-summary");
 
 // 隧道CRUD操作 - 全部使用POST请求
 export const createTunnel = (data: any) => Network.post("/tunnel/create", data);

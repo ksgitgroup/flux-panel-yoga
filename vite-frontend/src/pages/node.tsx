@@ -13,12 +13,14 @@ import axios from 'axios';
 
 import { hasPermission } from '@/utils/auth';
 import {
-  createNode, 
-  getNodeList, 
-  updateNode, 
+  createNode,
+  getNodeList,
+  updateNode,
   deleteNode,
-  getNodeInstallCommand
+  getNodeInstallCommand,
+  getNodeTrafficSummary
 } from "@/api";
+import { formatFlow } from '@/utils/formatters';
 
 interface Node {
   id: number;
@@ -78,6 +80,10 @@ export default function NodePage() {
   const [installCommandModal, setInstallCommandModal] = useState(false);
   const [installCommand, setInstallCommand] = useState('');
   const [currentNodeName, setCurrentNodeName] = useState('');
+
+  // Per-node forward traffic summary
+  type NodeTrafficSummary = { forwardCount: number; totalInFlow: number; totalOutFlow: number; forwards: { id: number; name: string; inFlow: number; outFlow: number; inPort: number; remoteAddr: string }[] };
+  const [trafficSummary, setTrafficSummary] = useState<Record<string, NodeTrafficSummary>>({});
   
   const websocketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -97,7 +103,10 @@ export default function NodePage() {
   const loadNodes = async () => {
     setLoading(true);
     try {
-      const res = await getNodeList();
+      const [res, trafficRes] = await Promise.all([
+        getNodeList(),
+        getNodeTrafficSummary().catch(() => null),
+      ]);
       if (res.code === 0) {
         setNodeList(res.data.map((node: any) => ({
           ...node,
@@ -107,6 +116,9 @@ export default function NodePage() {
         })));
       } else {
         toast.error(res.msg || '加载节点列表失败');
+      }
+      if (trafficRes?.code === 0 && trafficRes.data) {
+        setTrafficSummary(trafficRes.data);
       }
     } catch (error) {
       toast.error('网络错误，请重试');
@@ -568,6 +580,8 @@ export default function NodePage() {
         {/* 页面头部 */}
         <div className="flex items-center justify-between mb-6">
         <div className="flex-1">
+          <h1 className="text-2xl font-bold tracking-tight">GOST 节点</h1>
+          <p className="mt-0.5 text-sm text-default-500">节点实时监控与代理流量统计</p>
         </div>
 
         {canCreate && <Button
@@ -758,6 +772,35 @@ export default function NodePage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* 代理流量统计 */}
+                  {(() => {
+                    const ts = trafficSummary[String(node.id)];
+                    if (!ts || ts.forwardCount === 0) return (
+                      <div className="text-xs text-default-300 text-center py-1.5 mb-3 border border-dashed border-divider rounded">
+                        暂无转发流量
+                      </div>
+                    );
+                    return (
+                      <div className="mb-3 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-default-500 font-medium">代理流量 ({ts.forwardCount}条转发)</span>
+                          <span className="font-mono text-default-600">
+                            ↑{formatFlow(ts.totalOutFlow)} ↓{formatFlow(ts.totalInFlow)}
+                          </span>
+                        </div>
+                        {ts.forwards.slice(0, 3).map(f => (
+                          <div key={f.id} className="flex items-center gap-1.5 text-[10px] text-default-400 bg-default-50 dark:bg-default-50/10 rounded px-2 py-1">
+                            <span className="truncate flex-1 font-medium" title={f.name}>{f.name || `#${f.id}`}</span>
+                            <span className="font-mono shrink-0">↑{formatFlow(f.outFlow)} ↓{formatFlow(f.inFlow)}</span>
+                          </div>
+                        ))}
+                        {ts.forwards.length > 3 && (
+                          <p className="text-[10px] text-default-300 text-center">+{ts.forwards.length - 3} 更多</p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* 操作按钮 */}
                   <div className="space-y-1.5">

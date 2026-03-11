@@ -75,10 +75,11 @@ public class ExpiryReminderServiceImpl extends ServiceImpl<ExpiryReminderConfigM
             }
         }
 
-        // Query active assets with expireDate
+        // Query active assets with expireDate (exclude -1 which means never expire)
         List<AssetHost> assets = assetHostMapper.selectList(
                 new LambdaQueryWrapper<AssetHost>()
                         .isNotNull(AssetHost::getExpireDate)
+                        .ne(AssetHost::getExpireDate, -1L)
                         .eq(AssetHost::getStatus, 0));
 
         long now = System.currentTimeMillis();

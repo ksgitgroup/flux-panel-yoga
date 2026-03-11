@@ -435,8 +435,14 @@ function ProxyTrafficTab() {
 
       {!hasData ? (
         <Card className="border border-divider/60">
-          <CardBody className="p-8 text-center">
-            <p className="text-sm text-default-400">暂无代理流量数据。数据在 GOST 节点有转发流量后，每小时自动聚合一次。</p>
+          <CardBody className="flex flex-col items-center justify-center py-16 gap-3">
+            <div className="rounded-full bg-default-100 p-4">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-default-300">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-default-500">暂无代理流量数据</p>
+            <p className="text-xs text-default-400 max-w-sm text-center">GOST 节点有转发流量后，系统每小时自动聚合一次统计数据。请确认节点已上线且存在活跃转发规则。</p>
           </CardBody>
         </Card>
       ) : (<>

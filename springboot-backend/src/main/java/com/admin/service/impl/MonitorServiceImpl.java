@@ -3432,11 +3432,13 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     // ==================== Unified Multi-Agent Provision ====================
 
     @Override
-    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name) {
+    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name, String osPlatform) {
         if (komariInstanceId == null && pikaInstanceId == null && (gostConfig == null || gostConfig.isEmpty())) {
             return R.err("至少需要选择一个组件进行安装");
         }
+        if (osPlatform == null || osPlatform.isBlank()) osPlatform = "linux";
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("osPlatform", osPlatform);
         List<String> installCommands = new ArrayList<>();
         List<String> installCommandsCn = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
@@ -3458,10 +3460,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     result.put("komariSkipped", "该服务器已安装 Komari 探针且在线");
                 } else {
                     // Existing but offline — proceed (will reuse via orphan logic)
-                    provisionKomariInto(komariInstanceId, name, result, installCommands, installCommandsCn);
+                    provisionKomariInto(komariInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
                 }
             } else {
-                provisionKomariInto(komariInstanceId, name, result, installCommands, installCommandsCn);
+                provisionKomariInto(komariInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
             }
         }
 
@@ -3477,10 +3479,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     skipped.add("Pika（该服务器已有在线探针 " + existingNode.getName() + "）");
                     result.put("pikaSkipped", "该服务器已安装 Pika 探针且在线");
                 } else {
-                    provisionPikaInto(pikaInstanceId, name, result, installCommands, installCommandsCn);
+                    provisionPikaInto(pikaInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
                 }
             } else {
-                provisionPikaInto(pikaInstanceId, name, result, installCommands, installCommandsCn);
+                provisionPikaInto(pikaInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
             }
         }
 
@@ -3540,7 +3542,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     }
 
     @SuppressWarnings("unchecked")
-    private void provisionKomariInto(Long instanceId, String name, Map<String, Object> result,
+    private void provisionKomariInto(Long instanceId, String name, String osPlatform, Map<String, Object> result,
                                       List<String> cmds, List<String> cmdsCn) {
         MonitorProvisionDto dto = new MonitorProvisionDto();
         dto.setInstanceId(instanceId);
@@ -3548,8 +3550,22 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         R r = provisionAgent(dto);
         if (r.getCode() == 0) {
             Map<String, Object> data = (Map<String, Object>) r.getData();
+            // Generate platform-specific install commands
+            if ("windows".equals(osPlatform)) {
+                String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
+                String token = data.get("token") != null ? data.get("token").toString() : "";
+                String ps1Url = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1";
+                String winCmd = String.format(
+                        "Invoke-WebRequest -Uri '%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --endpoint %s --token %s",
+                        ps1Url, endpoint, token);
+                data.put("installCommand", winCmd);
+                data.put("installCommandCn", String.format(
+                        "Invoke-WebRequest -Uri 'https://ghfast.top/%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --install-ghproxy https://ghfast.top --endpoint %s --token %s",
+                        ps1Url, endpoint, token));
+            }
+            // macOS: install.sh already supports macOS (launchd), same command works
             result.put("komari", data);
-            cmds.add("# Komari 监控探针\n" + data.get("installCommand"));
+            cmds.add("# Komari 监控探针" + ("windows".equals(osPlatform) ? " (PowerShell 管理员)" : "") + "\n" + data.get("installCommand"));
             if (data.get("installCommandCn") != null) cmdsCn.add("# Komari 监控探针\n" + data.get("installCommandCn"));
         } else {
             result.put("komariError", r.getMsg());
@@ -3557,7 +3573,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     }
 
     @SuppressWarnings("unchecked")
-    private void provisionPikaInto(Long instanceId, String name, Map<String, Object> result,
+    private void provisionPikaInto(Long instanceId, String name, String osPlatform, Map<String, Object> result,
                                     List<String> cmds, List<String> cmdsCn) {
         MonitorProvisionDto dto = new MonitorProvisionDto();
         dto.setInstanceId(instanceId);
@@ -3565,6 +3581,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         R r = provisionAgent(dto);
         if (r.getCode() == 0) {
             Map<String, Object> data = (Map<String, Object>) r.getData();
+            // Pika's install.sh only works on Linux; for other platforms, provide manual instructions
+            if ("windows".equals(osPlatform) || "macos".equals(osPlatform)) {
+                String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
+                String token = data.get("token") != null ? data.get("token").toString() : "";
+                String note = String.format(
+                        "# Pika 暂无 %s 自动安装脚本，请手动下载二进制并运行:\n# 下载地址: %s/api/agent/download\n# 运行: pika-agent run --server %s --token %s",
+                        "windows".equals(osPlatform) ? "Windows" : "macOS", endpoint, endpoint, token);
+                data.put("installCommand", note);
+                data.remove("installCommandCn");
+            }
             result.put("pika", data);
             cmds.add("# Pika 监控探针\n" + data.get("installCommand"));
             if (data.get("installCommandCn") != null) cmdsCn.add("# Pika 监控探针\n" + data.get("installCommandCn"));

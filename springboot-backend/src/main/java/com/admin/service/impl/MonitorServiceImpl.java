@@ -3589,13 +3589,15 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
                 String token = data.get("token") != null ? data.get("token").toString() : "";
                 String ps1Url = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1";
+                String tlsfix = "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12";
                 String winCmd = String.format(
-                        "Invoke-WebRequest -Uri '%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --endpoint %s --token %s",
-                        ps1Url, endpoint, token);
+                        "%s; Invoke-WebRequest -Uri '%s' -OutFile 'C:\\install.ps1'; powershell -ExecutionPolicy Bypass -File 'C:\\install.ps1' --endpoint %s --token %s",
+                        tlsfix, ps1Url, endpoint, token);
                 data.put("installCommand", winCmd);
                 // China-friendly: pre-download NSSM via ghproxy (install.ps1 will skip nssm.cc if nssm.exe found in install dir)
                 String ghProxy = getGithubProxyUrl();
                 String nssmPreInstall = String.join("; ",
+                        tlsfix,
                         "$d='C:\\Program Files\\Komari'",
                         "New-Item -ItemType Directory -Force $d | Out-Null",
                         "if (-not (Test-Path \"$d\\nssm.exe\")) { " +
@@ -3607,7 +3609,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                             "Write-Host 'NSSM pre-installed via mirror' -ForegroundColor Green " +
                         "}");
                 String winCmdCn = String.format(
-                        "%s; Invoke-WebRequest -Uri '%s/%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --install-ghproxy %s --endpoint %s --token %s",
+                        "%s; Invoke-WebRequest -Uri '%s/%s' -OutFile 'C:\\install.ps1'; powershell -ExecutionPolicy Bypass -File 'C:\\install.ps1' --install-ghproxy %s --endpoint %s --token %s",
                         nssmPreInstall, ghProxy, ps1Url, ghProxy, endpoint, token);
                 data.put("installCommandCn", winCmdCn);
             }

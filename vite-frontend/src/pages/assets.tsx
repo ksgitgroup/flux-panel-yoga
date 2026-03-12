@@ -486,8 +486,6 @@ export default function AssetsPage() {
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [isEdit, setIsEdit] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState<AssetHost | null>(null);
-  const unboundNodes: MonitorNodeSnapshot[] = [];
-  const importLoading = false;
   const [monitorInstances, setMonitorInstances] = useState<MonitorInstance[]>([]);
   const [provisionStep, setProvisionStep] = useState<'select' | 'result'>('select');
   const [provisionName, setProvisionName] = useState('');
@@ -501,13 +499,14 @@ export default function AssetsPage() {
   const [provisionGostPortSta, setProvisionGostPortSta] = useState('10000');
   const [provisionGostPortEnd, setProvisionGostPortEnd] = useState('20000');
   // Context when provisioning from an existing asset
-  const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; assetIp?: string; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean } | null>(null);
+  const [provisionContext, setProvisionContext] = useState<{ assetId: number; assetName: string; assetIp?: string; asset?: AssetHost; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean } | null>(null);
   const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm());
   const [provisionFormErrors, setProvisionFormErrors] = useState<Record<string, string>>({});
   const [provisionSyncLoading, setProvisionSyncLoading] = useState(false);
   const [allProvisionResult, setAllProvisionResult] = useState<ProvisionAllResult | null>(null);
   const [provisionNodeVerified, setProvisionNodeVerified] = useState(false);
   const [provisionNodeStatus, setProvisionNodeStatus] = useState<string>('');
+  const [provisionCmdRegion, setProvisionCmdRegion] = useState<'overseas' | 'cn'>('cn');
   const [filterRole, setFilterRole] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterProbe, setFilterProbe] = useState<string>('');
@@ -578,7 +577,7 @@ export default function AssetsPage() {
         if (searchParams.get('deploy') === '1') {
           setTimeout(() => {
             openProvisionModal({
-              assetId: id, assetName: asset.name, assetIp: asset.primaryIp || undefined,
+              assetId: id, assetName: asset.name, assetIp: asset.primaryIp || undefined, asset,
               missingKomari: !asset.monitorNodeUuid, missingPika: !asset.pikaNodeId, missingGost: !asset.gostNodeId,
             });
           }, 300);
@@ -802,40 +801,7 @@ export default function AssetsPage() {
     finally { setDetailLoading(false); }
   };
 
-  const importFromNode = (node: MonitorNodeSnapshot) => {
-    if (!(canCreateAssets || canUpdateAssets)) {
-      toast.error('权限不足，无法导入探针节点');
-      return;
-    }
-    const memMb = node.memTotal ? Math.round(node.memTotal / (1024 * 1024)) : undefined;
-    const diskGb = node.diskTotal ? Math.round(node.diskTotal / (1024 * 1024 * 1024)) : undefined;
-    const swapMb = node.swapTotal ? Math.round(node.swapTotal / (1024 * 1024)) : undefined;
-    // Determine probe type from instance
-    const inst = monitorInstances.find(i => i.id === node.instanceId);
-    const isPika = inst?.type === 'pika';
-    setForm(p => ({
-      ...p,
-      name: p.name || node.name || '',
-      primaryIp: p.primaryIp || node.ip || '',
-      ipv6: p.ipv6 || node.ipv6 || '',
-      os: node.os || p.os,
-      cpuCores: node.cpuCores?.toString() || p.cpuCores,
-      memTotalMb: memMb?.toString() || p.memTotalMb,
-      diskTotalGb: diskGb?.toString() || p.diskTotalGb,
-      swapTotalMb: swapMb?.toString() || p.swapTotalMb,
-      region: node.region || p.region,
-      monitorNodeUuid: isPika ? p.monitorNodeUuid : (node.remoteNodeUuid || p.monitorNodeUuid),
-      pikaNodeId: isPika ? (node.remoteNodeUuid || p.pikaNodeId) : p.pikaNodeId,
-      cpuName: node.cpuName || p.cpuName,
-      arch: node.arch || p.arch,
-      virtualization: node.virtualization || p.virtualization,
-      kernelVersion: node.kernelVersion || p.kernelVersion,
-      gpuName: node.gpuName || p.gpuName,
-    }));
-    toast.success(`已导入${isPika ? 'Pika' : 'Komari'}探针节点: ${node.name || node.ip}`);
-  };
-
-  const openProvisionModal = async (ctx?: { assetId: number; assetName: string; assetIp?: string; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean }) => {
+  const openProvisionModal = async (ctx?: { assetId: number; assetName: string; assetIp?: string; asset?: AssetHost; missingKomari?: boolean; missingPika?: boolean; missingGost?: boolean }) => {
     if (!(canCreateAssets || canUpdateAssets)) {
       toast.error('权限不足，无法为资产部署探针');
       return;
@@ -857,14 +823,51 @@ export default function AssetsPage() {
       setProvisionKomariEnabled(!!ctx.missingKomari);
       setProvisionPikaEnabled(!!ctx.missingPika);
       setProvisionGostEnabled(!!ctx.missingGost);
+      // Pre-fill form from existing asset data — prefer directly passed asset, fallback to list lookup
+      const asset = ctx.asset || assets.find(a => a.id === ctx.assetId);
+      if (asset) {
+        const fmtDate = (ts?: number | null) => {
+          if (!ts) return '';
+          const d = new Date(ts);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const isNeverExpire = asset.expireDate != null && asset.expireDate > 4102444800000;
+        const trafficUnlimited = asset.monthlyTrafficGb != null && asset.monthlyTrafficGb < 0;
+        const rawTraffic = asset.monthlyTrafficGb != null && asset.monthlyTrafficGb > 0 ? asset.monthlyTrafficGb : '';
+        const trafficUnit: 'GB' | 'TB' = typeof rawTraffic === 'number' && rawTraffic >= 1000 ? 'TB' : 'GB';
+        const trafficVal = typeof rawTraffic === 'number' ? (trafficUnit === 'TB' ? String(rawTraffic / 1000) : String(rawTraffic)) : '';
+        // Guess osPlatform from OS string
+        const osLower = (asset.os || asset.osCategory || '').toLowerCase();
+        const osPlatform: ProvisionForm['osPlatform'] = osLower.includes('windows') ? 'windows' : osLower.includes('darwin') || osLower.includes('macos') ? 'macos' : 'linux';
+        setProvisionForm({
+          osPlatform,
+          primaryIp: asset.primaryIp || ctx.assetIp || '',
+          provider: asset.provider || '',
+          region: asset.region || '',
+          purchaseDate: fmtDate(asset.purchaseDate) || new Date().toISOString().split('T')[0],
+          expireDate: isNeverExpire ? '' : fmtDate(asset.expireDate),
+          neverExpire: isNeverExpire,
+          billingCycle: asset.billingCycle != null ? String(asset.billingCycle) : '',
+          monthlyCost: asset.monthlyCost || '',
+          currency: asset.currency || 'CNY',
+          bandwidthMbps: asset.bandwidthMbps != null ? String(asset.bandwidthMbps) : '',
+          monthlyTrafficGb: trafficVal,
+          trafficUnlimited,
+          trafficUnit,
+          purpose: asset.purpose || '',
+          tags: asset.tags || '',
+          remark: asset.remark || '',
+        });
+      } else {
+        setProvisionForm({ ...emptyProvisionForm(), primaryIp: ctx.assetIp || '' });
+      }
     } else {
       setProvisionName('');
       setProvisionKomariEnabled(true);
       setProvisionPikaEnabled(true);
       setProvisionGostEnabled(true);
+      setProvisionForm(emptyProvisionForm());
     }
-    // Reset provision form fields
-    setProvisionForm(emptyProvisionForm());
 
     onProvisionOpen();
     try {
@@ -1868,11 +1871,10 @@ export default function AssetsPage() {
                                 <span key={t} className="px-1.5 py-0.5 rounded-full bg-primary-100 text-[10px] text-primary-700 dark:bg-primary/15 dark:text-primary-300 font-medium">{t.trim()}</span>
                               ));
                             })()}
-                            {/* Meta: region, provider, OS — muted style */}
-                            {asset.region && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{getRegionFlag(asset.region)}{asset.region}</span>}
+                            {/* Meta: provider, OS — muted style (region already in server column) */}
                             {asset.provider && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{asset.provider}</span>}
                             {(asset.osCategory || asset.os) && <span className="px-1.5 py-0.5 rounded bg-default-50 text-[10px] text-default-400 border border-divider/40">{asset.osCategory || asset.os}</span>}
-                            {!asset.tags && !asset.region && !asset.provider && !asset.osCategory && !asset.os && <span className="text-xs text-default-300">-</span>}
+                            {!asset.tags && !asset.provider && !asset.osCategory && !asset.os && <span className="text-xs text-default-300">-</span>}
                           </div>
                         </td>
 
@@ -2038,7 +2040,7 @@ export default function AssetsPage() {
                         onDetailClose();
                         openProvisionModal({
                           assetId: selectedAsset.id, assetName: selectedAsset.name,
-                          assetIp: selectedAsset.primaryIp || undefined,
+                          assetIp: selectedAsset.primaryIp || undefined, asset: selectedAsset,
                           missingKomari: !hasK, missingPika: !hasP, missingGost: !hasG,
                         });
                       },
@@ -2059,11 +2061,6 @@ export default function AssetsPage() {
                     label: '未配置 1Panel 摘要实例',
                     action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
                     color: 'warning',
-                  });
-                  if (!selectedAsset.gostNodeId) hints.push({
-                    label: '未绑定 GOST',
-                    action: () => { onDetailClose(); openEditModal(selectedAsset, 'services'); },
-                    color: 'secondary',
                   });
                   if (hints.length === 0) return null;
                   return (
@@ -2158,60 +2155,41 @@ export default function AssetsPage() {
 
                   return (
                     <div className="grid gap-3 md:grid-cols-2">
-                      {/* Left: Server & Hardware */}
+                      {/* Left: 基本信息 & 费用 (matches Edit Tab1) */}
                       <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务器</p>
-                          <div className="flex gap-1">
-                            {selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="primary" classNames={{content: "text-[10px]"}}>Komari</Chip>}
-                            {selectedAsset.pikaNodeId && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Pika</Chip>}
-                          </div>
-                        </div>
-                        <div className="space-y-1 text-xs">
-                          <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono text-right max-w-[65%] truncate">{effectiveOs}</span></p>
-                          {effectiveCpuCores && (
-                            <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono text-right max-w-[65%] truncate">{effectiveCpuCores} 核{effectiveCpuName ? ` (${effectiveCpuName})` : ''}</span></p>
-                          )}
-                          {effectiveMemMb && <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{effectiveMemMb} MB</span></p>}
-                          {effectiveDiskGb && <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{effectiveDiskGb} GB</span></p>}
-                          {effectiveSwapMb && Number(effectiveSwapMb) > 0 && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{effectiveSwapMb} MB</span></p>}
-                          {selectedAsset.bandwidthMbps && <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedAsset.bandwidthMbps} Mbps</span></p>}
-                          {effectiveArch && <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{effectiveArch}</span></p>}
-                          {effectiveVirt && <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{effectiveVirt}</span></p>}
-                          {probeNode?.kernelVersion && <p className="flex justify-between"><span className="text-default-400">内核</span><span className="font-mono text-right max-w-[65%] truncate">{probeNode.kernelVersion}</span></p>}
-                          {probeNode?.gpuName && probeNode.gpuName !== 'None' && <p className="flex justify-between"><span className="text-default-400">GPU</span><span className="font-mono text-right max-w-[65%] truncate">{probeNode.gpuName}</span></p>}
-                          <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
-                        </div>
-                      </div>
-
-                      {/* Right: Cost & Services */}
-                      <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                        <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">费用与服务</p>
+                        <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">基本信息</p>
                         <div className="space-y-1 text-xs">
                           {selectedAsset.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider}</span></p>}
                           {selectedAsset.region && <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region}</span></p>}
-                          {selectedAsset.monthlyCost && <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{getCurrencySymbol(selectedAsset.currency || 'CNY')}{selectedAsset.monthlyCost}/{formatBillingCycle(selectedAsset.billingCycle) || '周期'}</span></p>}
+                          {selectedAsset.environment && <p className="flex justify-between"><span className="text-default-400">环境</span><span>{selectedAsset.environment}</span></p>}
+                          {selectedAsset.purpose && <p className="flex justify-between"><span className="text-default-400">用途</span><span className="text-primary font-medium">{selectedAsset.purpose}</span></p>}
+                          {selectedAsset.bandwidthMbps && <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedAsset.bandwidthMbps} Mbps</span></p>}
                           {selectedAsset.monthlyTrafficGb && <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb === -1 ? '不限量' : `${selectedAsset.monthlyTrafficGb >= 1024 ? (selectedAsset.monthlyTrafficGb / 1024).toFixed(1) + ' TB' : selectedAsset.monthlyTrafficGb + ' GB'}/月`}</span></p>}
-                          {selectedAsset.purchaseDate && <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>}
-                          {selectedAsset.expireDate && (
-                            <p className="flex justify-between">
-                              <span className="text-default-400">到期</span>
-                              <span className={`font-mono ${selectedAsset.expireDate !== -1 && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
-                                {formatDateShort(selectedAsset.expireDate)}
-                              </span>
-                            </p>
-                          )}
-                          {(() => {
-                            const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
-                            if (!rv) return null;
-                            return (
-                              <p className="flex justify-between pt-1 border-t border-divider/40">
-                                <span className="text-default-400">剩余价值</span>
-                                <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                          <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
+                          {/* Cost section */}
+                          <div className="pt-1 border-t border-divider/40 space-y-1">
+                            {selectedAsset.monthlyCost && <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{getCurrencySymbol(selectedAsset.currency || 'CNY')}{selectedAsset.monthlyCost}/{formatBillingCycle(selectedAsset.billingCycle) || '周期'}</span></p>}
+                            {selectedAsset.purchaseDate && <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>}
+                            {selectedAsset.expireDate && (
+                              <p className="flex justify-between">
+                                <span className="text-default-400">到期</span>
+                                <span className={`font-mono ${selectedAsset.expireDate !== -1 && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
+                                  {formatDateShort(selectedAsset.expireDate)}
+                                </span>
                               </p>
-                            );
-                          })()}
-                          {/* Integrations summary - inline */}
+                            )}
+                            {(() => {
+                              const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
+                              if (!rv) return null;
+                              return (
+                                <p className="flex justify-between">
+                                  <span className="text-default-400">剩余价值</span>
+                                  <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
+                                </p>
+                              );
+                            })()}
+                          </div>
+                          {/* Integrations summary */}
                           <div className="pt-1 border-t border-divider/40 space-y-1">
                             {(selectedAsset.totalXuiInstances || 0) > 0 && (
                               <p className="flex justify-between"><span className="text-default-400">X-UI</span><span className="font-mono">{selectedAsset.totalXuiInstances} 实例 / {selectedAsset.totalInbounds || 0} 入站 / {selectedAsset.totalClients || 0} 客户端 ({selectedAsset.onlineClients || 0} 在线)</span></p>
@@ -2223,12 +2201,38 @@ export default function AssetsPage() {
                               <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName}</span></p>
                             )}
                             {selectedAsset.panelUrl && (
-                              <p className="flex justify-between"><span className="text-default-400">1Panel 地址</span><span className="font-mono truncate max-w-[65%]">{selectedAsset.panelUrl}</span></p>
+                              <p className="flex justify-between"><span className="text-default-400">1Panel</span><span className="font-mono truncate max-w-[65%]">{selectedAsset.panelUrl}</span></p>
                             )}
                             {selectedAsset.onePanelInstanceId && (
                               <p className="flex justify-between"><span className="text-default-400">1Panel 摘要</span><span className="font-mono">{selectedAsset.onePanelLastReportStatus === 'success' ? '已上报' : selectedAsset.onePanelLastReportStatus === 'failed' ? '异常' : '待上报'}</span></p>
                             )}
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Right: 硬件配置 (matches Edit Tab3) */}
+                      <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">硬件配置</p>
+                          <div className="flex items-center gap-1">
+                            {selectedAsset.probeSource && <Chip size="sm" variant="dot" color={selectedAsset.probeSource === 'dual' ? 'warning' : 'primary'} classNames={{content: "text-[10px]"}}>{selectedAsset.probeSource === 'dual' ? '双探针' : selectedAsset.probeSource === 'komari' ? 'Komari' : selectedAsset.probeSource === 'pika' ? 'Pika' : selectedAsset.probeSource}</Chip>}
+                            {!selectedAsset.probeSource && selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="primary" classNames={{content: "text-[10px]"}}>Komari</Chip>}
+                            {!selectedAsset.probeSource && selectedAsset.pikaNodeId && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Pika</Chip>}
+                            {selectedAsset.monitorLastSyncAt && <span className="text-[10px] text-default-400 ml-1">同步 {new Date(selectedAsset.monitorLastSyncAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+                          </div>
+                        </div>
+                        <div className="space-y-1 text-xs">
+                          <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono text-right max-w-[65%] truncate">{effectiveOs}</span></p>
+                          {effectiveCpuCores && (
+                            <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono text-right max-w-[65%] truncate">{effectiveCpuCores} 核{effectiveCpuName ? ` (${effectiveCpuName})` : ''}</span></p>
+                          )}
+                          {effectiveMemMb && <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{effectiveMemMb} MB</span></p>}
+                          {effectiveDiskGb && <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{effectiveDiskGb} GB</span></p>}
+                          {effectiveSwapMb && Number(effectiveSwapMb) > 0 && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{effectiveSwapMb} MB</span></p>}
+                          {effectiveArch && <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{effectiveArch}</span></p>}
+                          {effectiveVirt && <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{effectiveVirt}</span></p>}
+                          {probeNode?.kernelVersion && <p className="flex justify-between"><span className="text-default-400">内核</span><span className="font-mono text-right max-w-[65%] truncate">{probeNode.kernelVersion}</span></p>}
+                          {probeNode?.gpuName && probeNode.gpuName !== 'None' && <p className="flex justify-between"><span className="text-default-400">GPU</span><span className="font-mono text-right max-w-[65%] truncate">{probeNode.gpuName}</span></p>}
                         </div>
                       </div>
                     </div>
@@ -2414,6 +2418,9 @@ export default function AssetsPage() {
                     } catch { toast.error('连接异常'); } finally { setJsConnecting(false); }
                   }}>终端登录</Button>
                 )}
+                {detail?.monitorNodes && detail.monitorNodes.length > 0 && (
+                  <Button size="sm" variant="flat" color="secondary" onPress={() => { onDetailClose(); navigate(`/probe?instanceId=${detail.monitorNodes![0].instanceId}`); }}>探针实例</Button>
+                )}
                 {(canUpdateAssets) && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
                 {(canDeleteAssets) && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
@@ -2477,26 +2484,6 @@ export default function AssetsPage() {
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑资产' : '新建资产'}</ModalHeader>
           <ModalBody className="px-3 pb-2">
-            {!isEdit && canCreateAssets || canUpdateAssets && unboundNodes.length > 0 && (
-              <div className="rounded-lg border border-primary-200 bg-primary-50 p-3 dark:border-primary-800 dark:bg-primary-950 mb-2">
-                <p className="mb-2 text-xs font-medium text-primary-600 dark:text-primary-400">从探针导入（自动填充服务器信息）</p>
-                <div className="flex flex-wrap gap-2">
-                  {unboundNodes.map(node => (
-                    <Button key={node.id} size="sm" variant="flat" color="primary"
-                      onPress={() => importFromNode(node)}>
-                      {node.name || node.ip || node.remoteNodeUuid.slice(0, 8)}
-                      {node.online === 1 && <Chip size="sm" color="success" variant="dot" className="ml-1 border-none" />}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {!isEdit && canCreateAssets || canUpdateAssets && importLoading && (
-              <div className="flex items-center gap-2 text-xs text-default-400 mb-2">
-                <Spinner size="sm" /> 加载探针节点...
-              </div>
-            )}
-
             {(() => {
               const hasBoundProbe = !!(form.monitorNodeUuid || form.pikaNodeId);
               const editingAsset = isEdit ? assets.find(a => a.id === form.id) : null;
@@ -2526,9 +2513,12 @@ export default function AssetsPage() {
                   {/* ===== Tab 1: Basic Info ===== */}
                   <Tab key="basic" title="基本信息">
                     <div className="space-y-4">
-                      <div className="grid gap-3 md:grid-cols-4">
+                      <div className="grid gap-3 md:grid-cols-5">
                         <Input size="sm" label="名称" placeholder="HK-VPS-01" value={form.name}
                           onValueChange={(v) => setForm(p => ({ ...p, name: v }))} isInvalid={!!errors.name} errorMessage={errors.name} isRequired />
+                        <Input size="sm" label="标识" placeholder="hk-01" value={form.label}
+                          onValueChange={(v) => setForm(p => ({ ...p, label: v }))}
+                          description="唯一标识，可用于探针推送" />
                         <Input size="sm" label="主 IP / 域名" value={form.primaryIp}
                           onValueChange={(v) => setForm(p => ({ ...p, primaryIp: v }))} />
                         <Select size="sm" label="角色" selectedKeys={form.role ? [form.role] : []}
@@ -2800,7 +2790,7 @@ export default function AssetsPage() {
                                 onFormClose();
                                 openProvisionModal({
                                   assetId: editingAsset.id, assetName: editingAsset.name,
-                                  assetIp: editingAsset.primaryIp || undefined,
+                                  assetIp: editingAsset.primaryIp || undefined, asset: editingAsset,
                                   missingKomari: !hasKomari, missingPika: !hasPika, missingGost: !editingAsset.gostNodeId,
                                 });
                               }}>
@@ -3249,6 +3239,7 @@ export default function AssetsPage() {
                     <div className="space-y-4">
                       <div className="flex items-center gap-2">
                         <Select size="sm" label="操作系统分类" className="max-w-[200px]" selectedKeys={form.osCategory ? [form.osCategory] : []}
+                          isDisabled={hasBoundProbe}
                           onSelectionChange={(keys) => setForm(p => ({ ...p, osCategory: Array.from(keys)[0]?.toString() || '' }))}>
                           {OS_CATEGORIES.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                         </Select>
@@ -3548,112 +3539,127 @@ export default function AssetsPage() {
               </div>
             ) : allProvisionResult ? (
               /* Unified result display */
-              <div className="space-y-4">
-                {/* Per-component status banners */}
-                {allProvisionResult.komari && (
-                  <div className="rounded-lg border border-success-200 bg-success-50 p-3 dark:border-success-800 dark:bg-success-950">
-                    <p className="text-sm font-medium text-success-700 dark:text-success-400">Komari 客户端创建成功</p>
-                    <p className="mt-1 text-xs text-success-600 dark:text-success-500">
-                      {allProvisionResult.komari.instanceName} / UUID: {allProvisionResult.komari.uuid?.slice(0, 8)}...
-                    </p>
-                  </div>
-                )}
-                {allProvisionResult.komariError && (
-                  <div className="rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-950">
-                    <p className="text-sm font-medium text-danger-700 dark:text-danger-400">Komari 创建失败</p>
-                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{allProvisionResult.komariError}</p>
-                  </div>
-                )}
-                {allProvisionResult.pika && (
-                  <div className="rounded-lg border border-success-200 bg-success-50 p-3 dark:border-success-800 dark:bg-success-950">
-                    <p className="text-sm font-medium text-success-700 dark:text-success-400">Pika 客户端创建成功</p>
-                    <p className="mt-1 text-xs text-success-600 dark:text-success-500">
-                      {allProvisionResult.pika.instanceName} / UUID: {allProvisionResult.pika.uuid?.slice(0, 8)}...
-                    </p>
-                  </div>
-                )}
-                {allProvisionResult.pikaError && (
-                  <div className="rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-950">
-                    <p className="text-sm font-medium text-danger-700 dark:text-danger-400">Pika 创建失败</p>
-                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{allProvisionResult.pikaError}</p>
-                  </div>
-                )}
-                {allProvisionResult.gost && (
-                  <div className="rounded-lg border border-success-200 bg-success-50 p-3 dark:border-success-800 dark:bg-success-950">
-                    <p className="text-sm font-medium text-success-700 dark:text-success-400">GOST 节点创建成功</p>
-                    <p className="mt-1 text-xs text-success-600 dark:text-success-500">{allProvisionResult.gost.nodeName}</p>
-                  </div>
-                )}
-                {allProvisionResult.gostError && (
-                  <div className="rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-950">
-                    <p className="text-sm font-medium text-danger-700 dark:text-danger-400">GOST 创建失败</p>
-                    <p className="mt-1 text-xs text-danger-600 dark:text-danger-500">{allProvisionResult.gostError}</p>
+              <div className="space-y-3">
+                {/* Compact component status summary */}
+                <div className="flex flex-wrap gap-2">
+                  {allProvisionResult.komari && (
+                    <Chip size="sm" color="success" variant="flat" startContent={<span className="ml-1">&#10003;</span>}>
+                      Komari {allProvisionResult.komari.uuid?.slice(0, 8)}
+                    </Chip>
+                  )}
+                  {allProvisionResult.komariError && (
+                    <Chip size="sm" color="danger" variant="flat" startContent={<span className="ml-1">&#10007;</span>}>
+                      Komari 失败
+                    </Chip>
+                  )}
+                  {allProvisionResult.pika && (
+                    <Chip size="sm" color="success" variant="flat" startContent={<span className="ml-1">&#10003;</span>}>
+                      Pika {allProvisionResult.pika.uuid?.slice(0, 8)}
+                    </Chip>
+                  )}
+                  {allProvisionResult.pikaError && (
+                    <Chip size="sm" color="danger" variant="flat" startContent={<span className="ml-1">&#10007;</span>}>
+                      Pika 失败
+                    </Chip>
+                  )}
+                  {allProvisionResult.gost && (
+                    <Chip size="sm" color="success" variant="flat" startContent={<span className="ml-1">&#10003;</span>}>
+                      GOST {allProvisionResult.gost.nodeName}
+                    </Chip>
+                  )}
+                  {allProvisionResult.gostError && (
+                    <Chip size="sm" color="danger" variant="flat" startContent={<span className="ml-1">&#10007;</span>}>
+                      GOST 失败
+                    </Chip>
+                  )}
+                </div>
+
+                {/* Error details (only show if there are errors) */}
+                {(allProvisionResult.komariError || allProvisionResult.pikaError || allProvisionResult.gostError) && (
+                  <div className="rounded-lg border border-danger-200 bg-danger-50/50 dark:border-danger-800 dark:bg-danger-950/30 p-2.5 text-xs text-danger-600 dark:text-danger-400 space-y-1">
+                    {allProvisionResult.komariError && <p>Komari: {allProvisionResult.komariError}</p>}
+                    {allProvisionResult.pikaError && <p>Pika: {allProvisionResult.pikaError}</p>}
+                    {allProvisionResult.gostError && <p>GOST: {allProvisionResult.gostError}</p>}
                   </div>
                 )}
 
-                {/* Combined install command */}
+                {/* Install command with region toggle */}
                 {allProvisionResult.combinedCommand && (
                   <div>
-                    <p className="mb-2 text-sm font-medium">一键安装命令</p>
-                    <p className="mb-2 text-xs text-default-500">复制以下命令到 VPS 上以 root 执行，将安装所有选中的组件：</p>
-                    <div className="relative rounded-lg bg-default-100 p-3 dark:bg-default-50">
-                      <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                        {allProvisionResult.combinedCommand}
-                      </code>
-                      <Button size="sm" color="primary" variant="flat" className="absolute right-2 top-2"
-                        onPress={() => copyToClipboard(allProvisionResult.combinedCommand)}>
-                        复制
-                      </Button>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium">安装命令</p>
+                      {allProvisionResult.combinedCommandCn && (
+                        <div className="flex rounded-lg bg-default-100 dark:bg-default-50 p-0.5">
+                          <button type="button"
+                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${provisionCmdRegion === 'cn' ? 'bg-warning-500 text-white shadow-sm' : 'text-default-500 hover:text-default-700'}`}
+                            onClick={() => setProvisionCmdRegion('cn')}>
+                            国内加速
+                          </button>
+                          <button type="button"
+                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${provisionCmdRegion === 'overseas' ? 'bg-primary text-white shadow-sm' : 'text-default-500 hover:text-default-700'}`}
+                            onClick={() => setProvisionCmdRegion('overseas')}>
+                            海外直连
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {allProvisionResult.combinedCommandCn && (
-                      <div className="mt-2">
-                        <p className="mb-1 text-xs text-warning-600 dark:text-warning-400">国内服务器请使用加速命令：</p>
-                        <div className="relative rounded-lg bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 p-3">
-                          <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                            {allProvisionResult.combinedCommandCn}
+                    <p className="mb-2 text-xs text-default-500">
+                      {provisionCmdRegion === 'cn' && allProvisionResult.combinedCommandCn
+                        ? '使用 GitHub 镜像加速，适合国内服务器：'
+                        : '复制以下命令到 VPS 上以 root 执行：'}
+                    </p>
+                    {(() => {
+                      const cmd = provisionCmdRegion === 'cn' && allProvisionResult.combinedCommandCn
+                        ? allProvisionResult.combinedCommandCn
+                        : allProvisionResult.combinedCommand;
+                      const isCn = provisionCmdRegion === 'cn' && !!allProvisionResult.combinedCommandCn;
+                      return (
+                        <div className={`relative rounded-lg p-3 ${isCn ? 'bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800' : 'bg-default-100 dark:bg-default-50'}`}>
+                          <code className="block whitespace-pre-wrap break-all text-xs leading-relaxed pr-14">
+                            {cmd}
                           </code>
-                          <Button size="sm" color="warning" variant="flat" className="absolute right-2 top-2"
-                            onPress={() => copyToClipboard(allProvisionResult.combinedCommandCn!)}>
+                          <Button size="sm" color={isCn ? 'warning' : 'primary'} variant="flat" className="absolute right-2 top-2"
+                            onPress={() => copyToClipboard(cmd)}>
                             复制
                           </Button>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
 
                 {/* Detail accordion for each component */}
                 {(allProvisionResult.komari || allProvisionResult.pika) && (
-                  <Accordion variant="light">
+                  <Accordion variant="light" isCompact>
                     {[
                       allProvisionResult.komari && (
                         <AccordionItem key="komari" title="Komari 安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                          <div className="space-y-2 text-xs">
+                          <div className="space-y-1.5 text-xs">
                             <div className="flex items-center gap-2">
-                              <span className="text-default-500 min-w-[70px]">Endpoint:</span>
-                              <code className="flex-1 rounded bg-default-100 px-2 py-1">{allProvisionResult.komari!.endpoint}</code>
-                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.komari!.endpoint)}>复制</Button>
+                              <span className="text-default-500 min-w-[60px]">Endpoint</span>
+                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.komari!.endpoint}</code>
+                              <Button size="sm" variant="light" className="h-6 min-w-0 px-2" onPress={() => copyToClipboard(allProvisionResult.komari!.endpoint)}>复制</Button>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-default-500 min-w-[70px]">Token:</span>
-                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{allProvisionResult.komari!.token}</code>
-                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.komari!.token)}>复制</Button>
+                              <span className="text-default-500 min-w-[60px]">Token</span>
+                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.komari!.token}</code>
+                              <Button size="sm" variant="light" className="h-6 min-w-0 px-2" onPress={() => copyToClipboard(allProvisionResult.komari!.token)}>复制</Button>
                             </div>
                           </div>
                         </AccordionItem>
                       ),
                       allProvisionResult.pika && (
                         <AccordionItem key="pika" title="Pika 安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                          <div className="space-y-2 text-xs">
+                          <div className="space-y-1.5 text-xs">
                             <div className="flex items-center gap-2">
-                              <span className="text-default-500 min-w-[70px]">Endpoint:</span>
-                              <code className="flex-1 rounded bg-default-100 px-2 py-1">{allProvisionResult.pika!.endpoint}</code>
-                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.pika!.endpoint)}>复制</Button>
+                              <span className="text-default-500 min-w-[60px]">Endpoint</span>
+                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.pika!.endpoint}</code>
+                              <Button size="sm" variant="light" className="h-6 min-w-0 px-2" onPress={() => copyToClipboard(allProvisionResult.pika!.endpoint)}>复制</Button>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-default-500 min-w-[70px]">Token:</span>
-                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-1">{allProvisionResult.pika!.token}</code>
-                              <Button size="sm" variant="light" onPress={() => copyToClipboard(allProvisionResult.pika!.token)}>复制</Button>
+                              <span className="text-default-500 min-w-[60px]">Token</span>
+                              <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.pika!.token}</code>
+                              <Button size="sm" variant="light" className="h-6 min-w-0 px-2" onPress={() => copyToClipboard(allProvisionResult.pika!.token)}>复制</Button>
                             </div>
                           </div>
                         </AccordionItem>
@@ -3662,18 +3668,18 @@ export default function AssetsPage() {
                   </Accordion>
                 )}
 
-                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-3 space-y-2">
-                  <p className="text-xs text-default-600">在 VPS 上执行安装命令后，点击下方按钮验证探针状态：</p>
-                  <Button size="sm" color={provisionNodeVerified ? 'success' : 'primary'} variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
-                    {provisionNodeVerified ? '已验证 ✓ (可重新检测)' : '同步并验证节点'}
-                  </Button>
+                {/* Verification */}
+                <div className="rounded-lg border border-primary/20 bg-primary-50/30 dark:bg-primary-50/5 p-2.5 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" color={provisionNodeVerified ? 'success' : 'primary'} variant="flat" isLoading={provisionSyncLoading} onPress={handleProvisionSync} isDisabled={!(canCreateAssets || canUpdateAssets)}>
+                      {provisionNodeVerified ? '已验证 ✓' : '同步验证'}
+                    </Button>
+                    <span className="text-xs text-default-500">执行安装命令后，点击验证探针是否上线</span>
+                  </div>
                   {provisionNodeStatus && (
                     <div className={`text-xs whitespace-pre-wrap rounded p-2 ${provisionNodeVerified ? 'bg-success-50 dark:bg-success-950/30 text-success-700 dark:text-success-400' : 'bg-warning-50 dark:bg-warning-950/30 text-warning-700 dark:text-warning-400'}`}>
                       {provisionNodeStatus}
                     </div>
-                  )}
-                  {!provisionNodeVerified && !provisionNodeStatus && (
-                    <p className="text-[10px] text-default-400">同步后系统将验证节点是否上线并自动关联到服务器资产。</p>
                   )}
                 </div>
               </div>

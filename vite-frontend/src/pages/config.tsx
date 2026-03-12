@@ -15,7 +15,7 @@ import { hasPermission } from '@/utils/auth';
 import { clearConfigCache, getCachedConfigs, siteConfig, updateSiteConfig } from '@/config/site';
 
 type ConfigType = 'input' | 'switch' | 'select' | 'textarea' | 'redirect';
-type ConfigSectionKey = 'basic' | 'security' | 'iam' | 'jumpserver' | 'diagnosis' | 'alerting';
+type ConfigSectionKey = 'basic' | 'security' | 'iam' | 'jumpserver' | 'diagnosis' | 'alerting' | 'deploy';
 
 interface ConfigItem {
   key: string;
@@ -73,6 +73,11 @@ const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: st
     title: '自动诊断',
     description: '调度器按分钟轮询配置，并按设定间隔执行全量诊断。这里决定诊断节奏。',
     chip: '任务调度',
+  },
+  deploy: {
+    title: '部署加速',
+    description: '国内服务器通过「部署组件」安装 Komari 探针或 GOST 代理节点时，需要 GitHub 代理来加速脚本和二进制下载。Pika 探针脚本由 Pika 服务器自身提供，不经过此代理。如果默认代理不可用，可在此更换。',
+    chip: '镜像源',
   },
   alerting: {
     title: '通知与告警',
@@ -272,6 +277,14 @@ const CONFIG_ITEMS: ConfigItem[] = [
     type: 'input',
     dependsOn: 'auto_diagnosis_enabled',
     dependsValue: 'true',
+  },
+  {
+    key: 'github_proxy_url',
+    label: 'GitHub 代理地址',
+    section: 'deploy',
+    placeholder: 'https://ghfast.top',
+    description: '生效范围：部署组件中 Komari 探针（Linux + Windows 国内安装脚本及二进制下载）和 GOST 代理节点（国内安装脚本下载）。Pika 脚本由 Pika 服务器自身提供，不经过此代理。常用代理：ghfast.top、ghproxy.net、gh-proxy.com。留空则使用默认值 ghfast.top。',
+    type: 'input',
   },
   {
     key: '_alerting_redirect',

@@ -958,9 +958,6 @@ export interface MonitorProvisionResult {
   installCommand: string;
   installCommandCn?: string;
 }
-export const provisionMonitorAgent = (instanceId: number, name?: string) =>
-  Network.post<MonitorProvisionResult>("/monitor/provision", { instanceId, name });
-
 export interface DashboardNodesResponse {
   nodes: MonitorNodeSnapshot[];
   total: number;
@@ -1006,10 +1003,6 @@ export const getMonitorRecords = (nodeId: number, range: string, type?: string) 
 export const getTerminalAccessUrl = (nodeId: number) =>
   Network.post<{ terminalUrl: string; nodeName: string; nodeIp: string; instanceName: string }>("/monitor/terminal-access", { nodeId });
 
-// Dual-probe provision
-export const provisionDualAgent = (komariInstanceId: number | null, pikaInstanceId: number | null, name?: string) =>
-  Network.post<{ komari?: MonitorProvisionResult; pika?: MonitorProvisionResult; komariError?: string; pikaError?: string; combinedCommand: string }>("/monitor/provision-dual", { komariInstanceId, pikaInstanceId, name });
-
 // Unified multi-agent provision (komari + pika + gost)
 export interface GostProvisionConfig {
   name?: string;
@@ -1021,7 +1014,7 @@ export interface GostProvisionConfig {
 export interface ProvisionAllResult {
   komari?: MonitorProvisionResult;
   pika?: MonitorProvisionResult;
-  gost?: { nodeId: number; nodeName: string; installCommand: string };
+  gost?: { nodeId: number; nodeName: string; installCommand: string; installCommandCn?: string };
   komariError?: string;
   pikaError?: string;
   gostError?: string;

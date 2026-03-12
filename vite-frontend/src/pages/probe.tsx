@@ -16,7 +16,7 @@ import {
   useDisclosure
 } from "@heroui/modal";
 import toast from 'react-hot-toast';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import {
   KomariPingTaskDetail,
@@ -95,6 +95,8 @@ const highlightColor = (severity?: string | null): "default" | "primary" | "succ
 // ===================== Component =====================
 
 export default function ProbePage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const canViewProbe = hasPermission('probe.read');
   const canCreateProbe = hasPermission('probe.create');
   const canUpdateProbe = hasPermission('probe.update');
@@ -149,6 +151,19 @@ export default function ProbePage() {
   };
 
   useEffect(() => { loadInstances(); }, []);
+
+  // Deep-link: ?instanceId=123 auto-opens detail modal
+  useEffect(() => {
+    const instanceId = searchParams.get('instanceId');
+    if (instanceId && instances.length > 0) {
+      const id = parseInt(instanceId);
+      const inst = instances.find(i => i.id === id);
+      if (inst && !isDetailOpen) {
+        loadDetail(inst.id);
+        onDetailOpen();
+      }
+    }
+  }, [searchParams, instances]);
 
   // ===================== Actions =====================
 
@@ -678,7 +693,7 @@ export default function ProbePage() {
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-default-500">
                             {node.region ? <span>{node.region}</span> : null}
                             {node.os ? <span>{node.os}</span> : null}
-                            {node.assetName ? <span>资产: {node.assetName}</span> : null}
+                            {node.assetName ? <span className={node.assetId ? 'cursor-pointer text-primary hover:underline' : ''} onClick={() => { if (node.assetId) { onDetailClose(); navigate(`/assets?viewId=${node.assetId}`); } }}>资产: {node.assetName}</span> : null}
                           </div>
                           <div className="mt-3 flex items-center justify-between gap-2">
                             <div className="text-[11px] text-default-400">

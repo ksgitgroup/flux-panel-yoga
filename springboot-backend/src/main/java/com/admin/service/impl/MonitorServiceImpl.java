@@ -6,6 +6,7 @@ import com.admin.entity.AssetHost;
 import com.admin.entity.MonitorInstance;
 import com.admin.entity.MonitorMetricLatest;
 import com.admin.entity.MonitorNodeSnapshot;
+import com.admin.entity.ViteConfig;
 import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.MonitorInstanceMapper;
 import com.admin.mapper.MonitorMetricLatestMapper;
@@ -13,6 +14,7 @@ import com.admin.mapper.MonitorNodeSnapshotMapper;
 import com.admin.common.auth.AuthContext;
 import com.admin.common.auth.AuthPrincipal;
 import com.admin.service.AlertService;
+import com.admin.service.ViteConfigService;
 import com.admin.service.MonitorService;
 import com.admin.service.NodeService;
 import com.alibaba.fastjson2.JSON;
@@ -103,6 +105,28 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private NodeService nodeService;
+
+    @Resource
+    private ViteConfigService viteConfigService;
+
+    /**
+     * 从系统配置读取 GitHub 代理 URL，默认 https://ghfast.top
+     */
+    private String getGithubProxyUrl() {
+        try {
+            ViteConfig cfg = viteConfigService.getOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ViteConfig>()
+                            .eq("name", "github_proxy_url"));
+            if (cfg != null && cfg.getValue() != null && !cfg.getValue().isBlank()) {
+                String url = cfg.getValue().trim();
+                // 去掉末尾斜杠
+                return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+            }
+        } catch (Exception e) {
+            log.warn("[MonitorService] Failed to read github_proxy_url config, using default: {}", e.getMessage());
+        }
+        return "https://ghfast.top";
+    }
 
     // ==================== CRUD ====================
 
@@ -1198,6 +1222,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 result.put("instanceName", instance.getName());
                 result.put("endpoint", baseUrl);
                 result.put("installCommand", installCmd);
+                // Pika install script is self-hosted (from Pika server), no GitHub proxy needed.
+                // Include same command as CN so it appears in combined CN output.
+                result.put("installCommandCn", installCmd);
                 return R.ok(result);
             } catch (Exception e) {
                 log.error("[MonitorProvision] Pika provision failed for {}: {}", instance.getName(), e.getMessage());
@@ -1248,7 +1275,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                             }
                             String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
                             String installCmd = String.format("curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, existingToken);
-                            String ghProxy = "https://ghfast.top";
+                            String ghProxy = getGithubProxyUrl();
                             String installCmdCn = String.format("curl -fsSL %s/%s | bash -s -- --install-ghproxy %s --endpoint %s --token %s",
                                     ghProxy, scriptUrl, ghProxy, baseUrl, existingToken);
                             Map<String, Object> reuseResult = new LinkedHashMap<>();
@@ -1305,7 +1332,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             String installCmd = String.format(
                     "curl -fsSL %s | bash -s -- --endpoint %s --token %s", scriptUrl, baseUrl, token);
             // China-friendly variant: proxy both script download AND binary download via --install-ghproxy
-            String ghProxy = "https://ghfast.top";
+            String ghProxy = getGithubProxyUrl();
             String installCmdCn = String.format(
                     "curl -fsSL %s/%s | bash -s -- --install-ghproxy %s --endpoint %s --token %s",
                     ghProxy, scriptUrl, ghProxy, baseUrl, token);
@@ -3497,13 +3524,20 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     // Return existing node info for reference
                     R existingCmd = nodeService.getInstallCommand(existingGost.getId());
                     if (existingCmd.getCode() == 0) {
+                        String directCmd = existingCmd.getData().toString();
+                        String ghProxy = getGithubProxyUrl();
+                        String cnCmd = directCmd.replaceFirst(
+                                "curl -L https://raw\\.githubusercontent\\.com/",
+                                "curl -L " + ghProxy + "/https://raw.githubusercontent.com/");
                         Map<String, Object> gostData = new LinkedHashMap<>();
                         gostData.put("nodeId", existingGost.getId());
                         gostData.put("nodeName", existingGost.getName());
-                        gostData.put("installCommand", existingCmd.getData().toString());
+                        gostData.put("installCommand", directCmd);
+                        gostData.put("installCommandCn", cnCmd);
                         gostData.put("reused", true);
                         result.put("gost", gostData);
-                        installCommands.add("# GOST 代理节点 (已存在)\n" + existingCmd.getData().toString());
+                        installCommands.add("# GOST 代理节点 (已存在)\n" + directCmd);
+                        installCommandsCn.add("# GOST 代理节点 (已存在)\n" + cnCmd);
                     }
                 } else {
                     provisionGostInto(gostConfig, name, result, installCommands, installCommandsCn);
@@ -3559,9 +3593,23 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                         "Invoke-WebRequest -Uri '%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --endpoint %s --token %s",
                         ps1Url, endpoint, token);
                 data.put("installCommand", winCmd);
-                data.put("installCommandCn", String.format(
-                        "Invoke-WebRequest -Uri 'https://ghfast.top/%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --install-ghproxy https://ghfast.top --endpoint %s --token %s",
-                        ps1Url, endpoint, token));
+                // China-friendly: pre-download NSSM via ghproxy (install.ps1 will skip nssm.cc if nssm.exe found in install dir)
+                String ghProxy = getGithubProxyUrl();
+                String nssmPreInstall = String.join("; ",
+                        "$d='C:\\Program Files\\Komari'",
+                        "New-Item -ItemType Directory -Force $d | Out-Null",
+                        "if (-not (Test-Path \"$d\\nssm.exe\")) { " +
+                            "Invoke-WebRequest -Uri '" + ghProxy + "/https://github.com/HandSonic/nssm/releases/download/2.24/nssm-2.24.zip' -OutFile \"$d\\nssm.zip\"; " +
+                            "Expand-Archive \"$d\\nssm.zip\" -DestinationPath \"$d\\nssm-tmp\" -Force; " +
+                            "Copy-Item \"$d\\nssm-tmp\\nssm-2.24\\win64\\nssm.exe\" \"$d\\nssm.exe\"; " +
+                            "Remove-Item \"$d\\nssm.zip\",\"$d\\nssm-tmp\" -Recurse -Force; " +
+                            "$env:PATH += \";$d\"; " +
+                            "Write-Host 'NSSM pre-installed via mirror' -ForegroundColor Green " +
+                        "}");
+                String winCmdCn = String.format(
+                        "%s; Invoke-WebRequest -Uri '%s/%s' -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File install.ps1 --install-ghproxy %s --endpoint %s --token %s",
+                        nssmPreInstall, ghProxy, ps1Url, ghProxy, endpoint, token);
+                data.put("installCommandCn", winCmdCn);
             }
             // macOS: install.sh already supports macOS (launchd), same command works
             result.put("komari", data);
@@ -3621,19 +3669,26 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 com.admin.entity.Node node = (com.admin.entity.Node) createResult.getData();
                 R cmdResult = nodeService.getInstallCommand(node.getId());
                 if (cmdResult.getCode() == 0) {
+                    String directCmd = cmdResult.getData().toString();
                     Map<String, Object> gostData = new LinkedHashMap<>();
                     gostData.put("nodeId", node.getId());
                     gostData.put("nodeName", gostName);
-                    gostData.put("installCommand", cmdResult.getData().toString());
+                    gostData.put("installCommand", directCmd);
+                    // CN variant: proxy install.sh download via ghfast.top (script internally auto-detects CN for binary)
+                    String ghProxy = getGithubProxyUrl();
+                    String cnCmd = directCmd.replaceFirst(
+                            "curl -L https://raw\\.githubusercontent\\.com/",
+                            "curl -L " + ghProxy + "/https://raw.githubusercontent.com/");
+                    gostData.put("installCommandCn", cnCmd);
                     result.put("gost", gostData);
-                    cmds.add("# GOST 代理节点\n" + cmdResult.getData().toString());
-                    cmdsCn.add("# GOST 代理节点\n" + cmdResult.getData().toString());
+                    cmds.add("# GOST 代理节点\n" + directCmd);
+                    cmdsCn.add("# GOST 代理节点\n" + cnCmd);
                 }
             } else {
                 result.put("gostError", createResult.getMsg());
             }
         } catch (Exception e) {
-            log.error("[Provision] GOST provision failed: {}", e.getMessage());
+            log.error("[MonitorProvision] GOST provision failed: {}", e.getMessage());
             result.put("gostError", "GOST 节点创建失败: " + e.getMessage());
         }
     }

@@ -148,6 +148,7 @@ public class DatabaseInitService {
             ensureConfig("wechat_webhook_last_sent_at", "0", "系统内部使用：最近一次告警发送时间");
             ensureConfig("wechat_webhook_last_status", "healthy", "系统内部使用：最近一次告警状态");
             ensureConfig("portal_nav_links", "[]", "自定义导航入口配置(JSON)");
+            ensureConfig("github_proxy_url", "https://ghfast.top", "GitHub 代理加速地址。生效范围：部署组件中 Komari 探针(Linux/Windows 国内安装脚本+二进制) 和 GOST 代理节点(国内安装脚本)。Pika 为自托管脚本不经过此代理。");
             log.info("[DatabaseInit] 自动诊断与告警配置项初始化成功");
         } catch (Exception e) {
             log.warn("[DatabaseInit] 尝试初始化诊断配置项时发生异常: {}", e.getMessage());

@@ -660,7 +660,7 @@ export default function ServerDashboardPage() {
         </div>
       </div>
 
-      {/* Summary Bar */}
+      {/* Summary Bar — scrolls away */}
       <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto [scrollbar-width:none] flex-nowrap sm:flex-wrap">
         <button
           onClick={() => setStatusFilter('all')}
@@ -689,9 +689,13 @@ export default function ServerDashboardPage() {
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
         </button>
+      </div>
 
+      {/* Sticky toolbar: probe tabs + sort + search + filters */}
+      <div className="sticky top-[52px] z-20 -mx-3 px-3 lg:-mx-6 lg:px-6 py-3 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-divider/40 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] space-y-3">
+      <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto [scrollbar-width:none] flex-nowrap sm:flex-wrap">
         {/* Probe type filter */}
-        <div className="flex gap-1 sm:ml-2">
+        <div className="flex gap-1">
           {(['all', 'komari', 'pika', 'dual'] as const).map(t => (
             <button key={t} onClick={() => setProbeFilter(t)}
               className={`rounded-lg px-2.5 py-2 text-xs font-semibold transition-all cursor-pointer border min-h-[36px] ${
@@ -704,8 +708,8 @@ export default function ServerDashboardPage() {
           ))}
         </div>
 
-        {/* View toggle + Sort — wrap on mobile */}
-        <div className="flex items-center gap-1 sm:ml-2">
+        {/* View toggle */}
+        <div className="flex items-center gap-1">
           <button onClick={() => setViewMode('card')}
             className={`rounded-lg p-2 min-h-[36px] min-w-[36px] flex items-center justify-center transition-all cursor-pointer border ${viewMode === 'card' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
             title="卡片视图">
@@ -899,6 +903,7 @@ export default function ServerDashboardPage() {
           </div>
         )}
       </div>
+      </div>{/* end sticky toolbar */}
 
       {/* Loading */}
       {loading ? (

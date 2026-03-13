@@ -15,4 +15,8 @@ public interface NotificationService extends IService<Notification> {
     R markRead(Long id);
 
     R markAllRead();
+
+    R snooze(Long id, int days);
+
+    R activeCritical();
 }

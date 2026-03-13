@@ -131,20 +131,25 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
 
     @Override
     public R unreadCount() {
+        long now = System.currentTimeMillis();
+        // Exclude snoozed notifications (snoozedUntil > now)
         LambdaQueryWrapper<Notification> baseWrapper = new LambdaQueryWrapper<Notification>()
                 .eq(Notification::getStatus, 0)
-                .eq(Notification::getReadStatus, 0);
+                .eq(Notification::getReadStatus, 0)
+                .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now));
         long count = notificationMapper.selectCount(baseWrapper);
 
         // Severity breakdown for frontend priority toasts
         long criticalCount = notificationMapper.selectCount(new LambdaQueryWrapper<Notification>()
                 .eq(Notification::getStatus, 0)
                 .eq(Notification::getReadStatus, 0)
-                .eq(Notification::getSeverity, "critical"));
+                .eq(Notification::getSeverity, "critical")
+                .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now)));
         long warningCount = notificationMapper.selectCount(new LambdaQueryWrapper<Notification>()
                 .eq(Notification::getStatus, 0)
                 .eq(Notification::getReadStatus, 0)
-                .eq(Notification::getSeverity, "warning"));
+                .eq(Notification::getSeverity, "warning")
+                .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now)));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("count", count);
@@ -177,6 +182,42 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                         .set(Notification::getReadAt, now)
                         .set(Notification::getUpdatedTime, now));
         return R.ok("已全部标记已读");
+    }
+
+    @Override
+    public R snooze(Long id, int days) {
+        if (id == null) return R.err("通知 ID 不能为空");
+        Notification notification = notificationMapper.selectById(id);
+        if (notification == null) return R.err("通知不存在");
+
+        long now = System.currentTimeMillis();
+        if (days <= 0) {
+            // Dismiss = mark read + clear snooze
+            notification.setReadStatus(1);
+            notification.setReadAt(now);
+            notification.setSnoozedUntil(null);
+        } else {
+            // Snooze for N days
+            notification.setSnoozedUntil(now + (long) days * 24 * 60 * 60 * 1000);
+        }
+        notification.setUpdatedTime(now);
+        notificationMapper.updateById(notification);
+        return R.ok("操作成功");
+    }
+
+    @Override
+    public R activeCritical() {
+        long now = System.currentTimeMillis();
+        // Return unread critical/warning notifications that are not currently snoozed
+        LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getStatus, 0)
+                .eq(Notification::getReadStatus, 0)
+                .in(Notification::getSeverity, "critical", "warning")
+                .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now))
+                .orderByDesc(Notification::getCreatedTime)
+                .last("LIMIT 10");
+        List<Notification> list = notificationMapper.selectList(wrapper);
+        return R.ok(list);
     }
 
     // ==================== Channel Dispatch ====================

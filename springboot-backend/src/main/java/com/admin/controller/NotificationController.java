@@ -61,6 +61,20 @@ public class NotificationController extends BaseController {
         return notificationService.markAllRead();
     }
 
+    @RequireRole
+    @PostMapping("/snooze")
+    public R snooze(@RequestBody Map<String, Object> body) {
+        Long id = body.get("id") != null ? ((Number) body.get("id")).longValue() : null;
+        int days = body.get("days") != null ? ((Number) body.get("days")).intValue() : 0;
+        return notificationService.snooze(id, days);
+    }
+
+    @RequireRole
+    @PostMapping("/active-critical")
+    public R activeCritical() {
+        return notificationService.activeCritical();
+    }
+
     // ==================== Channel ====================
 
     @RequireRole

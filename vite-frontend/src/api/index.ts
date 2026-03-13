@@ -1220,6 +1220,7 @@ export interface NotificationItem {
   sourceId?: number | null;
   readStatus: number;
   readAt?: number | null;
+  snoozedUntil?: number | null;
   createdTime: number;
 }
 export interface NotifyChannelItem {
@@ -1244,6 +1245,8 @@ export const getNotifications = (params?: { page?: number; size?: number; readSt
 export const getUnreadCount = () => Network.post<{ count: number }>("/notification/unread");
 export const markNotificationRead = (id: number) => Network.post("/notification/read", { id });
 export const markAllNotificationsRead = () => Network.post("/notification/read-all");
+export const snoozeNotification = (id: number, days: number) => Network.post("/notification/snooze", { id, days });
+export const getActiveCritical = () => Network.post<NotificationItem[]>("/notification/active-critical");
 export const getNotifyChannels = () => Network.post<NotifyChannelItem[]>("/notification/channel/list");
 export const createNotifyChannel = (data: Partial<NotifyChannelItem>) => Network.post<NotifyChannelItem>("/notification/channel/create", data);
 export const updateNotifyChannel = (data: Partial<NotifyChannelItem>) => Network.post<NotifyChannelItem>("/notification/channel/update", data);

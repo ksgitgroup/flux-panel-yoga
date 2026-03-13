@@ -20,4 +20,7 @@ public class Notification extends BaseEntity {
     private Long sourceId;
     private Integer readStatus;
     private Long readAt;
+
+    /** 免打扰截止时间(毫秒时间戳), NULL=未设置 */
+    private Long snoozedUntil;
 }

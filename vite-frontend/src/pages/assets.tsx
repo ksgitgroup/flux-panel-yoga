@@ -1578,37 +1578,27 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* Summary Stats - 5 compact cards */}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
-        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${!filterStatus ? 'border-primary/40 bg-primary-50/30 ring-1 ring-primary/20' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus('')}>
-          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
-          <p className="text-2xl font-bold font-mono">{summary.totalAssets}</p>
-        </div>
-        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'online' ? 'border-success/40 ring-1 ring-success/20' : 'border-success/20'} bg-success-50/30 dark:bg-success-50/10`} onClick={() => setFilterStatus(filterStatus === 'online' ? '' : 'online')}>
-          <p className="text-[10px] font-bold tracking-widest text-success uppercase">在线</p>
-          <p className="text-2xl font-bold font-mono text-success">{summary.onlineAssets}</p>
-        </div>
-        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'offline' ? 'border-danger/40 ring-1 ring-danger/20' : summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'offline' ? '' : 'offline')}>
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
-          <p className={`text-2xl font-bold font-mono ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
-        </div>
-        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'expiring_soon' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiringSoonAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'expiring_soon' ? '' : 'expiring_soon')}>
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-400'}`}>快到期</p>
-          <p className={`text-2xl font-bold font-mono ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-300'}`}>{summary.expiringSoonAssets}</p>
-        </div>
-        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`}>已到期</p>
-          <p className={`text-2xl font-bold font-mono ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.expiredAssets}</p>
-        </div>
-        <div className="rounded-xl border border-divider/60 bg-content1 p-3">
-          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">关联模块</p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-lg font-bold font-mono">{summary.totalXuiInstances}</span>
-            <span className="text-[10px] text-default-400">XUI</span>
-            <span className="text-lg font-bold font-mono">{summary.totalForwards}</span>
-            <span className="text-[10px] text-default-400">转发</span>
-          </div>
-        </div>
+      {/* Summary Stats - compact inline bar */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${!filterStatus ? 'border-primary/40 bg-primary-50/40 ring-1 ring-primary/20 text-primary' : 'border-divider/60 bg-content1 text-default-600'}`} onClick={() => setFilterStatus('')}>
+          全部 <span className="font-mono font-bold">{summary.totalAssets}</span>
+        </button>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'online' ? 'border-success/40 ring-1 ring-success/20' : 'border-success/20'} bg-success-50/30 dark:bg-success-50/10 text-success`} onClick={() => setFilterStatus(filterStatus === 'online' ? '' : 'online')}>
+          在线 <span className="font-mono font-bold">{summary.onlineAssets}</span>
+        </button>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'offline' ? 'border-danger/40 ring-1 ring-danger/20' : summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'offline' ? '' : 'offline')}>
+          离线 <span className="font-mono font-bold">{summary.offlineAssets}</span>
+        </button>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expiring_soon' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiringSoonAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'} ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expiring_soon' ? '' : 'expiring_soon')}>
+          快到期 <span className="font-mono font-bold">{summary.expiringSoonAssets}</span>
+        </button>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
+          已到期 <span className="font-mono font-bold">{summary.expiredAssets}</span>
+        </button>
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1 text-xs text-default-500">
+          <span className="font-mono font-bold">{summary.totalXuiInstances}</span> XUI
+          <span className="font-mono font-bold">{summary.totalForwards}</span> 转发
+        </span>
       </div>
 
       {/* Expiry Warnings */}

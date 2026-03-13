@@ -1,4 +1,5 @@
 import { Navbar } from "@/components/navbar";
+import { AlertBanner } from "@/components/alert-banner";
 import { BUILD_REVISION, RELEASE_VERSION } from "@/version";
 
 export default function DefaultLayout({
@@ -9,6 +10,7 @@ export default function DefaultLayout({
   return (
     <div className="relative flex flex-col min-h-screen bg-white dark:bg-black">
       <Navbar />
+      <AlertBanner />
       <main className="container mx-auto max-w-7xl px-4 sm:px-6 flex-grow pt-4 sm:pt-16">
         {children}
       </main>

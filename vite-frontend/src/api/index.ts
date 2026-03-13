@@ -542,6 +542,7 @@ export interface MonitorNodeSnapshot {
   purchaseDate?: number | null;
   monthlyCost?: string | null;
   purpose?: string | null;
+  environment?: string | null;
   // Offline diagnostics fields
   firstSeenAt?: number | null;
   connectionStatus?: string | null;

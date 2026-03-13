@@ -1027,6 +1027,7 @@ public class DatabaseInitService {
                     "KEY `idx_created_time` (`created_time`)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内通知消息'");
             log.info("[DatabaseInit] notification 表校验成功");
+            updateColumn("notification", "snoozed_until", "bigint(20) DEFAULT NULL COMMENT '免打扰截止时间(毫秒时间戳)'");
         } catch (Exception e) { log.error("[DatabaseInit] notification 表创建失败: {}", e.getMessage()); }
 
         // 5.4 通知渠道配置表

@@ -23,17 +23,20 @@ public class JwtUtil {
     
     @Value("${jwt-secret}")
     private String secretKey;
-    
+
+    @Value("${jwt-expire-days:7}")
+    private long expireDays;
+
     private static String SECRET_KEY;
-    
-    // token有效期，7天
-    private static final long EXPIRE_TIME = 90L * 24 * 60 * 60 * 1000;
+    private static long EXPIRE_TIME;
+
     // 算法
     private static final String ALGORITHM = "HmacSHA256";
 
     @PostConstruct
     public void init() {
         SECRET_KEY = this.secretKey;
+        EXPIRE_TIME = expireDays * 24 * 60 * 60 * 1000;
     }
 
     /**

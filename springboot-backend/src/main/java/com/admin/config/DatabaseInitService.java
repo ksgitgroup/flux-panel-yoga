@@ -666,6 +666,11 @@ public class DatabaseInitService {
             // 增量添加 asset_scope 字段到 sys_user（NULL=继承角色, ALL=全部, SELECTED=指定, NONE=无）
             updateColumn("sys_user", "asset_scope", "varchar(20) DEFAULT NULL COMMENT '用户资产范围: NULL=继承角色, ALL=全部, SELECTED=指定, NONE=无'");
 
+            // 增量添加 2FA 字段到 sys_user
+            updateColumn("sys_user", "two_factor_enabled", "tinyint(1) DEFAULT 0 COMMENT '二步验证是否启用: 0=未启用, 1=已启用'");
+            updateColumn("sys_user", "two_factor_secret", "varchar(255) DEFAULT NULL COMMENT '二步验证密钥 (TOTP secret)'");
+            updateColumn("sys_user", "two_factor_bound_at", "bigint(20) DEFAULT NULL COMMENT '二步验证绑定时间'");
+
             String createSysSessionTable = "CREATE TABLE IF NOT EXISTS `sys_session` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
                     "`user_id` bigint(20) NOT NULL COMMENT 'IAM用户ID'," +

@@ -43,4 +43,13 @@ public class IamUser extends BaseEntity {
 
     /** 用户资产范围: NULL=继承角色, ALL=全部, SELECTED=指定, NONE=无 */
     private String assetScope;
+
+    /** 二步验证是否启用: 0=未启用, 1=已启用 */
+    private Integer twoFactorEnabled;
+
+    /** 二步验证密钥 (TOTP secret) */
+    private String twoFactorSecret;
+
+    /** 二步验证绑定时间 (毫秒时间戳) */
+    private Long twoFactorBoundAt;
 }

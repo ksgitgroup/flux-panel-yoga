@@ -6,6 +6,7 @@ import com.admin.entity.AssetHost;
 import com.admin.entity.MonitorInstance;
 import com.admin.entity.MonitorMetricLatest;
 import com.admin.entity.MonitorNodeSnapshot;
+import com.admin.entity.Node;
 import com.admin.entity.ViteConfig;
 import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.MonitorInstanceMapper;
@@ -105,6 +106,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private NodeService nodeService;
+
+    @Resource
+    private com.admin.mapper.NodeMapper nodeMapper;
 
     @Resource
     private ViteConfigService viteConfigService;
@@ -416,6 +420,23 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     nv.setEnvironment(a.getEnvironment());
                     // Always use asset tags as single source of truth (null = no tags)
                     nv.setTags(a.getTags());
+                    // GOST enrichment
+                    nv.setGostNodeId(a.getGostNodeId());
+                }
+            }
+        }
+
+        // Resolve GOST node names
+        Set<Long> gostNodeIds = nodeViews.stream()
+                .map(MonitorNodeSnapshotViewDto::getGostNodeId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (!gostNodeIds.isEmpty()) {
+            Map<Long, String> gostNameMap = nodeMapper.selectBatchIds(gostNodeIds).stream()
+                    .collect(Collectors.toMap(Node::getId, Node::getName, (a, b) -> a));
+            for (MonitorNodeSnapshotViewDto nv : nodeViews) {
+                if (nv.getGostNodeId() != null) {
+                    nv.setGostNodeName(gostNameMap.get(nv.getGostNodeId()));
                 }
             }
         }

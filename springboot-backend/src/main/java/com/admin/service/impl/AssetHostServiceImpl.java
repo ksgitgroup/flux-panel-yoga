@@ -304,23 +304,17 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         for (AssetHost asset : assets) {
             switch (field) {
                 case "tags":
-                    // For tags: merge mode — append new tags to existing
+                    // For tags: merge mode — append new tags to existing, always store as JSON array
                     if (strVal != null) {
                         String mode = params.get("mode") != null ? params.get("mode").toString() : "replace";
+                        LinkedHashSet<String> result = new LinkedHashSet<>();
                         if ("merge".equals(mode) && StringUtils.hasText(asset.getTags())) {
-                            LinkedHashSet<String> merged = new LinkedHashSet<>();
-                            for (String t : asset.getTags().split(",")) {
-                                String trimmed = t.trim();
-                                if (!trimmed.isEmpty()) merged.add(trimmed);
-                            }
-                            for (String t : strVal.split(",")) {
-                                String trimmed = t.trim();
-                                if (!trimmed.isEmpty()) merged.add(trimmed);
-                            }
-                            asset.setTags(String.join(",", merged));
-                        } else {
-                            asset.setTags(strVal);
+                            // Parse existing tags (JSON array or comma-separated)
+                            parseTags(asset.getTags()).forEach(t -> { if (!t.isEmpty()) result.add(t); });
                         }
+                        // Parse incoming tags (JSON array or comma-separated)
+                        parseTags(strVal).forEach(t -> { if (!t.isEmpty()) result.add(t); });
+                        asset.setTags(result.isEmpty() ? null : com.alibaba.fastjson2.JSON.toJSONString(new ArrayList<>(result)));
                     } else {
                         asset.setTags(null);
                     }
@@ -939,6 +933,26 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     private long safeLong(Long value) {
         return value == null ? 0L : value;
+    }
+
+    /** Parse tags from either JSON array or comma/semicolon-separated string */
+    private List<String> parseTags(String raw) {
+        List<String> tags = new ArrayList<>();
+        if (!StringUtils.hasText(raw)) return tags;
+        try {
+            com.alibaba.fastjson2.JSONArray arr = com.alibaba.fastjson2.JSON.parseArray(raw);
+            if (arr != null) {
+                for (int i = 0; i < arr.size(); i++) {
+                    String t = arr.getString(i);
+                    if (StringUtils.hasText(t)) tags.add(t.trim());
+                }
+            }
+        } catch (Exception e) {
+            for (String t : raw.split("[;,]")) {
+                if (StringUtils.hasText(t.trim())) tags.add(t.trim());
+            }
+        }
+        return tags;
     }
 
     private String compactPreview(LinkedHashSet<String> values, int limit) {

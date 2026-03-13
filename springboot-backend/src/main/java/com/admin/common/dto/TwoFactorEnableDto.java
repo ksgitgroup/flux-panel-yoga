@@ -8,7 +8,7 @@ import javax.validation.constraints.Pattern;
 @Data
 public class TwoFactorEnableDto {
 
-    @NotBlank(message = "当前密码不能为空")
+    /** SSO 用户无密码，该字段可选 */
     private String currentPassword;
 
     @NotBlank(message = "二步验证码不能为空")

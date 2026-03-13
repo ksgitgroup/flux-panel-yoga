@@ -787,6 +787,12 @@ export default function ServerDashboardPage() {
                         regionFilter === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
                       }`}>{getRegionFlag(region)}{region} ({count})</button>
                   ))}
+                  {regionCounts.some(([r]) => !r) && (
+                    <button onClick={() => setRegionFilter(regionFilter === '_empty' ? '' : '_empty')}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                        regionFilter === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>未设置 ({regionCounts.find(([r]) => !r)?.[1]})</button>
+                  )}
                 </div>
               )}
               {osCounts.filter(([o]) => o).length > 0 && (
@@ -802,11 +808,27 @@ export default function ServerDashboardPage() {
                         osFilter === os ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
                       }`}>{os} ({count})</button>
                   ))}
+                  {osCounts.some(([o]) => !o) && (
+                    <button onClick={() => setOsFilter(osFilter === '_empty' ? '' : '_empty')}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                        osFilter === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>未知 ({osCounts.find(([o]) => !o)?.[1]})</button>
+                  )}
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">用途:</span>
+                {(['all', 'filled', 'empty'] as const).map(v => (
+                  <button key={v} onClick={() => setPurposeFilter(purposeFilter === v && v !== 'all' ? 'all' : v)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                      purposeFilter === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>{v === 'all' ? '全部' : v === 'filled' ? `已填 (${purposeStats.filled})` : `未填 (${purposeStats.empty})`}</button>
+                ))}
+              </div>
             </div>
 
-            {/* Provider + Environment + Purpose */}
+            {/* Provider + Environment (only when data exists) */}
+            {(providerCounts.filter(([p]) => p).length > 0 || envCounts.filter(([e]) => e).length > 0) && (
             <div className="flex flex-wrap items-center gap-3">
               {providerCounts.filter(([p]) => p).length > 0 && (
                 <div className="flex flex-wrap items-center gap-1">
@@ -850,16 +872,8 @@ export default function ServerDashboardPage() {
                   )}
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">用途:</span>
-                {(['all', 'filled', 'empty'] as const).map(v => (
-                  <button key={v} onClick={() => setPurposeFilter(purposeFilter === v && v !== 'all' ? 'all' : v)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
-                      purposeFilter === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-                    }`}>{v === 'all' ? '全部' : v === 'filled' ? `已填 (${purposeStats.filled})` : `未填 (${purposeStats.empty})`}</button>
-                ))}
-              </div>
             </div>
+            )}
 
             {/* Tag filter bar */}
             {tagCounts.length > 0 && (

@@ -1682,9 +1682,19 @@ export default function AssetsPage() {
                   )}
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">用途:</span>
+                {(['all', 'filled', 'empty'] as const).map(v => (
+                  <button key={v} onClick={() => setFilterPurpose(filterPurpose === v && v !== 'all' ? 'all' : v)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                      filterPurpose === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>{v === 'all' ? '全部' : v === 'filled' ? `已填 (${purposeStats.filled})` : `未填 (${purposeStats.empty})`}</button>
+                ))}
+              </div>
             </div>
 
-            {/* Provider + Environment + Purpose filters */}
+            {/* Provider + Environment (only when data exists) */}
+            {(providerCounts.filter(([p]) => p).length > 0 || envCounts.filter(([e]) => e).length > 0) && (
             <div className="flex flex-wrap items-center gap-3">
               {providerCounts.filter(([p]) => p).length > 0 && (
                 <div className="flex flex-wrap items-center gap-1">
@@ -1728,16 +1738,8 @@ export default function AssetsPage() {
                   )}
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">用途:</span>
-                {(['all', 'filled', 'empty'] as const).map(v => (
-                  <button key={v} onClick={() => setFilterPurpose(filterPurpose === v && v !== 'all' ? 'all' : v)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
-                      filterPurpose === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-                    }`}>{v === 'all' ? '全部' : v === 'filled' ? `已填 (${purposeStats.filled})` : `未填 (${purposeStats.empty})`}</button>
-                ))}
-              </div>
             </div>
+            )}
 
             {/* Tag filter bar */}
             {assetTagCounts.length > 0 && (

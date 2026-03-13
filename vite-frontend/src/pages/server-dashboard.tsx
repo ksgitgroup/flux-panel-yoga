@@ -281,6 +281,8 @@ interface MergedServer {
   tags: string;
   expiredAt: number;
   purpose: string;
+  environment: string;
+  provider: string;
 }
 
 type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime' | 'expiry';
@@ -350,6 +352,8 @@ function mergeNodes(nodes: MonitorNodeSnapshot[]): MergedServer[] {
       tags: primary.tags || peer?.tags || '',
       expiredAt: primary.expiredAt || peer?.expiredAt || 0,
       purpose: primary.purpose || peer?.purpose || '',
+      environment: primary.environment || peer?.environment || '',
+      provider: primary.provider || peer?.provider || '',
     });
   });
   return servers;
@@ -371,6 +375,10 @@ export default function ServerDashboardPage() {
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
   const [osFilter, setOsFilter] = useState<string>('');
+  const [providerFilter, setProviderFilter] = useState<string>('');
+  const [envFilter, setEnvFilter] = useState<string>('');
+  const [purposeFilter, setPurposeFilter] = useState<'all' | 'filled' | 'empty'>('all');
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortAsc, setSortAsc] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('card');
@@ -508,6 +516,26 @@ export default function ServerDashboardPage() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [allServers]);
 
+  // Provider counts from servers
+  const providerCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    allServers.forEach(s => { const p = s.provider || ''; counts[p] = (counts[p] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [allServers]);
+
+  // Environment counts from servers
+  const envCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    allServers.forEach(s => { const e = s.environment || ''; counts[e] = (counts[e] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [allServers]);
+
+  // Purpose stats
+  const purposeStats = useMemo(() => {
+    const filled = allServers.filter(s => !!s.purpose).length;
+    return { filled, empty: allServers.length - filled };
+  }, [allServers]);
+
   // OS counts from servers
   const osCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -550,6 +578,14 @@ export default function ServerDashboardPage() {
         return os.includes(q);
       });
     }
+    if (providerFilter) {
+      list = list.filter(s => providerFilter === '_empty' ? !s.provider : s.provider === providerFilter);
+    }
+    if (envFilter) {
+      list = list.filter(s => envFilter === '_empty' ? !s.environment : s.environment === envFilter);
+    }
+    if (purposeFilter === 'filled') list = list.filter(s => !!s.purpose);
+    else if (purposeFilter === 'empty') list = list.filter(s => !s.purpose);
     if (tagFilter) {
       list = list.filter(s => {
         if (!s.tags) return false;
@@ -563,6 +599,9 @@ export default function ServerDashboardPage() {
         s.ip.toLowerCase().includes(q) ||
         s.region.toLowerCase().includes(q) ||
         s.os.toLowerCase().includes(q) ||
+        s.provider.toLowerCase().includes(q) ||
+        s.environment.toLowerCase().includes(q) ||
+        s.purpose.toLowerCase().includes(q) ||
         (s.assetName || '').toLowerCase().includes(q) ||
         (s.primary.instanceName || '').toLowerCase().includes(q) ||
         s.tags.toLowerCase().includes(q)
@@ -588,7 +627,7 @@ export default function ServerDashboardPage() {
       return sortAsc ? cmp : -cmp;
     });
     return sorted;
-  }, [allServers, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter, sortKey, sortAsc]);
+  }, [allServers, search, statusFilter, probeFilter, tagFilter, regionFilter, osFilter, providerFilter, envFilter, purposeFilter, sortKey, sortAsc]);
 
 
   if (!canViewServerDashboard) {
@@ -621,7 +660,7 @@ export default function ServerDashboardPage() {
         </div>
       </div>
 
-      {/* Summary Bar */}
+      {/* Summary Bar — scrolls away */}
       <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto [scrollbar-width:none] flex-nowrap sm:flex-wrap">
         <button
           onClick={() => setStatusFilter('all')}
@@ -650,9 +689,13 @@ export default function ServerDashboardPage() {
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
         </button>
+      </div>
 
+      {/* Sticky toolbar: probe tabs + sort + search + filters */}
+      <div className="sticky top-[61px] z-20 -mx-3 px-3 lg:-mx-6 lg:px-6 py-3 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-divider/40 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] space-y-3">
+      <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto [scrollbar-width:none] flex-nowrap sm:flex-wrap">
         {/* Probe type filter */}
-        <div className="flex gap-1 sm:ml-2">
+        <div className="flex gap-1">
           {(['all', 'komari', 'pika', 'dual'] as const).map(t => (
             <button key={t} onClick={() => setProbeFilter(t)}
               className={`rounded-lg px-2.5 py-2 text-xs font-semibold transition-all cursor-pointer border min-h-[36px] ${
@@ -665,8 +708,8 @@ export default function ServerDashboardPage() {
           ))}
         </div>
 
-        {/* View toggle + Sort — wrap on mobile */}
-        <div className="flex items-center gap-1 sm:ml-2">
+        {/* View toggle */}
+        <div className="flex items-center gap-1">
           <button onClick={() => setViewMode('card')}
             className={`rounded-lg p-2 min-h-[36px] min-w-[36px] flex items-center justify-center transition-all cursor-pointer border ${viewMode === 'card' ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-divider/60 text-default-500 hover:border-primary/40'}`}
             title="卡片视图">
@@ -698,8 +741,8 @@ export default function ServerDashboardPage() {
               {label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
             </button>
           ))}
-          {(search || statusFilter !== 'all' || probeFilter !== 'all' || tagFilter || regionFilter || osFilter || sortKey !== 'name') && (
-            <button onClick={() => { setSearch(''); setStatusFilter('all'); setProbeFilter('all'); setTagFilter(''); setRegionFilter(''); setOsFilter(''); setSortKey('name'); setSortAsc(true); }}
+          {(search || statusFilter !== 'all' || probeFilter !== 'all' || tagFilter || regionFilter || osFilter || providerFilter || envFilter || purposeFilter !== 'all' || sortKey !== 'name') && (
+            <button onClick={() => { setSearch(''); setStatusFilter('all'); setProbeFilter('all'); setTagFilter(''); setRegionFilter(''); setOsFilter(''); setProviderFilter(''); setEnvFilter(''); setPurposeFilter('all'); setSortKey('name'); setSortAsc(true); }}
               className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-danger border border-danger/40 bg-danger-50/50 hover:bg-danger-100 dark:hover:bg-danger/20 transition-all cursor-pointer ml-2">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               重置筛选
@@ -707,67 +750,160 @@ export default function ServerDashboardPage() {
           )}
         </div>
 
-        <div className="w-full sm:flex-1 sm:min-w-[200px] sm:ml-auto sm:max-w-xs">
-          <Input size="sm" placeholder="搜索服务器、IP、地区、OS..." value={search} onValueChange={setSearch}
-            isClearable onClear={() => setSearch('')} className="w-full" />
+        <div className="w-full sm:flex-1 sm:min-w-[280px] sm:ml-auto sm:max-w-md">
+          <Input size="md" placeholder="搜索名称、IP、厂商、地区、用途、OS..." value={search} onValueChange={setSearch}
+            isClearable onClear={() => setSearch('')} className="w-full"
+            classNames={{ inputWrapper: 'border-2 border-default-200 hover:border-primary focus-within:border-primary shadow-sm' }}
+            startContent={<svg className="w-4 h-4 text-default-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>}
+          />
         </div>
       </div>
 
-      {/* Region / OS quick filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        {regionCounts.filter(([r]) => r).length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">地区:</span>
-            <button onClick={() => setRegionFilter('')}
-              className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
-                !regionFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-              }`}>全部</button>
-            {regionCounts.filter(([r]) => r).map(([region, count]) => (
-              <button key={region} onClick={() => setRegionFilter(regionFilter === region ? '' : region)}
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
-                  regionFilter === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-                }`}>{getRegionFlag(region)}{region} ({count})</button>
-            ))}
-          </div>
-        )}
-        {osCounts.filter(([o]) => o).length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">系统:</span>
-            <button onClick={() => setOsFilter('')}
-              className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                !osFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-              }`}>全部</button>
-            {osCounts.filter(([o]) => o).map(([os, count]) => (
-              <button key={os} onClick={() => setOsFilter(osFilter === os ? '' : os)}
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                  osFilter === os ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-                }`}>{os} ({count})</button>
-            ))}
+      {/* Collapsible filter panel */}
+      <div className="space-y-2">
+        <button onClick={() => setFiltersCollapsed(!filtersCollapsed)}
+          className="flex items-center gap-1.5 text-[11px] font-bold tracking-wider text-default-400 hover:text-default-600 transition-colors cursor-pointer">
+          <svg className={`w-3.5 h-3.5 transition-transform ${filtersCollapsed ? '-rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+          筛选面板
+          {(regionFilter || osFilter || providerFilter || envFilter || purposeFilter !== 'all' || tagFilter) && (
+            <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">
+              {[regionFilter, osFilter, providerFilter, envFilter, purposeFilter !== 'all' ? '用途' : '', tagFilter].filter(Boolean).length}
+            </Chip>
+          )}
+        </button>
+
+        {!filtersCollapsed && (
+          <div className="space-y-2">
+            {/* Region / OS / Provider / Environment filters */}
+            <div className="flex flex-wrap items-center gap-3">
+              {regionCounts.filter(([r]) => r).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">地区:</span>
+                  <button onClick={() => setRegionFilter('')}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                      !regionFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>全部</button>
+                  {regionCounts.filter(([r]) => r).map(([region, count]) => (
+                    <button key={region} onClick={() => setRegionFilter(regionFilter === region ? '' : region)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                        regionFilter === region ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>{getRegionFlag(region)}{region} ({count})</button>
+                  ))}
+                  {regionCounts.some(([r]) => !r) && (
+                    <button onClick={() => setRegionFilter(regionFilter === '_empty' ? '' : '_empty')}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                        regionFilter === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>未设置 ({regionCounts.find(([r]) => !r)?.[1]})</button>
+                  )}
+                </div>
+              )}
+              {osCounts.filter(([o]) => o).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">系统:</span>
+                  <button onClick={() => setOsFilter('')}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                      !osFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>全部</button>
+                  {osCounts.filter(([o]) => o).map(([os, count]) => (
+                    <button key={os} onClick={() => setOsFilter(osFilter === os ? '' : os)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                        osFilter === os ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>{os} ({count})</button>
+                  ))}
+                  {osCounts.some(([o]) => !o) && (
+                    <button onClick={() => setOsFilter(osFilter === '_empty' ? '' : '_empty')}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                        osFilter === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>未知 ({osCounts.find(([o]) => !o)?.[1]})</button>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">用途:</span>
+                {(['all', 'filled', 'empty'] as const).map(v => (
+                  <button key={v} onClick={() => setPurposeFilter(purposeFilter === v && v !== 'all' ? 'all' : v)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                      purposeFilter === v ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>{v === 'all' ? '全部' : v === 'filled' ? `已填 (${purposeStats.filled})` : `未填 (${purposeStats.empty})`}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Provider + Environment (only when data exists) */}
+            {(providerCounts.filter(([p]) => p).length > 0 || envCounts.filter(([e]) => e).length > 0) && (
+            <div className="flex flex-wrap items-center gap-3">
+              {providerCounts.filter(([p]) => p).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">厂商:</span>
+                  <button onClick={() => setProviderFilter('')}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                      !providerFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>全部</button>
+                  {providerCounts.filter(([p]) => p).map(([provider, count]) => (
+                    <button key={provider} onClick={() => setProviderFilter(providerFilter === provider ? '' : provider)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                        providerFilter === provider ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>{provider} ({count})</button>
+                  ))}
+                  {providerCounts.some(([p]) => !p) && (
+                    <button onClick={() => setProviderFilter(providerFilter === '_empty' ? '' : '_empty')}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                        providerFilter === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>未设置 ({providerCounts.find(([p]) => !p)?.[1]})</button>
+                  )}
+                </div>
+              )}
+              {envCounts.filter(([e]) => e).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-0.5">环境:</span>
+                  <button onClick={() => setEnvFilter('')}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                      !envFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>全部</button>
+                  {envCounts.filter(([e]) => e).map(([env, count]) => (
+                    <button key={env} onClick={() => setEnvFilter(envFilter === env ? '' : env)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                        envFilter === env ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>{env} ({count})</button>
+                  ))}
+                  {envCounts.some(([e]) => !e) && (
+                    <button onClick={() => setEnvFilter(envFilter === '_empty' ? '' : '_empty')}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider transition-all border cursor-pointer ${
+                        envFilter === '_empty' ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                      }`}>未设置 ({envCounts.find(([e]) => !e)?.[1]})</button>
+                  )}
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Tag filter bar */}
+            {tagCounts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">标签:</span>
+                <button
+                  onClick={() => setTagFilter('')}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                    !tagFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                  }`}>
+                  ALL ({allServers.length})
+                </button>
+                {tagCounts.map(([tag, count]) => (
+                  <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                      tagFilter === tag ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
+                    }`}>
+                    {tag.toUpperCase()} ({count})
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Tag filter bar */}
-      {tagCounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">标签:</span>
-          <button
-            onClick={() => setTagFilter('')}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-              !tagFilter ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-            }`}>
-            ALL ({allServers.length})
-          </button>
-          {tagCounts.map(([tag, count]) => (
-            <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                tagFilter === tag ? 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20' : 'border-divider text-default-500 hover:border-primary/40'
-              }`}>
-              {tag.toUpperCase()} ({count})
-            </button>
-          ))}
-        </div>
-      )}
+      </div>{/* end sticky toolbar */}
 
       {/* Loading */}
       {loading ? (
@@ -880,8 +1016,11 @@ export default function ServerDashboardPage() {
                     <td className="px-3 py-2 text-[11px] font-mono text-default-500">
                       {server.isOnline && m ? formatUptime(m.uptime) : '-'}
                     </td>
-                    <td className="px-3 py-2 text-[11px] text-default-500 truncate max-w-[100px]">
-                      {server.purpose ? <span className="text-primary-500">{server.purpose}</span> : '-'}
+                    <td className="px-3 py-2 text-[11px] text-default-500 truncate max-w-[130px]">
+                      <span className="flex flex-col gap-0.5">
+                        {server.environment && <span className="text-warning-600 dark:text-warning-400">{server.environment}</span>}
+                        {server.purpose ? <span className="text-primary-500">{server.purpose}</span> : !server.environment ? '-' : null}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-[11px] font-mono text-default-500 whitespace-nowrap">
                       {server.expiredAt > 0 ? (
@@ -1010,12 +1149,14 @@ export default function ServerDashboardPage() {
                       );
                     })()}
 
-                    {/* Purpose + Expiry footer */}
-                    {(server.purpose || server.expiredAt > 0) && (
+                    {/* Environment + Purpose + Expiry footer */}
+                    {(server.environment || server.purpose || server.expiredAt > 0) && (
                       <div className="flex items-center justify-between gap-2 text-[10px] text-default-400 font-mono pt-0.5">
-                        {server.purpose ? (
-                          <span className="truncate text-primary-500 font-medium">{server.purpose}</span>
-                        ) : <span />}
+                        <span className="truncate flex items-center gap-1">
+                          {server.environment && <span className="text-warning-600 dark:text-warning-400">{server.environment}</span>}
+                          {server.environment && server.purpose && <span className="text-default-200">·</span>}
+                          {server.purpose && <span className="text-primary-500 font-medium">{server.purpose}</span>}
+                        </span>
                         {server.expiredAt > 0 && (
                           <span className={`flex-shrink-0 ${server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}`}>
                             {server.expiredAt < Date.now() ? '已过期' : `${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天`}

@@ -692,7 +692,7 @@ export default function ServerDashboardPage() {
       </div>
 
       {/* Sticky toolbar: probe tabs + sort + search + filters */}
-      <div className="sticky top-[52px] z-20 -mx-3 px-3 lg:-mx-6 lg:px-6 py-3 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-divider/40 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] space-y-3">
+      <div className="sticky top-[61px] z-20 -mx-3 px-3 lg:-mx-6 lg:px-6 py-3 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-divider/40 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] space-y-3">
       <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto [scrollbar-width:none] flex-nowrap sm:flex-wrap">
         {/* Probe type filter */}
         <div className="flex gap-1">

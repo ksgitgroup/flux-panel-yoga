@@ -288,6 +288,9 @@ interface MergedServer {
 type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime' | 'expiry';
 type ViewMode = 'card' | 'list';
 
+const NEVER_EXPIRE_THRESHOLD = 4102444800000; // year ~2100
+const isNeverExpireTs = (ts?: number | null): boolean => ts === -1 || (ts != null && ts > NEVER_EXPIRE_THRESHOLD);
+
 const OFFLINE_REASON_LABELS: Record<string, string> = {
   probe_unreachable: '探针不可达',
   server_down: '服务器宕机',
@@ -621,7 +624,11 @@ export default function ServerDashboardPage() {
           break;
         }
         case 'uptime': cmp = a.uptime - b.uptime; break;
-        case 'expiry': cmp = (a.expiredAt || 0) - (b.expiredAt || 0); break;
+        case 'expiry': {
+          const aExp = isNeverExpireTs(a.expiredAt) ? Number.MAX_SAFE_INTEGER : (a.expiredAt || 0);
+          const bExp = isNeverExpireTs(b.expiredAt) ? Number.MAX_SAFE_INTEGER : (b.expiredAt || 0);
+          cmp = aExp - bExp; break;
+        }
         default: cmp = a.name.localeCompare(b.name, 'zh-CN');
       }
       return sortAsc ? cmp : -cmp;
@@ -1024,10 +1031,11 @@ export default function ServerDashboardPage() {
                     </td>
                     <td className="px-3 py-2 text-[11px] font-mono text-default-500 whitespace-nowrap">
                       {server.expiredAt > 0 ? (
+                        isNeverExpireTs(server.expiredAt) ? <span className="text-default-400">永不到期</span> : (
                         <span className={server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}>
                           {new Date(server.expiredAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
                           {server.expiredAt < Date.now() ? ' 过期' : ` (${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天)`}
-                        </span>
+                        </span>)
                       ) : '-'}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-default-500">
@@ -1158,9 +1166,10 @@ export default function ServerDashboardPage() {
                           {server.purpose && <span className="text-primary-500 font-medium">{server.purpose}</span>}
                         </span>
                         {server.expiredAt > 0 && (
+                          isNeverExpireTs(server.expiredAt) ? <span className="flex-shrink-0 text-default-400">永不到期</span> : (
                           <span className={`flex-shrink-0 ${server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}`}>
                             {server.expiredAt < Date.now() ? '已过期' : `${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天`}
-                          </span>
+                          </span>)
                         )}
                       </div>
                     )}
@@ -1284,9 +1293,13 @@ export default function ServerDashboardPage() {
                         {selectedNode.expiredAt != null && selectedNode.expiredAt > 0 && (
                           <p className="flex justify-between">
                             <span className="text-default-400">到期</span>
-                            <span className={`font-mono ${selectedNode.expiredAt < Date.now() ? 'text-danger' : ''}`}>
-                              {new Date(selectedNode.expiredAt).toLocaleDateString('zh-CN')}
-                              {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
+                            <span className={`font-mono ${!isNeverExpireTs(selectedNode.expiredAt) && selectedNode.expiredAt < Date.now() ? 'text-danger' : ''}`}>
+                              {isNeverExpireTs(selectedNode.expiredAt) ? '永不到期' : (
+                                <>
+                                  {new Date(selectedNode.expiredAt).toLocaleDateString('zh-CN')}
+                                  {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
+                                </>
+                              )}
                             </span>
                           </p>
                         )}

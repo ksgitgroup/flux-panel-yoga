@@ -381,9 +381,12 @@ const calcRemainingValue = (expireDate?: number | null, monthlyCost?: string | n
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 
+const NEVER_EXPIRE_THRESHOLD = 4102444800000; // year ~2100
+const isNeverExpireTs = (ts?: number | null): boolean => ts === -1 || (ts != null && ts > NEVER_EXPIRE_THRESHOLD);
+
 const formatDateShort = (timestamp?: number | null) => {
   if (!timestamp) return '-';
-  if (timestamp === -1) return '永不到期';
+  if (isNeverExpireTs(timestamp)) return '永不到期';
   return new Date(timestamp).toLocaleDateString();
 };
 
@@ -777,8 +780,8 @@ export default function AssetsPage() {
           cmp = aPct - bPct; break;
         }
         case 'expiry': {
-          const aDate = a.expireDate ? new Date(a.expireDate).getTime() : 0;
-          const bDate = b.expireDate ? new Date(b.expireDate).getTime() : 0;
+          const aDate = isNeverExpireTs(a.expireDate) ? Number.MAX_SAFE_INTEGER : (a.expireDate || 0);
+          const bDate = isNeverExpireTs(b.expireDate) ? Number.MAX_SAFE_INTEGER : (b.expireDate || 0);
           cmp = aDate - bDate; break;
         }
         case 'cost': {
@@ -1474,7 +1477,7 @@ export default function AssetsPage() {
     return <div className="flex h-64 items-center justify-center"><Spinner size="lg" /></div>;
   }
 
-  const expiringSoon = assets.filter(a => a.expireDate && a.expireDate !== -1 && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
+  const expiringSoon = assets.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
 
   const selectedAsset = assets.find(a => a.id === expandedAssetId) || null;
 
@@ -1914,6 +1917,7 @@ export default function AssetsPage() {
                             {(asset.probeExpiredAt && asset.probeExpiredAt > 0) || asset.expireDate ? (() => {
                               const expiry = (asset.probeExpiredAt && asset.probeExpiredAt > 0) ? asset.probeExpiredAt : asset.expireDate;
                               if (!expiry) return null;
+                              if (isNeverExpireTs(expiry)) return <p className="text-xs font-mono text-default-400">永不到期</p>;
                               const days = Math.ceil((expiry - Date.now()) / 86400000);
                               const isExpired = days < 0;
                               const isSoon = days >= 0 && days <= 30;

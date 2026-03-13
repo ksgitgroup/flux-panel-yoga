@@ -373,7 +373,7 @@ export default function ServerDashboardPage() {
   const [nodes, setNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired'>('all');
   const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika' | 'dual'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -487,7 +487,8 @@ export default function ServerDashboardPage() {
   const serverSummary = useMemo(() => {
     const total = allServers.length;
     const online = allServers.filter(s => s.isOnline).length;
-    return { total, online, offline: total - online };
+    const expired = allServers.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now()).length;
+    return { total, online, offline: total - online, expired };
   }, [allServers]);
 
   // Collect all unique tags with counts (from merged servers)
@@ -566,6 +567,7 @@ export default function ServerDashboardPage() {
     let list = allServers;
     if (statusFilter === 'online') list = list.filter(s => s.isOnline);
     else if (statusFilter === 'offline') list = list.filter(s => !s.isOnline);
+    else if (statusFilter === 'expired') list = list.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now());
     if (probeFilter === 'dual') list = list.filter(s => s.isDual);
     else if (probeFilter === 'komari') list = list.filter(s => s.isDual || (s.primary.instanceType || 'komari') === 'komari');
     else if (probeFilter === 'pika') list = list.filter(s => s.isDual || s.primary.instanceType === 'pika');
@@ -695,6 +697,15 @@ export default function ServerDashboardPage() {
         >
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
+        </button>
+        <button
+          onClick={() => setStatusFilter(statusFilter === 'expired' ? 'all' : 'expired')}
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
+            statusFilter === 'expired' ? 'border-warning bg-warning-50 dark:bg-warning/10' : serverSummary.expired > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10 hover:border-warning/40' : 'border-divider/60 bg-content1'
+          }`}
+        >
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expired > 0 ? 'text-warning' : 'text-default-400'}`}>已到期</p>
+          <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expired > 0 ? 'text-warning' : 'text-default-300'}`}>{serverSummary.expired}</p>
         </button>
       </div>
 

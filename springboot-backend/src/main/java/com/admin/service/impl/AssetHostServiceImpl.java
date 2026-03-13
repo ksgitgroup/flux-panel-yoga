@@ -70,6 +70,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             return R.ok(filterByAssetScope(cached));
         }
         List<AssetHost> assets = this.list(new LambdaQueryWrapper<AssetHost>()
+                .eq(AssetHost::getStatus, 0)
                 .orderByDesc(AssetHost::getUpdatedTime, AssetHost::getId));
         List<AssetHostViewDto> views = buildAssetViews(assets);
         cachedAssetViews = views;
@@ -221,6 +222,41 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         this.removeById(asset.getId());
         invalidateAssetViewCache();
         return R.ok();
+    }
+
+    @Override
+    public R archiveAsset(Long id) {
+        AuthPrincipal dp = AuthContext.getCurrentPrincipal();
+        if (dp != null && !dp.canAccessAsset(id)) {
+            return R.err("无权操作该资产");
+        }
+        AssetHost asset = getRequiredAsset(id);
+        asset.setStatus(2);
+        asset.setUpdatedTime(System.currentTimeMillis());
+        this.updateById(asset);
+        invalidateAssetViewCache();
+        return R.ok();
+    }
+
+    @Override
+    public R restoreAsset(Long id) {
+        AssetHost asset = this.getById(id);
+        if (asset == null) return R.err("资产不存在");
+        if (asset.getStatus() == null || asset.getStatus() != 2) return R.err("该资产不在回收站中");
+        asset.setStatus(0);
+        asset.setUpdatedTime(System.currentTimeMillis());
+        this.updateById(asset);
+        invalidateAssetViewCache();
+        return R.ok();
+    }
+
+    @Override
+    public R getArchivedAssets() {
+        List<AssetHost> assets = this.list(new LambdaQueryWrapper<AssetHost>()
+                .eq(AssetHost::getStatus, 2)
+                .orderByDesc(AssetHost::getUpdatedTime, AssetHost::getId));
+        List<AssetHostViewDto> views = buildAssetViews(assets);
+        return R.ok(views);
     }
 
     @Override

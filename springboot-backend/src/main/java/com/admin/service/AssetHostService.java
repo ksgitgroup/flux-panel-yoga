@@ -18,5 +18,11 @@ public interface AssetHostService extends IService<AssetHost> {
 
     R deleteAsset(Long id);
 
+    R archiveAsset(Long id);
+
+    R restoreAsset(Long id);
+
+    R getArchivedAssets();
+
     R batchUpdateField(java.util.Map<String, Object> params);
 }

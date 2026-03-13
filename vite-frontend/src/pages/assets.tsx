@@ -641,6 +641,7 @@ export default function AssetsPage() {
       totalForwards: assets.reduce((s, i) => s + (i.totalForwards || 0), 0),
       totalClients: assets.reduce((s, i) => s + (i.totalClients || 0), 0),
       expiredAssets: assets.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now()).length,
+      expiringSoonAssets: assets.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate >= Date.now() && a.expireDate < Date.now() + 14 * 86400000).length,
     };
   }, [assets]);
 
@@ -763,6 +764,8 @@ export default function AssetsPage() {
       list = list.filter(a => (a.monitorNodeUuid || a.pikaNodeId) && a.monitorOnline !== 1);
     } else if (filterStatus === 'expired') {
       list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now());
+    } else if (filterStatus === 'expiring_soon') {
+      list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate >= Date.now() && a.expireDate < Date.now() + 14 * 86400000);
     }
     if (filterEnv) {
       list = list.filter(a => filterEnv === '_empty' ? !a.environment : a.environment === filterEnv);
@@ -1341,10 +1344,12 @@ export default function AssetsPage() {
     setArchivedLoading(false);
   };
 
+  const [archiveConfirmId, setArchiveConfirmId] = useState<number | null>(null);
   const handleArchiveAsset = async (id: number) => {
     try {
       await archiveAsset(id);
       toast.success('已移入回收站');
+      setArchiveConfirmId(null);
       await loadAssets();
     } catch (e: any) {
       toast.error(e?.message || '操作失败');
@@ -1587,9 +1592,13 @@ export default function AssetsPage() {
           <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-2xl font-bold font-mono ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
         </div>
-        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'expired' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiredAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.expiredAssets > 0 ? 'text-warning' : 'text-default-400'}`}>已到期</p>
-          <p className={`text-2xl font-bold font-mono ${summary.expiredAssets > 0 ? 'text-warning' : 'text-default-300'}`}>{summary.expiredAssets}</p>
+        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'expiring_soon' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiringSoonAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'expiring_soon' ? '' : 'expiring_soon')}>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-400'}`}>快到期</p>
+          <p className={`text-2xl font-bold font-mono ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-300'}`}>{summary.expiringSoonAssets}</p>
+        </div>
+        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`}>已到期</p>
+          <p className={`text-2xl font-bold font-mono ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.expiredAssets}</p>
         </div>
         <div className="rounded-xl border border-divider/60 bg-content1 p-3">
           <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">关联模块</p>
@@ -2633,11 +2642,15 @@ export default function AssetsPage() {
                     } catch { toast.error('连接异常'); } finally { setJsConnecting(false); }
                   }}>终端登录</Button>
                 )}
-                {detail?.monitorNodes && detail.monitorNodes.length > 0 && (
-                  <Button size="sm" variant="flat" color="secondary" onPress={() => { onDetailClose(); navigate(`/probe?instanceId=${detail.monitorNodes![0].instanceId}`); }}>探针实例</Button>
+                {(canUpdateAssets) && <Button size="sm" variant="flat" color="primary" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
+                {(canDeleteAssets) && archiveConfirmId === selectedAsset.id ? (
+                  <>
+                    <Button size="sm" variant="flat" color="warning" onPress={() => handleArchiveAsset(selectedAsset.id)}>确认归档</Button>
+                    <Button size="sm" variant="light" onPress={() => setArchiveConfirmId(null)}>取消</Button>
+                  </>
+                ) : (canDeleteAssets) && (
+                  <Button size="sm" variant="light" onPress={() => setArchiveConfirmId(selectedAsset.id)}>归档</Button>
                 )}
-                {(canUpdateAssets) && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
-                {(canDeleteAssets) && <Button size="sm" variant="flat" color="warning" onPress={() => { onDetailClose(); handleArchiveAsset(selectedAsset.id); }}>归档</Button>}
                 {(canDeleteAssets) && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>

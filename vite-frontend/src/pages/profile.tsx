@@ -289,8 +289,10 @@ export default function ProfilePage() {
     }
   };
 
+  const isSsoUser = twoFactorStatus?.authSource && twoFactorStatus.authSource !== 'local';
+
   const handleEnableTwoFactor = async () => {
-    if (!enableForm.currentPassword.trim()) {
+    if (!isSsoUser && !enableForm.currentPassword.trim()) {
       toast.error('请输入当前密码');
       return;
     }
@@ -302,7 +304,7 @@ export default function ProfilePage() {
     setTwoFactorLoading(true);
     try {
       const response = await enableTwoFactor({
-        currentPassword: enableForm.currentPassword,
+        currentPassword: isSsoUser ? '' : enableForm.currentPassword,
         oneTimeCode: enableForm.oneTimeCode.trim()
       });
       if (response.code === 0) {
@@ -326,7 +328,7 @@ export default function ProfilePage() {
   };
 
   const handleDisableTwoFactor = async () => {
-    if (!disableForm.currentPassword.trim()) {
+    if (!isSsoUser && !disableForm.currentPassword.trim()) {
       toast.error('请输入当前密码');
       return;
     }
@@ -338,7 +340,7 @@ export default function ProfilePage() {
     setTwoFactorLoading(true);
     try {
       const response = await disableTwoFactor({
-        currentPassword: disableForm.currentPassword,
+        currentPassword: isSsoUser ? '' : disableForm.currentPassword,
         oneTimeCode: disableForm.oneTimeCode.trim()
       });
       if (response.code === 0) {
@@ -669,14 +671,16 @@ export default function ProfilePage() {
                     </div>
                   </div>
 
-                  <Input
-                    label="当前密码"
-                    type="password"
-                    placeholder="请输入当前登录密码"
-                    value={enableForm.currentPassword}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnableForm(prev => ({ ...prev, currentPassword: e.target.value }))}
-                    variant="bordered"
-                  />
+                  {!isSsoUser && (
+                    <Input
+                      label="当前密码"
+                      type="password"
+                      placeholder="请输入当前登录密码"
+                      value={enableForm.currentPassword}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnableForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                      variant="bordered"
+                    />
+                  )}
 
                   <Input
                     label="6 位验证码"
@@ -722,14 +726,16 @@ export default function ProfilePage() {
                   关闭后，登录将只依赖账号密码。请确认当前环境已经有其他安全保护措施。
                 </div>
 
-                <Input
-                  label="当前密码"
-                  type="password"
-                  placeholder="请输入当前登录密码"
-                  value={disableForm.currentPassword}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDisableForm(prev => ({ ...prev, currentPassword: e.target.value }))}
-                  variant="bordered"
-                />
+                {!isSsoUser && (
+                  <Input
+                    label="当前密码"
+                    type="password"
+                    placeholder="请输入当前登录密码"
+                    value={disableForm.currentPassword}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDisableForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                    variant="bordered"
+                  />
+                )}
 
                 <Input
                   label="6 位验证码"

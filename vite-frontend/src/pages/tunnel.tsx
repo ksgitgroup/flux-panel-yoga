@@ -18,6 +18,7 @@ import {
   updateTunnel,
   deleteTunnel,
   getNodeList,
+  getForwardList,
   diagnoseTunnel,
   getDiagnosisHistory,
   getDiagnosisLatestBatch
@@ -157,6 +158,8 @@ export default function TunnelPage() {
 
   // 诊断数据映射 (tunnelId -> batch item)
   const [diagnosisMap, setDiagnosisMap] = useState<Record<number, any>>({});
+  // Per-tunnel traffic aggregation from forwards
+  const [tunnelTraffic, setTunnelTraffic] = useState<Record<number, { inFlow: number; outFlow: number; forwardCount: number }>>({});
 
   useEffect(() => {
     loadData();
@@ -166,9 +169,10 @@ export default function TunnelPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [tunnelsRes, nodesRes] = await Promise.all([
+      const [tunnelsRes, nodesRes, forwardsRes] = await Promise.all([
         getTunnelList(),
-        getNodeList()
+        getNodeList(),
+        getForwardList()
       ]);
 
       if (tunnelsRes.code === 0) {
@@ -194,6 +198,20 @@ export default function TunnelPage() {
         setNodes(nodesRes.data || []);
       } else {
         console.warn('获取节点列表失败:', nodesRes.msg);
+      }
+
+      // Aggregate forward traffic by tunnelId
+      if (forwardsRes.code === 0 && forwardsRes.data) {
+        const trafficMap: Record<number, { inFlow: number; outFlow: number; forwardCount: number }> = {};
+        (forwardsRes.data as any[]).forEach((f: any) => {
+          if (f.tunnelId) {
+            if (!trafficMap[f.tunnelId]) trafficMap[f.tunnelId] = { inFlow: 0, outFlow: 0, forwardCount: 0 };
+            trafficMap[f.tunnelId].inFlow += f.inFlow || 0;
+            trafficMap[f.tunnelId].outFlow += f.outFlow || 0;
+            trafficMap[f.tunnelId].forwardCount += 1;
+          }
+        });
+        setTunnelTraffic(trafficMap);
       }
     } catch (error) {
       console.error('加载数据失败:', error);
@@ -472,6 +490,14 @@ export default function TunnelPage() {
     }
   };
 
+  const formatFlow = (value: number): string => {
+    if (value === 0) return '0 B';
+    if (value < 1024) return value + ' B';
+    if (value < 1024 * 1024) return (value / 1024).toFixed(2) + ' KB';
+    if (value < 1024 * 1024 * 1024) return (value / (1024 * 1024)).toFixed(2) + ' MB';
+    return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  };
+
   // 获取类型显示
   const getTypeDisplay = (type: number) => {
     switch (type) {
@@ -630,7 +656,14 @@ export default function TunnelPage() {
                       </div>
                     </div>
 
-                    {/* 配置信息 */}
+                    {/* 流量 & 配置信息 */}
+                    {tunnelTraffic[tunnel.id] && (tunnelTraffic[tunnel.id].inFlow > 0 || tunnelTraffic[tunnel.id].outFlow > 0) && (
+                      <div className="flex items-center gap-2 pt-2 border-t border-divider">
+                        <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">↑ {formatFlow(tunnelTraffic[tunnel.id].inFlow)}</Chip>
+                        <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">↓ {formatFlow(tunnelTraffic[tunnel.id].outFlow)}</Chip>
+                        <span className="text-[10px] text-default-400 ml-auto">{tunnelTraffic[tunnel.id].forwardCount} 条转发</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center pt-2 border-t border-divider">
                       <div className="text-left">
                         <div className="text-xs font-medium text-foreground">

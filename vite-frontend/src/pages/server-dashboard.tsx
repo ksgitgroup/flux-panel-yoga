@@ -283,6 +283,8 @@ interface MergedServer {
   purpose: string;
   environment: string;
   provider: string;
+  gostNodeId?: number | null;
+  gostNodeName?: string | null;
 }
 
 type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime' | 'expiry';
@@ -357,6 +359,8 @@ function mergeNodes(nodes: MonitorNodeSnapshot[]): MergedServer[] {
       purpose: primary.purpose || peer?.purpose || '',
       environment: primary.environment || peer?.environment || '',
       provider: primary.provider || peer?.provider || '',
+      gostNodeId: primary.gostNodeId || peer?.gostNodeId,
+      gostNodeName: primary.gostNodeName || peer?.gostNodeName,
     });
   });
   return servers;
@@ -373,7 +377,7 @@ export default function ServerDashboardPage() {
   const [nodes, setNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired' | 'expiring_soon'>('all');
   const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika' | 'dual'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -488,7 +492,8 @@ export default function ServerDashboardPage() {
     const total = allServers.length;
     const online = allServers.filter(s => s.isOnline).length;
     const expired = allServers.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now()).length;
-    return { total, online, offline: total - online, expired };
+    const expiringSoon = allServers.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt >= Date.now() && s.expiredAt < Date.now() + 14 * 86400000).length;
+    return { total, online, offline: total - online, expired, expiringSoon };
   }, [allServers]);
 
   // Collect all unique tags with counts (from merged servers)
@@ -496,7 +501,11 @@ export default function ServerDashboardPage() {
     const counts: Record<string, number> = {};
     allServers.forEach(s => {
       if (s.tags) {
-        try { JSON.parse(s.tags).forEach((t: string) => { counts[t] = (counts[t] || 0) + 1; }); } catch { /* ignore */ }
+        const parsed: string[] = [];
+        try { parsed.push(...JSON.parse(s.tags)); } catch {
+          parsed.push(...s.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean));
+        }
+        new Set(parsed).forEach(t => { counts[t] = (counts[t] || 0) + 1; });
       }
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -568,6 +577,7 @@ export default function ServerDashboardPage() {
     if (statusFilter === 'online') list = list.filter(s => s.isOnline);
     else if (statusFilter === 'offline') list = list.filter(s => !s.isOnline);
     else if (statusFilter === 'expired') list = list.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now());
+    else if (statusFilter === 'expiring_soon') list = list.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt >= Date.now() && s.expiredAt < Date.now() + 14 * 86400000);
     if (probeFilter === 'dual') list = list.filter(s => s.isDual);
     else if (probeFilter === 'komari') list = list.filter(s => s.isDual || (s.primary.instanceType || 'komari') === 'komari');
     else if (probeFilter === 'pika') list = list.filter(s => s.isDual || s.primary.instanceType === 'pika');
@@ -594,7 +604,10 @@ export default function ServerDashboardPage() {
     if (tagFilter) {
       list = list.filter(s => {
         if (!s.tags) return false;
-        try { return JSON.parse(s.tags).includes(tagFilter); } catch { return false; }
+        try { if (JSON.parse(s.tags).includes(tagFilter)) return true; } catch {
+          if (s.tags.split(/[;,]/).map((t: string) => t.trim()).includes(tagFilter)) return true;
+        }
+        return false;
       });
     }
     if (search.trim()) {
@@ -699,13 +712,22 @@ export default function ServerDashboardPage() {
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
         </button>
         <button
-          onClick={() => setStatusFilter(statusFilter === 'expired' ? 'all' : 'expired')}
+          onClick={() => setStatusFilter(statusFilter === 'expiring_soon' ? 'all' : 'expiring_soon')}
           className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
-            statusFilter === 'expired' ? 'border-warning bg-warning-50 dark:bg-warning/10' : serverSummary.expired > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10 hover:border-warning/40' : 'border-divider/60 bg-content1'
+            statusFilter === 'expiring_soon' ? 'border-warning bg-warning-50 dark:bg-warning/10' : serverSummary.expiringSoon > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10 hover:border-warning/40' : 'border-divider/60 bg-content1'
           }`}
         >
-          <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expired > 0 ? 'text-warning' : 'text-default-400'}`}>已到期</p>
-          <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expired > 0 ? 'text-warning' : 'text-default-300'}`}>{serverSummary.expired}</p>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expiringSoon > 0 ? 'text-warning' : 'text-default-400'}`}>快到期</p>
+          <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expiringSoon > 0 ? 'text-warning' : 'text-default-300'}`}>{serverSummary.expiringSoon}</p>
+        </button>
+        <button
+          onClick={() => setStatusFilter(statusFilter === 'expired' ? 'all' : 'expired')}
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
+            statusFilter === 'expired' ? 'border-danger bg-danger-50 dark:bg-danger/10' : serverSummary.expired > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40' : 'border-divider/60 bg-content1'
+          }`}
+        >
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expired > 0 ? 'text-danger' : 'text-default-400'}`}>已到期</p>
+          <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expired > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.expired}</p>
         </button>
       </div>
 
@@ -971,16 +993,19 @@ export default function ServerDashboardPage() {
                       <p className="text-[11px] text-default-400 font-mono">{server.ip}</p>
                     </td>
                     <td className="px-3 py-2">
-                      {server.isDual ? (
-                        <div className="flex gap-1">
-                          <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">K</Chip>
-                          <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">P</Chip>
-                        </div>
-                      ) : (
-                        <Chip size="sm" variant="flat" color={server.primary.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
-                          {server.primary.instanceType === 'pika' ? 'Pika' : 'Komari'}
-                        </Chip>
-                      )}
+                      <div className="flex gap-1 flex-wrap">
+                        {server.isDual ? (
+                          <>
+                            <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">K</Chip>
+                            <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">P</Chip>
+                          </>
+                        ) : (
+                          <Chip size="sm" variant="flat" color={server.primary.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
+                            {server.primary.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                          </Chip>
+                        )}
+                        {server.gostNodeName && <Chip size="sm" variant="flat" color="warning" className="h-4 text-[9px]">GOST</Chip>}
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       {server.isOnline ? (
@@ -1091,16 +1116,19 @@ export default function ServerDashboardPage() {
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                    {server.isDual ? (
-                      <div className="flex gap-0.5">
-                        <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">K</Chip>
-                        <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">P</Chip>
-                      </div>
-                    ) : (
-                      <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
-                        {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
-                      </Chip>
-                    )}
+                    <div className="flex gap-0.5 flex-wrap justify-end">
+                      {server.isDual ? (
+                        <>
+                          <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">K</Chip>
+                          <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">P</Chip>
+                        </>
+                      ) : (
+                        <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
+                          {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                        </Chip>
+                      )}
+                      {server.gostNodeName && <Chip size="sm" variant="flat" color="warning" className="h-4 text-[9px]">GOST</Chip>}
+                    </div>
                   </div>
                 </div>
 
@@ -1258,79 +1286,88 @@ export default function ServerDashboardPage() {
                   </div>
                 </ModalHeader>
                 <ModalBody className="space-y-4 pb-6">
-                  {/* System Info */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {/* System Info - 2-column layout */}
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {/* Left: Basic Info */}
                     <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">系统</p>
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">基本信息</p>
                       <div className="space-y-1 text-xs">
-                        <p className="flex justify-between"><span className="text-default-400">操作系统</span><span className="font-mono">{selectedNode.os || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">内核</span><span className="font-mono text-[11px] truncate ml-2">{selectedNode.kernelVersion || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{selectedNode.arch || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{selectedNode.virtualization || '-'}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">Agent</span><span className="font-mono">v{selectedNode.version || '?'}</span></p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">硬件</p>
-                      <div className="space-y-1 text-xs">
-                        <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedNode.cpuCores || '?'} 核</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{formatBytes(selectedNode.memTotal)}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{formatBytes(selectedNode.swapTotal)}</span></p>
-                        <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{formatBytes(selectedNode.diskTotal)}</span></p>
-                        {selectedNode.gpuName && <p className="flex justify-between"><span className="text-default-400">GPU</span><span className="font-mono truncate ml-2">{selectedNode.gpuName}</span></p>}
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-1.5">信息</p>
-                      <div className="space-y-1 text-xs">
-                        {selectedNode.cpuName && <p className="truncate text-default-500 font-mono">{selectedNode.cpuName}</p>}
+                        {selectedNode.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedNode.provider}</span></p>}
                         {selectedNode.instanceName && <p className="flex justify-between"><span className="text-default-400">探针</span><span>{selectedNode.instanceName}</span></p>}
                         {selectedNode.assetName && <p className="flex justify-between"><span className="text-default-400">资产</span><Chip size="sm" variant="flat" color="primary" className="h-5 cursor-pointer" onClick={() => { onDetailClose(); navigate(selectedNode.assetId ? `/assets?viewId=${selectedNode.assetId}` : '/assets'); }}>{selectedNode.assetName}</Chip></p>}
-                        {selectedNode.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedNode.provider}</span></p>}
                         {selectedNode.label && <p className="flex justify-between"><span className="text-default-400">标签</span><span>{selectedNode.label}</span></p>}
-                        {selectedNode.price != null && <p className="flex justify-between"><span className="text-default-400">价格</span><span className="font-mono">{selectedNode.price} {selectedNode.currency || ''}{selectedNode.billingCycle ? ` / ${selectedNode.billingCycle}天` : ''}</span></p>}
-                        {selectedNode.monthlyCost && selectedNode.monthlyCost !== '0' && <p className="flex justify-between"><span className="text-default-400">月费</span><span className="font-mono">{selectedNode.monthlyCost} {selectedNode.currency || ''}</span></p>}
                         {selectedNode.bandwidthMbps != null && selectedNode.bandwidthMbps > 0 && <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedNode.bandwidthMbps} Mbps</span></p>}
                         {selectedNode.sshPort != null && selectedNode.sshPort > 0 && <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedNode.sshPort}</span></p>}
-                        {selectedNode.purchaseDate != null && selectedNode.purchaseDate > 0 && <p className="flex justify-between"><span className="text-default-400">购买日</span><span className="font-mono">{new Date(selectedNode.purchaseDate).toLocaleDateString('zh-CN')}</span></p>}
                         {selectedNode.trafficLimit != null && selectedNode.trafficLimit > 0 && (
                           <p className="flex justify-between"><span className="text-default-400">流量配额</span><span className="font-mono">{formatBytes(selectedNode.trafficUsed)} / {formatBytes(selectedNode.trafficLimit)}</span></p>
                         )}
                         {selectedNode.trafficResetDay != null && selectedNode.trafficResetDay > 0 && (
                           <p className="flex justify-between"><span className="text-default-400">重置日</span><span className="font-mono">每月{selectedNode.trafficResetDay}日</span></p>
                         )}
+                        {/* Cost & Expiry */}
+                        {(selectedNode.monthlyCost || selectedNode.purchaseDate || selectedNode.expiredAt) && <div className="border-t border-divider/40 my-1.5" />}
+                        {selectedNode.monthlyCost && selectedNode.monthlyCost !== '0' && <p className="flex justify-between"><span className="text-default-400">月费</span><span className="font-mono">{selectedNode.monthlyCost} {selectedNode.currency || '$'}</span></p>}
+                        {selectedNode.purchaseDate != null && selectedNode.purchaseDate > 0 && <p className="flex justify-between"><span className="text-default-400">购买日</span><span className="font-mono">{new Date(selectedNode.purchaseDate).toLocaleDateString('zh-CN')}</span></p>}
                         {selectedNode.expiredAt != null && selectedNode.expiredAt > 0 && (
                           <p className="flex justify-between">
                             <span className="text-default-400">到期</span>
-                            <span className={`font-mono ${!isNeverExpireTs(selectedNode.expiredAt) && selectedNode.expiredAt < Date.now() ? 'text-danger' : ''}`}>
+                            <span className={`font-mono ${!isNeverExpireTs(selectedNode.expiredAt) && selectedNode.expiredAt < Date.now() ? 'text-danger' : !isNeverExpireTs(selectedNode.expiredAt) && selectedNode.expiredAt < Date.now() + 14 * 86400000 ? 'text-warning' : ''}`}>
                               {isNeverExpireTs(selectedNode.expiredAt) ? '永不到期' : (
                                 <>
                                   {new Date(selectedNode.expiredAt).toLocaleDateString('zh-CN')}
-                                  {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
+                                  {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (剩余${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
                                 </>
                               )}
                             </span>
                           </p>
                         )}
-                        {selectedNode.panelUrl && (
-                          <p className="flex justify-between"><span className="text-default-400">1Panel</span><a href={selectedNode.panelUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline truncate ml-2">{selectedNode.panelUrl.replace(/^https?:\/\//, '')}</a></p>
+                        {/* Integrations */}
+                        {(selectedNode.panelUrl || selectedNode.gostNodeName) && <div className="border-t border-divider/40 my-1.5" />}
+                        {selectedNode.gostNodeName && (
+                          <p className="flex justify-between"><span className="text-default-400">GOST</span><button type="button" onClick={() => { onDetailClose(); navigate('/node'); }} className="text-primary hover:underline cursor-pointer font-mono">{selectedNode.gostNodeName}</button></p>
                         )}
-                        {selectedNode.remark && <p className="text-default-500 mt-1 break-all">{selectedNode.remark}</p>}
-                        {selectedNode.tags && (() => {
-                          try {
-                            const tags = JSON.parse(selectedNode.tags);
-                            return tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {tags.map((t: string) => <Chip key={t} size="sm" variant="flat" className="h-4 text-[9px]">{t}</Chip>)}
-                              </div>
-                            );
-                          } catch { return null; }
-                        })()}
+                        {selectedNode.panelUrl && (
+                          <p className="flex justify-between"><span className="text-default-400">1Panel</span><a href={selectedNode.panelUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline truncate ml-2 max-w-[65%]">{selectedNode.panelUrl.replace(/^https?:\/\//, '')}</a></p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: Hardware */}
+                    <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                      <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">硬件配置</p>
+                      <div className="space-y-1 text-xs">
+                        <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono truncate ml-2 max-w-[65%]">{selectedNode.os || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono">{selectedNode.cpuCores || '?'} 核{selectedNode.cpuName ? ` (${selectedNode.cpuName})` : ''}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{formatBytes(selectedNode.memTotal)}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{formatBytes(selectedNode.diskTotal)}</span></p>
+                        {selectedNode.swapTotal != null && selectedNode.swapTotal > 0 && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{formatBytes(selectedNode.swapTotal)}</span></p>}
+                        <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{selectedNode.arch || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{selectedNode.virtualization || '-'}</span></p>
+                        <p className="flex justify-between"><span className="text-default-400">内核</span><span className="font-mono text-[11px] truncate ml-2 max-w-[65%]">{selectedNode.kernelVersion || '-'}</span></p>
+                        {selectedNode.gpuName && <p className="flex justify-between"><span className="text-default-400">GPU</span><span className="font-mono truncate ml-2 max-w-[65%]">{selectedNode.gpuName}</span></p>}
+                        <p className="flex justify-between"><span className="text-default-400">Agent</span><span className="font-mono">v{selectedNode.version || '?'}</span></p>
                       </div>
                     </div>
                   </div>
+
+                  {/* Tags & Remark - separate section */}
+                  {selectedNode.tags && (() => {
+                    let tags: string[] = [];
+                    try { tags = JSON.parse(selectedNode.tags); } catch {
+                      tags = selectedNode.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean);
+                    }
+                    return tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {tags.map((t: string) => <Chip key={t} size="sm" variant="flat" className="h-5 text-[10px]">{t}</Chip>)}
+                      </div>
+                    );
+                  })()}
+                  {selectedNode.remark && (
+                    <div className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
+                      <span className="text-default-400 mr-2">备注:</span>
+                      <span className="text-default-600 break-all">{selectedNode.remark}</span>
+                    </div>
+                  )}
 
                   {/* Real-time Metrics */}
                   {isOnline && m ? (

@@ -96,6 +96,10 @@ public class MonitorNodeSnapshotViewDto {
     private String purpose;
     private String environment;
 
+    // ---- GOST enrichment fields ----
+    private Long gostNodeId;
+    private String gostNodeName;
+
     /** Peer probe node ID (same server, different probe type). Null if no peer. */
     private Long peerNodeId;
 

@@ -32,7 +32,6 @@ public class IamAuthServiceImpl implements IamAuthService {
     private static final Logger log = LoggerFactory.getLogger(IamAuthServiceImpl.class);
     private static final String AUTH_SOURCE_DINGTALK = "dingtalk";
     private static final String AUTH_SOURCE_LOCAL = "local";
-    private static final long IAM_SESSION_EXPIRE_MILLIS = 12L * 60 * 60 * 1000;
     private static final long SESSION_TOUCH_INTERVAL_MILLIS = 60 * 1000L;
     private static final String DINGTALK_AUTHORIZE_ENDPOINT = "https://login.dingtalk.com/oauth2/auth";
     private static final String DINGTALK_USER_ACCESS_TOKEN_ENDPOINT = "https://api.dingtalk.com/v1.0/oauth2/userAccessToken";
@@ -41,6 +40,9 @@ public class IamAuthServiceImpl implements IamAuthService {
             "list", "detail", "dashboard", "records", "permissions", "status", "unbound-nodes",
             "xui-targets", "tunnels", "terminal-access", "geolocate"
     ));
+
+    @org.springframework.beans.factory.annotation.Value("${iam-session-expire-hours:12}")
+    private long iamSessionExpireHours;
 
     @Resource
     private RuntimeConfigService runtimeConfigService;
@@ -219,7 +221,7 @@ public class IamAuthServiceImpl implements IamAuthService {
         session.setEmail(user.getEmail());
         session.setIpAddress(getRemoteIp(request));
         session.setUserAgent(getUserAgent(request));
-        session.setExpiresAt(now + IAM_SESSION_EXPIRE_MILLIS);
+        session.setExpiresAt(now + iamSessionExpireHours * 60 * 60 * 1000);
         session.setLastSeenAt(now);
         session.setCreatedTime(now);
         session.setUpdatedTime(now);
@@ -231,7 +233,7 @@ public class IamAuthServiceImpl implements IamAuthService {
 
         writeLoginAudit(user.getId(), AUTH_SOURCE_DINGTALK, loginChannel, user.getDisplayName(), user.getEmail(), unionId,
                 session.getIpAddress(), session.getUserAgent(), 1, "ok", "登录成功");
-        return R.ok(buildLoginResponse(principal, token, session.getExpiresAt()));
+        return R.ok(buildLoginResponse(principal, token, session.getExpiresAt(), user));
     }
 
     @Override
@@ -487,15 +489,22 @@ public class IamAuthServiceImpl implements IamAuthService {
         }
     }
 
-    private Map<String, Object> buildLoginResponse(AuthPrincipal principal, String token, Long expiresAt) {
+    private Map<String, Object> buildLoginResponse(AuthPrincipal principal, String token, Long expiresAt, IamUser iamUser) {
+        boolean twoFactorEnabled = iamUser != null
+                && Objects.equals(iamUser.getTwoFactorEnabled(), 1)
+                && StringUtils.hasText(iamUser.getTwoFactorSecret());
+        // 2FA enforcement: check system config
+        boolean twoFactorRequired = isTwoFactorRequiredForIam(principal);
+        boolean requireTwoFactorSetup = twoFactorRequired && !twoFactorEnabled;
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("token", token);
         data.put("role_id", principal.getLegacyRoleId() == null ? 1 : principal.getLegacyRoleId());
         data.put("name", principal.getDisplayName());
         data.put("requirePasswordChange", false);
-        data.put("requireTwoFactorSetup", false);
-        data.put("twoFactorRequired", false);
-        data.put("twoFactorEnabled", false);
+        data.put("requireTwoFactorSetup", requireTwoFactorSetup);
+        data.put("twoFactorRequired", twoFactorRequired);
+        data.put("twoFactorEnabled", twoFactorEnabled);
         data.put("principalType", principal.getPrincipalType());
         data.put("authSource", principal.getAuthSource());
         data.put("admin", principal.isAdmin());
@@ -504,6 +513,13 @@ public class IamAuthServiceImpl implements IamAuthService {
         data.put("email", principal.getEmail());
         data.put("sessionExpiresAt", expiresAt);
         return data;
+    }
+
+    private boolean isTwoFactorRequiredForIam(AuthPrincipal principal) {
+        String scope = getConfigValue("two_factor_enforcement_scope", "disabled").toLowerCase();
+        if ("all".equals(scope)) return true;
+        if ("admin".equals(scope)) return principal != null && principal.isAdmin();
+        return false;
     }
 
     private IamUser resolveIamUser(String email, String unionId) {

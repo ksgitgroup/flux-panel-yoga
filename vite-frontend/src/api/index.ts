@@ -48,6 +48,7 @@ export interface TwoFactorStatusResponse {
   boundAt?: number;
   username: string;
   issuer: string;
+  authSource?: string;
 }
 
 export interface TwoFactorSetupResponse extends TwoFactorStatusResponse {
@@ -543,6 +544,9 @@ export interface MonitorNodeSnapshot {
   monthlyCost?: string | null;
   purpose?: string | null;
   environment?: string | null;
+  // GOST enrichment fields
+  gostNodeId?: number | null;
+  gostNodeName?: string | null;
   // Offline diagnostics fields
   firstSeenAt?: number | null;
   connectionStatus?: string | null;

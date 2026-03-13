@@ -10,8 +10,11 @@ import com.admin.common.utils.GostUtil;
 import com.admin.common.utils.JwtUtil;
 import com.admin.common.utils.Md5Util;
 import com.admin.common.utils.TotpUtil;
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.entity.*;
 import com.admin.mapper.ForwardMapper;
+import com.admin.mapper.IamUserMapper;
 import com.admin.mapper.UserMapper;
 import com.admin.mapper.UserTunnelMapper;
 import com.admin.service.*;
@@ -126,6 +129,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Lazy
     private ForwardMapper forwardMapper;
     
+    @Resource
+    private IamUserMapper iamUserMapper;
+
     @Resource
     private UserTunnelMapper userTunnelMapper;
     
@@ -434,6 +440,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public R getTwoFactorStatus() {
+        // IAM 用户走 IamUser 表
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal != null && AuthPrincipal.TYPE_IAM.equals(principal.getPrincipalType())) {
+            IamUser iamUser = iamUserMapper.selectById(principal.getPrincipalId());
+            if (iamUser == null) return R.err(ERROR_USER_NOT_FOUND);
+            boolean enabled = Objects.equals(iamUser.getTwoFactorEnabled(), 1) && StringUtils.isNotBlank(iamUser.getTwoFactorSecret());
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("enabled", enabled);
+            result.put("required", isTwoFactorRequiredForIam());
+            result.put("enforcementScope", getTwoFactorEnforcementScope());
+            result.put("boundAt", iamUser.getTwoFactorBoundAt());
+            result.put("username", iamUser.getDisplayName());
+            result.put("issuer", buildTwoFactorIssuer());
+            result.put("authSource", iamUser.getAuthSource());
+            return R.ok(result);
+        }
+
+        // Legacy 用户走 User 表
         CurrentUserInfo currentUser = getCurrentUserInfo();
         if (currentUser.isHasError()) {
             return R.err(currentUser.getErrorMessage());
@@ -447,11 +471,40 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         result.put("boundAt", user.getTwoFactorBoundAt());
         result.put("username", user.getUser());
         result.put("issuer", buildTwoFactorIssuer());
+        result.put("authSource", "local");
         return R.ok(result);
     }
 
     @Override
     public R prepareTwoFactorSetup() {
+        // IAM 用户走 IamUser 表
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal != null && AuthPrincipal.TYPE_IAM.equals(principal.getPrincipalType())) {
+            IamUser iamUser = iamUserMapper.selectById(principal.getPrincipalId());
+            if (iamUser == null) return R.err(ERROR_USER_NOT_FOUND);
+            boolean enabled = Objects.equals(iamUser.getTwoFactorEnabled(), 1) && StringUtils.isNotBlank(iamUser.getTwoFactorSecret());
+            if (enabled) return R.err(ERROR_TWO_FACTOR_ALREADY_ENABLED);
+
+            String secret = TotpUtil.generateSecret();
+            IamUser update = new IamUser();
+            update.setId(iamUser.getId());
+            update.setTwoFactorSecret(secret);
+            update.setTwoFactorEnabled(0);
+            update.setTwoFactorBoundAt(null);
+            update.setUpdatedTime(System.currentTimeMillis());
+            iamUserMapper.updateById(update);
+
+            String username = iamUser.getDisplayName();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("enabled", false);
+            result.put("secret", secret);
+            result.put("issuer", buildTwoFactorIssuer());
+            result.put("username", username);
+            result.put("otpauthUri", TotpUtil.buildOtpAuthUri(buildTwoFactorIssuer(), username, secret));
+            return R.ok(result);
+        }
+
+        // Legacy 用户走 User 表
         CurrentUserInfo currentUser = getCurrentUserInfo();
         if (currentUser.isHasError()) {
             return R.err(currentUser.getErrorMessage());
@@ -481,6 +534,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public R enableTwoFactor(TwoFactorEnableDto twoFactorEnableDto) {
+        // IAM 用户走 IamUser 表（SSO 用户无密码，跳过密码验证）
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal != null && AuthPrincipal.TYPE_IAM.equals(principal.getPrincipalType())) {
+            IamUser iamUser = iamUserMapper.selectById(principal.getPrincipalId());
+            if (iamUser == null) return R.err(ERROR_USER_NOT_FOUND);
+            boolean enabled = Objects.equals(iamUser.getTwoFactorEnabled(), 1) && StringUtils.isNotBlank(iamUser.getTwoFactorSecret());
+            if (enabled) return R.err(ERROR_TWO_FACTOR_ALREADY_ENABLED);
+            if (StringUtils.isBlank(iamUser.getTwoFactorSecret())) return R.err(ERROR_TWO_FACTOR_SETUP_REQUIRED);
+            if (!TotpUtil.verifyCode(iamUser.getTwoFactorSecret(), twoFactorEnableDto.getOneTimeCode())) {
+                return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
+            }
+
+            IamUser update = new IamUser();
+            update.setId(iamUser.getId());
+            update.setTwoFactorEnabled(1);
+            update.setTwoFactorBoundAt(System.currentTimeMillis());
+            update.setUpdatedTime(System.currentTimeMillis());
+            int rows = iamUserMapper.updateById(update);
+            return rows > 0 ? R.ok("二步验证已启用") : R.err(ERROR_UPDATE_FAILED);
+        }
+
+        // Legacy 用户走 User 表
         CurrentUserInfo currentUser = getCurrentUserInfo();
         if (currentUser.isHasError()) {
             return R.err(currentUser.getErrorMessage());
@@ -511,6 +586,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public R disableTwoFactor(TwoFactorDisableDto twoFactorDisableDto) {
+        // IAM 用户走 IamUser 表（SSO 用户无密码，跳过密码验证）
+        AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+        if (principal != null && AuthPrincipal.TYPE_IAM.equals(principal.getPrincipalType())) {
+            IamUser iamUser = iamUserMapper.selectById(principal.getPrincipalId());
+            if (iamUser == null) return R.err(ERROR_USER_NOT_FOUND);
+            boolean enabled = Objects.equals(iamUser.getTwoFactorEnabled(), 1) && StringUtils.isNotBlank(iamUser.getTwoFactorSecret());
+            if (!enabled) return R.err(ERROR_TWO_FACTOR_NOT_ENABLED);
+            if (isTwoFactorRequiredForIam()) return R.err(ERROR_TWO_FACTOR_POLICY_REQUIRES_ENABLED);
+            if (!TotpUtil.verifyCode(iamUser.getTwoFactorSecret(), twoFactorDisableDto.getOneTimeCode())) {
+                return R.err(ERROR_TWO_FACTOR_CODE_INVALID);
+            }
+
+            IamUser update = new IamUser();
+            update.setId(iamUser.getId());
+            update.setTwoFactorEnabled(0);
+            update.setTwoFactorSecret(null);
+            update.setTwoFactorBoundAt(null);
+            update.setUpdatedTime(System.currentTimeMillis());
+            int rows = iamUserMapper.updateById(update);
+            return rows > 0 ? R.ok("二步验证已关闭") : R.err(ERROR_UPDATE_FAILED);
+        }
+
+        // Legacy 用户走 User 表
         CurrentUserInfo currentUser = getCurrentUserInfo();
         if (currentUser.isHasError()) {
             return R.err(currentUser.getErrorMessage());
@@ -602,6 +700,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         if (TWO_FACTOR_SCOPE_ADMIN.equals(scope)) {
             return user != null && Objects.equals(user.getRoleId(), ADMIN_ROLE_ID);
+        }
+        return false;
+    }
+
+    private boolean isTwoFactorRequiredForIam() {
+        String scope = getTwoFactorEnforcementScope();
+        // IAM 用户在 scope=all 时也需要 2FA；scope=admin 时检查 principal 的 admin 属性
+        if (TWO_FACTOR_SCOPE_ALL.equals(scope)) {
+            return true;
+        }
+        if (TWO_FACTOR_SCOPE_ADMIN.equals(scope)) {
+            AuthPrincipal p = AuthContext.getCurrentPrincipal();
+            return p != null && p.isAdmin();
         }
         return false;
     }

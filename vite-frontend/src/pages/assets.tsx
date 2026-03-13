@@ -50,7 +50,10 @@ import {
   createNode,
   getNodeInstallCommand,
   jumpServerConnect,
-  getJumpServerStatus
+  getJumpServerStatus,
+  archiveAsset,
+  restoreAsset,
+  getArchivedAssets
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -381,9 +384,23 @@ const calcRemainingValue = (expireDate?: number | null, monthlyCost?: string | n
 
 const normalizeKeyword = (value?: string | null) => (value || '').trim().toLowerCase();
 
+const NEVER_EXPIRE_THRESHOLD = 4102444800000; // year ~2100
+const isNeverExpireTs = (ts?: number | null): boolean => ts === -1 || (ts != null && ts > NEVER_EXPIRE_THRESHOLD);
+
+const billingCycleLabel = (days?: number | null) => {
+  if (!days) return '';
+  if (days <= 31) return '月付';
+  if (days <= 92) return '季付';
+  if (days <= 183) return '半年付';
+  if (days <= 366) return '年付';
+  if (days <= 732) return '两年付';
+  if (days <= 1098) return '三年付';
+  return `${days}天`;
+};
+
 const formatDateShort = (timestamp?: number | null) => {
   if (!timestamp) return '-';
-  if (timestamp === -1) return '永不到期';
+  if (isNeverExpireTs(timestamp)) return '永不到期';
   return new Date(timestamp).toLocaleDateString();
 };
 
@@ -520,6 +537,11 @@ export default function AssetsPage() {
   const [sortKey, setSortKey] = useState<'name' | 'cpu' | 'mem' | 'traffic' | 'expiry' | 'cost'>('name');
   const [sortAsc, setSortAsc] = useState(true);
 
+  // Recycle bin (archived assets)
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedAssets, setArchivedAssets] = useState<AssetHost[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+
   // XUI inline binding form
   const [xuiBindOpen, setXuiBindOpen] = useState(false);
   const [xuiBindForm, setXuiBindForm] = useState({ addr: '', user: '', pass: '' });
@@ -618,6 +640,7 @@ export default function AssetsPage() {
       totalXuiInstances: assets.reduce((s, i) => s + (i.totalXuiInstances || 0), 0),
       totalForwards: assets.reduce((s, i) => s + (i.totalForwards || 0), 0),
       totalClients: assets.reduce((s, i) => s + (i.totalClients || 0), 0),
+      expiredAssets: assets.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now()).length,
     };
   }, [assets]);
 
@@ -738,6 +761,8 @@ export default function AssetsPage() {
       list = list.filter(a => a.monitorOnline === 1);
     } else if (filterStatus === 'offline') {
       list = list.filter(a => (a.monitorNodeUuid || a.pikaNodeId) && a.monitorOnline !== 1);
+    } else if (filterStatus === 'expired') {
+      list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now());
     }
     if (filterEnv) {
       list = list.filter(a => filterEnv === '_empty' ? !a.environment : a.environment === filterEnv);
@@ -777,8 +802,8 @@ export default function AssetsPage() {
           cmp = aPct - bPct; break;
         }
         case 'expiry': {
-          const aDate = a.expireDate ? new Date(a.expireDate).getTime() : 0;
-          const bDate = b.expireDate ? new Date(b.expireDate).getTime() : 0;
+          const aDate = isNeverExpireTs(a.expireDate) ? Number.MAX_SAFE_INTEGER : (a.expireDate || 0);
+          const bDate = isNeverExpireTs(b.expireDate) ? Number.MAX_SAFE_INTEGER : (b.expireDate || 0);
           cmp = aDate - bDate; break;
         }
         case 'cost': {
@@ -1307,6 +1332,47 @@ export default function AssetsPage() {
     finally { setActionLoadingId(null); }
   };
 
+  const fetchArchivedAssets = async () => {
+    setArchivedLoading(true);
+    try {
+      const res = await getArchivedAssets();
+      setArchivedAssets(res.data || []);
+    } catch { /* ignore */ }
+    setArchivedLoading(false);
+  };
+
+  const handleArchiveAsset = async (id: number) => {
+    try {
+      await archiveAsset(id);
+      toast.success('已移入回收站');
+      await loadAssets();
+    } catch (e: any) {
+      toast.error(e?.message || '操作失败');
+    }
+  };
+
+  const handleRestoreAsset = async (id: number) => {
+    try {
+      await restoreAsset(id);
+      toast.success('已恢复');
+      fetchArchivedAssets();
+      loadAssets();
+    } catch (e: any) {
+      toast.error(e?.message || '操作失败');
+    }
+  };
+
+  const handlePermanentDelete = async (id: number) => {
+    if (!confirm('确定要彻底删除该资产？此操作不可撤销。')) return;
+    try {
+      await deleteAsset(id);
+      toast.success('已彻底删除');
+      fetchArchivedAssets();
+    } catch (e: any) {
+      toast.error(e?.message || '删除失败');
+    }
+  };
+
   const toggleSelectId = (id: number) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -1474,7 +1540,7 @@ export default function AssetsPage() {
     return <div className="flex h-64 items-center justify-center"><Spinner size="lg" /></div>;
   }
 
-  const expiringSoon = assets.filter(a => a.expireDate && a.expireDate !== -1 && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
+  const expiringSoon = assets.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now() + 30 * 86400000 && a.expireDate > Date.now());
 
   const selectedAsset = assets.find(a => a.id === expandedAssetId) || null;
 
@@ -1489,6 +1555,9 @@ export default function AssetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="flat" size="sm" onPress={() => { setShowArchived(!showArchived); if (!showArchived) fetchArchivedAssets(); }}>
+            {showArchived ? '返回资产列表' : `回收站${archivedAssets.length > 0 ? ` (${archivedAssets.length})` : ''}`}
+          </Button>
           {(canCreateAssets || canUpdateAssets) && (
             <>
               <Button
@@ -1504,8 +1573,8 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* Summary Stats - 4 compact cards */}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+      {/* Summary Stats - 5 compact cards */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
         <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${!filterStatus ? 'border-primary/40 bg-primary-50/30 ring-1 ring-primary/20' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus('')}>
           <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">全部</p>
           <p className="text-2xl font-bold font-mono">{summary.totalAssets}</p>
@@ -1517,6 +1586,10 @@ export default function AssetsPage() {
         <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'offline' ? 'border-danger/40 ring-1 ring-danger/20' : summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'offline' ? '' : 'offline')}>
           <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-2xl font-bold font-mono ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-300'}`}>{summary.offlineAssets}</p>
+        </div>
+        <div className={`rounded-xl border p-3 cursor-pointer transition-all hover:shadow-md ${filterStatus === 'expired' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiredAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${summary.expiredAssets > 0 ? 'text-warning' : 'text-default-400'}`}>已到期</p>
+          <p className={`text-2xl font-bold font-mono ${summary.expiredAssets > 0 ? 'text-warning' : 'text-default-300'}`}>{summary.expiredAssets}</p>
         </div>
         <div className="rounded-xl border border-divider/60 bg-content1 p-3">
           <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">关联模块</p>
@@ -1769,6 +1842,53 @@ export default function AssetsPage() {
       </div>
       </div>{/* end sticky toolbar */}
 
+      {showArchived ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-semibold">回收站</h3>
+            <span className="text-sm text-default-400">{archivedAssets.length} 台已归档资产</span>
+          </div>
+          {archivedLoading ? (
+            <div className="flex h-32 items-center justify-center"><Spinner size="lg" /></div>
+          ) : archivedAssets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
+              <h3 className="text-base font-semibold text-default-600">回收站为空</h3>
+              <p className="mt-2 text-sm text-default-400">被归档的服务器资产将显示在此处</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-divider/60">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-default-50 dark:bg-default-50/5">
+                  <th className="px-4 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase">名称</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase">IP</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase">厂商</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase">到期</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-bold tracking-widest text-default-400 uppercase">归档时间</th>
+                  <th className="px-3 py-3 text-right text-[11px] font-bold tracking-widest text-default-400 uppercase">操作</th>
+                </tr></thead>
+                <tbody>
+                  {archivedAssets.map(a => (
+                    <tr key={a.id} className="border-t border-divider/40 hover:bg-default-50/50">
+                      <td className="px-4 py-3 font-medium">{a.name}</td>
+                      <td className="px-3 py-3 font-mono text-xs text-default-500">{a.primaryIp || '-'}</td>
+                      <td className="px-3 py-3 text-xs text-default-500">{a.provider || '-'}</td>
+                      <td className="px-3 py-3 text-xs font-mono text-default-500">{formatDateShort(a.expireDate)}</td>
+                      <td className="px-3 py-3 text-xs font-mono text-default-400">{(a as any).updatedTime ? new Date((a as any).updatedTime).toLocaleDateString('zh-CN') : '-'}</td>
+                      <td className="px-3 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="flat" color="success" onPress={() => handleRestoreAsset(a.id)}>恢复</Button>
+                          <Button size="sm" variant="flat" color="danger" onPress={() => handlePermanentDelete(a.id)}>彻底删除</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* Batch action bar */}
       {(canCreateAssets || canUpdateAssets) && batchMode && (
         <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-50/50 dark:bg-warning-50/10 px-4 py-2">
@@ -1914,6 +2034,7 @@ export default function AssetsPage() {
                             {(asset.probeExpiredAt && asset.probeExpiredAt > 0) || asset.expireDate ? (() => {
                               const expiry = (asset.probeExpiredAt && asset.probeExpiredAt > 0) ? asset.probeExpiredAt : asset.expireDate;
                               if (!expiry) return null;
+                              if (isNeverExpireTs(expiry)) return <p className="text-xs font-mono text-default-400">永不到期</p>;
                               const days = Math.ceil((expiry - Date.now()) / 86400000);
                               const isExpired = days < 0;
                               const isSoon = days >= 0 && days <= 30;
@@ -1925,6 +2046,21 @@ export default function AssetsPage() {
                               );
                             })() : (
                               <span className="text-xs text-default-300">-</span>
+                            )}
+                            {/* Billing info */}
+                            {(asset.billingCycle || asset.monthlyCost) && (
+                              <p className="text-[10px] text-default-400">
+                                {asset.billingCycle ? billingCycleLabel(asset.billingCycle) : ''}
+                                {asset.billingCycle && asset.monthlyCost ? ' ' : ''}
+                                {asset.monthlyCost ? `${asset.currency === 'USD' ? '$' : '¥'}${asset.monthlyCost}` : ''}
+                                {(() => {
+                                  const rv = calcRemainingValue(asset.expireDate, asset.monthlyCost, asset.billingCycle, asset.currency);
+                                  if (rv && rv.remainingValue !== '∞' && parseFloat(rv.remainingValue) > 0) {
+                                    return <span className="text-default-300"> · 余{rv.currency === 'USD' ? '$' : '¥'}{rv.remainingValue}</span>;
+                                  }
+                                  return null;
+                                })()}
+                              </p>
                             )}
                           </div>
                         </td>
@@ -2080,6 +2216,8 @@ export default function AssetsPage() {
             })}
           </div>
         </>
+      )}
+      </>
       )}
 
       {/* Detail Modal - shows full asset info, probe metrics, XUI, forwards */}
@@ -2499,6 +2637,7 @@ export default function AssetsPage() {
                   <Button size="sm" variant="flat" color="secondary" onPress={() => { onDetailClose(); navigate(`/probe?instanceId=${detail.monitorNodes![0].instanceId}`); }}>探针实例</Button>
                 )}
                 {(canUpdateAssets) && <Button size="sm" variant="flat" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
+                {(canDeleteAssets) && <Button size="sm" variant="flat" color="warning" onPress={() => { onDetailClose(); handleArchiveAsset(selectedAsset.id); }}>归档</Button>}
                 {(canDeleteAssets) && <Button size="sm" variant="flat" color="danger" onPress={() => { onDetailClose(); openDeleteModal(selectedAsset); }}>删除</Button>}
                 <Button size="sm" color="primary" onPress={onDetailClose}>关闭</Button>
               </ModalFooter>

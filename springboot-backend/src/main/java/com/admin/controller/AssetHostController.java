@@ -57,6 +57,27 @@ public class AssetHostController extends BaseController {
 
     @LogAnnotation
     @RequireRole
+    @PostMapping("/archive")
+    public R archive(@Validated @RequestBody AssetHostIdDto dto) {
+        return assetHostService.archiveAsset(dto.getId());
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/restore")
+    public R restore(@Validated @RequestBody AssetHostIdDto dto) {
+        return assetHostService.restoreAsset(dto.getId());
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/archived-list")
+    public R archivedList() {
+        return assetHostService.getArchivedAssets();
+    }
+
+    @LogAnnotation
+    @RequireRole
     @PostMapping("/batch-update")
     public R batchUpdate(@RequestBody java.util.Map<String, Object> params) {
         return assetHostService.batchUpdateField(params);

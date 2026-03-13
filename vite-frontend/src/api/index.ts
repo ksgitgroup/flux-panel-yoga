@@ -916,6 +916,9 @@ export const getAssetDetail = (id: number) => Network.post<AssetHostDetail>("/as
 export const createAsset = (data: any) => Network.post<AssetHost>("/asset/create", data);
 export const updateAsset = (data: any) => Network.post<AssetHost>("/asset/update", data);
 export const deleteAsset = (id: number) => Network.post("/asset/delete", { id });
+export const archiveAsset = (id: number) => Network.post("/asset/archive", { id });
+export const restoreAsset = (id: number) => Network.post("/asset/restore", { id });
+export const getArchivedAssets = () => Network.post<AssetHost[]>("/asset/archived-list");
 export const batchUpdateAsset = (data: { ids: number[]; field: string; value: string; mode?: string }) => Network.post("/asset/batch-update", data);
 export const geolocateIp = (ip: string) => Network.post<{ country?: string; countryCode?: string; regionName?: string; city?: string; isp?: string }>("/asset/geolocate", { ip });
 export const getForwardXuiTargets = () => Network.post<XuiForwardTarget[]>("/forward/xui-targets");

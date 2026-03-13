@@ -288,6 +288,9 @@ interface MergedServer {
 type SortKey = 'name' | 'cpu' | 'mem' | 'disk' | 'traffic' | 'uptime' | 'expiry';
 type ViewMode = 'card' | 'list';
 
+const NEVER_EXPIRE_THRESHOLD = 4102444800000; // year ~2100
+const isNeverExpireTs = (ts?: number | null): boolean => ts === -1 || (ts != null && ts > NEVER_EXPIRE_THRESHOLD);
+
 const OFFLINE_REASON_LABELS: Record<string, string> = {
   probe_unreachable: '探针不可达',
   server_down: '服务器宕机',
@@ -370,7 +373,7 @@ export default function ServerDashboardPage() {
   const [nodes, setNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired'>('all');
   const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika' | 'dual'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -484,7 +487,8 @@ export default function ServerDashboardPage() {
   const serverSummary = useMemo(() => {
     const total = allServers.length;
     const online = allServers.filter(s => s.isOnline).length;
-    return { total, online, offline: total - online };
+    const expired = allServers.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now()).length;
+    return { total, online, offline: total - online, expired };
   }, [allServers]);
 
   // Collect all unique tags with counts (from merged servers)
@@ -563,6 +567,7 @@ export default function ServerDashboardPage() {
     let list = allServers;
     if (statusFilter === 'online') list = list.filter(s => s.isOnline);
     else if (statusFilter === 'offline') list = list.filter(s => !s.isOnline);
+    else if (statusFilter === 'expired') list = list.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now());
     if (probeFilter === 'dual') list = list.filter(s => s.isDual);
     else if (probeFilter === 'komari') list = list.filter(s => s.isDual || (s.primary.instanceType || 'komari') === 'komari');
     else if (probeFilter === 'pika') list = list.filter(s => s.isDual || s.primary.instanceType === 'pika');
@@ -621,7 +626,11 @@ export default function ServerDashboardPage() {
           break;
         }
         case 'uptime': cmp = a.uptime - b.uptime; break;
-        case 'expiry': cmp = (a.expiredAt || 0) - (b.expiredAt || 0); break;
+        case 'expiry': {
+          const aExp = isNeverExpireTs(a.expiredAt) ? Number.MAX_SAFE_INTEGER : (a.expiredAt || 0);
+          const bExp = isNeverExpireTs(b.expiredAt) ? Number.MAX_SAFE_INTEGER : (b.expiredAt || 0);
+          cmp = aExp - bExp; break;
+        }
         default: cmp = a.name.localeCompare(b.name, 'zh-CN');
       }
       return sortAsc ? cmp : -cmp;
@@ -688,6 +697,15 @@ export default function ServerDashboardPage() {
         >
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-400'}`}>离线</p>
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.offline > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.offline}</p>
+        </button>
+        <button
+          onClick={() => setStatusFilter(statusFilter === 'expired' ? 'all' : 'expired')}
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
+            statusFilter === 'expired' ? 'border-warning bg-warning-50 dark:bg-warning/10' : serverSummary.expired > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10 hover:border-warning/40' : 'border-divider/60 bg-content1'
+          }`}
+        >
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expired > 0 ? 'text-warning' : 'text-default-400'}`}>已到期</p>
+          <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expired > 0 ? 'text-warning' : 'text-default-300'}`}>{serverSummary.expired}</p>
         </button>
       </div>
 
@@ -1024,10 +1042,11 @@ export default function ServerDashboardPage() {
                     </td>
                     <td className="px-3 py-2 text-[11px] font-mono text-default-500 whitespace-nowrap">
                       {server.expiredAt > 0 ? (
+                        isNeverExpireTs(server.expiredAt) ? <span className="text-default-400">永不到期</span> : (
                         <span className={server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}>
                           {new Date(server.expiredAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
                           {server.expiredAt < Date.now() ? ' 过期' : ` (${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天)`}
-                        </span>
+                        </span>)
                       ) : '-'}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-default-500">
@@ -1158,9 +1177,10 @@ export default function ServerDashboardPage() {
                           {server.purpose && <span className="text-primary-500 font-medium">{server.purpose}</span>}
                         </span>
                         {server.expiredAt > 0 && (
+                          isNeverExpireTs(server.expiredAt) ? <span className="flex-shrink-0 text-default-400">永不到期</span> : (
                           <span className={`flex-shrink-0 ${server.expiredAt < Date.now() ? 'text-danger font-bold' : server.expiredAt < Date.now() + 30 * 86400000 ? 'text-warning' : ''}`}>
                             {server.expiredAt < Date.now() ? '已过期' : `${Math.ceil((server.expiredAt - Date.now()) / 86400000)}天`}
-                          </span>
+                          </span>)
                         )}
                       </div>
                     )}
@@ -1284,9 +1304,13 @@ export default function ServerDashboardPage() {
                         {selectedNode.expiredAt != null && selectedNode.expiredAt > 0 && (
                           <p className="flex justify-between">
                             <span className="text-default-400">到期</span>
-                            <span className={`font-mono ${selectedNode.expiredAt < Date.now() ? 'text-danger' : ''}`}>
-                              {new Date(selectedNode.expiredAt).toLocaleDateString('zh-CN')}
-                              {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
+                            <span className={`font-mono ${!isNeverExpireTs(selectedNode.expiredAt) && selectedNode.expiredAt < Date.now() ? 'text-danger' : ''}`}>
+                              {isNeverExpireTs(selectedNode.expiredAt) ? '永不到期' : (
+                                <>
+                                  {new Date(selectedNode.expiredAt).toLocaleDateString('zh-CN')}
+                                  {selectedNode.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((selectedNode.expiredAt - Date.now()) / 86400000)}天)`}
+                                </>
+                              )}
                             </span>
                           </p>
                         )}

@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.net.URLEncoder;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -70,26 +71,36 @@ public class JumpServerServiceImpl implements JumpServerService {
             return R.err("JumpServer 配置不完整，请在系统配置中填写 URL 和 Access Key");
         }
 
-        // 2. Get asset IP
+        // 2. Get Flux asset
         AssetHost asset = assetHostMapper.selectById(assetId);
         if (asset == null) {
             return R.err("资产不存在");
         }
 
-        String ip = asset.getPrimaryIp();
-        if (!StringUtils.hasText(ip)) {
-            return R.err("该资产未配置 IP 地址");
-        }
-
         if (!StringUtils.hasText(protocol)) protocol = "ssh";
         if (!StringUtils.hasText(account)) account = "root";
 
+        String jsAssetId;
         try {
-            // 3. Search for asset in JumpServer by IP
-            String jsAssetId = findJumpServerAsset(baseUrl, keyId, keySecret, ip);
-            if (jsAssetId == null) {
-                return R.err("在 JumpServer 中未找到 IP 为 " + ip + " 的资产，请先在 JumpServer 中注册");
+            // 3. Resolve JumpServer asset: prefer explicit binding, else lookup by IP
+            if (StringUtils.hasText(asset.getJumpserverAssetId())) {
+                jsAssetId = asset.getJumpserverAssetId();
+            } else {
+                String ip = asset.getPrimaryIp();
+                if (!StringUtils.hasText(ip)) {
+                    return R.err("该资产未配置 IP 且未绑定 JumpServer 资产，请在编辑资产中绑定或填写主 IP");
+                }
+                jsAssetId = findJumpServerAsset(baseUrl, keyId, keySecret, ip);
+                if (jsAssetId == null) {
+                    return R.err("在 JumpServer 中未找到 IP 为 " + ip + " 的资产，请先在 JumpServer 中注册或在编辑资产中绑定 JumpServer 资产");
+                }
             }
+        } catch (Exception e) {
+            log.error("[JumpServer] 解析资产异常", e);
+            return R.err("JumpServer 连接异常: " + e.getMessage());
+        }
+
+        try {
 
             // 4. Create ConnectionToken
             String tokenUrl = baseUrl.replaceAll("/+$", "") + "/api/v1/authentication/connection-token/";
@@ -130,6 +141,83 @@ public class JumpServerServiceImpl implements JumpServerService {
         }
     }
 
+    @Override
+    public R listHosts(String search) {
+        if (!"true".equals(getConfig("jumpserver_enabled"))) {
+            return R.err("JumpServer 集成未启用");
+        }
+        String baseUrl = getConfig("jumpserver_url");
+        String keyId = getConfig("jumpserver_access_key_id");
+        String keySecret = getConfig("jumpserver_access_key_secret");
+        if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(keyId) || !StringUtils.hasText(keySecret)) {
+            return R.err("JumpServer 配置不完整");
+        }
+        try {
+            String path = "/api/v1/assets/hosts/?limit=100";
+            if (StringUtils.hasText(search)) {
+                path += "&search=" + URLEncoder.encode(search.trim(), StandardCharsets.UTF_8.name());
+            }
+            String url = baseUrl.replaceAll("/+$", "") + path;
+            HttpRequest request = buildSignedRequest(url, keyId, keySecret, "GET", null);
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                return R.err("JumpServer 请求失败: " + response.statusCode());
+            }
+            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode results = root.has("results") ? root.get("results") : root;
+            if (!results.isArray()) {
+                return R.ok(Collections.emptyList());
+            }
+            List<Map<String, String>> list = new ArrayList<>();
+            for (JsonNode item : results) {
+                Map<String, String> row = new LinkedHashMap<>();
+                row.put("id", item.has("id") ? item.get("id").asText() : "");
+                row.put("name", item.has("name") ? item.get("name").asText() : "");
+                row.put("address", item.has("address") ? item.get("address").asText() : "");
+                list.add(row);
+            }
+            return R.ok(list);
+        } catch (Exception e) {
+            log.error("[JumpServer] listHosts 异常", e);
+            return R.err("JumpServer 连接异常: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public R matchByIp(Long assetId, boolean save) {
+        if (!"true".equals(getConfig("jumpserver_enabled"))) {
+            return R.err("JumpServer 集成未启用");
+        }
+        AssetHost asset = assetHostMapper.selectById(assetId);
+        if (asset == null) {
+            return R.err("资产不存在");
+        }
+        String ip = asset.getPrimaryIp();
+        if (!StringUtils.hasText(ip)) {
+            return R.err("该资产未配置主 IP");
+        }
+        String baseUrl = getConfig("jumpserver_url");
+        String keyId = getConfig("jumpserver_access_key_id");
+        String keySecret = getConfig("jumpserver_access_key_secret");
+        if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(keyId) || !StringUtils.hasText(keySecret)) {
+            return R.err("JumpServer 配置不完整");
+        }
+        try {
+            Map<String, String> host = findJumpServerHostByIp(baseUrl, keyId, keySecret, ip);
+            if (host == null) {
+                return R.err("在 JumpServer 中未找到 IP 为 " + ip + " 的主机");
+            }
+            if (save) {
+                asset.setJumpserverAssetId(host.get("id"));
+                assetHostMapper.updateById(asset);
+            }
+            return R.ok(host);
+        } catch (Exception e) {
+            log.error("[JumpServer] matchByIp 异常", e);
+            return R.err("JumpServer 连接异常: " + e.getMessage());
+        }
+    }
+
     // ========== Private helpers ==========
 
     private String findJumpServerAsset(String baseUrl, String keyId, String keySecret, String ip) throws Exception {
@@ -143,6 +231,26 @@ public class JumpServerServiceImpl implements JumpServerService {
             JsonNode results = respJson.has("results") ? respJson.get("results") : respJson;
             if (results.isArray() && results.size() > 0) {
                 return results.get(0).get("id").asText();
+            }
+        }
+        return null;
+    }
+
+    /** 按 IP 查找 JumpServer 主机并返回 id/name/address，未找到返回 null */
+    private Map<String, String> findJumpServerHostByIp(String baseUrl, String keyId, String keySecret, String ip) throws Exception {
+        String searchUrl = baseUrl.replaceAll("/+$", "") + "/api/v1/assets/hosts/?address=" + ip + "&limit=1";
+        HttpRequest request = buildSignedRequest(searchUrl, keyId, keySecret, "GET", null);
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 200) {
+            JsonNode respJson = objectMapper.readTree(response.body());
+            JsonNode results = respJson.has("results") ? respJson.get("results") : respJson;
+            if (results.isArray() && results.size() > 0) {
+                JsonNode first = results.get(0);
+                Map<String, String> host = new LinkedHashMap<>();
+                host.put("id", first.has("id") ? first.get("id").asText() : "");
+                host.put("name", first.has("name") ? first.get("name").asText() : "");
+                host.put("address", first.has("address") ? first.get("address").asText() : "");
+                return host;
             }
         }
         return null;

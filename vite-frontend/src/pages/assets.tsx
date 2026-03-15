@@ -51,6 +51,7 @@ import {
   getNodeInstallCommand,
   jumpServerConnect,
   getJumpServerStatus,
+  jumpServerMatchByIp,
   archiveAsset,
   restoreAsset,
   getArchivedAssets
@@ -93,6 +94,7 @@ interface AssetForm {
   purpose: string;
   remark: string;
   panelUrl: string;
+  jumpserverAssetId: string;
   gostNodeId: string;
 }
 
@@ -101,7 +103,7 @@ const emptyForm = (): AssetForm => ({
   role: '', os: '', osCategory: '', cpuCores: '', memTotalMb: '', diskTotalGb: '', bandwidthMbps: '',
   monthlyTrafficGb: '', sshPort: '', purchaseDate: '', expireDate: '', monthlyCost: '',
   currency: 'CNY', billingCycle: '', tags: '', monitorNodeUuid: '', pikaNodeId: '', cpuName: '', arch: '', virtualization: '',
-  kernelVersion: '', gpuName: '', swapTotalMb: '', purpose: '', remark: '', panelUrl: '', gostNodeId: '',
+  kernelVersion: '', gpuName: '', swapTotalMb: '', purpose: '', remark: '', panelUrl: '', jumpserverAssetId: '', gostNodeId: '',
 });
 
 const ROLES = [
@@ -1238,7 +1240,7 @@ export default function AssetsPage() {
       cpuName: asset.cpuName || '', arch: asset.arch || '', virtualization: asset.virtualization || '',
       kernelVersion: asset.kernelVersion || '', gpuName: asset.gpuName || '',
       swapTotalMb: asset.swapTotalMb?.toString() || '', purpose: asset.purpose || '', remark: asset.remark || '',
-      panelUrl: asset.panelUrl || '', gostNodeId: asset.gostNodeId?.toString() || '',
+      panelUrl: asset.panelUrl || '', jumpserverAssetId: asset.jumpserverAssetId || '', gostNodeId: asset.gostNodeId?.toString() || '',
     });
     formSnapshotRef.current = JSON.stringify({
       name: asset.name, primaryIp: asset.primaryIp || '', provider: asset.provider || '',
@@ -1298,6 +1300,7 @@ export default function AssetsPage() {
         purpose: form.purpose.trim() || null,
         remark: form.remark.trim() || null,
         panelUrl: form.panelUrl.trim() || null,
+        jumpserverAssetId: form.jumpserverAssetId.trim() || null,
         gostNodeId: form.gostNodeId ? parseInt(form.gostNodeId) : null,
       };
       const response = isEdit ? await updateAsset(payload) : await createAsset(payload);
@@ -2619,7 +2622,7 @@ export default function AssetsPage() {
                 )}
               </ModalBody>
               <ModalFooter className="flex-wrap gap-1">
-                {jsEnabled && selectedAsset.primaryIp && (
+                {jsEnabled && (selectedAsset.primaryIp || selectedAsset.jumpserverAssetId) && (
                   <Button size="sm" variant="flat" color="success" isLoading={jsConnecting} onPress={async () => {
                     setJsConnecting(true);
                     try {
@@ -3244,6 +3247,55 @@ export default function AssetsPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* JumpServer 堡垒机绑定 */}
+                      {jsEnabled && (
+                        <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-default-700">JumpServer 堡垒机</span>
+                            {form.jumpserverAssetId ? (
+                              <div className="flex items-center gap-2">
+                                <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">已绑定</Chip>
+                                <span className="text-[11px] font-mono text-default-500 truncate max-w-[180px]">{form.jumpserverAssetId}</span>
+                                {(canCreateAssets || canUpdateAssets) && (
+                                  <Button size="sm" variant="light" color="danger" className="h-6 text-[11px] min-w-0 px-2"
+                                    onPress={() => setForm(p => ({ ...p, jumpserverAssetId: '' }))}>
+                                    解绑
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定（将按主 IP 匹配）</Chip>
+                            )}
+                          </div>
+                          {(canCreateAssets || canUpdateAssets) && (
+                            <div className="space-y-2">
+                              <Input size="sm" label="JumpServer 资产 ID" placeholder="留空则按主 IP 匹配；可填 JumpServer 主机 UUID"
+                                value={form.jumpserverAssetId}
+                                onValueChange={(v) => setForm(p => ({ ...p, jumpserverAssetId: v }))} />
+                              {editingAsset?.primaryIp && (
+                                <Button size="sm" variant="flat" color="primary"
+                                  onPress={async () => {
+                                    if (!editingAsset?.id) return;
+                                    try {
+                                      const res = await jumpServerMatchByIp(editingAsset.id, true);
+                                      if (res.code === 0 && res.data?.id) {
+                                        setForm(p => ({ ...p, jumpserverAssetId: res.data!.id }));
+                                        toast.success(`已按 IP 匹配并绑定：${res.data!.name || res.data!.address || res.data!.id}`);
+                                      } else {
+                                        toast.error(res.msg || '匹配失败');
+                                      }
+                                    } catch {
+                                      toast.error('请求失败');
+                                    }
+                                  }}>
+                                  按主 IP 匹配并绑定
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* GOST Node Binding */}
                       <div className="rounded-xl border border-divider/60 bg-content1 p-3 space-y-2.5">

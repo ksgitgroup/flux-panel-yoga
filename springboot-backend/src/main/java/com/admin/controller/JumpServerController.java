@@ -36,4 +36,24 @@ public class JumpServerController {
 
         return jumpServerService.createConnectionToken(assetId, protocol, account);
     }
+
+    /** 拉取 JumpServer 主机列表（编辑资产绑定用），search 可选 */
+    @RequireRole
+    @PostMapping("/hosts")
+    public R listHosts(@RequestBody(required = false) Map<String, Object> params) {
+        String search = params != null && params.get("search") != null ? params.get("search").toString() : null;
+        return jumpServerService.listHosts(search);
+    }
+
+    /** 按当前资产主 IP 在 JumpServer 中匹配主机；save=true 时写回资产的 jumpserver_asset_id */
+    @RequireRole
+    @PostMapping("/match-by-ip")
+    public R matchByIp(@RequestBody Map<String, Object> params) {
+        Long assetId = params.get("assetId") != null ? Long.valueOf(params.get("assetId").toString()) : null;
+        boolean save = params.get("save") != null && Boolean.parseBoolean(params.get("save").toString());
+        if (assetId == null) {
+            return R.err("assetId 不能为空");
+        }
+        return jumpServerService.matchByIp(assetId, save);
+    }
 }

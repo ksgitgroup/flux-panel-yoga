@@ -564,6 +564,7 @@ export default function AssetsPage() {
   const [jsEnabled, setJsEnabled] = useState(false);
   const [jsUrl, setJsUrl] = useState('');
   const [jsConnecting, setJsConnecting] = useState(false);
+  const [jsBindPromptOpen, setJsBindPromptOpen] = useState(false);
   // Tag input
   const [tagInput, setTagInput] = useState('');
   // Edit modal active tab
@@ -2623,23 +2624,31 @@ export default function AssetsPage() {
                 )}
               </ModalBody>
               <ModalFooter className="flex-wrap gap-1">
-                {jsEnabled && (selectedAsset.primaryIp || selectedAsset.jumpserverAssetId) && (
+                {jsEnabled && (
                   <Button size="sm" variant="flat" color="success" isLoading={jsConnecting} onPress={async () => {
+                    if (!selectedAsset.jumpserverAssetId) {
+                      setJsBindPromptOpen(true);
+                      return;
+                    }
                     setJsConnecting(true);
                     try {
                       const res = await jumpServerConnect(selectedAsset.id);
                       if (res.code === 0 && res.data?.url) {
                         window.open(res.data.url, '_blank');
-                      } else if (jsUrl) {
-                        window.open(jsUrl.replace(/\/+$/, '') + '/luna/', '_blank');
-                        toast('后端无法连接 JumpServer API（跨网络），已直接跳转 JumpServer 页面，请在堡垒机中选择对应资产', { icon: 'ℹ️', duration: 5000 });
                       } else {
-                        toast.error(res.msg || '连接失败');
+                        const fallbackId = res.data?.jsAssetId || selectedAsset.jumpserverAssetId;
+                        if (jsUrl && fallbackId) {
+                          window.open(jsUrl.replace(/\/+$/, '') + `/console/assets/detail/${fallbackId}/`, '_blank');
+                          toast('后端无法直连 JumpServer（可能跨网络），已跳转到堡垒机对应资产页面，请在页面中点击连接', { icon: 'ℹ️', duration: 6000 });
+                        } else {
+                          toast.error(res.msg || '连接失败，请检查 JumpServer 配置');
+                        }
                       }
                     } catch {
-                      if (jsUrl) {
-                        window.open(jsUrl.replace(/\/+$/, '') + '/luna/', '_blank');
-                        toast('后端无法连接 JumpServer（跨网络），已直接跳转 JumpServer 页面', { icon: 'ℹ️', duration: 5000 });
+                      const fallbackId = selectedAsset.jumpserverAssetId;
+                      if (jsUrl && fallbackId) {
+                        window.open(jsUrl.replace(/\/+$/, '') + `/console/assets/detail/${fallbackId}/`, '_blank');
+                        toast('后端无法连接 JumpServer（跨网络），已跳转到堡垒机对应资产页面', { icon: 'ℹ️', duration: 6000 });
                       } else {
                         toast.error('连接异常，且未配置 JumpServer 地址');
                       }
@@ -2660,6 +2669,33 @@ export default function AssetsPage() {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* JumpServer 资产绑定提示弹窗 */}
+      <Modal isOpen={jsBindPromptOpen} onOpenChange={(open) => !open && setJsBindPromptOpen(false)} size="md">
+        <ModalContent>
+          <ModalHeader className="text-warning-600">终端登录 - 需要绑定 JumpServer 资产</ModalHeader>
+          <ModalBody className="space-y-3 text-sm">
+            <p>当前资产尚未绑定 JumpServer 资产 ID，无法直接终端登录。</p>
+            <div className="rounded-lg bg-default-50 p-3 space-y-1.5 text-default-600 text-[12px]">
+              <p><strong>如何绑定？</strong></p>
+              <p>1. 点击下方「前往编辑」按钮，在编辑页面的 JumpServer 堡垒机 区域填入资产 UUID</p>
+              <p>2. 或点击「按 IP 自动匹配」让系统尝试查找（需后端能连通 JumpServer）</p>
+              <p><strong>为什么需要绑定？</strong></p>
+              <p>绑定后系统可精确定位到 JumpServer 中的对应主机，实现一键终端登录或跨网络跳转到堡垒机资产页面。未绑定时无法确定目标资产。</p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={() => setJsBindPromptOpen(false)}>取消</Button>
+            <Button size="sm" color="primary" onPress={() => {
+              setJsBindPromptOpen(false);
+              if (selectedAsset) {
+                onDetailClose();
+                openEditModal(selectedAsset);
+              }
+            }}>前往编辑</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
 
@@ -3282,7 +3318,7 @@ export default function AssetsPage() {
                           <div className="text-[11px] text-default-400 leading-relaxed bg-default-50 rounded-lg px-2.5 py-2 space-y-1">
                             <p><strong>绑定方式：</strong>填入 JumpServer 中该主机的 UUID（资产详情页 URL 中的 ID），或点击下方按钮按 IP 自动匹配。</p>
                             <p><strong>查找 UUID：</strong>JumpServer 控制台 → 资产管理 → 主机列表 → 点击目标主机 → 浏览器地址栏中 <code className="text-[10px] bg-default-200 px-1 rounded">/assets/hosts/&lt;UUID&gt;</code> 即为资产 ID。</p>
-                            <p><strong>未绑定时：</strong>终端登录会尝试按主 IP 在 JumpServer 中查找匹配资产；若后端无法连通 JumpServer（如跨网络部署），将直接跳转到 JumpServer 页面由你手动选择。</p>
+                            <p><strong>未绑定时：</strong>终端登录将无法使用，需先绑定资产 ID。绑定后，系统优先通过后端 API 生成终端链接；若后端无法连通 JumpServer（如跨网络部署），将跳转到堡垒机中该资产的详情页面。</p>
                           </div>
                           {(canCreateAssets || canUpdateAssets) && (
                             <div className="space-y-2">

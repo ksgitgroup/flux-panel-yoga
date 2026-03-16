@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
-import { Input, Textarea } from "@heroui/input";
+import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
 import { Spinner } from "@heroui/spinner";
 import { Switch } from "@heroui/switch";
@@ -26,17 +26,44 @@ import { hasPermission } from '@/utils/auth';
 
 const CHANNEL_TYPES = [
   { value: 'wechat', label: '企业微信' },
+  { value: 'dingtalk', label: '钉钉' },
   { value: 'telegram', label: 'Telegram' },
   { value: 'webhook', label: 'Webhook' },
   { value: 'email', label: 'Email' },
 ];
 
-const CONFIG_PLACEHOLDERS: Record<string, string> = {
-  wechat: JSON.stringify({ webhookUrl: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." }, null, 2),
-  telegram: JSON.stringify({ token: "bot_token", chatId: "123456" }, null, 2),
-  webhook: JSON.stringify({ url: "https://..." }, null, 2),
-  email: JSON.stringify({ to: "user@example.com", smtpHost: "smtp.example.com", smtpPort: 587, username: "", password: "" }, null, 2),
+interface ChannelField { key: string; label: string; placeholder: string; type?: 'text' | 'password' | 'number'; description?: string; }
+const CHANNEL_FIELDS: Record<string, ChannelField[]> = {
+  wechat: [
+    { key: 'webhookUrl', label: 'Webhook 地址', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx', description: '企业微信群 → 群设置 → 群机器人 → 添加机器人 → 复制 Webhook 地址' },
+  ],
+  dingtalk: [
+    { key: 'webhookUrl', label: 'Webhook 地址', placeholder: 'https://oapi.dingtalk.com/robot/send?access_token=xxxx', description: '钉钉群 → 群设置 → 智能群助手 → 添加机器人 → 选择自定义 → 复制 Webhook 地址' },
+  ],
+  telegram: [
+    { key: 'token', label: 'Bot Token', placeholder: '123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ', description: '通过 @BotFather 创建 Bot 后获取' },
+    { key: 'chatId', label: 'Chat ID', placeholder: '-1001234567890', description: '群组或频道的 Chat ID，可通过 @userinfobot 获取' },
+  ],
+  webhook: [
+    { key: 'url', label: 'Webhook URL', placeholder: 'https://your-server.com/webhook/notify', description: '将以 POST JSON 方式推送 { title, text, severity, timestamp }' },
+  ],
+  email: [
+    { key: 'smtpHost', label: 'SMTP 服务器', placeholder: 'smtp.example.com' },
+    { key: 'smtpPort', label: 'SMTP 端口', placeholder: '587', type: 'number' },
+    { key: 'username', label: '发件人账号', placeholder: 'notify@example.com' },
+    { key: 'password', label: '发件人密码', placeholder: '授权码或密码', type: 'password' },
+    { key: 'to', label: '收件人', placeholder: 'admin@example.com', description: '多个收件人用逗号分隔' },
+  ],
 };
+
+function parseConfigJson(json: string | undefined): Record<string, string> {
+  try { return json ? JSON.parse(json) : {}; } catch { return {}; }
+}
+function buildConfigJson(fields: Record<string, string>): string {
+  const cleaned: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fields)) { if (v) cleaned[k] = v; }
+  return JSON.stringify(cleaned, null, 2);
+}
 
 const SEVERITY_MAP: Record<string, { label: string; color: "default" | "warning" | "danger" }> = {
   info: { label: '提示', color: 'default' },
@@ -143,14 +170,17 @@ function NotificationsTab() {
           <SelectItem key="unread">未读</SelectItem>
           <SelectItem key="read">已读</SelectItem>
         </Select>
-        <Input
+        <Select
           label="类型筛选"
           size="sm"
-          className="w-40"
-          value={typeFilter}
-          onValueChange={setTypeFilter}
-          placeholder="如 alert, system"
-        />
+          className="w-44"
+          selectedKeys={typeFilter ? new Set([typeFilter]) : new Set()}
+          onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setTypeFilter(v || ''); }}
+        >
+          {[{ value: '', label: '全部类型' }, ...EVENT_TYPES].map(t => (
+            <SelectItem key={t.value}>{t.label}</SelectItem>
+          ))}
+        </Select>
         <Button size="sm" color="primary" variant="flat" onPress={() => fetchList(1)}>刷新</Button>
         <Button size="sm" color="warning" variant="flat" onPress={handleMarkAllRead} isDisabled={unreadCount === 0}>
           全部已读 {unreadCount > 0 && `(${unreadCount})`}
@@ -170,7 +200,7 @@ function NotificationsTab() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm">{item.title}</span>
                     {severityChip(item.severity)}
-                    {item.type && <Chip size="sm" variant="bordered">{item.type}</Chip>}
+                    {item.type && <Chip size="sm" variant="bordered">{EVENT_TYPES.find(t => t.value === item.type)?.label || item.type}</Chip>}
                     {item.readStatus === 0 && <Chip size="sm" color="primary" variant="dot">未读</Chip>}
                   </div>
                   <div className="text-sm text-default-500 line-clamp-2">{item.content}</div>
@@ -221,7 +251,7 @@ function ChannelsTab() {
 
   useEffect(() => { fetchChannels(); }, [fetchChannels]);
 
-  const openCreate = () => { setEditItem({ type: 'telegram', enabled: 1, configJson: CONFIG_PLACEHOLDERS.telegram }); onOpen(); };
+  const openCreate = () => { setEditItem({ type: 'wechat', enabled: 1, configJson: '{}' }); onOpen(); };
   const openEdit = (ch: NotifyChannelItem) => { setEditItem({ ...ch }); onOpen(); };
 
   const handleSave = async () => {
@@ -256,7 +286,7 @@ function ChannelsTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center">
-        <span className="text-default-500 text-sm">管理通知渠道（Telegram / Webhook / Email）</span>
+        <span className="text-default-500 text-sm">管理通知渠道（企业微信 / 钉钉 / Telegram / Webhook / Email）</span>
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建渠道</Button>}
       </div>
 
@@ -313,11 +343,7 @@ function ChannelsTab() {
               selectedKeys={editItem?.type ? new Set([editItem.type]) : new Set()}
               onSelectionChange={(keys) => {
                 const v = Array.from(keys)[0] as string;
-                setEditItem(prev => ({
-                  ...prev,
-                  type: v,
-                  configJson: prev?.configJson || CONFIG_PLACEHOLDERS[v] || '{}'
-                }));
+                setEditItem(prev => ({ ...prev, type: v, configJson: '{}' }));
               }}
             >
               {CHANNEL_TYPES.map(t => <SelectItem key={t.value}>{t.label}</SelectItem>)}
@@ -329,14 +355,39 @@ function ChannelsTab() {
                 onValueChange={(v) => setEditItem(prev => ({ ...prev, enabled: v ? 1 : 0 }))}
               />
             </div>
-            <Textarea
-              label="配置 (JSON)"
-              minRows={5}
-              maxRows={10}
-              value={editItem?.configJson || ''}
-              onValueChange={(v) => setEditItem(prev => ({ ...prev, configJson: v }))}
-              placeholder={CONFIG_PLACEHOLDERS[editItem?.type || 'webhook']}
-            />
+            {(() => {
+              const channelType = editItem?.type || 'webhook';
+              const fields = CHANNEL_FIELDS[channelType] || [];
+              const configObj = parseConfigJson(editItem?.configJson ?? undefined);
+              const updateField = (key: string, value: string) => {
+                const updated = { ...configObj, [key]: value };
+                setEditItem(prev => ({ ...prev, configJson: buildConfigJson(updated) }));
+              };
+              return (
+                <div className="space-y-3">
+                  <p className="text-xs text-default-400">
+                    {channelType === 'wechat' && '企业微信群机器人 Webhook 推送'}
+                    {channelType === 'dingtalk' && '钉钉自定义机器人 Webhook 推送（Markdown 格式）'}
+                    {channelType === 'telegram' && 'Telegram Bot API 推送'}
+                    {channelType === 'webhook' && '通用 HTTP POST JSON 推送'}
+                    {channelType === 'email' && 'SMTP 邮件发送（暂未完整实现）'}
+                  </p>
+                  {fields.map((f) => (
+                    <div key={f.key}>
+                      <Input
+                        size="sm"
+                        label={f.label}
+                        placeholder={f.placeholder}
+                        type={f.type || 'text'}
+                        value={configObj[f.key] || ''}
+                        onValueChange={(v) => updateField(f.key, v)}
+                      />
+                      {f.description && <p className="text-[11px] text-default-400 mt-0.5 ml-1">{f.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onClose}>取消</Button>
@@ -566,7 +617,7 @@ export default function NotificationPage() {
         <CardBody className="p-3 text-xs text-default-600 space-y-1">
           <p className="font-semibold text-sm text-primary">通知架构说明</p>
           <p><strong>通知消息</strong> — 系统产生的所有通知记录（告警触发、探针离线、到期提醒等），支持已读状态和类型筛选。</p>
-          <p><strong>通知渠道</strong> — 配置接收通知的方式：企业微信、Telegram、Webhook、Email。所有渠道统一在此管理（包括原"安全登录-企业微信通知"的功能）。</p>
+          <p><strong>通知渠道</strong> — 配置接收通知的方式：企业微信、钉钉、Telegram、Webhook、Email。所有渠道统一在此管理。</p>
           <p><strong>通知策略</strong> — 将事件类型路由到渠道。例如：告警事件 → 企业微信渠道，探针离线 → Telegram 渠道。不配置策略时，通知仅记录在消息列表中。</p>
         </CardBody>
       </Card>

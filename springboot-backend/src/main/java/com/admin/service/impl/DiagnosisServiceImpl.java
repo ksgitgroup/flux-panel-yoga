@@ -2,7 +2,6 @@ package com.admin.service.impl;
 
 import com.admin.common.lang.R;
 import com.admin.common.utils.DiagnosisAlertTemplateUtil;
-import com.admin.common.utils.WeChatWorkUtil;
 import com.admin.entity.DiagnosisRecord;
 import com.admin.entity.Forward;
 import com.admin.entity.Tunnel;
@@ -11,6 +10,7 @@ import com.admin.mapper.DiagnosisRecordMapper;
 import com.admin.mapper.ViteConfigMapper;
 import com.admin.service.DiagnosisService;
 import com.admin.service.ForwardService;
+import com.admin.service.NotificationService;
 import com.admin.service.TunnelService;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
@@ -49,6 +49,9 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private NotificationService notificationService;
 
     private final AtomicBoolean diagnosisRunning = new AtomicBoolean(false);
     private final Object runtimeLock = new Object();
@@ -127,9 +130,8 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
 
         log.info("[自动诊断] 开始全量诊断 ...");
 
-        // 读取企业微信配置
-        String webhookUrl = getConfig("wechat_webhook_url");
-        boolean wechatEnabled = getBooleanConfig("wechat_webhook_enabled", false);
+        // 读取诊断通知配置（冷却 / 恢复通知由 vite_config 控制，通道路由由通知中心统一处理）
+        boolean notifyEnabled = getBooleanConfig("wechat_webhook_enabled", false);
         String appName = getConfigOrDefault("app_name", "flux-panel");
         String environment = getConfigOrDefault("site_environment_name", "默认环境");
         int cooldownMinutes = getIntConfig("wechat_webhook_cooldown_minutes", 30);
@@ -222,9 +224,9 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                 }
             }
 
-            if (wechatEnabled) {
+            if (notifyEnabled) {
                 processWebhookNotifications(
-                        webhookUrl,
+                        null,
                         appName,
                         environment,
                         cooldownMinutes,
@@ -734,7 +736,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
             boolean shouldSend = !"failing".equalsIgnoreCase(lastStatus)
                     || now - lastSentAt >= (long) Math.max(cooldownMinutes, 1) * 60 * 1000;
             if (!shouldSend) {
-                log.info("[自动诊断] 企业微信通知进入冷静期，当前跳过发送");
+                log.info("[自动诊断] 通知进入冷静期，当前跳过发送");
                 upsertConfig("wechat_webhook_last_status", "failing");
                 return;
             }
@@ -748,19 +750,31 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisRecordMapper, Dia
                     tunnelTotal,
                     forwardTotal
             );
-            if (WeChatWorkUtil.sendMarkdown(webhookUrl, content)) {
-                upsertConfig("wechat_webhook_last_sent_at", String.valueOf(now));
-                upsertConfig("wechat_webhook_last_status", "failing");
-            }
+            notificationService.send(
+                    "[诊断告警] " + appName + " 发现异常",
+                    content,
+                    "diagnosis",
+                    "warning",
+                    "diagnosis",
+                    null
+            );
+            upsertConfig("wechat_webhook_last_sent_at", String.valueOf(now));
+            upsertConfig("wechat_webhook_last_status", "failing");
             return;
         }
 
         if (recoveryEnabled && "failing".equalsIgnoreCase(lastStatus)) {
             String content = buildRecoveryMessage(appName, environment, tunnelTotal, forwardTotal);
-            if (WeChatWorkUtil.sendMarkdown(webhookUrl, content)) {
-                upsertConfig("wechat_webhook_last_sent_at", String.valueOf(now));
-                upsertConfig("wechat_webhook_last_status", "healthy");
-            }
+            notificationService.send(
+                    "[诊断恢复] " + appName + " 已恢复正常",
+                    content,
+                    "diagnosis",
+                    "info",
+                    "diagnosis",
+                    null
+            );
+            upsertConfig("wechat_webhook_last_sent_at", String.valueOf(now));
+            upsertConfig("wechat_webhook_last_status", "healthy");
             return;
         }
 

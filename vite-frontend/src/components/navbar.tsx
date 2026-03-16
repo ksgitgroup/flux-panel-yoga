@@ -185,8 +185,8 @@ export const Navbar = () => {
 
   const isLoggedIn = !!localStorage.getItem("token");
 
-  // Bell severity tiers: critical > warning (unread>0) > idle
-  const bellTier = criticalCount > 0 ? 'critical' : unreadCount > 0 ? 'warning' : 'idle';
+  // Bell tier: only red glow for critical alerts, otherwise idle
+  const bellTier = criticalCount > 0 ? 'critical' : 'idle';
   const bellStyles = {
     critical: 'bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 ring-2 ring-red-400/50 animate-pulse',
     warning:  'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 ring-1 ring-amber-300/40',
@@ -226,9 +226,9 @@ export const Navbar = () => {
                 <svg className="w-5 h-5" fill={bellTier === 'critical' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={bellTier === 'idle' ? 2 : 2.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
-                {unreadCount > 0 && (
+                {criticalCount > 0 && (
                   <span className={`absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none text-white ${badgeStyles[bellTier]}`}>
-                    {unreadCount > 99 ? "99+" : unreadCount}
+                    {criticalCount > 99 ? "99+" : criticalCount}
                   </span>
                 )}
               </button>
@@ -241,8 +241,8 @@ export const Navbar = () => {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-sm">通知中心</span>
-                        {unreadCount > 0 && (
-                          <Badge content={unreadCount} color="danger" size="sm">
+                        {criticalCount > 0 && (
+                          <Badge content={criticalCount} color="danger" size="sm">
                             <span />
                           </Badge>
                         )}

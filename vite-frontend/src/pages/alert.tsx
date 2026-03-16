@@ -51,8 +51,9 @@ const SCOPE_TYPES = [
 
 const NOTIFY_TYPES = [
   { value: 'log', label: '仅记录日志' },
-  { value: 'webhook', label: 'Webhook' },
-  { value: 'wechat', label: '企业微信机器人' },
+  { value: 'webhook', label: '自定义 Webhook' },
+  { value: 'wechat', label: '企业微信' },
+  { value: 'dingtalk', label: '钉钉' },
 ];
 
 const PROBE_CONDITIONS = [

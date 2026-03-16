@@ -100,6 +100,12 @@ public class NotifyChannelServiceImpl extends ServiceImpl<NotifyChannelMapper, N
                 case "webhook":
                     testResult = testWebhook(config);
                     break;
+                case "wechat":
+                    testResult = testWechat(config);
+                    break;
+                case "dingtalk":
+                    testResult = testDingtalk(config);
+                    break;
                 case "email":
                     log.info("[NotifyChannel] Email test: to={} (SMTP not yet configured)", config.getString("to"));
                     testResult = "skipped";
@@ -150,6 +156,28 @@ public class NotifyChannelServiceImpl extends ServiceImpl<NotifyChannelMapper, N
         payload.put("timestamp", System.currentTimeMillis());
 
         return httpPostTest(url, JSON.toJSONString(payload));
+    }
+
+    private String testWechat(JSONObject config) {
+        String webhookUrl = config.getString("webhookUrl");
+        if (!StringUtils.hasText(webhookUrl)) {
+            return "failed: missing webhookUrl";
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("msgtype", "markdown");
+        body.put("markdown", Map.of("content", "**Flux Panel 通知测试**\n> 渠道测试消息，收到即表示配置正确。"));
+        return httpPostTest(webhookUrl, JSON.toJSONString(body));
+    }
+
+    private String testDingtalk(JSONObject config) {
+        String webhookUrl = config.getString("webhookUrl");
+        if (!StringUtils.hasText(webhookUrl)) {
+            return "failed: missing webhookUrl";
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("msgtype", "markdown");
+        body.put("markdown", Map.of("title", "Flux Panel 通知测试", "text", "**Flux Panel 通知测试**\n> 渠道测试消息，收到即表示配置正确。"));
+        return httpPostTest(webhookUrl, JSON.toJSONString(body));
     }
 
     private String httpPostTest(String url, String jsonBody) {

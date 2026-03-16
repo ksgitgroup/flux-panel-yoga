@@ -145,16 +145,13 @@ deploy:dev:
       PULLED=0
       LAST_PULL_ERR=""
       for i in $(seq 1 24); do
-        PULL_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" 2>&1)
-        PULL_RC=$?
-        if [ $PULL_RC -eq 0 ]; then
+        if PULL_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" 2>&1); then
           echo "✅ 后端镜像 ${TRACE_TAG} 拉取成功！"
           docker pull "${FRONTEND_IMAGE}:${TRACE_TAG}" 2>&1 || true
           PULLED=1
           break
         fi
         LAST_PULL_ERR="$PULL_OUTPUT"
-        # 首次失败和每隔 5 次显示实际错误，便于诊断
         if [ $i -eq 1 ] || [ $((i % 5)) -eq 0 ]; then
           echo "⚠️ docker pull 失败 (第 ${i} 次):"
           echo "$PULL_OUTPUT" | tail -3
@@ -169,9 +166,7 @@ deploy:dev:
         echo "$LAST_PULL_ERR" | tail -5
         echo "---"
         echo "⚠️ 回退到 ${DEV_TAG}..."
-        FALLBACK_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${DEV_TAG}" 2>&1)
-        FALLBACK_RC=$?
-        if [ $FALLBACK_RC -eq 0 ]; then
+        if FALLBACK_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${DEV_TAG}" 2>&1); then
           echo "✅ 回退拉取 ${DEV_TAG} 成功（注意：可能不是本次提交的版本）"
         else
           echo "❌ 镜像拉取失败！"
@@ -231,9 +226,7 @@ deploy:prod:
       PULLED=0
       LAST_PULL_ERR=""
       for i in $(seq 1 24); do
-        PULL_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" 2>&1)
-        PULL_RC=$?
-        if [ $PULL_RC -eq 0 ]; then
+        if PULL_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" 2>&1); then
           echo "✅ 镜像 ${TRACE_TAG} 拉取成功！"
           PULLED=1
           break
@@ -253,9 +246,7 @@ deploy:prod:
         echo "$LAST_PULL_ERR" | tail -5
         echo "---"
         echo "⚠️ 回退到 ${PROD_TAG}..."
-        FALLBACK_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${PROD_TAG}" 2>&1)
-        FALLBACK_RC=$?
-        if [ $FALLBACK_RC -eq 0 ]; then
+        if FALLBACK_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${PROD_TAG}" 2>&1); then
           echo "✅ 回退拉取 ${PROD_TAG} 成功"
         else
           echo "❌ 拉取失败！"

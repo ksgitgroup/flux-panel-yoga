@@ -562,6 +562,7 @@ export default function AssetsPage() {
   const [gostInstallCmd, setGostInstallCmd] = useState<string | null>(null);
   // JumpServer
   const [jsEnabled, setJsEnabled] = useState(false);
+  const [jsUrl, setJsUrl] = useState('');
   const [jsConnecting, setJsConnecting] = useState(false);
   // Tag input
   const [tagInput, setTagInput] = useState('');
@@ -583,7 +584,7 @@ export default function AssetsPage() {
 
   useEffect(() => {
     void loadAssets(); void loadGostNodes();
-    getJumpServerStatus().then(r => { if (r.code === 0 && r.data) setJsEnabled(r.data.enabled && r.data.configured); });
+    getJumpServerStatus().then(r => { if (r.code === 0 && r.data) { setJsEnabled(r.data.enabled && r.data.configured); setJsUrl(r.data.url || ''); } });
   }, []);
 
   // Handle URL params: ?viewId=123 opens detail, ?viewId=123&deploy=1 opens deploy
@@ -2629,10 +2630,20 @@ export default function AssetsPage() {
                       const res = await jumpServerConnect(selectedAsset.id);
                       if (res.code === 0 && res.data?.url) {
                         window.open(res.data.url, '_blank');
+                      } else if (jsUrl) {
+                        window.open(jsUrl.replace(/\/+$/, '') + '/luna/', '_blank');
+                        toast('后端无法连接 JumpServer API（跨网络），已直接跳转 JumpServer 页面，请在堡垒机中选择对应资产', { icon: 'ℹ️', duration: 5000 });
                       } else {
                         toast.error(res.msg || '连接失败');
                       }
-                    } catch { toast.error('连接异常'); } finally { setJsConnecting(false); }
+                    } catch {
+                      if (jsUrl) {
+                        window.open(jsUrl.replace(/\/+$/, '') + '/luna/', '_blank');
+                        toast('后端无法连接 JumpServer（跨网络），已直接跳转 JumpServer 页面', { icon: 'ℹ️', duration: 5000 });
+                      } else {
+                        toast.error('连接异常，且未配置 JumpServer 地址');
+                      }
+                    } finally { setJsConnecting(false); }
                   }}>终端登录</Button>
                 )}
                 {(canUpdateAssets) && <Button size="sm" variant="flat" color="primary" onPress={() => { onDetailClose(); openEditModal(selectedAsset); }}>编辑</Button>}
@@ -3268,9 +3279,14 @@ export default function AssetsPage() {
                               <Chip size="sm" variant="dot" color="default" className="h-5 text-[10px]">未绑定（将按主 IP 匹配）</Chip>
                             )}
                           </div>
+                          <div className="text-[11px] text-default-400 leading-relaxed bg-default-50 rounded-lg px-2.5 py-2 space-y-1">
+                            <p><strong>绑定方式：</strong>填入 JumpServer 中该主机的 UUID（资产详情页 URL 中的 ID），或点击下方按钮按 IP 自动匹配。</p>
+                            <p><strong>查找 UUID：</strong>JumpServer 控制台 → 资产管理 → 主机列表 → 点击目标主机 → 浏览器地址栏中 <code className="text-[10px] bg-default-200 px-1 rounded">/assets/hosts/&lt;UUID&gt;</code> 即为资产 ID。</p>
+                            <p><strong>未绑定时：</strong>终端登录会尝试按主 IP 在 JumpServer 中查找匹配资产；若后端无法连通 JumpServer（如跨网络部署），将直接跳转到 JumpServer 页面由你手动选择。</p>
+                          </div>
                           {(canCreateAssets || canUpdateAssets) && (
                             <div className="space-y-2">
-                              <Input size="sm" label="JumpServer 资产 ID" placeholder="留空则按主 IP 匹配；可填 JumpServer 主机 UUID"
+                              <Input size="sm" label="JumpServer 资产 ID（UUID）" placeholder="如 3a2f7c1e-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                                 value={form.jumpserverAssetId}
                                 onValueChange={(v) => setForm(p => ({ ...p, jumpserverAssetId: v }))} />
                               {editingAsset?.primaryIp && (
@@ -3283,13 +3299,13 @@ export default function AssetsPage() {
                                         setForm(p => ({ ...p, jumpserverAssetId: res.data!.id }));
                                         toast.success(`已按 IP 匹配并绑定：${res.data!.name || res.data!.address || res.data!.id}`);
                                       } else {
-                                        toast.error(res.msg || '匹配失败');
+                                        toast.error(res.msg || '匹配失败，请确认 JumpServer 中已注册此 IP 的主机');
                                       }
                                     } catch {
-                                      toast.error('请求失败');
+                                      toast.error('请求失败，后端可能无法连接 JumpServer');
                                     }
                                   }}>
-                                  按主 IP 匹配并绑定
+                                  按主 IP ({editingAsset.primaryIp}) 自动匹配
                                 </Button>
                               )}
                             </div>

@@ -94,6 +94,10 @@ build:prod:
 # 改进：先尝试拉取 TRACE_TAG（精确到 commit SHA），
 #       确保部署的是本次提交对应的镜像，而非上一次构建的残留。
 #       拉取成功后再 tag 为 DEV_TAG 以兼容 docker-compose 配置。
+#
+# v1.4.9 [2026-03-16]
+#   - 增加 Docker Hub 登录，避免匿名拉取 100次/6h 限速
+#   - docker pull 失败时显示实际错误，便于诊断
 # ──────────────────────────────────────────────────────────────
 deploy:dev:
   stage: deploy
@@ -119,34 +123,58 @@ deploy:dev:
       cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
       chmod +x "$DEPLOY_DIR/remote_deploy.sh"
 
+      # ── Docker Hub 登录（避免匿名拉取 100次/6h 限速） ──
+      if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+        echo "🔐 登录 Docker Hub..."
+        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      else
+        echo "⚠️ 未配置 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN，使用匿名拉取（限速 100次/6h）"
+      fi
+
       echo "⏳ 等待 GitHub Actions 构建镜像..."
       echo "   后端: ${BACKEND_IMAGE}:${TRACE_TAG}"
       echo "   前端: ${FRONTEND_IMAGE}:${TRACE_TAG}"
 
-      # 先等 60s 给 GitHub Actions 启动时间，避免前 3 轮都是无意义的 pull
       echo "⏳ 预等待 60s（GitHub Actions 冷启动）..."
       sleep 60
 
-      # 用 TRACE_TAG 精确拉取本次 commit 对应的镜像
       PULLED=0
+      LAST_PULL_ERR=""
       for i in $(seq 1 24); do
-        if docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" >/dev/null 2>&1; then
+        PULL_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" 2>&1)
+        PULL_RC=$?
+        if [ $PULL_RC -eq 0 ]; then
           echo "✅ 后端镜像 ${TRACE_TAG} 拉取成功！"
-          # 同时尝试拉取前端（如果有的话）
-          docker pull "${FRONTEND_IMAGE}:${TRACE_TAG}" >/dev/null 2>&1 || true
+          docker pull "${FRONTEND_IMAGE}:${TRACE_TAG}" 2>&1 || true
           PULLED=1
           break
+        fi
+        LAST_PULL_ERR="$PULL_OUTPUT"
+        # 首次失败和每隔 5 次显示实际错误，便于诊断
+        if [ $i -eq 1 ] || [ $((i % 5)) -eq 0 ]; then
+          echo "⚠️ docker pull 失败 (第 ${i} 次):"
+          echo "$PULL_OUTPUT" | tail -3
+          echo "---"
         fi
         echo "⏳ 等待编译中... ($i/24, 每次等 20s)"
         sleep 20
       done
 
       if [ "$PULLED" -eq 0 ]; then
-        echo "⚠️ TRACE_TAG ${TRACE_TAG} 拉取超时，回退到 ${DEV_TAG}..."
-        if docker pull "${BACKEND_IMAGE}:${DEV_TAG}" >/dev/null 2>&1; then
+        echo "⚠️ TRACE_TAG ${TRACE_TAG} 拉取超时，最后一次错误:"
+        echo "$LAST_PULL_ERR" | tail -5
+        echo "---"
+        echo "⚠️ 回退到 ${DEV_TAG}..."
+        FALLBACK_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${DEV_TAG}" 2>&1)
+        FALLBACK_RC=$?
+        if [ $FALLBACK_RC -eq 0 ]; then
           echo "✅ 回退拉取 ${DEV_TAG} 成功（注意：可能不是本次提交的版本）"
         else
-          echo "❌ 镜像拉取失败，请检查 GitHub Actions 日志！"
+          echo "❌ 镜像拉取失败！"
+          echo "$FALLBACK_OUTPUT" | tail -5
+          echo "🔍 诊断信息:"
+          echo "   Docker version: $(docker --version 2>&1)"
+          echo "   登录状态: $(cat ~/.docker/config.json 2>/dev/null | grep -o '"auths":{[^}]*}' || echo '未登录')"
           exit 1
         fi
       fi
@@ -181,23 +209,51 @@ deploy:prod:
       cp "$CI_PROJECT_DIR/scripts/remote_deploy.sh" "$DEPLOY_DIR/remote_deploy.sh"
       chmod +x "$DEPLOY_DIR/remote_deploy.sh"
 
+      # ── Docker Hub 登录 ──
+      if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+        echo "🔐 登录 Docker Hub..."
+        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      else
+        echo "⚠️ 未配置 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN，使用匿名拉取（限速 100次/6h）"
+      fi
+
       echo "⏳ 等待 GitHub Actions 构建 ${TRACE_TAG} ..."
       sleep 60
 
       PULLED=0
+      LAST_PULL_ERR=""
       for i in $(seq 1 24); do
-        if docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" >/dev/null 2>&1; then
+        PULL_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${TRACE_TAG}" 2>&1)
+        PULL_RC=$?
+        if [ $PULL_RC -eq 0 ]; then
           echo "✅ 镜像 ${TRACE_TAG} 拉取成功！"
           PULLED=1
           break
+        fi
+        LAST_PULL_ERR="$PULL_OUTPUT"
+        if [ $i -eq 1 ] || [ $((i % 5)) -eq 0 ]; then
+          echo "⚠️ docker pull 失败 (第 ${i} 次):"
+          echo "$PULL_OUTPUT" | tail -3
+          echo "---"
         fi
         echo "⏳ 等待编译中... ($i/24)"
         sleep 20
       done
 
       if [ "$PULLED" -eq 0 ]; then
+        echo "⚠️ TRACE_TAG ${TRACE_TAG} 拉取超时，最后一次错误:"
+        echo "$LAST_PULL_ERR" | tail -5
+        echo "---"
         echo "⚠️ 回退到 ${PROD_TAG}..."
-        docker pull "${BACKEND_IMAGE}:${PROD_TAG}" >/dev/null 2>&1 || { echo "❌ 拉取失败！"; exit 1; }
+        FALLBACK_OUTPUT=$(docker pull "${BACKEND_IMAGE}:${PROD_TAG}" 2>&1)
+        FALLBACK_RC=$?
+        if [ $FALLBACK_RC -eq 0 ]; then
+          echo "✅ 回退拉取 ${PROD_TAG} 成功"
+        else
+          echo "❌ 拉取失败！"
+          echo "$FALLBACK_OUTPUT" | tail -5
+          exit 1
+        fi
       fi
 
       bash "$DEPLOY_DIR/remote_deploy.sh" "amerluya" "${PROD_TAG}" "$DEPLOY_DIR"

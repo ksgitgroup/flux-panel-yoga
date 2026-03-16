@@ -126,7 +126,11 @@ deploy:dev:
       # ── Docker Hub 登录（避免匿名拉取 100次/6h 限速） ──
       if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
         echo "🔐 登录 Docker Hub..."
-        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+        if echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin 2>&1; then
+          echo "✅ Docker Hub 登录成功"
+        else
+          echo "⚠️ Docker Hub 登录失败（token 可能过期），将以匿名方式拉取"
+        fi
       else
         echo "⚠️ 未配置 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN，使用匿名拉取（限速 100次/6h）"
       fi
@@ -212,7 +216,11 @@ deploy:prod:
       # ── Docker Hub 登录 ──
       if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
         echo "🔐 登录 Docker Hub..."
-        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+        if echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin 2>&1; then
+          echo "✅ Docker Hub 登录成功"
+        else
+          echo "⚠️ Docker Hub 登录失败（token 可能过期），将以匿名方式拉取"
+        fi
       else
         echo "⚠️ 未配置 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN，使用匿名拉取（限速 100次/6h）"
       fi

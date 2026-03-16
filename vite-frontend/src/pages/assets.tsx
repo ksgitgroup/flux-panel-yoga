@@ -2638,8 +2638,8 @@ export default function AssetsPage() {
                       } else {
                         const fallbackId = res.data?.jsAssetId || selectedAsset.jumpserverAssetId;
                         if (jsUrl && fallbackId) {
-                          window.open(jsUrl.replace(/\/+$/, '') + `/console/assets/detail/${fallbackId}/`, '_blank');
-                          toast('后端无法直连 JumpServer（可能跨网络），已跳转到堡垒机对应资产页面，请在页面中点击连接', { icon: 'ℹ️', duration: 6000 });
+                          window.open(jsUrl.replace(/\/+$/, '') + `/luna/admin-connect?asset=${fallbackId}`, '_blank');
+                          toast('后端无法直连 JumpServer（可能跨网络），已跳转到堡垒机终端连接页面', { icon: 'ℹ️', duration: 6000 });
                         } else {
                           toast.error(res.msg || '连接失败，请检查 JumpServer 配置');
                         }
@@ -2647,8 +2647,8 @@ export default function AssetsPage() {
                     } catch {
                       const fallbackId = selectedAsset.jumpserverAssetId;
                       if (jsUrl && fallbackId) {
-                        window.open(jsUrl.replace(/\/+$/, '') + `/console/assets/detail/${fallbackId}/`, '_blank');
-                        toast('后端无法连接 JumpServer（跨网络），已跳转到堡垒机对应资产页面', { icon: 'ℹ️', duration: 6000 });
+                        window.open(jsUrl.replace(/\/+$/, '') + `/luna/admin-connect?asset=${fallbackId}`, '_blank');
+                        toast('后端无法连接 JumpServer（跨网络），已跳转到堡垒机终端连接页面', { icon: 'ℹ️', duration: 6000 });
                       } else {
                         toast.error('连接异常，且未配置 JumpServer 地址');
                       }

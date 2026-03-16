@@ -100,7 +100,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
     label: '环境名称',
     section: 'basic',
     placeholder: '例如 LOCAL / DEV / PROD / HK-DEV',
-    description: '用于侧边栏、仪表盘和企业微信告警标题。建议使用稳定且一眼可识别的环境名。',
+    description: '用于侧边栏、仪表盘和告警通知标题。建议使用稳定且一眼可识别的环境名。',
     type: 'input',
   },
   {

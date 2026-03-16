@@ -4,10 +4,10 @@ import com.admin.common.annotation.RequireRole;
 import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import com.admin.common.utils.DiagnosisAlertTemplateUtil;
-import com.admin.common.utils.WeChatWorkUtil;
 import com.admin.entity.ViteConfig;
 import com.admin.mapper.ViteConfigMapper;
 import com.admin.service.DiagnosisService;
+import com.admin.service.NotificationService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +30,9 @@ public class DiagnosisController extends BaseController {
 
     @Autowired
     private ViteConfigMapper viteConfigMapper;
+
+    @Autowired
+    private NotificationService notificationService;
 
     /**
      * 获取最新诊断状态快照（看板首页数据）
@@ -112,44 +115,36 @@ public class DiagnosisController extends BaseController {
     }
 
     /**
-     * 测试企业微信 Webhook 推送
-     * 发送一条测试消息验证配置是否正确
+     * 测试通知推送（通过通知中心统一路由到已配置的渠道）
      */
     @LogAnnotation
     @RequireRole
     @PostMapping("/test-webhook")
     public R testWebhook() {
         try {
-            String webhookUrl = getConfigValue("wechat_webhook_url");
-            if (webhookUrl == null || webhookUrl.trim().isEmpty()) {
-                return R.err("请先配置企业微信机器人 Webhook 地址");
-            }
-
             String appName = getConfigValue("app_name");
+            if (appName == null) appName = "flux-panel";
             String environment = getConfigValue("site_environment_name");
+            if (environment == null) environment = "默认环境";
             String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            String failureDetails = "1. 示例异常：主入口 TCP Ping 超时\n\n2. 示例异常：出口节点丢包率升高";
-            String template = DiagnosisAlertTemplateUtil.fallbackTemplate(
-                    getConfigValue("wechat_webhook_template"),
-                    DiagnosisAlertTemplateUtil.DEFAULT_TEST_TEMPLATE
+
+            String content = String.format(
+                    "## 🔔 诊断通知测试\n\n" +
+                    "**应用**: %s\n**环境**: %s\n**时间**: %s\n\n" +
+                    "这是一条测试消息，用于验证通知中心渠道配置是否正常。\n\n" +
+                    "> 示例异常：主入口 TCP Ping 超时\n> 示例异常：出口节点丢包率升高",
+                    appName, environment, time
             );
-            String content = DiagnosisAlertTemplateUtil.render(
-                    template,
-                    DiagnosisAlertTemplateUtil.basePlaceholders(
-                            appName,
-                            environment,
-                            time,
-                            "1 个隧道 / 2 个转发",
-                            2,
-                            "测试消息不参与节流",
-                            failureDetails
-                    )
+
+            notificationService.send(
+                    "[诊断测试] " + appName + " 通知渠道测试",
+                    content,
+                    "diagnosis",
+                    "info",
+                    "diagnosis",
+                    null
             );
-            boolean success = WeChatWorkUtil.sendMarkdown(webhookUrl, content);
-            if (!success) {
-                return R.err("企业微信消息发送失败，请检查 Webhook 地址或机器人配置");
-            }
-            return R.ok("测试消息已发送，请检查企业微信群");
+            return R.ok("测试通知已发送，将通过通知中心路由到已配置的渠道（企业微信/钉钉/Webhook等）");
         } catch (Exception e) {
             return R.err("发送失败: " + e.getMessage());
         }

@@ -326,16 +326,15 @@ public class AlertAggregationService {
     // ==================== Critical: Immediate Individual Alert ====================
 
     private void sendCriticalAlert(AlertEvent event) {
-        String wechatUrl = getWeChatWebhookUrl();
-        if (StringUtils.hasText(wechatUrl)) {
-            String markdown = formatCriticalMarkdown(event);
-            WeChatWorkUtil.sendMarkdown(wechatUrl, markdown);
-        }
-
-        // Also send via rule's own channel if it's webhook
+        // Send via rule's own channel (webhook/dingtalk configured per-rule)
         if ("webhook".equals(event.getNotifyType()) && StringUtils.hasText(event.getNotifyTarget())) {
             sendWebhook(event);
+        } else if ("dingtalk".equals(event.getNotifyType()) && StringUtils.hasText(event.getNotifyTarget())) {
+            sendDingtalkMarkdown(event.getNotifyTarget(), formatCriticalMarkdown(event), event.getRuleName());
+        } else if ("wechat".equals(event.getNotifyType()) && StringUtils.hasText(event.getNotifyTarget())) {
+            WeChatWorkUtil.sendMarkdown(event.getNotifyTarget(), formatCriticalMarkdown(event));
         }
+        // Note: unified WeChat/DingTalk routing also handled by notificationService.send() → policy → channel
     }
 
     private String formatCriticalMarkdown(AlertEvent event) {
@@ -358,8 +357,6 @@ public class AlertAggregationService {
     // ==================== Warning: Aggregated Summary ====================
 
     private void sendAggregatedSummary(List<AlertEvent> events, long now) {
-        String wechatUrl = getWeChatWebhookUrl();
-
         // Group events by node for summary
         Map<String, List<AlertEvent>> byNode = new LinkedHashMap<>();
         for (AlertEvent e : events) {
@@ -436,17 +433,18 @@ public class AlertAggregationService {
                     totalOnline, alertingNodes, totalOnline - alertingNodes));
         }
 
-        // Send
-        if (StringUtils.hasText(wechatUrl)) {
-            WeChatWorkUtil.sendMarkdown(wechatUrl, md.toString());
-        }
-
-        // Also send to individual webhook targets
-        Set<String> sentWebhooks = new HashSet<>();
+        // Send to per-rule targets (webhook / dingtalk / wechat)
+        // Unified WeChat/DingTalk routing handled by notificationService.send() → policy → channel
+        Set<String> sentTargets = new HashSet<>();
         for (AlertEvent e : events) {
-            if ("webhook".equals(e.getNotifyType()) && StringUtils.hasText(e.getNotifyTarget())
-                    && sentWebhooks.add(e.getNotifyTarget())) {
-                sendWebhookSummary(e.getNotifyTarget(), events, now);
+            if (StringUtils.hasText(e.getNotifyTarget()) && sentTargets.add(e.getNotifyType() + ":" + e.getNotifyTarget())) {
+                if ("webhook".equals(e.getNotifyType())) {
+                    sendWebhookSummary(e.getNotifyTarget(), events, now);
+                } else if ("dingtalk".equals(e.getNotifyType())) {
+                    sendDingtalkMarkdown(e.getNotifyTarget(), md.toString(), "告警汇总");
+                } else if ("wechat".equals(e.getNotifyType())) {
+                    WeChatWorkUtil.sendMarkdown(e.getNotifyTarget(), md.toString());
+                }
             }
         }
     }
@@ -528,6 +526,17 @@ public class AlertAggregationService {
         }
     }
 
+    private void sendDingtalkMarkdown(String webhookUrl, String markdownContent, String title) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("msgtype", "markdown");
+            body.put("markdown", Map.of("title", title, "text", markdownContent));
+            httpPost(webhookUrl, JSON.toJSONString(body));
+        } catch (Exception e) {
+            log.warn("[AlertAggregation] DingTalk send failed: {}", e.getMessage());
+        }
+    }
+
     private void httpPost(String url, String jsonBody) {
         try {
             HttpPost request = new HttpPost(url);
@@ -539,16 +548,6 @@ public class AlertAggregationService {
             }
         } catch (Exception e) {
             log.error("[AlertAggregation] HTTP POST failed: {}", e.getMessage());
-        }
-    }
-
-    private String getWeChatWebhookUrl() {
-        try {
-            ViteConfig config = viteConfigMapper.selectOne(
-                    new LambdaQueryWrapper<ViteConfig>().eq(ViteConfig::getName, "wechat_webhook_url"));
-            return config != null ? config.getValue() : null;
-        } catch (Exception e) {
-            return null;
         }
     }
 
@@ -628,13 +627,7 @@ public class AlertAggregationService {
             md.append("\n> \u2705 昨日无告警，一切正常!");
         }
 
-        // Send via WeChat
-        String wechatUrl = getWeChatWebhookUrl();
-        if (StringUtils.hasText(wechatUrl)) {
-            WeChatWorkUtil.sendMarkdown(wechatUrl, md.toString());
-        }
-
-        // Also write as site notification
+        // WeChat/DingTalk delivery handled by notificationService.send() → policy → channel
         notificationService.send(
                 "每日告警摘要",
                 md.toString(),

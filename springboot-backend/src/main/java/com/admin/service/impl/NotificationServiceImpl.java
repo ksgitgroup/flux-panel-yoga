@@ -1,9 +1,13 @@
 package com.admin.service.impl;
 
+import com.admin.common.auth.AuthContext;
+import com.admin.common.auth.AuthPrincipal;
 import com.admin.common.lang.R;
+import com.admin.entity.IamUser;
 import com.admin.entity.Notification;
 import com.admin.entity.NotifyChannel;
 import com.admin.entity.NotifyPolicy;
+import com.admin.mapper.IamUserMapper;
 import com.admin.mapper.NotificationMapper;
 import com.admin.mapper.NotifyChannelMapper;
 import com.admin.mapper.NotifyPolicyMapper;
@@ -34,7 +38,6 @@ import java.util.*;
 @Service
 public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Notification> implements NotificationService {
 
-    /** 共享连接池 HttpClient，用于通知投递 */
     private static final CloseableHttpClient SHARED_CLIENT;
     static {
         PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
@@ -49,45 +52,68 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     private NotifyPolicyMapper notifyPolicyMapper;
     @Resource
     private NotifyChannelMapper notifyChannelMapper;
+    @Resource
+    private IamUserMapper iamUserMapper;
+
+    // ==================== Send (fan-out per user) ====================
 
     @Override
     public R send(String title, String content, String type, String severity, String sourceModule, Long sourceId) {
         long now = System.currentTimeMillis();
+        String sev = severity != null ? severity : "info";
 
-        // Create notification record
-        Notification notification = new Notification();
-        notification.setTitle(title);
-        notification.setContent(content);
-        notification.setType(type);
-        notification.setSeverity(severity != null ? severity : "info");
-        notification.setSourceModule(sourceModule);
-        notification.setSourceId(sourceId);
-        notification.setReadStatus(0);
-        notification.setCreatedTime(now);
-        notification.setUpdatedTime(now);
-        notification.setStatus(0);
-        notificationMapper.insert(notification);
+        List<IamUser> eligibleUsers = iamUserMapper.selectList(
+                new LambdaQueryWrapper<IamUser>()
+                        .eq(IamUser::getEnabled, 1)
+                        .eq(IamUser::getStatus, 0));
 
-        // Query matching policies
+        // Broadcast row for legacy users (userId=NULL)
+        Notification broadcast = buildNotification(null, title, content, type, sev, sourceModule, sourceId, now);
+        notificationMapper.insert(broadcast);
+
+        // Per-user rows for IAM users (each gets independent read/snooze state)
+        for (IamUser user : eligibleUsers) {
+            Notification n = buildNotification(user.getId(), title, content, type, sev, sourceModule, sourceId, now);
+            notificationMapper.insert(n);
+        }
+        if (!eligibleUsers.isEmpty()) {
+            log.info("[Notification] Fan-out {} notifications to {} IAM users: {}", type, eligibleUsers.size(), title);
+        }
+
+        dispatchToExternalChannels(title, content, type, sev);
+
+        return R.ok("sent");
+    }
+
+    private Notification buildNotification(Long userId, String title, String content, String type,
+                                           String severity, String sourceModule, Long sourceId, long now) {
+        Notification n = new Notification();
+        n.setUserId(userId);
+        n.setTitle(title);
+        n.setContent(content);
+        n.setType(type);
+        n.setSeverity(severity);
+        n.setSourceModule(sourceModule);
+        n.setSourceId(sourceId);
+        n.setReadStatus(0);
+        n.setCreatedTime(now);
+        n.setUpdatedTime(now);
+        n.setStatus(0);
+        return n;
+    }
+
+    private void dispatchToExternalChannels(String title, String content, String type, String severity) {
         List<NotifyPolicy> policies = notifyPolicyMapper.selectList(
                 new LambdaQueryWrapper<NotifyPolicy>()
                         .eq(NotifyPolicy::getEnabled, 1)
                         .eq(NotifyPolicy::getStatus, 0));
 
         for (NotifyPolicy policy : policies) {
-            // Check if event type matches
-            if (StringUtils.hasText(policy.getEventTypes())) {
-                if (!policy.getEventTypes().contains(type)) continue;
-            }
-            // Check if severity matches
-            if (StringUtils.hasText(policy.getSeverityFilter())) {
-                if (!policy.getSeverityFilter().contains(severity)) continue;
-            }
+            if (StringUtils.hasText(policy.getEventTypes()) && !policy.getEventTypes().contains(type)) continue;
+            if (StringUtils.hasText(policy.getSeverityFilter()) && !policy.getSeverityFilter().contains(severity)) continue;
 
-            // Dispatch to channels
             if (StringUtils.hasText(policy.getChannelIds())) {
-                String[] channelIdArr = policy.getChannelIds().split(",");
-                for (String channelIdStr : channelIdArr) {
+                for (String channelIdStr : policy.getChannelIds().split(",")) {
                     try {
                         Long channelId = Long.parseLong(channelIdStr.trim());
                         NotifyChannel channel = notifyChannelMapper.selectById(channelId);
@@ -99,24 +125,38 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                 }
             }
         }
+    }
 
-        return R.ok(notification);
+    // ==================== Query (per-user) ====================
+
+    /**
+     * Resolve current user's ID for notification scoping.
+     * IAM users → sys_user.id (per-user rows); legacy users → null (see broadcast rows).
+     */
+    private Long requireCurrentUserId() {
+        try {
+            AuthPrincipal principal = AuthContext.getCurrentPrincipal();
+            if (principal != null && AuthPrincipal.TYPE_IAM.equals(principal.getPrincipalType())) {
+                return principal.getPrincipalId();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
     public R listForCurrentUser(int page, int size, Integer readStatus, String type) {
         if (page < 1) page = 1;
         if (size < 1 || size > 100) size = 20;
+        Long userId = requireCurrentUserId();
 
-        LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<Notification>()
-                .eq(Notification::getStatus, 0)
+        LambdaQueryWrapper<Notification> wrapper = newUserScopedWrapper(userId)
                 .orderByDesc(Notification::getCreatedTime);
 
-        // Filter by readStatus if provided
         if (readStatus != null) {
             wrapper.eq(Notification::getReadStatus, readStatus);
         }
-        // Filter by type if provided
         if (StringUtils.hasText(type)) {
             wrapper.eq(Notification::getType, type);
         }
@@ -132,21 +172,18 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     @Override
     public R unreadCount() {
         long now = System.currentTimeMillis();
-        // Exclude snoozed notifications (snoozedUntil > now)
-        LambdaQueryWrapper<Notification> baseWrapper = new LambdaQueryWrapper<Notification>()
-                .eq(Notification::getStatus, 0)
+        Long userId = requireCurrentUserId();
+
+        LambdaQueryWrapper<Notification> base = newUserScopedWrapper(userId)
                 .eq(Notification::getReadStatus, 0)
                 .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now));
-        long count = notificationMapper.selectCount(baseWrapper);
+        long count = notificationMapper.selectCount(base);
 
-        // Severity breakdown for frontend priority toasts
-        long criticalCount = notificationMapper.selectCount(new LambdaQueryWrapper<Notification>()
-                .eq(Notification::getStatus, 0)
+        long criticalCount = notificationMapper.selectCount(newUserScopedWrapper(userId)
                 .eq(Notification::getReadStatus, 0)
                 .eq(Notification::getSeverity, "critical")
                 .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now)));
-        long warningCount = notificationMapper.selectCount(new LambdaQueryWrapper<Notification>()
-                .eq(Notification::getStatus, 0)
+        long warningCount = notificationMapper.selectCount(newUserScopedWrapper(userId)
                 .eq(Notification::getReadStatus, 0)
                 .eq(Notification::getSeverity, "warning")
                 .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now)));
@@ -161,8 +198,13 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     @Override
     public R markRead(Long id) {
         if (id == null) return R.err("通知 ID 不能为空");
+        Long userId = requireCurrentUserId();
+
         Notification notification = notificationMapper.selectById(id);
         if (notification == null) return R.err("通知不存在");
+        if (userId != null && notification.getUserId() != null && !notification.getUserId().equals(userId)) {
+            return R.err("无权操作此通知");
+        }
 
         notification.setReadStatus(1);
         notification.setReadAt(System.currentTimeMillis());
@@ -174,30 +216,38 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     @Override
     public R markAllRead() {
         long now = System.currentTimeMillis();
-        notificationMapper.update(null,
-                new LambdaUpdateWrapper<Notification>()
-                        .eq(Notification::getStatus, 0)
-                        .eq(Notification::getReadStatus, 0)
-                        .set(Notification::getReadStatus, 1)
-                        .set(Notification::getReadAt, now)
-                        .set(Notification::getUpdatedTime, now));
+        Long userId = requireCurrentUserId();
+
+        LambdaUpdateWrapper<Notification> wrapper = new LambdaUpdateWrapper<Notification>()
+                .eq(Notification::getStatus, 0)
+                .eq(Notification::getReadStatus, 0)
+                .set(Notification::getReadStatus, 1)
+                .set(Notification::getReadAt, now)
+                .set(Notification::getUpdatedTime, now);
+        if (userId != null) {
+            wrapper.eq(Notification::getUserId, userId);
+        }
+        notificationMapper.update(null, wrapper);
         return R.ok("已全部标记已读");
     }
 
     @Override
     public R snooze(Long id, int days) {
         if (id == null) return R.err("通知 ID 不能为空");
+        Long userId = requireCurrentUserId();
+
         Notification notification = notificationMapper.selectById(id);
         if (notification == null) return R.err("通知不存在");
+        if (userId != null && notification.getUserId() != null && !notification.getUserId().equals(userId)) {
+            return R.err("无权操作此通知");
+        }
 
         long now = System.currentTimeMillis();
         if (days <= 0) {
-            // Dismiss = mark read + clear snooze
             notification.setReadStatus(1);
             notification.setReadAt(now);
             notification.setSnoozedUntil(null);
         } else {
-            // Snooze for N days
             notification.setSnoozedUntil(now + (long) days * 24 * 60 * 60 * 1000);
         }
         notification.setUpdatedTime(now);
@@ -208,9 +258,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     @Override
     public R activeCritical() {
         long now = System.currentTimeMillis();
-        // Return unread critical/warning notifications that are not currently snoozed
-        LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<Notification>()
-                .eq(Notification::getStatus, 0)
+        Long userId = requireCurrentUserId();
+
+        LambdaQueryWrapper<Notification> wrapper = newUserScopedWrapper(userId)
                 .eq(Notification::getReadStatus, 0)
                 .in(Notification::getSeverity, "critical", "warning")
                 .and(w -> w.isNull(Notification::getSnoozedUntil).or().le(Notification::getSnoozedUntil, now))
@@ -220,7 +270,23 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         return R.ok(list);
     }
 
-    // ==================== Channel Dispatch ====================
+    /**
+     * Build a base wrapper scoped to the current user's notifications.
+     * IAM users (userId != null): only see their own per-user rows.
+     * Legacy users (userId == null): only see broadcast rows (userId IS NULL).
+     */
+    private LambdaQueryWrapper<Notification> newUserScopedWrapper(Long userId) {
+        LambdaQueryWrapper<Notification> w = new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getStatus, 0);
+        if (userId != null) {
+            w.eq(Notification::getUserId, userId);
+        } else {
+            w.isNull(Notification::getUserId);
+        }
+        return w;
+    }
+
+    // ==================== External Channel Dispatch ====================
 
     private void dispatchToChannel(NotifyChannel channel, String title, String content, String severity) {
         String channelType = channel.getType();
@@ -234,6 +300,12 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                     break;
                 case "webhook":
                     sendWebhook(config, title, content, severity);
+                    break;
+                case "wechat":
+                    sendWechat(config, title, content, severity);
+                    break;
+                case "dingtalk":
+                    sendDingtalk(config, title, content, severity);
                     break;
                 case "email":
                     log.info("[Notification] Email channel (not yet implemented): to={}, title={}", config.getString("to"), title);
@@ -253,15 +325,12 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             log.warn("[Notification] Telegram config missing token or chatId");
             return;
         }
-
         String text = String.format("[%s] %s\n%s", severity.toUpperCase(), title, content);
         String url = String.format("https://api.telegram.org/bot%s/sendMessage", token);
-
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("chat_id", chatId);
         payload.put("text", text);
         payload.put("parse_mode", "HTML");
-
         httpPost(url, JSON.toJSONString(payload));
     }
 
@@ -271,14 +340,40 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             log.warn("[Notification] Webhook config missing url");
             return;
         }
-
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("title", title);
         payload.put("text", content);
         payload.put("severity", severity);
         payload.put("timestamp", System.currentTimeMillis());
-
         httpPost(url, JSON.toJSONString(payload));
+    }
+
+    private void sendWechat(JSONObject config, String title, String content, String severity) {
+        String webhookUrl = config.getString("webhookUrl");
+        if (!StringUtils.hasText(webhookUrl)) {
+            log.warn("[Notification] WeChat config missing webhookUrl");
+            return;
+        }
+        String severityTag = "info".equals(severity) ? "提示" : "warning".equals(severity) ? "警告" : "critical".equals(severity) ? "严重" : severity;
+        String markdown = String.format("**[%s] %s**\n%s", severityTag, title, content);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("msgtype", "markdown");
+        body.put("markdown", Map.of("content", markdown));
+        httpPost(webhookUrl, JSON.toJSONString(body));
+    }
+
+    private void sendDingtalk(JSONObject config, String title, String content, String severity) {
+        String webhookUrl = config.getString("webhookUrl");
+        if (!StringUtils.hasText(webhookUrl)) {
+            log.warn("[Notification] DingTalk config missing webhookUrl");
+            return;
+        }
+        String severityTag = "info".equals(severity) ? "提示" : "warning".equals(severity) ? "警告" : "critical".equals(severity) ? "严重" : severity;
+        String markdown = String.format("**[%s] %s**\n\n%s", severityTag, title, content);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("msgtype", "markdown");
+        body.put("markdown", Map.of("title", String.format("[%s] %s", severityTag, title), "text", markdown));
+        httpPost(webhookUrl, JSON.toJSONString(body));
     }
 
     private void httpPost(String url, String jsonBody) {
@@ -290,7 +385,6 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                     .build());
             request.setHeader("Content-Type", "application/json");
             request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
-
             try (CloseableHttpResponse response = SHARED_CLIENT.execute(request)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 EntityUtils.consumeQuietly(response.getEntity());

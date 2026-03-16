@@ -47,7 +47,7 @@ public class JumpServerServiceImpl implements JumpServerService {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(3))
             .build();
 
     @Override
@@ -162,14 +162,23 @@ public class JumpServerServiceImpl implements JumpServerService {
                 Map<String, String> result = new LinkedHashMap<>();
                 result.put("url", lunaUrl);
                 result.put("tokenId", tokenId);
+                result.put("jsAssetId", jsAssetId);
                 return R.ok(result);
             } else {
                 log.warn("[JumpServer] 创建 ConnectionToken 失败: HTTP {} - {}", response.statusCode(), response.body());
-                return R.err("JumpServer 请求失败 (HTTP " + response.statusCode() + "): " + truncate(response.body(), 200));
+                Map<String, String> errData = new LinkedHashMap<>();
+                errData.put("jsAssetId", jsAssetId);
+                R errR = R.err("JumpServer API 请求失败 (HTTP " + response.statusCode() + ")");
+                errR.setData(errData);
+                return errR;
             }
         } catch (Exception e) {
-            log.error("[JumpServer] 创建 ConnectionToken 异常", e);
-            return R.err("JumpServer 连接异常: " + e.getMessage());
+            log.error("[JumpServer] 创建 ConnectionToken 异常 (可能跨网络不通): {}", e.getMessage());
+            Map<String, String> errData = new LinkedHashMap<>();
+            errData.put("jsAssetId", jsAssetId);
+            R errR = R.err("JumpServer 连接超时（后端可能无法访问 JumpServer 网络）");
+            errR.setData(errData);
+            return errR;
         }
     }
 
@@ -335,7 +344,7 @@ public class JumpServerServiceImpl implements JumpServerService {
                 .header("Date", dateStr)
                 .header("Authorization", authorization)
                 .header("X-JMS-ORG", "00000000-0000-0000-0000-000000000002")
-                .timeout(Duration.ofSeconds(15));
+                .timeout(Duration.ofSeconds(5));
 
         if ("POST".equalsIgnoreCase(method) && body != null) {
             builder.POST(HttpRequest.BodyPublishers.ofString(body))

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -543,6 +544,8 @@ public class DatabaseInitService {
             updateColumn("monitor_alert_rule", "probe_condition", "varchar(20) DEFAULT 'any' COMMENT '探针条件: any, komari, pika, both'");
             updateColumn("monitor_alert_rule", "severity", "varchar(20) DEFAULT 'warning' COMMENT '严重等级: info, warning, critical'");
             updateColumn("monitor_alert_rule", "escalate_after_minutes", "int DEFAULT NULL COMMENT '升级间隔分钟: 持续触发后自动升级等级'");
+
+            migrateAlertRuleTargetsToChannels();
 
             log.info("[DatabaseInit] 告警规则/日志表校验成功");
         } catch (Exception e) {
@@ -1363,6 +1366,61 @@ public class DatabaseInitService {
         } catch (Exception e) { log.error("[DatabaseInit] Phase 5 权限种子数据初始化失败: {}", e.getMessage()); }
 
         log.info(">>>>>> [DatabaseInit] 数据库版本同步流程执行完毕 <<<<<<");
+    }
+
+    /**
+     * One-time migration: convert alert rules with notifyType=wechat/dingtalk/webhook + notifyTarget
+     * into notification channels + policies in the unified notification center.
+     */
+    private void migrateAlertRuleTargetsToChannels() {
+        try {
+            List<Map<String, Object>> rules = jdbcTemplate.queryForList(
+                    "SELECT `id`, `name`, `notify_type`, `notify_target` FROM `monitor_alert_rule` " +
+                    "WHERE `notify_type` IN ('wechat','dingtalk','webhook') " +
+                    "AND `notify_target` IS NOT NULL AND TRIM(`notify_target`) <> '' " +
+                    "AND `status` = 0");
+            if (rules.isEmpty()) return;
+
+            long now = System.currentTimeMillis();
+            for (Map<String, Object> rule : rules) {
+                String notifyType = (String) rule.get("notify_type");
+                String notifyTarget = ((String) rule.get("notify_target")).trim();
+                String ruleName = (String) rule.get("name");
+
+                Integer existing = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM `notify_channel` WHERE `type` = ? AND `config_json` LIKE ? AND `status` = 0",
+                        Integer.class, notifyType, "%" + notifyTarget + "%");
+                if (existing != null && existing > 0) continue;
+
+                String configKey = "webhook".equals(notifyType) ? "url" : "webhookUrl";
+                String configJson = String.format("{\"%s\":\"%s\"}", configKey, notifyTarget.replace("\"", "\\\""));
+                String channelName = String.format("[迁移] %s (%s)", ruleName, notifyType);
+
+                jdbcTemplate.update(
+                        "INSERT INTO `notify_channel` (`name`,`type`,`config_json`,`enabled`,`created_time`,`updated_time`,`status`) " +
+                        "VALUES (?,?,?,1,?,?,0)",
+                        channelName, notifyType, configJson, now, now);
+
+                Long channelId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+                if (channelId == null) continue;
+
+                Integer policyExists = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM `notify_policy` WHERE `channel_ids` LIKE ? AND `status` = 0",
+                        Integer.class, "%" + channelId + "%");
+                if (policyExists != null && policyExists > 0) continue;
+
+                String policyName = String.format("[迁移] 告警→%s", channelName);
+                jdbcTemplate.update(
+                        "INSERT INTO `notify_policy` (`name`,`event_types`,`severity_filter`,`channel_ids`,`enabled`,`created_time`,`updated_time`,`status`) " +
+                        "VALUES (?,?,?,?,1,?,?,0)",
+                        policyName, "alert,alert_recovery,daily_summary", "info,warning,critical",
+                        String.valueOf(channelId), now, now);
+
+                log.info("[DatabaseInit] 已迁移告警规则 '{}' 的 {} 目标到通知渠道 (channelId={})", ruleName, notifyType, channelId);
+            }
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 告警规则通知目标迁移时发生非关键性异常: {}", e.getMessage());
+        }
     }
 
     private void updateColumn(String tableName, String columnName, String definition) {

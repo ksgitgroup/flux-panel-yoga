@@ -988,7 +988,7 @@ export const diagnoseOnePanelInstance = (id: number) => Network.post("/onepanel/
 // JumpServer integration
 export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");
 export const jumpServerConnect = (assetId: number, protocol?: string, account?: string) =>
-  Network.post<{ url: string; tokenId: string }>("/jumpserver/connect", { assetId, protocol: protocol || 'ssh', account: account || 'root' });
+  Network.post<{ url: string; tokenId: string; jsAssetId?: string }>("/jumpserver/connect", { assetId, protocol: protocol || 'ssh', account: account || 'root' });
 export const getJumpServerHosts = (search?: string) =>
   Network.post<{ id: string; name: string; address: string }[]>("/jumpserver/hosts", search != null ? { search } : {});
 export const jumpServerMatchByIp = (assetId: number, save: boolean) =>

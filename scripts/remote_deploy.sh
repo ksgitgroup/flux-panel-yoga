@@ -124,9 +124,31 @@ done
 echo "🚀 启动其余容器..."
 $DC up -d
 
-# ── 7. 关键步骤：主动检测并导入数据库表 ──
-# Docker 的 initdb 机制极其脆弱（数据目录非空就跳过），
-# 所以我们在这里直接检测表是否存在，如果不存在就手动导入。
+# ── 7. 关键步骤：校验密码 + 检测并导入数据库表 ──
+# MySQL 只在首次初始化（空数据目录）时读取 MYSQL_ROOT_PASSWORD。
+# 如果 .env 被重新生成但数据卷保留了旧密码，两者会不匹配。
+echo "🔐 校验数据库连接..."
+if ! docker exec gost-mysql mysql -uroot -p"$DB_PASSWORD" -N -e "SELECT 1;" >/dev/null 2>&1; then
+  echo ""
+  echo "❌ 数据库密码校验失败！"
+  echo "   .env 中的 DB_PASSWORD 与 MySQL 数据卷中的 root 密码不一致。"
+  echo "   常见原因：.env 被重新生成（新随机密码），但数据卷保留了旧密码。"
+  echo ""
+  echo "   修复方法（在部署服务器上执行）："
+  echo "     cd $DEPLOY_DIR"
+  echo "     source .env"
+  echo "     docker compose stop mysql"
+  echo "     docker run --rm -d --name mysql-fix -v mysql_data:/var/lib/mysql mysql:5.7 mysqld --skip-grant-tables"
+  echo "     sleep 8"
+  echo "     docker exec mysql-fix mysql -uroot -e \\"
+  echo "       \"FLUSH PRIVILEGES; ALTER USER 'root'@'localhost' IDENTIFIED BY '\$DB_PASSWORD'; ALTER USER 'root'@'%' IDENTIFIED BY '\$DB_PASSWORD'; FLUSH PRIVILEGES;\""
+  echo "     docker stop mysql-fix"
+  echo "     docker compose up -d"
+  echo ""
+  exit 1
+fi
+echo "✅ 数据库连接正常"
+
 echo "🔍 检查数据库表是否已初始化..."
 TABLE_COUNT=$(docker exec gost-mysql mysql -uroot -p"$DB_PASSWORD" -N -e \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME';" 2>/dev/null || echo "0")

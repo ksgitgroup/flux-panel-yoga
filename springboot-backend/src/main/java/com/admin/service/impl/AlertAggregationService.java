@@ -1,26 +1,14 @@
 package com.admin.service.impl;
 
-import com.admin.common.utils.WeChatWorkUtil;
 import com.admin.entity.*;
 import com.admin.mapper.*;
 import com.admin.service.NotificationService;
-import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.util.EntityUtils;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,30 +17,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * 告警聚合引擎
  *
  * 核心能力:
- * 1. 时间窗口聚合 — 同一服务器多指标异常合并为一条摘要
+ * 1. 时间窗口聚合 — 同一服务器多指标异常合并
  * 2. 关联抑制 — 服务器离线时抑制其他指标告警
  * 3. 恢复通知 — 指标恢复正常时发送恢复消息
- * 4. 分级路由 — Critical走专线, Warning走聚合摘要, Info仅站内
- * 5. 站内通知 — 所有告警同步写入 notification 表
+ * 4. 站内通知 — 所有告警写入 notification 表，外部渠道分发由通知中心(策略+渠道)统一处理
  */
 @Slf4j
 @Service
 public class AlertAggregationService {
 
-    private static final CloseableHttpClient SHARED_CLIENT;
-    static {
-        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
-        cm.setMaxTotal(20);
-        cm.setDefaultMaxPerRoute(5);
-        SHARED_CLIENT = HttpClients.custom().setConnectionManager(cm).build();
-    }
-
     @Resource
     private MonitorAlertLogMapper alertLogMapper;
-    @Resource
-    private MonitorAlertRuleMapper alertRuleMapper;
-    @Resource
-    private ViteConfigMapper viteConfigMapper;
     @Resource
     private NotificationService notificationService;
     @Resource
@@ -215,23 +190,7 @@ public class AlertAggregationService {
         // 4. Write alert logs for all events
         writeAlertLogs(snapshot, now);
 
-        // 5. Route by severity
-        // Critical: send immediately (individual messages, not aggregated)
-        for (AlertEvent ce : criticalEvents) {
-            sendCriticalAlert(ce);
-        }
-
-        // Warning + Recovery: send aggregated summary
-        List<AlertEvent> summaryEvents = new ArrayList<>();
-        summaryEvents.addAll(warningEvents);
-        summaryEvents.addAll(recoveryEvents);
-        if (!summaryEvents.isEmpty()) {
-            sendAggregatedSummary(summaryEvents, now);
-        }
-
-        // Info: site notification only (already written in writeAlertLogs)
-
-        // 6. Write site notifications for all events
+        // 5. Write site notifications + dispatch via notification center (policies → channels)
         writeSiteNotifications(snapshot);
 
         int totalEvents = snapshot.values().stream().mapToInt(List::size).sum();
@@ -321,240 +280,6 @@ public class AlertAggregationService {
                 }
             }
         }
-    }
-
-    // ==================== Critical: Immediate Individual Alert ====================
-
-    private void sendCriticalAlert(AlertEvent event) {
-        // Send via rule's own channel (webhook/dingtalk configured per-rule)
-        if ("webhook".equals(event.getNotifyType()) && StringUtils.hasText(event.getNotifyTarget())) {
-            sendWebhook(event);
-        } else if ("dingtalk".equals(event.getNotifyType()) && StringUtils.hasText(event.getNotifyTarget())) {
-            sendDingtalkMarkdown(event.getNotifyTarget(), formatCriticalMarkdown(event), event.getRuleName());
-        } else if ("wechat".equals(event.getNotifyType()) && StringUtils.hasText(event.getNotifyTarget())) {
-            WeChatWorkUtil.sendMarkdown(event.getNotifyTarget(), formatCriticalMarkdown(event));
-        }
-        // Note: unified WeChat/DingTalk routing also handled by notificationService.send() → policy → channel
-    }
-
-    private String formatCriticalMarkdown(AlertEvent event) {
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
-        return String.format(
-                "## \uD83D\uDD34 CRITICAL 紧急告警\n" +
-                "> **规则**: %s\n" +
-                "> **节点**: %s (%s)\n" +
-                "> **详情**: %s\n" +
-                "> **时间**: %s\n\n" +
-                "请立即处理!",
-                event.getRuleName(),
-                event.getNodeName(),
-                event.getNodeIp() != null ? event.getNodeIp() : "-",
-                event.getMessage(),
-                sdf.format(new Date(event.getTimestamp()))
-        );
-    }
-
-    // ==================== Warning: Aggregated Summary ====================
-
-    private void sendAggregatedSummary(List<AlertEvent> events, long now) {
-        // Group events by node for summary
-        Map<String, List<AlertEvent>> byNode = new LinkedHashMap<>();
-        for (AlertEvent e : events) {
-            byNode.computeIfAbsent(e.getNodeName() != null ? e.getNodeName() : "unknown",
-                    k -> new ArrayList<>()).add(e);
-        }
-
-        // Count stats
-        long alertCount = events.stream().filter(e -> e.getMessage() == null || !e.getMessage().startsWith("已恢复:")).count();
-        long recoveryCount = events.stream().filter(e -> e.getMessage() != null && e.getMessage().startsWith("已恢复:")).count();
-        int nodeCount = byNode.size();
-
-        // Count total online nodes for context
-        long totalOnline = 0;
-        try {
-            totalOnline = nodeSnapshotMapper.selectCount(
-                    new LambdaQueryWrapper<MonitorNodeSnapshot>()
-                            .eq(MonitorNodeSnapshot::getStatus, 0)
-                            .eq(MonitorNodeSnapshot::getOnline, 1));
-        } catch (Exception ignored) {}
-
-        // Build markdown
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
-        StringBuilder md = new StringBuilder();
-
-        if (alertCount > 0 && recoveryCount > 0) {
-            md.append(String.format("## \u26A0\uFE0F 告警摘要 | %d台异常 %d项恢复 | %s\n\n",
-                    nodeCount, recoveryCount, sdf.format(new Date(now))));
-        } else if (recoveryCount > 0) {
-            md.append(String.format("## \u2705 恢复通知 | %d项恢复 | %s\n\n",
-                    recoveryCount, sdf.format(new Date(now))));
-        } else {
-            md.append(String.format("## \u26A0\uFE0F 告警摘要 | %d台异常 | %s\n\n",
-                    nodeCount, sdf.format(new Date(now))));
-        }
-
-        for (Map.Entry<String, List<AlertEvent>> entry : byNode.entrySet()) {
-            String nodeName = entry.getKey();
-            List<AlertEvent> nodeEvents = entry.getValue();
-
-            List<AlertEvent> alerts = new ArrayList<>();
-            List<AlertEvent> recoveries = new ArrayList<>();
-            for (AlertEvent e : nodeEvents) {
-                if (e.getMessage() != null && e.getMessage().startsWith("已恢复:")) {
-                    recoveries.add(e);
-                } else {
-                    alerts.add(e);
-                }
-            }
-
-            md.append(String.format("**%s**", nodeName));
-            if (!alerts.isEmpty()) {
-                md.append(String.format(" (%d项异常)", alerts.size()));
-            }
-            md.append("\n");
-
-            for (AlertEvent a : alerts) {
-                String icon = "warning".equals(a.getSeverity()) ? "\u26A0\uFE0F" : "\u2139\uFE0F";
-                md.append(String.format("> %s %s\n", icon, formatMetricBrief(a)));
-            }
-            for (AlertEvent r : recoveries) {
-                md.append(String.format("> \u2705 %s 已恢复\n", getMetricLabel(r.getMetric())));
-            }
-            md.append("\n");
-        }
-
-        // Footer with global stats
-        if (totalOnline > 0) {
-            long alertingNodes = events.stream()
-                    .filter(e -> e.getMessage() == null || !e.getMessage().startsWith("已恢复:"))
-                    .map(AlertEvent::getNodeName)
-                    .distinct().count();
-            md.append(String.format("> \uD83D\uDCCA 全局: %d台在线 | %d台告警 | %d台正常",
-                    totalOnline, alertingNodes, totalOnline - alertingNodes));
-        }
-
-        // Send to per-rule targets (webhook / dingtalk / wechat)
-        // Unified WeChat/DingTalk routing handled by notificationService.send() → policy → channel
-        Set<String> sentTargets = new HashSet<>();
-        for (AlertEvent e : events) {
-            if (StringUtils.hasText(e.getNotifyTarget()) && sentTargets.add(e.getNotifyType() + ":" + e.getNotifyTarget())) {
-                if ("webhook".equals(e.getNotifyType())) {
-                    sendWebhookSummary(e.getNotifyTarget(), events, now);
-                } else if ("dingtalk".equals(e.getNotifyType())) {
-                    sendDingtalkMarkdown(e.getNotifyTarget(), md.toString(), "告警汇总");
-                } else if ("wechat".equals(e.getNotifyType())) {
-                    WeChatWorkUtil.sendMarkdown(e.getNotifyTarget(), md.toString());
-                }
-            }
-        }
-    }
-
-    private String formatMetricBrief(AlertEvent e) {
-        switch (e.getMetric()) {
-            case "cpu": return String.format("CPU %.1f%% \u25B2", e.getCurrentValue());
-            case "mem": return String.format("内存 %.1f%% \u25B2", e.getCurrentValue());
-            case "disk": return String.format("磁盘 %.1f%% \u25B2", e.getCurrentValue());
-            case "net_in": return String.format("入站 %s \u25B2", formatTraffic((long) e.getCurrentValue()));
-            case "net_out": return String.format("出站 %s \u25B2", formatTraffic((long) e.getCurrentValue()));
-            case "offline": return "节点离线 \u274C";
-            case "expiry": return String.format("即将到期 (剩余%.0f天)", e.getCurrentValue());
-            case "traffic_quota": return String.format("流量配额 %.1f%% \u25B2", e.getCurrentValue());
-            case "forward_health": return String.format("转发健康度 %.0f%% \u25BC", e.getCurrentValue());
-            case "load": return String.format("负载 %.2f \u25B2", e.getCurrentValue());
-            case "temperature": return String.format("温度 %.1f\u00B0C \u25B2", e.getCurrentValue());
-            case "connections": return String.format("连接数 %.0f \u25B2", e.getCurrentValue());
-            default: return e.getMessage();
-        }
-    }
-
-    private String getMetricLabel(String metric) {
-        switch (metric) {
-            case "cpu": return "CPU";
-            case "mem": return "内存";
-            case "disk": return "磁盘";
-            case "net_in": return "入站流量";
-            case "net_out": return "出站流量";
-            case "offline": return "在线状态";
-            case "expiry": return "到期";
-            case "traffic_quota": return "流量配额";
-            case "forward_health": return "转发健康度";
-            case "load": return "系统负载";
-            case "temperature": return "温度";
-            case "connections": return "连接数";
-            default: return metric;
-        }
-    }
-
-    // ==================== Helper: Send Webhook ====================
-
-    private void sendWebhook(AlertEvent event) {
-        try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("ruleName", event.getRuleName());
-            payload.put("severity", event.getSeverity());
-            payload.put("metric", event.getMetric());
-            payload.put("nodeName", event.getNodeName());
-            payload.put("nodeIp", event.getNodeIp());
-            payload.put("message", event.getMessage());
-            payload.put("timestamp", event.getTimestamp());
-            httpPost(event.getNotifyTarget(), JSON.toJSONString(payload));
-        } catch (Exception e) {
-            log.warn("[AlertAggregation] Webhook failed: {}", e.getMessage());
-        }
-    }
-
-    private void sendWebhookSummary(String url, List<AlertEvent> events, long now) {
-        try {
-            List<Map<String, Object>> items = new ArrayList<>();
-            for (AlertEvent e : events) {
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("ruleName", e.getRuleName());
-                item.put("severity", e.getSeverity());
-                item.put("metric", e.getMetric());
-                item.put("nodeName", e.getNodeName());
-                item.put("message", e.getMessage());
-                items.add(item);
-            }
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("type", "aggregated_summary");
-            payload.put("count", events.size());
-            payload.put("events", items);
-            payload.put("timestamp", now);
-            httpPost(url, JSON.toJSONString(payload));
-        } catch (Exception e) {
-            log.warn("[AlertAggregation] Webhook summary failed: {}", e.getMessage());
-        }
-    }
-
-    private void sendDingtalkMarkdown(String webhookUrl, String markdownContent, String title) {
-        try {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("msgtype", "markdown");
-            body.put("markdown", Map.of("title", title, "text", markdownContent));
-            httpPost(webhookUrl, JSON.toJSONString(body));
-        } catch (Exception e) {
-            log.warn("[AlertAggregation] DingTalk send failed: {}", e.getMessage());
-        }
-    }
-
-    private void httpPost(String url, String jsonBody) {
-        try {
-            HttpPost request = new HttpPost(url);
-            request.setConfig(RequestConfig.custom().setConnectTimeout(5000).setSocketTimeout(10000).build());
-            request.setHeader("Content-Type", "application/json");
-            request.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
-            try (CloseableHttpResponse response = SHARED_CLIENT.execute(request)) {
-                EntityUtils.consumeQuietly(response.getEntity());
-            }
-        } catch (Exception e) {
-            log.error("[AlertAggregation] HTTP POST failed: {}", e.getMessage());
-        }
-    }
-
-    private String formatTraffic(long bytes) {
-        if (bytes < 1024) return bytes + " B/s";
-        if (bytes < 1024 * 1024) return String.format("%.1f KB/s", bytes / 1024.0);
-        return String.format("%.1f MB/s", bytes / (1024.0 * 1024));
     }
 
     // ==================== Daily Summary ====================

@@ -49,13 +49,6 @@ const SCOPE_TYPES = [
   { value: 'node', label: '按节点 ID' },
 ];
 
-const NOTIFY_TYPES = [
-  { value: 'log', label: '仅记录日志' },
-  { value: 'webhook', label: '自定义 Webhook' },
-  { value: 'wechat', label: '企业微信' },
-  { value: 'dingtalk', label: '钉钉' },
-];
-
 const PROBE_CONDITIONS = [
   { value: 'any', label: '任意探针' },
   { value: 'komari', label: '仅 Komari' },
@@ -202,7 +195,7 @@ export default function AlertPage() {
     }
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
-      durationSeconds: 0, scopeType: 'all', notifyType: 'log',
+      durationSeconds: 0, scopeType: 'all',
       cooldownMinutes: 5, enabled: 1, severity: 'warning',
       probeCondition: 'any',
     });
@@ -270,6 +263,18 @@ export default function AlertPage() {
             )}
           </div>
 
+          {!rulesLoading && rules.some(r => r.notifyType && r.notifyType !== 'log' && r.notifyTarget) && (
+            <Card className="border border-warning/30 bg-warning-50/50 dark:bg-warning/5">
+              <CardBody className="p-3 text-xs text-default-600 flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                <div className="flex-1">
+                  <p className="font-semibold text-sm text-warning-700">通知方式已统一</p>
+                  <p className="mt-0.5">部分告警规则仍保留旧的通知配置（企业微信/钉钉/Webhook 地址），这些配置已自动迁移到通知中心。请前往「通知中心 → 通知渠道/策略」确认配置正确。</p>
+                </div>
+                <Button size="sm" variant="flat" color="warning" onPress={() => navigate('/notification')}>前往通知中心</Button>
+              </CardBody>
+            </Card>
+          )}
+
           {rulesLoading ? (
             <div className="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
           ) : rules.length === 0 ? (
@@ -306,7 +311,6 @@ export default function AlertPage() {
                     <p className="text-[11px] text-default-400 mt-0.5">
                       范围: {SCOPE_TYPES.find(s => s.value === rule.scopeType)?.label || rule.scopeType}
                       {rule.scopeValue ? ` (${rule.scopeValue})` : ''}
-                      {' · '}通知: {NOTIFY_TYPES.find(n => n.value === rule.notifyType)?.label || rule.notifyType}
                       {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
                       {rule.durationSeconds && rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
                       {' · '}冷却: {rule.cooldownMinutes}分钟
@@ -480,40 +484,25 @@ export default function AlertPage() {
 
                 <Divider />
 
-                {/* === Section 3: 通知与冷却 === */}
+                {/* === Section 3: 冷却与升级 === */}
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">通知设置</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">冷却与升级</p>
                   <div className="flex gap-2">
-                    <Select label="通知方式" size="sm" className="flex-1"
-                      disallowEmptySelection
-                      selectedKeys={[editRule.notifyType || 'log']}
-                      onSelectionChange={keys => updateField({ notifyType: Array.from(keys)[0] as string })}>
-                      {NOTIFY_TYPES.map(n => <SelectItem key={n.value}>{n.label}</SelectItem>)}
-                    </Select>
-                    <Input label="冷却 (分钟)" size="sm" className="w-28"
+                    <Input label="冷却 (分钟)" size="sm" className="flex-1"
                       inputMode="numeric"
+                      description="同一规则再次触发的最短间隔"
                       value={String(editRule.cooldownMinutes ?? 5)}
                       onValueChange={v => updateField({ cooldownMinutes: parseNum(v, 5) ?? 5 })} />
-                    <Input label="升级 (分钟)" size="sm" className="w-28"
+                    <Input label="升级 (分钟)" size="sm" className="flex-1"
                       inputMode="numeric"
                       placeholder="不升级"
-                      description="持续触发后自动升级等级"
+                      description="持续触发后自动升级严重等级"
                       value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
                       onValueChange={v => updateField({ escalateAfterMinutes: parseNum(v) })} />
                   </div>
-
-                  {editRule.notifyType === 'webhook' && (
-                    <Input label="Webhook URL" size="sm" placeholder="https://..."
-                      value={editRule.notifyTarget || ''}
-                      onValueChange={v => updateField({ notifyTarget: v })} />
-                  )}
-
-                  {editRule.notifyType === 'wechat' && (
-                    <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
-                      将使用系统配置中的企业微信 Webhook 地址发送告警通知。
-                      前往「网站配置 → 告警通知」中设置 Webhook URL。
-                    </p>
-                  )}
+                  <p className="text-xs text-default-400 bg-primary-50 dark:bg-primary/5 rounded-lg p-2.5 leading-relaxed">
+                    告警触发后将通过「<span className="font-semibold text-primary cursor-pointer" onClick={() => navigate('/notification')}>通知中心</span>」的策略和渠道配置发送外部通知（企业微信、钉钉、Telegram 等）。请在通知中心配置渠道和策略。
+                  </p>
                 </div>
 
               </ModalBody>

@@ -457,8 +457,8 @@ function PoliciesTab() {
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center">
         <div>
-          <span className="text-default-500 text-sm">策略决定哪些事件发送到哪个渠道。</span>
-          <span className="text-default-400 text-xs ml-1">示例：创建策略 "告警→微信"，事件类型选 alert，渠道选企业微信</span>
+          <span className="text-default-500 text-sm">策略决定哪些事件 + 哪些严重等级 → 发送到哪些渠道。</span>
+          <span className="text-default-400 text-xs ml-1">示例："严重告警→微信"：事件类型选告警触发，严重级别选严重，渠道选企业微信</span>
         </div>
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>}
       </div>
@@ -614,11 +614,13 @@ export default function NotificationPage() {
 
       {/* Architecture guide */}
       <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary/5">
-        <CardBody className="p-3 text-xs text-default-600 space-y-1">
+        <CardBody className="p-3 text-xs text-default-600 space-y-1.5">
           <p className="font-semibold text-sm text-primary">通知架构说明</p>
+          <p><strong>告警规则</strong>（告警管理页面）— 定义监控条件和严重等级（如 CPU &gt; 90% 为「严重」）。规则触发后事件自动进入通知中心。</p>
+          <p><strong>通知渠道</strong> — 配置外部通知的实际端点：企业微信 Webhook、钉钉机器人、Telegram Bot、通用 Webhook、Email。所有渠道统一在此管理。</p>
+          <p><strong>通知策略</strong> — 路由规则：将「事件类型 + 严重等级」匹配到「渠道」。例如：严重级别的告警 → 企业微信；所有级别 → Telegram。不配置策略时，通知仅记录在消息列表中，不会发送到外部渠道。</p>
           <p><strong>通知消息</strong> — 系统产生的所有通知记录（告警触发、探针离线、到期提醒等），支持已读状态和类型筛选。</p>
-          <p><strong>通知渠道</strong> — 配置接收通知的方式：企业微信、钉钉、Telegram、Webhook、Email。所有渠道统一在此管理。</p>
-          <p><strong>通知策略</strong> — 将事件类型路由到渠道。例如：告警事件 → 企业微信渠道，探针离线 → Telegram 渠道。不配置策略时，通知仅记录在消息列表中。</p>
+          <p className="text-default-400 pt-1 border-t border-divider/40">完整流程：告警规则触发 → 生成事件（含严重等级） → 通知策略筛选匹配 → 通知渠道发送到外部 + 站内消息列表记录。</p>
         </CardBody>
       </Card>
 

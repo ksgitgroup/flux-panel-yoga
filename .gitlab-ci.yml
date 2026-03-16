@@ -38,7 +38,7 @@ workflow:
 build:dev:
   stage: build
   tags:
-    - Rn1-Runner-General-01
+    - Rn1-Runner-General-New
   variables:
     GIT_DEPTH: "50"
   rules:
@@ -70,7 +70,7 @@ build:dev:
 build:prod:
   stage: build
   tags:
-    - Rn1-Runner-General-01
+    - Rn1-Runner-General-New
   variables:
     GIT_DEPTH: "50"
   rules:
@@ -102,7 +102,7 @@ build:prod:
 deploy:dev:
   stage: deploy
   tags:
-    - Rn1-Runner-General-01
+    - Rn1-Runner-General-New
   needs:
     - build:dev
   rules:

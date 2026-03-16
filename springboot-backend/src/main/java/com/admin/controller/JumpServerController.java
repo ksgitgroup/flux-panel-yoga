@@ -22,6 +22,23 @@ public class JumpServerController {
         return jumpServerService.getStatus();
     }
 
+    /** 获取当前登录用户的 JumpServer 配置（个人中心使用） */
+    @RequireRole
+    @PostMapping("/me/config")
+    public R getMyConfig() {
+        return jumpServerService.getCurrentUserConfig();
+    }
+
+    /** 更新当前登录用户的 JumpServer 配置（个人中心使用） */
+    @RequireRole
+    @PostMapping("/me/update-config")
+    public R updateMyConfig(@RequestBody Map<String, Object> params) {
+        String url = params.get("url") != null ? params.get("url").toString() : null;
+        String accessKeyId = params.get("accessKeyId") != null ? params.get("accessKeyId").toString() : null;
+        String accessKeySecret = params.get("accessKeySecret") != null ? params.get("accessKeySecret").toString() : null;
+        return jumpServerService.updateCurrentUserConfig(url, accessKeyId, accessKeySecret);
+    }
+
     /** 创建 ConnectionToken 并返回跳转 URL */
     @RequireRole
     @PostMapping("/connect")

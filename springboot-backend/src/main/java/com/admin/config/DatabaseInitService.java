@@ -672,6 +672,11 @@ public class DatabaseInitService {
             updateColumn("sys_user", "two_factor_secret", "varchar(255) DEFAULT NULL COMMENT '二步验证密钥 (TOTP secret)'");
             updateColumn("sys_user", "two_factor_bound_at", "bigint(20) DEFAULT NULL COMMENT '二步验证绑定时间'");
 
+            // 增量添加用户级 JumpServer 凭据字段到 sys_user（每个用户单独配置 JumpServer 地址与 Access Key）
+            updateColumn("sys_user", "jumpserver_url", "varchar(255) DEFAULT NULL COMMENT 'JumpServer 地址 (如 https://jump.example.com)'");
+            updateColumn("sys_user", "jumpserver_access_key_id", "varchar(191) DEFAULT NULL COMMENT 'JumpServer Access Key ID'");
+            updateColumn("sys_user", "jumpserver_access_key_secret", "text DEFAULT NULL COMMENT '加密存储的 JumpServer Access Key Secret'");
+
             String createSysSessionTable = "CREATE TABLE IF NOT EXISTS `sys_session` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
                     "`user_id` bigint(20) NOT NULL COMMENT 'IAM用户ID'," +

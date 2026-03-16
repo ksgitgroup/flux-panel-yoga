@@ -994,6 +994,12 @@ export const getJumpServerHosts = (search?: string) =>
 export const jumpServerMatchByIp = (assetId: number, save: boolean) =>
   Network.post<{ id: string; name: string; address: string }>("/jumpserver/match-by-ip", { assetId, save });
 
+// Current user JumpServer credentials (Profile)
+export const getMyJumpServerConfig = () =>
+  Network.post<{ url: string; configured: boolean }>("/jumpserver/me/config");
+export const updateMyJumpServerConfig = (data: { url: string; accessKeyId: string; accessKeySecret: string }) =>
+  Network.post("/jumpserver/me/update-config", data);
+
 // Historical records / charts
 export interface MonitorRecordPoint {
   timestamp: number;

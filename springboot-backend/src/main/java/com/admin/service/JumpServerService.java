@@ -10,6 +10,12 @@ public interface JumpServerService {
     /** 检查 JumpServer 集成是否已启用并配置 */
     R getStatus();
 
+    /** 读取当前登录用户的 JumpServer 配置（不返回明文 Secret） */
+    R getCurrentUserConfig();
+
+    /** 更新当前登录用户的 JumpServer 配置（URL + Access Key，Secret 将被加密存储） */
+    R updateCurrentUserConfig(String url, String accessKeyId, String accessKeySecret);
+
     /** 为指定资产创建 ConnectionToken 并返回跳转 URL */
     R createConnectionToken(Long assetId, String protocol, String account);
 

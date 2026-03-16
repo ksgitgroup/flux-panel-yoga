@@ -241,7 +241,91 @@ docker exec $RUNNER_NAME gitlab-runner verify
 
 ---
 
-## 五、GitLab CI 中的 Runner Tag 对应关系
+## 五、部署凭据（.env）与数据库密码漂移
+
+### 5.1 问题背景
+
+`remote_deploy.sh` 首次部署时会生成 `/opt/1panel/apps/local/flux-panel/.env`，包含随机的数据库名、用户名、密码。MySQL 5.7 **只在首次初始化（空数据目录）时读取 `MYSQL_ROOT_PASSWORD`**，之后无论环境变量怎么改，MySQL 内部存储的密码不会跟着变。
+
+### 5.2 密码漂移事故复盘（2026-03-16）
+
+**起因**：将 Runner 从 `rn1-runner-general-01` 迁移到 `Rn1-Runner-General-New`。
+
+**事件链**：
+
+| 阶段 | 发生了什么 | 结果 |
+|---|---|---|
+| 正常运行 | `.env` 有密码 A，MySQL 数据卷用密码 A 初始化 | 一切正常 |
+| Runner 迁移 | 多次 CI 部署失败（权限、docker-compose 缺失等），每次失败的 job 都跑了 `docker compose down` + `docker volume prune` 的部分步骤 | `.env` 在某次被意外删除 |
+| 密码漂移 | 下次部署时脚本检测到 `.env` 不存在，重新生成了随机密码 B；但 MySQL 数据卷保留了密码 A | `.env`(密码 B) ≠ MySQL 卷(密码 A) |
+| 部署失败 | 脚本用密码 B 连 MySQL → `Access denied` | CI job 失败 |
+| 误用 MariaDB 修复 | 用 `mariadb:10.11` 操作 MySQL 5.7 数据卷 | MariaDB 将双 redo log 改为单文件格式，MySQL 5.7 无法启动：`InnoDB: Only one log file found` |
+| 最终修复 | ① 删除 `ib_logfile*` 让 MySQL 重建 redo log ② 用 `mysql:5.7 --skip-grant-tables` 重置密码 ③ 手动修正 `.env` 中的 DB_NAME 和 DB_USER | 恢复正常 |
+
+### 5.3 教训
+
+1. **`.env` 是核心凭据文件**，丢失后重新生成的随机值与数据卷不匹配 → 必须备份
+2. **绝不能用 MariaDB 操作 MySQL 5.7 数据卷**，两者内部存储格式不兼容（redo log、grant tables）
+3. MySQL 的 `MYSQL_ROOT_PASSWORD` 只在初始化时生效，后续修改密码只能用 SQL 命令
+
+### 5.4 防护措施
+
+**已实施**：
+
+- `remote_deploy.sh` 新增数据库密码校验步骤，连不上时立即报错并输出修复命令
+
+**建议**：
+
+```bash
+# 备份 .env 到宿主机 root 目录
+cp /opt/1panel/apps/local/flux-panel/.env /root/.flux-panel-env.bak
+
+# 以后每次修改 .env 后也备份一份
+```
+
+### 5.5 密码重置操作手册
+
+如果再次出现 `Access denied`：
+
+```bash
+cd /opt/1panel/apps/local/flux-panel
+source .env
+
+# 1. 停 MySQL
+docker compose stop mysql
+
+# 2. 用同版本 MySQL 跳过权限启动（⚠️ 必须用 mysql:5.7，不能用 MariaDB）
+docker run --rm -d --name mysql-fix -v mysql_data:/var/lib/mysql mysql:5.7 mysqld --skip-grant-tables
+sleep 8
+
+# 3. 重置密码
+docker exec mysql-fix mysql -uroot -e "
+  FLUSH PRIVILEGES;
+  ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+  ALTER USER 'root'@'%' IDENTIFIED BY '$DB_PASSWORD';
+  FLUSH PRIVILEGES;
+"
+
+# 4. 恢复
+docker stop mysql-fix
+docker compose up -d
+
+# 5. 验证
+docker exec gost-mysql mysql -uroot -p"$DB_PASSWORD" -e "SELECT 1;"
+```
+
+如果出现 `Unknown database`，说明 DB_NAME 也不匹配：
+
+```bash
+# 查看实际库名
+docker exec gost-mysql mysql -uroot -p"$DB_PASSWORD" -e "SHOW DATABASES;"
+# 修正 .env
+sed -i 's/^DB_NAME=.*/DB_NAME=实际库名/' .env
+```
+
+---
+
+## 六、GitLab CI 中的 Runner Tag 对应关系
 
 `.gitlab-ci.yml` 中的 tag 配置：
 

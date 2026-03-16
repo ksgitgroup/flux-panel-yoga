@@ -434,6 +434,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setPurpose(trimToNull(dto.getPurpose()));
         asset.setRemark(trimToNull(dto.getRemark()));
         asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
+        asset.setJumpserverAssetId(trimToNull(dto.getJumpserverAssetId()));
         asset.setBillingCycle(dto.getBillingCycle());
     }
 
@@ -471,6 +472,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         asset.setPurpose(trimToNull(dto.getPurpose()));
         asset.setRemark(trimToNull(dto.getRemark()));
         asset.setPanelUrl(trimToNull(dto.getPanelUrl()));
+        asset.setJumpserverAssetId(trimToNull(dto.getJumpserverAssetId()));
         asset.setBillingCycle(dto.getBillingCycle());
     }
 

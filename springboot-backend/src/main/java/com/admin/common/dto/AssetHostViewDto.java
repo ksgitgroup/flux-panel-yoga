@@ -75,6 +75,8 @@ public class AssetHostViewDto {
 
     private String panelUrl;
 
+    private String jumpserverAssetId;
+
     private Long onePanelInstanceId;
 
     private String onePanelInstanceName;

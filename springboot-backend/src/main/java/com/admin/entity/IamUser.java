@@ -52,4 +52,13 @@ public class IamUser extends BaseEntity {
 
     /** 二步验证绑定时间 (毫秒时间戳) */
     private Long twoFactorBoundAt;
+
+    /** 当前用户的 JumpServer 地址 (如 https://jump.example.com) */
+    private String jumpserverUrl;
+
+    /** 当前用户的 JumpServer Access Key ID */
+    private String jumpserverAccessKeyId;
+
+    /** 加密存储的 JumpServer Access Key Secret */
+    private String jumpserverAccessKeySecret;
 }

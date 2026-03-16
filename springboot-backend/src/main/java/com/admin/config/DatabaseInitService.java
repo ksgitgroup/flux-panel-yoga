@@ -487,6 +487,7 @@ public class DatabaseInitService {
             updateColumn("monitor_instance", "username", "varchar(120) DEFAULT NULL COMMENT 'Pika 登录用户名'");
             updateColumn("asset_host", "pika_node_id", "varchar(64) DEFAULT NULL COMMENT 'Pika 探针节点 ID'");
             updateColumn("asset_host", "panel_url", "varchar(255) DEFAULT NULL COMMENT '1Panel 面板地址'");
+            updateColumn("asset_host", "jumpserver_asset_id", "varchar(64) DEFAULT NULL COMMENT 'JumpServer 资产 ID（绑定后一键终端跳转）'");
             updateColumn("asset_host", "billing_cycle", "int(10) DEFAULT NULL COMMENT '付费周期 (天): 30=月付, 90=季付, 365=年付'");
             updateColumn("asset_host", "user_edited_fields", "varchar(500) DEFAULT NULL COMMENT '用户手动编辑过的字段 (JSON数组)'");
             updateColumn("asset_host", "purpose", "varchar(200) DEFAULT NULL COMMENT '核心用途 (简短描述)'");
@@ -670,6 +671,11 @@ public class DatabaseInitService {
             updateColumn("sys_user", "two_factor_enabled", "tinyint(1) DEFAULT 0 COMMENT '二步验证是否启用: 0=未启用, 1=已启用'");
             updateColumn("sys_user", "two_factor_secret", "varchar(255) DEFAULT NULL COMMENT '二步验证密钥 (TOTP secret)'");
             updateColumn("sys_user", "two_factor_bound_at", "bigint(20) DEFAULT NULL COMMENT '二步验证绑定时间'");
+
+            // 增量添加用户级 JumpServer 凭据字段到 sys_user（每个用户单独配置 JumpServer 地址与 Access Key）
+            updateColumn("sys_user", "jumpserver_url", "varchar(255) DEFAULT NULL COMMENT 'JumpServer 地址 (如 https://jump.example.com)'");
+            updateColumn("sys_user", "jumpserver_access_key_id", "varchar(191) DEFAULT NULL COMMENT 'JumpServer Access Key ID'");
+            updateColumn("sys_user", "jumpserver_access_key_secret", "text DEFAULT NULL COMMENT '加密存储的 JumpServer Access Key Secret'");
 
             String createSysSessionTable = "CREATE TABLE IF NOT EXISTS `sys_session` (" +
                     "`id` bigint(20) NOT NULL AUTO_INCREMENT," +

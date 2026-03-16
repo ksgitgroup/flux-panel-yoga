@@ -15,6 +15,8 @@ import {
   getTwoFactorStatus,
   setupTwoFactor,
   updatePassword,
+  getMyJumpServerConfig,
+  updateMyJumpServerConfig,
   type TwoFactorSetupResponse,
   type TwoFactorStatusResponse,
 } from '@/api';
@@ -74,6 +76,14 @@ export default function ProfilePage() {
     oneTimeCode: ''
   });
 
+  // JumpServer personal credentials
+  const [jsUrl, setJsUrl] = useState('');
+  const [jsAccessKeyId, setJsAccessKeyId] = useState('');
+  const [jsAccessKeySecret, setJsAccessKeySecret] = useState('');
+  const [jsConfigured, setJsConfigured] = useState(false);
+  const [jsLoading, setJsLoading] = useState(false);
+  const [jsSaving, setJsSaving] = useState(false);
+
   const adminMenuItems: MenuItem[] = [
     {
       path: '/limit',
@@ -124,6 +134,7 @@ export default function ProfilePage() {
     setIsAdmin(adminFlag);
     setPasswordForm(prev => ({ ...prev, newUsername: name }));
     void loadTwoFactorStatus();
+    void loadJumpServerConfig();
   }, []);
 
   useEffect(() => {
@@ -361,6 +372,49 @@ export default function ProfilePage() {
 
   const disableActionBlocked = Boolean(twoFactorStatus?.enabled && twoFactorStatus?.required);
 
+  const loadJumpServerConfig = async () => {
+    setJsLoading(true);
+    try {
+      const res = await getMyJumpServerConfig();
+      if (res.code === 0 && res.data) {
+        setJsUrl(res.data.url || '');
+        setJsConfigured(!!res.data.configured);
+      } else {
+        toast.error(res.msg || '读取 JumpServer 配置失败');
+      }
+    } catch {
+      toast.error('读取 JumpServer 配置失败');
+    } finally {
+      setJsLoading(false);
+    }
+  };
+
+  const handleSaveJumpServerConfig = async () => {
+    if (jsUrl && !jsUrl.startsWith('http://') && !jsUrl.startsWith('https://')) {
+      toast.error('JumpServer 地址必须以 http:// 或 https:// 开头');
+      return;
+    }
+    setJsSaving(true);
+    try {
+      const res = await updateMyJumpServerConfig({
+        url: jsUrl.trim(),
+        accessKeyId: jsAccessKeyId.trim(),
+        accessKeySecret: jsAccessKeySecret.trim(),
+      });
+      if (res.code === 0) {
+        toast.success('JumpServer 凭据已保存');
+        setJsAccessKeySecret('');
+        await loadJumpServerConfig();
+      } else {
+        toast.error(res.msg || '保存 JumpServer 凭据失败');
+      }
+    } catch {
+      toast.error('保存 JumpServer 凭据失败');
+    } finally {
+      setJsSaving(false);
+    }
+  };
+
   return (
     <div className="px-3 lg:px-6 py-8 flex flex-col h-full">
       <div className="space-y-6 flex-1">
@@ -475,6 +529,73 @@ export default function ProfilePage() {
                 当前策略要求该账号始终启用二步验证。如需关闭，请先前往“网站配置”调整强制范围。
               </div>
             )}
+          </CardBody>
+        </Card>
+
+        <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+          <CardBody className="p-5 space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">JumpServer 堡垒机凭据</h3>
+                <p className="text-sm text-default-500 mt-1">
+                  仅当前账号可用，用于从 Flux 一键跳转到 JumpServer Web 终端。所有审计将记录在你的 JumpServer 账号下。
+                  未在此处完成配置的账号不会看到资产详情中的「终端登录」按钮，从而避免产生不符合审计主体的会话。
+                </p>
+              </div>
+              <Chip size="sm" variant="flat" color={jsConfigured ? 'success' : 'default'}>
+                {jsConfigured ? '已配置' : '未配置'}
+              </Chip>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input
+                label="JumpServer 地址"
+                placeholder="例如 https://jump.example.com"
+                size="sm"
+                value={jsUrl}
+                isDisabled={jsLoading}
+                onValueChange={setJsUrl}
+              />
+              <Input
+                label="Access Key ID"
+                size="sm"
+                value={jsAccessKeyId}
+                isDisabled={jsLoading}
+                onValueChange={setJsAccessKeyId}
+              />
+              <Input
+                label="Access Key Secret"
+                size="sm"
+                type="password"
+                value={jsAccessKeySecret}
+                placeholder={jsConfigured ? '已配置，留空表示不修改 Secret' : ''}
+                onValueChange={setJsAccessKeySecret}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="flat"
+                onPress={() => {
+                  setJsUrl('');
+                  setJsAccessKeyId('');
+                  setJsAccessKeySecret('');
+                }}
+                isDisabled={jsLoading || jsSaving}
+              >
+                清空
+              </Button>
+              <Button
+                size="sm"
+                color="primary"
+                isLoading={jsSaving}
+                isDisabled={jsLoading}
+                onPress={() => void handleSaveJumpServerConfig()}
+              >
+                保存 JumpServer 配置
+              </Button>
+            </div>
           </CardBody>
         </Card>
 

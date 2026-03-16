@@ -423,6 +423,7 @@ export interface AssetHost {
   purpose?: string | null;
   remark?: string | null;
   panelUrl?: string | null;
+  jumpserverAssetId?: string | null;
   onePanelInstanceId?: number | null;
   onePanelInstanceName?: string | null;
   onePanelReportEnabled?: number | null;
@@ -988,6 +989,16 @@ export const diagnoseOnePanelInstance = (id: number) => Network.post("/onepanel/
 export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");
 export const jumpServerConnect = (assetId: number, protocol?: string, account?: string) =>
   Network.post<{ url: string; tokenId: string }>("/jumpserver/connect", { assetId, protocol: protocol || 'ssh', account: account || 'root' });
+export const getJumpServerHosts = (search?: string) =>
+  Network.post<{ id: string; name: string; address: string }[]>("/jumpserver/hosts", search != null ? { search } : {});
+export const jumpServerMatchByIp = (assetId: number, save: boolean) =>
+  Network.post<{ id: string; name: string; address: string }>("/jumpserver/match-by-ip", { assetId, save });
+
+// Current user JumpServer credentials (Profile)
+export const getMyJumpServerConfig = () =>
+  Network.post<{ url: string; configured: boolean }>("/jumpserver/me/config");
+export const updateMyJumpServerConfig = (data: { url: string; accessKeyId: string; accessKeySecret: string }) =>
+  Network.post("/jumpserver/me/update-config", data);
 
 // Historical records / charts
 export interface MonitorRecordPoint {

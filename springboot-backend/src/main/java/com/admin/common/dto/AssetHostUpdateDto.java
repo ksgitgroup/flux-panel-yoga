@@ -79,4 +79,6 @@ public class AssetHostUpdateDto {
     private Integer billingCycle;
 
     private String panelUrl;
+
+    private String jumpserverAssetId;
 }

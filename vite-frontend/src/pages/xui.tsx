@@ -1171,7 +1171,7 @@ export default function XuiPage() {
                     <TableColumn>状态</TableColumn>
                     <TableColumn>最近同步</TableColumn>
                   </TableHeader>
-                  <TableBody items={detail.inbounds}>
+                  <TableBody items={detail.inbounds} emptyContent="暂无入站协议">
                     {(item) => {
                       const statusChip = getSnapshotStatusChip(item.status, item.enable);
                       return (
@@ -1233,7 +1233,7 @@ export default function XuiPage() {
                     <TableColumn>到期</TableColumn>
                     <TableColumn>状态</TableColumn>
                   </TableHeader>
-                  <TableBody items={detail.clients}>
+                  <TableBody items={detail.clients} emptyContent="暂无客户端">
                     {(item) => {
                       const inbound = inboundMap.get(item.remoteInboundId);
                       const statusChip = getSnapshotStatusChip(item.status, item.enable);

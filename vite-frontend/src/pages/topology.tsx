@@ -562,7 +562,7 @@ export default function TopologyPage() {
                           <TableColumn>IP</TableColumn>
                           <TableColumn width={80}>操作</TableColumn>
                         </TableHeader>
-                        <TableBody>
+                        <TableBody emptyContent="暂无分组成员">
                           {members.map(m => (
                             <TableRow key={m.id}>
                               <TableCell>{m.assetName ?? `资产#${m.assetId}`}</TableCell>

@@ -185,8 +185,8 @@ public class BackupServiceImpl extends ServiceImpl<BackupRecordMapper, BackupRec
             record.setBackupData(JSON.toJSONString(backup));
             record.setBackupStatus("success");
         } catch (Exception e) {
-            log.error("[Backup] Database backup failed: {}", e.getMessage());
-            record.setBackupData("{\"error\":\"" + e.getMessage().replace("\"", "'") + "\"}");
+            log.error("[Backup] Database backup failed", e);
+            record.setBackupData("{\"error\":\"数据库备份失败，请查看系统日志\"}");
             record.setBackupStatus("failed");
         }
 

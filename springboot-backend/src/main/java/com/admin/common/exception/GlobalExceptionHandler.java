@@ -20,9 +20,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
     public R MethodArgumentNotValidException(MethodArgumentNotValidException e) {
         BindingResult result = e.getBindingResult();
-        ObjectError objectError = result.getAllErrors().stream().findFirst().get();
-        log.info("实体校验异常：----------------{}", objectError.getDefaultMessage());
-        return R.err(500, objectError.getDefaultMessage());
+        ObjectError objectError = result.getAllErrors().stream().findFirst().orElse(null);
+        String message = objectError != null ? objectError.getDefaultMessage() : "请求参数校验失败";
+        log.info("实体校验异常：----------------{}", message);
+        return R.err(500, message);
     }
 
     // 未授权异常捕获

@@ -773,6 +773,8 @@ export default function AssetsPage() {
       list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now());
     } else if (filterStatus === 'expiring_soon') {
       list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate >= Date.now() && a.expireDate < Date.now() + 14 * 86400000);
+    } else if (filterStatus === 'alerting') {
+      list = list.filter(a => a.id && activeAlertNodeIds.has(a.id));
     }
     if (filterEnv) {
       list = list.filter(a => filterEnv === '_empty' ? !a.environment : a.environment === filterEnv);
@@ -1618,6 +1620,12 @@ export default function AssetsPage() {
         <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
           已到期 <span className="font-mono font-bold">{summary.expiredAssets}</span>
         </button>
+        {activeAlertNodeIds.size > 0 && (
+          <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'alerting' ? 'border-danger/40 ring-1 ring-danger/20 animate-pulse' : 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10'} text-danger`}
+            onClick={() => setFilterStatus(filterStatus === 'alerting' ? '' : 'alerting')}>
+            告警中 <span className="font-mono font-bold">{activeAlertNodeIds.size}</span>
+          </button>
+        )}
         <span className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1 text-xs text-default-500">
           <span className="font-mono font-bold">{summary.totalXuiInstances}</span> XUI
           <span className="font-mono font-bold">{summary.totalForwards}</span> 转发

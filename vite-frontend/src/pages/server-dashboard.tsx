@@ -25,6 +25,7 @@ import {
   getKomariPingTaskDetail,
   deleteMonitorNode,
   getTerminalAccessUrl,
+  getAlertingAssetIds,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -377,7 +378,8 @@ export default function ServerDashboardPage() {
   const [nodes, setNodes] = useState<MonitorNodeSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired' | 'expiring_soon'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired' | 'expiring_soon' | 'alerting'>('all');
+  const [alertingAssetIds, setAlertingAssetIds] = useState<Set<number>>(new Set());
   const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika' | 'dual'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -415,6 +417,11 @@ export default function ServerDashboardPage() {
       }
     } catch { /* ignore */ }
     finally { if (showLoading) setLoading(false); }
+    // 加载告警资产ID
+    try {
+      const alertRes = await getAlertingAssetIds();
+      if (alertRes.code === 0 && alertRes.data) setAlertingAssetIds(new Set(Array.isArray(alertRes.data) ? alertRes.data : []));
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -578,6 +585,7 @@ export default function ServerDashboardPage() {
     else if (statusFilter === 'offline') list = list.filter(s => !s.isOnline);
     else if (statusFilter === 'expired') list = list.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt < Date.now());
     else if (statusFilter === 'expiring_soon') list = list.filter(s => s.expiredAt > 0 && !isNeverExpireTs(s.expiredAt) && s.expiredAt >= Date.now() && s.expiredAt < Date.now() + 14 * 86400000);
+    else if (statusFilter === 'alerting') list = list.filter(s => s.assetId && alertingAssetIds.has(s.assetId));
     if (probeFilter === 'dual') list = list.filter(s => s.isDual);
     else if (probeFilter === 'komari') list = list.filter(s => s.isDual || (s.primary.instanceType || 'komari') === 'komari');
     else if (probeFilter === 'pika') list = list.filter(s => s.isDual || s.primary.instanceType === 'pika');
@@ -729,6 +737,17 @@ export default function ServerDashboardPage() {
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expired > 0 ? 'text-danger' : 'text-default-400'}`}>已到期</p>
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expired > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.expired}</p>
         </button>
+        {alertingAssetIds.size > 0 && (
+          <button
+            onClick={() => setStatusFilter(statusFilter === 'alerting' ? 'all' : 'alerting')}
+            className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
+              statusFilter === 'alerting' ? 'border-danger bg-danger-50 dark:bg-danger/10 animate-pulse' : 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40'
+            }`}
+          >
+            <p className="text-[10px] font-bold tracking-widest uppercase text-danger">告警中</p>
+            <p className="text-xl sm:text-2xl font-bold font-mono text-danger">{alertingAssetIds.size}</p>
+          </button>
+        )}
       </div>
 
       {/* Sticky toolbar: probe tabs + sort + search + filters */}

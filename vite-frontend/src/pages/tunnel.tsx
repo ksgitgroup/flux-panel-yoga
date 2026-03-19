@@ -197,7 +197,7 @@ export default function TunnelPage() {
       if (nodesRes.code === 0) {
         setNodes(nodesRes.data || []);
       } else {
-        console.warn('获取节点列表失败:', nodesRes.msg);
+        if (import.meta.env.DEV) console.warn('获取节点列表失败:', nodesRes.msg);
       }
 
       // Aggregate forward traffic by tunnelId
@@ -827,6 +827,7 @@ export default function TunnelPage() {
         scrollBehavior="outside"
         backdrop="blur"
         placement="center"
+        isDismissable={!submitLoading}
       >
         <ModalContent>
           {(onClose) => (

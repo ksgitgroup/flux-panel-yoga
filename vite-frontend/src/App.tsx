@@ -258,7 +258,7 @@ function App() {
           document.title = cachedAppName;
         }
       } catch (error) {
-        console.warn('检查标题更新失败:', error);
+        if (import.meta.env.DEV) console.warn('检查标题更新失败:', error);
       }
     };
 

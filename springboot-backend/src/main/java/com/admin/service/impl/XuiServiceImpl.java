@@ -21,6 +21,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.Getter;
 import lombok.Setter;
@@ -267,6 +268,17 @@ public class XuiServiceImpl extends ServiceImpl<XuiInstanceMapper, XuiInstance> 
     @Transactional(rollbackFor = Exception.class)
     public R deleteInstance(Long id) {
         XuiInstance existing = getRequiredInstance(id);
+        // 断开关联 Forward 的 remoteSourceInboundId（置空而非删除 forward）
+        List<Long> inboundIds = xuiInboundSnapshotMapper.selectList(
+                new LambdaQueryWrapper<XuiInboundSnapshot>()
+                        .select(XuiInboundSnapshot::getId)
+                        .eq(XuiInboundSnapshot::getInstanceId, id))
+                .stream().map(XuiInboundSnapshot::getId).collect(Collectors.toList());
+        if (!inboundIds.isEmpty()) {
+            forwardMapper.update(null, new LambdaUpdateWrapper<Forward>()
+                    .in(Forward::getRemoteSourceInboundId, inboundIds)
+                    .set(Forward::getRemoteSourceInboundId, null));
+        }
         this.removeById(existing.getId());
         xuiInboundSnapshotMapper.delete(new LambdaQueryWrapper<XuiInboundSnapshot>().eq(XuiInboundSnapshot::getInstanceId, id));
         xuiClientSnapshotMapper.delete(new LambdaQueryWrapper<XuiClientSnapshot>().eq(XuiClientSnapshot::getInstanceId, id));

@@ -1113,7 +1113,9 @@ export default function AssetsPage() {
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success('已复制到剪贴板'));
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success('已复制到剪贴板'))
+      .catch(() => toast.error('复制失败，请手动选择文本复制'));
   };
 
   const refreshAssetContext = async (assetId?: number) => {
@@ -2638,8 +2640,8 @@ export default function AssetsPage() {
                       } else {
                         const fallbackId = res.data?.jsAssetId || selectedAsset.jumpserverAssetId;
                         if (jsUrl && fallbackId) {
-                          window.open(jsUrl.replace(/\/+$/, '') + `/console/assets/detail/${fallbackId}/`, '_blank');
-                          toast('后端无法直连 JumpServer（可能跨网络），已跳转到堡垒机对应资产页面，请在页面中点击连接', { icon: 'ℹ️', duration: 6000 });
+                          window.open(jsUrl.replace(/\/+$/, '') + `/luna/admin-connect?asset=${fallbackId}`, '_blank');
+                          toast('后端无法直连 JumpServer（可能跨网络），已跳转到堡垒机终端连接页面', { icon: 'ℹ️', duration: 6000 });
                         } else {
                           toast.error(res.msg || '连接失败，请检查 JumpServer 配置');
                         }
@@ -2647,8 +2649,8 @@ export default function AssetsPage() {
                     } catch {
                       const fallbackId = selectedAsset.jumpserverAssetId;
                       if (jsUrl && fallbackId) {
-                        window.open(jsUrl.replace(/\/+$/, '') + `/console/assets/detail/${fallbackId}/`, '_blank');
-                        toast('后端无法连接 JumpServer（跨网络），已跳转到堡垒机对应资产页面', { icon: 'ℹ️', duration: 6000 });
+                        window.open(jsUrl.replace(/\/+$/, '') + `/luna/admin-connect?asset=${fallbackId}`, '_blank');
+                        toast('后端无法连接 JumpServer（跨网络），已跳转到堡垒机终端连接页面', { icon: 'ℹ️', duration: 6000 });
                       } else {
                         toast.error('连接异常，且未配置 JumpServer 地址');
                       }
@@ -3503,7 +3505,7 @@ export default function AssetsPage() {
                                     <div className="relative">
                                       <pre className="text-[10px] bg-default-100 dark:bg-default-50/10 rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed">{gostInstallCmd}</pre>
                                       <Button size="sm" variant="flat" className="absolute top-1 right-1 h-6 text-[10px] min-w-0 px-2"
-                                        onPress={() => { navigator.clipboard.writeText(gostInstallCmd); toast.success('已复制安装命令'); }}>
+                                        onPress={() => { navigator.clipboard.writeText(gostInstallCmd).then(() => toast.success('已复制安装命令')).catch(() => toast.error('复制失败，请手动选择文本复制')); }}>
                                         复制
                                       </Button>
                                     </div>
@@ -3533,7 +3535,7 @@ export default function AssetsPage() {
                           <div className="relative">
                             <pre className="text-[10px] bg-default-100 dark:bg-default-50/10 rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed">{gostInstallCmd}</pre>
                             <Button size="sm" variant="flat" className="absolute top-1 right-1 h-6 text-[10px] min-w-0 px-2"
-                              onPress={() => { navigator.clipboard.writeText(gostInstallCmd!); toast.success('已复制安装命令'); }}>
+                              onPress={() => { navigator.clipboard.writeText(gostInstallCmd!).then(() => toast.success('已复制安装命令')).catch(() => toast.error('复制失败，请手动选择文本复制')); }}>
                               复制
                             </Button>
                           </div>

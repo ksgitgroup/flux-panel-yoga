@@ -94,7 +94,7 @@ export default function LimitPage() {
       if (tunnelsRes.code === 0) {
         setTunnels(tunnelsRes.data || []);
       } else {
-        console.warn('获取隧道列表失败:', tunnelsRes.msg);
+        if (import.meta.env.DEV) console.warn('获取隧道列表失败:', tunnelsRes.msg);
       }
     } catch (error) {
       console.error('加载数据失败:', error);

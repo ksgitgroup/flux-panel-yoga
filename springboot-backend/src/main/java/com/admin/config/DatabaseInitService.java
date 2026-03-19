@@ -544,8 +544,24 @@ public class DatabaseInitService {
             updateColumn("monitor_alert_rule", "probe_condition", "varchar(20) DEFAULT 'any' COMMENT '探针条件: any, komari, pika, both'");
             updateColumn("monitor_alert_rule", "severity", "varchar(20) DEFAULT 'warning' COMMENT '严重等级: info, warning, critical'");
             updateColumn("monitor_alert_rule", "escalate_after_minutes", "int DEFAULT NULL COMMENT '升级间隔分钟: 持续触发后自动升级等级'");
+            updateColumn("monitor_alert_rule", "group_id", "bigint(20) DEFAULT NULL COMMENT '所属规则组ID'");
+            updateColumn("monitor_alert_rule", "scope_json", "text DEFAULT NULL COMMENT '多维度范围JSON'");
+
+            // 规则组表
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `monitor_alert_rule_group` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT," +
+                    "`name` varchar(100) NOT NULL COMMENT '组名称'," +
+                    "`description` varchar(500) DEFAULT NULL COMMENT '组描述'," +
+                    "`enabled` tinyint(1) DEFAULT 1," +
+                    "`is_default` tinyint(1) DEFAULT 0 COMMENT '系统默认组'," +
+                    "`created_time` bigint(20) NOT NULL," +
+                    "`updated_time` bigint(20) DEFAULT NULL," +
+                    "`status` int(10) DEFAULT 0," +
+                    "PRIMARY KEY (`id`)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警规则组'");
 
             migrateAlertRuleTargetsToChannels();
+            initDefaultAlertGroups();
 
             log.info("[DatabaseInit] 告警规则/日志表校验成功");
         } catch (Exception e) {
@@ -1571,5 +1587,68 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.warn("[DatabaseInit] 初始化IAM角色权限 {} -> {} 时发生非关键性异常: {}", roleCode, permissionCode, e.getMessage());
         }
+    }
+
+    // ==================== 默认告警规则组 ====================
+
+    private void initDefaultAlertGroups() {
+        try {
+            Integer groupCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `monitor_alert_rule_group` WHERE `status` = 0", Integer.class);
+            if (groupCount != null && groupCount > 0) return; // 已有规则组，跳过
+
+            long now = System.currentTimeMillis();
+            log.info("[DatabaseInit] 首次运行，创建默认告警规则组...");
+
+            // 组 1: 生产环境核心监控
+            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
+                    "生产环境核心监控", "针对生产环境服务器的高优先级监控，阈值更严格", now, now);
+            Long g1 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            if (g1 != null) {
+                String scope1 = "{\"environment\":[\"生产\"]}";
+                insertDefaultRule(g1, "生产-CPU过载", "cpu", "gt", 90.0, 0, "critical", 3, scope1, "both", now);
+                insertDefaultRule(g1, "生产-内存告急", "mem", "gt", 85.0, 0, "critical", 3, scope1, "both", now);
+                insertDefaultRule(g1, "生产-磁盘告急", "disk", "gt", 90.0, 0, "critical", 10, scope1, "both", now);
+                insertDefaultRule(g1, "生产-节点离线", "offline", "gt", 0.0, 0, "critical", 5, scope1, "both", now);
+                insertDefaultRule(g1, "生产-到期提醒", "expiry", "lte", 14.0, 0, "warning", 60, scope1, "any", now);
+                insertDefaultRule(g1, "生产-流量超额", "traffic_quota", "gte", 80.0, 0, "warning", 30, scope1, "any", now);
+            }
+
+            // 组 2: 全局基础监控
+            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
+                    "全局基础监控", "所有服务器的基线监控，阈值相对宽松", now, now);
+            Long g2 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            if (g2 != null) {
+                insertDefaultRule(g2, "全局-CPU高负载", "cpu", "gt", 95.0, 0, "warning", 5, null, "both", now);
+                insertDefaultRule(g2, "全局-内存高负载", "mem", "gt", 90.0, 0, "warning", 5, null, "both", now);
+                insertDefaultRule(g2, "全局-磁盘空间", "disk", "gt", 85.0, 0, "warning", 30, null, "both", now);
+                insertDefaultRule(g2, "全局-节点离线", "offline", "gt", 0.0, 0, "warning", 5, null, "any", now);
+                insertDefaultRule(g2, "全局-到期提醒", "expiry", "lte", 7.0, 0, "critical", 60, null, "any", now);
+            }
+
+            // 组 3: 连通性监控
+            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
+                    "连通性监控", "探针和转发链路的健康监控", now, now);
+            Long g3 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            if (g3 != null) {
+                insertDefaultRule(g3, "探针断联", "probe_stale", "gte", 15.0, 0, "critical", 10, null, "any", now);
+                insertDefaultRule(g3, "转发健康度", "forward_health", "lt", 60.0, 0, "warning", 10, null, "any", now);
+            }
+
+            log.info("[DatabaseInit] 默认告警规则组创建完成: 3 组 + 13 条规则");
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 创建默认告警规则组失败(非关键): {}", e.getMessage());
+        }
+    }
+
+    private void insertDefaultRule(Long groupId, String name, String metric, String operator, Double threshold,
+                                   int durationSeconds, String severity, int cooldownMinutes, String scopeJson,
+                                   String probeCondition, long now) {
+        jdbcTemplate.update(
+                "INSERT INTO `monitor_alert_rule` (`name`,`enabled`,`metric`,`operator`,`threshold`,`duration_seconds`," +
+                "`scope_type`,`notify_type`,`cooldown_minutes`,`severity`,`probe_condition`,`group_id`,`scope_json`," +
+                "`created_time`,`updated_time`,`status`) VALUES (?,1,?,?,?,?,'all','log',?,?,?,?,?,?,?,0)",
+                name, metric, operator, threshold, durationSeconds,
+                cooldownMinutes, severity, probeCondition, groupId, scopeJson, now, now);
     }
 }

@@ -64,4 +64,41 @@ public class AlertController extends BaseController {
     public R clearLogs() {
         return alertService.clearLogs();
     }
+
+    // ==================== Rule Groups ====================
+
+    @RequireRole
+    @PostMapping("/groups")
+    public R listGroups() {
+        return alertService.listGroups();
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/group/create")
+    public R createGroup(@RequestBody java.util.Map<String, String> body) {
+        return alertService.createGroup(body.get("name"), body.get("description"));
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/group/update")
+    public R updateGroup(@RequestBody java.util.Map<String, Object> body) {
+        Long id = body.get("id") != null ? ((Number) body.get("id")).longValue() : null;
+        return alertService.updateGroup(id, (String) body.get("name"), (String) body.get("description"));
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/group/delete")
+    public R deleteGroup(@RequestBody java.util.Map<String, Long> body) {
+        return alertService.deleteGroup(body.get("id"));
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/group/batch-update")
+    public R batchUpdateRules(@RequestBody java.util.Map<String, Object> body) {
+        return alertService.batchUpdateGroupRules(body);
+    }
 }

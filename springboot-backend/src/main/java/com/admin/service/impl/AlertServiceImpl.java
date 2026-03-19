@@ -14,6 +14,7 @@ import com.admin.entity.MonitorInstance;
 import com.admin.mapper.MonitorInstanceMapper;
 import com.admin.service.AlertService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
@@ -21,10 +22,16 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import com.admin.entity.AssetHost;
 import com.admin.entity.DiagnosisRecord;
+import com.admin.entity.MonitorAlertRuleGroup;
 import com.admin.entity.XuiClientSnapshot;
+import com.admin.mapper.AssetHostMapper;
 import com.admin.mapper.DiagnosisRecordMapper;
+import com.admin.mapper.MonitorAlertRuleGroupMapper;
 import com.admin.mapper.XuiClientSnapshotMapper;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 
 import javax.annotation.Resource;
 import java.util.*;
@@ -48,6 +55,10 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     private DiagnosisRecordMapper diagnosisRecordMapper;
     @Resource
     private XuiClientSnapshotMapper xuiClientSnapshotMapper;
+    @Resource
+    private AssetHostMapper assetHostMapper;
+    @Resource
+    private MonitorAlertRuleGroupMapper ruleGroupMapper;
     @Resource
     private AlertAggregationService aggregationService;
 
@@ -309,6 +320,12 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     }
 
     private List<MonitorNodeSnapshot> filterNodesByScope(List<MonitorNodeSnapshot> allNodes, MonitorAlertRule rule) {
+        // 新版多维度范围（scopeJson 优先）
+        if (StringUtils.hasText(rule.getScopeJson())) {
+            return filterNodesByScopeJson(allNodes, rule.getScopeJson());
+        }
+
+        // 兼容旧版 scopeType/scopeValue
         String scopeType = rule.getScopeType();
         String scopeValue = rule.getScopeValue();
 
@@ -340,6 +357,56 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         }
 
         return allNodes;
+    }
+
+    /** 多维度范围过滤：通过 nodeSnapshot.assetId → AssetHost 查各字段做 AND 匹配 */
+    private List<MonitorNodeSnapshot> filterNodesByScopeJson(List<MonitorNodeSnapshot> allNodes, String scopeJsonStr) {
+        try {
+            JSONObject scope = JSON.parseObject(scopeJsonStr);
+            if (scope == null || scope.isEmpty()) return allNodes;
+
+            // 预加载所有 AssetHost（避免 N+1 查询）
+            Map<Long, AssetHost> assetMap = new HashMap<>();
+            List<AssetHost> assets = assetHostMapper.selectList(
+                    new LambdaQueryWrapper<AssetHost>().eq(AssetHost::getStatus, 0));
+            for (AssetHost a : assets) assetMap.put(a.getId(), a);
+
+            List<String> envFilter = scope.getList("environment", String.class);
+            List<String> providerFilter = scope.getList("provider", String.class);
+            List<String> regionFilter = scope.getList("region", String.class);
+            List<String> tagFilter = scope.getList("tags", String.class);
+            List<String> osFilter = scope.getList("os", String.class);
+
+            List<MonitorNodeSnapshot> result = new ArrayList<>();
+            for (MonitorNodeSnapshot n : allNodes) {
+                AssetHost asset = n.getAssetId() != null ? assetMap.get(n.getAssetId()) : null;
+                if (asset == null) continue; // 未关联资产的节点跳过
+
+                // AND 逻辑：所有非空维度都必须匹配
+                if (envFilter != null && !envFilter.isEmpty() &&
+                        (asset.getEnvironment() == null || !envFilter.contains(asset.getEnvironment()))) continue;
+                if (providerFilter != null && !providerFilter.isEmpty() &&
+                        (asset.getProvider() == null || !providerFilter.contains(asset.getProvider()))) continue;
+                if (regionFilter != null && !regionFilter.isEmpty() &&
+                        (asset.getRegion() == null || !regionFilter.contains(asset.getRegion()))) continue;
+                if (osFilter != null && !osFilter.isEmpty() &&
+                        (asset.getOs() == null || !osFilter.contains(asset.getOs()))) continue;
+                if (tagFilter != null && !tagFilter.isEmpty()) {
+                    String assetTags = asset.getTags();
+                    if (assetTags == null || assetTags.isEmpty()) continue;
+                    boolean hasTag = false;
+                    for (String t : tagFilter) {
+                        if (assetTags.contains(t)) { hasTag = true; break; }
+                    }
+                    if (!hasTag) continue;
+                }
+                result.add(n);
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("[Alert] filterNodesByScopeJson error: {}", e.getMessage());
+            return allNodes;
+        }
     }
 
     private List<MonitorNodeSnapshot> filterNodesByProbeCondition(List<MonitorNodeSnapshot> nodes, MonitorAlertRule rule) {
@@ -555,6 +622,91 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
         if (bytes < 1024L * 1024 * 1024 * 1024) return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
+    }
+
+    // ==================== Rule Groups ====================
+
+    @Override
+    public R listGroups() {
+        List<MonitorAlertRuleGroup> groups = ruleGroupMapper.selectList(
+                new LambdaQueryWrapper<MonitorAlertRuleGroup>().eq(MonitorAlertRuleGroup::getStatus, 0)
+                        .orderByAsc(MonitorAlertRuleGroup::getCreatedTime));
+        return R.ok(groups);
+    }
+
+    @Override
+    public R createGroup(String name, String description) {
+        if (!StringUtils.hasText(name)) return R.err("组名称不能为空");
+        MonitorAlertRuleGroup group = new MonitorAlertRuleGroup();
+        group.setName(name.trim());
+        group.setDescription(description);
+        group.setEnabled(1);
+        group.setIsDefault(0);
+        long now = System.currentTimeMillis();
+        group.setCreatedTime(now);
+        group.setUpdatedTime(now);
+        group.setStatus(0);
+        ruleGroupMapper.insert(group);
+        return R.ok(group);
+    }
+
+    @Override
+    public R updateGroup(Long id, String name, String description) {
+        if (id == null) return R.err("缺少组 ID");
+        MonitorAlertRuleGroup group = ruleGroupMapper.selectById(id);
+        if (group == null) return R.err("规则组不存在");
+        if (StringUtils.hasText(name)) group.setName(name.trim());
+        if (description != null) group.setDescription(description);
+        group.setUpdatedTime(System.currentTimeMillis());
+        ruleGroupMapper.updateById(group);
+        return R.ok(group);
+    }
+
+    @Override
+    public R deleteGroup(Long id) {
+        if (id == null) return R.err("缺少组 ID");
+        MonitorAlertRuleGroup group = ruleGroupMapper.selectById(id);
+        if (group == null) return R.err("规则组不存在");
+        if (group.getIsDefault() != null && group.getIsDefault() == 1) return R.err("系统默认组不可删除");
+        // 组内规则 groupId 置空
+        alertRuleMapper.update(null, new LambdaUpdateWrapper<MonitorAlertRule>()
+                .eq(MonitorAlertRule::getGroupId, id)
+                .set(MonitorAlertRule::getGroupId, null));
+        // 软删除组
+        group.setStatus(-1);
+        group.setUpdatedTime(System.currentTimeMillis());
+        ruleGroupMapper.updateById(group);
+        return R.ok("已删除");
+    }
+
+    @Override
+    public R batchUpdateGroupRules(Map<String, Object> body) {
+        Long groupId = body.get("groupId") != null ? ((Number) body.get("groupId")).longValue() : null;
+        if (groupId == null) return R.err("缺少 groupId");
+        List<MonitorAlertRule> rules = alertRuleMapper.selectList(
+                new LambdaQueryWrapper<MonitorAlertRule>()
+                        .eq(MonitorAlertRule::getGroupId, groupId)
+                        .eq(MonitorAlertRule::getStatus, 0));
+        if (rules.isEmpty()) return R.ok("无规则需要更新");
+
+        Integer enabled = body.get("enabled") != null ? ((Number) body.get("enabled")).intValue() : null;
+        String severity = body.get("severity") != null ? (String) body.get("severity") : null;
+        String scopeJson = body.get("scopeJson") != null ? (String) body.get("scopeJson") : null;
+        Integer cooldownMinutes = body.get("cooldownMinutes") != null ? ((Number) body.get("cooldownMinutes")).intValue() : null;
+
+        long now = System.currentTimeMillis();
+        for (MonitorAlertRule r : rules) {
+            boolean changed = false;
+            if (enabled != null) { r.setEnabled(enabled); changed = true; }
+            if (severity != null) { r.setSeverity(severity); changed = true; }
+            if (scopeJson != null) { r.setScopeJson(scopeJson); changed = true; }
+            if (cooldownMinutes != null) { r.setCooldownMinutes(cooldownMinutes); changed = true; }
+            if (changed) {
+                r.setUpdatedTime(now);
+                alertRuleMapper.updateById(r);
+            }
+        }
+        return R.ok(String.format("已更新 %d 条规则", rules.size()));
     }
 
     // ==================== Alert Category ====================

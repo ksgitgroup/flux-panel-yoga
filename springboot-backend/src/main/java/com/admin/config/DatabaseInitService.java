@@ -566,6 +566,7 @@ public class DatabaseInitService {
 
             migrateAlertRuleTargetsToChannels();
             initDefaultAlertGroups();
+            initDefaultNotifyPolicies();
 
             log.info("[DatabaseInit] 告警规则/日志表校验成功");
         } catch (Exception e) {
@@ -1711,5 +1712,57 @@ public class DatabaseInitService {
                 "`created_time`,`updated_time`,`status`) VALUES (?,1,?,?,?,?,'all','log',?,?,?,?,?,?,?,0)",
                 name, metric, operator, threshold, durationSeconds,
                 cooldownMinutes, severity, probeCondition, groupId, scopeJson, now, now);
+    }
+
+    // ==================== 默认通知策略 ====================
+
+    private void initDefaultNotifyPolicies() {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `notify_policy` WHERE `status` = 0", Integer.class);
+            if (count != null && count > 0) return; // 已有策略，跳过
+
+            long now = System.currentTimeMillis();
+
+            // 策略1: 严重告警 → 全渠道推送
+            jdbcTemplate.update(
+                    "INSERT INTO `notify_policy` (`name`,`event_types`,`severity_filter`,`channel_ids`,`enabled`," +
+                    "`include_recovery`,`category_filter`,`created_time`,`updated_time`,`status`) " +
+                    "VALUES (?,?,?,?,1,1,?,?,?,0)",
+                    "严重告警全渠道推送",
+                    "alert",
+                    "critical",
+                    "", // channelIds 留空，用户自行关联渠道
+                    "",
+                    now, now);
+
+            // 策略2: 所有告警+恢复 → 站内记录（无外部渠道）
+            jdbcTemplate.update(
+                    "INSERT INTO `notify_policy` (`name`,`event_types`,`severity_filter`,`channel_ids`,`enabled`," +
+                    "`include_recovery`,`category_filter`,`created_time`,`updated_time`,`status`) " +
+                    "VALUES (?,?,?,?,1,1,?,?,?,0)",
+                    "全部告警站内记录",
+                    "alert,alert_recovery,daily_summary",
+                    "info,warning,critical",
+                    "",
+                    "",
+                    now, now);
+
+            // 策略3: 连通性告警（离线/探针断联）→ 高优先级
+            jdbcTemplate.update(
+                    "INSERT INTO `notify_policy` (`name`,`event_types`,`severity_filter`,`channel_ids`,`enabled`," +
+                    "`include_recovery`,`category_filter`,`created_time`,`updated_time`,`status`) " +
+                    "VALUES (?,?,?,?,1,0,?,?,?,0)",
+                    "连通性告警（不含恢复）",
+                    "alert",
+                    "warning,critical",
+                    "",
+                    "connectivity",
+                    now, now);
+
+            log.info("[DatabaseInit] 默认通知策略创建成功（3条）");
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 默认通知策略创建跳过: {}", e.getMessage());
+        }
     }
 }

@@ -54,7 +54,10 @@ import {
   jumpServerMatchByIp,
   archiveAsset,
   restoreAsset,
-  getArchivedAssets
+  getArchivedAssets,
+  getAlertingAssetIds,
+  getAlertsForAsset,
+  acknowledgeAlert
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -536,6 +539,12 @@ export default function AssetsPage() {
   const [filterEnv, setFilterEnv] = useState<string>('');
   const [filterPurpose, setFilterPurpose] = useState<'all' | 'filled' | 'empty'>('all');
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [filterAlertStatus, setFilterAlertStatus] = useState<string>(''); // '' | 'alerting' | 'healthy'
+  const [activeAlertNodeIds, setActiveAlertNodeIds] = useState<Set<number>>(new Set());
+  const [alertPopoverAssetId, setAlertPopoverAssetId] = useState<number | null>(null);
+  const [alertPopoverName, setAlertPopoverName] = useState('');
+  const [alertPopoverData, setAlertPopoverData] = useState<any[]>([]);
+  const [alertPopoverLoading, setAlertPopoverLoading] = useState(false);
   const [sortKey, setSortKey] = useState<'name' | 'cpu' | 'mem' | 'traffic' | 'expiry' | 'cost'>('name');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -770,6 +779,8 @@ export default function AssetsPage() {
       list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate < Date.now());
     } else if (filterStatus === 'expiring_soon') {
       list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate >= Date.now() && a.expireDate < Date.now() + 14 * 86400000);
+    } else if (filterStatus === 'alerting') {
+      list = list.filter(a => a.id && activeAlertNodeIds.has(a.id));
     }
     if (filterEnv) {
       list = list.filter(a => filterEnv === '_empty' ? !a.environment : a.environment === filterEnv);
@@ -792,6 +803,12 @@ export default function AssetsPage() {
         [item.name, item.label, item.primaryIp, item.ipv6, item.environment, item.provider, item.region, item.role, item.os, item.osCategory, item.purpose, item.remark, item.tags, item.probeTags, item.cpuName, item.arch, item.virtualization, item.panelUrl, item.monthlyCost]
           .some((v) => normalizeKeyword(v).includes(kw))
       );
+    }
+    // Alert status filter (by assetId)
+    if (filterAlertStatus === 'alerting') {
+      list = list.filter(a => a.id && activeAlertNodeIds.has(a.id));
+    } else if (filterAlertStatus === 'healthy') {
+      list = list.filter(a => !a.id || !activeAlertNodeIds.has(a.id));
     }
     // Sort
     const sorted = [...list].sort((a, b) => {
@@ -821,7 +838,7 @@ export default function AssetsPage() {
       return sortAsc ? cmp : -cmp;
     });
     return sorted;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, filterEnv, filterPurpose, sortKey, sortAsc]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, filterEnv, filterPurpose, filterAlertStatus, activeAlertNodeIds, sortKey, sortAsc]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -831,6 +848,42 @@ export default function AssetsPage() {
       setAssets(response.data || []);
     } catch { toast.error('加载资产失败'); }
     finally { setLoading(false); }
+    // 加载有告警的资产ID（不阻塞主流程）
+    try {
+      const alertRes = await getAlertingAssetIds();
+      if (alertRes.code === 0 && alertRes.data) {
+        setActiveAlertNodeIds(new Set(Array.isArray(alertRes.data) ? alertRes.data : []));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const openAlertPopover = async (assetId: number, name: string) => {
+    setAlertPopoverAssetId(assetId);
+    setAlertPopoverName(name);
+    setAlertPopoverData([]);
+    setAlertPopoverLoading(true);
+    try {
+      const res = await getAlertsForAsset(assetId);
+      if (res.code === 0 && res.data) setAlertPopoverData(res.data as any[]);
+    } catch { toast.error('加载告警详情失败'); }
+    finally { setAlertPopoverLoading(false); }
+  };
+
+  const handleAcknowledgeAlert = async (ruleId: number, nodeId: number) => {
+    try {
+      await acknowledgeAlert(ruleId, nodeId);
+      toast.success('已标记为已处理');
+      setAlertPopoverData(prev => prev.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)));
+      // 如果该资产无剩余告警，更新 activeAlertNodeIds
+      if (alertPopoverData.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)).length === 0) {
+        setActiveAlertNodeIds(prev => {
+          const next = new Set(prev);
+          if (alertPopoverAssetId) next.delete(alertPopoverAssetId);
+          return next;
+        });
+        setAlertPopoverAssetId(null);
+      }
+    } catch { toast.error('操作失败'); }
   };
 
   const loadGostNodes = async () => {
@@ -1602,6 +1655,10 @@ export default function AssetsPage() {
         <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
           已到期 <span className="font-mono font-bold">{summary.expiredAssets}</span>
         </button>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'alerting' ? 'border-danger/40 ring-1 ring-danger/20' : activeAlertNodeIds.size > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${activeAlertNodeIds.size > 0 ? 'text-danger' : 'text-default-400'}`}
+          onClick={() => setFilterStatus(filterStatus === 'alerting' ? '' : 'alerting')}>
+          告警中 <span className="font-mono font-bold">{activeAlertNodeIds.size}</span>
+        </button>
         <span className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1 text-xs text-default-500">
           <span className="font-mono font-bold">{summary.totalXuiInstances}</span> XUI
           <span className="font-mono font-bold">{summary.totalForwards}</span> 转发
@@ -1845,6 +1902,27 @@ export default function AssetsPage() {
             )}
           </div>
         )}
+
+        {/* Alert status filter */}
+        {activeAlertNodeIds.size > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">告警:</span>
+            {[
+              { key: '', label: '全部', count: assets.length },
+              { key: 'alerting', label: '告警中', count: assets.filter(a => a.id && activeAlertNodeIds.has(a.id)).length },
+              { key: 'healthy', label: '正常', count: assets.filter(a => !a.id || !activeAlertNodeIds.has(a.id)).length },
+            ].map(opt => (
+              <button key={opt.key} onClick={() => setFilterAlertStatus(filterAlertStatus === opt.key ? '' : opt.key)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterAlertStatus === opt.key
+                    ? (opt.key === 'alerting' ? 'border-danger bg-danger-100/60 text-danger dark:bg-danger/20' : 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20')
+                    : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>
+                {opt.label} ({opt.count})
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       </div>{/* end sticky toolbar */}
 
@@ -1986,6 +2064,13 @@ export default function AssetsPage() {
                                     roleChip.color === 'success' ? 'bg-success-100 text-success dark:bg-success/20' :
                                     'bg-secondary-100 text-secondary dark:bg-secondary/20'
                                   }`}>{roleChip.text}</span>
+                                )}
+                                {asset.id && activeAlertNodeIds.has(asset.id) && (
+                                  <button
+                                    className="px-1.5 py-0.5 rounded bg-danger-100 text-danger text-[10px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors"
+                                    onClick={(e) => { e.stopPropagation(); openAlertPopover(asset.id, asset.name || ''); }}
+                                    title="查看活跃告警"
+                                  >告警</button>
                                 )}
                               </div>
                               {asset.purpose && (
@@ -4150,6 +4235,49 @@ export default function AssetsPage() {
             <Button color="primary" isLoading={batchLoading} onPress={handleBatchUpdate} isDisabled={!(canCreateAssets || canUpdateAssets)}>
               确认修改
             </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Alert Detail Popover */}
+      <Modal isOpen={alertPopoverAssetId !== null} onClose={() => setAlertPopoverAssetId(null)} size="md">
+        <ModalContent>
+          <ModalHeader className="text-base">活跃告警 — {alertPopoverName}</ModalHeader>
+          <ModalBody>
+            {alertPopoverLoading ? (
+              <div className="flex justify-center py-6"><Spinner size="sm" /></div>
+            ) : alertPopoverData.length === 0 ? (
+              <p className="text-center text-default-400 text-sm py-6">该资产暂无活跃告警</p>
+            ) : (
+              <div className="space-y-2">
+                {alertPopoverData.map((a: any, i: number) => (
+                  <div key={i} className="rounded-lg border border-divider/40 p-2.5 flex items-start gap-2">
+                    <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                      a.severity === 'critical' ? 'bg-danger animate-pulse' : a.severity === 'warning' ? 'bg-warning' : 'bg-primary'
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{a.ruleName}</span>
+                        <Chip size="sm" variant="flat" className="h-4 text-[9px]"
+                          color={a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warning' : 'default'}>
+                          {a.severity === 'critical' ? '严重' : a.severity === 'warning' ? '警告' : '提示'}
+                        </Chip>
+                        {a.category && <Chip size="sm" variant="flat" className="h-4 text-[9px]">{a.category}</Chip>}
+                      </div>
+                      <p className="text-xs text-default-500 mt-0.5">{a.message}</p>
+                      <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
+                    </div>
+                    <Button size="sm" variant="flat" color="success" className="h-6 text-[10px] min-w-0 flex-shrink-0"
+                      onPress={() => handleAcknowledgeAlert(a.ruleId, a.nodeId)}>
+                      已处理
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={() => setAlertPopoverAssetId(null)}>关闭</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

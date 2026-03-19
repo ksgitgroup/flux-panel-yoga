@@ -15,6 +15,7 @@ import {
   getNodeList,
   getUserPackageInfo,
   MonitorInstance,
+  getRecentAlertLogs,
 } from "@/api";
 import { formatFlow, formatRelativeTime, getRegionFlag, barColor } from '@/utils/formatters';
 import { siteConfig } from "@/config/site";
@@ -107,8 +108,14 @@ export default function DashboardPage() {
     TRY: 0.19, BRL: 1.25,
   });
 
+  const [recentAlerts, setRecentAlerts] = useState<any[]>([]);
+
   const loadHome = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    // 加载最近告警（独立于主数据，不阻塞）
+    getRecentAlertLogs(8).then(res => {
+      if (res.code === 0 && res.data) setRecentAlerts(Array.isArray(res.data) ? res.data : []);
+    }).catch(() => {});
     try {
       const promises: Promise<any>[] = [
         getUserPackageInfo(),
@@ -456,6 +463,39 @@ export default function DashboardPage() {
               )}
             </CardBody>
           </Card>
+
+          {/* Recent alerts */}
+          {admin && recentAlerts.length > 0 && (
+            <Card className="border border-divider/60">
+              <CardBody className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold">最近告警</p>
+                  <div className="flex gap-2">
+                    <Link to="/notification" className="text-xs text-primary font-medium hover:underline">通知中心</Link>
+                    <Link to="/alert" className="text-xs text-primary font-medium hover:underline">告警配置</Link>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {recentAlerts.slice(0, 5).map((log: any) => (
+                    <div key={log.id} className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm ${
+                      log.message?.includes('[CRITICAL]') ? 'bg-danger-50/40 dark:bg-danger-50/10' :
+                      log.message?.includes('[WARNING]') ? 'bg-warning-50/40 dark:bg-warning-50/10' :
+                      'bg-default-50'
+                    }`}>
+                      <Chip size="sm" variant="flat" className="h-4 text-[9px] flex-shrink-0"
+                        color={log.message?.includes('[CRITICAL]') ? 'danger' : log.message?.includes('[WARNING]') ? 'warning' : 'primary'}>
+                        {log.message?.includes('[CRITICAL]') ? '严重' : log.message?.includes('[WARNING]') ? '警告' : '提示'}
+                      </Chip>
+                      <span className="flex-1 truncate text-xs">{log.message}</span>
+                      <span className="text-[10px] text-default-400 flex-shrink-0">
+                        {log.createdTime ? new Date(log.createdTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
 
           {/* Traffic warnings */}
           {admin && trafficWarnings.length > 0 && (

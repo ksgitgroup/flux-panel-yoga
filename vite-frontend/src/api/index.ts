@@ -1122,6 +1122,12 @@ export const updateAlertGroup = (id: number, name: string, description?: string)
 export const deleteAlertGroup = (id: number) => Network.post("/alert/group/delete", { id });
 export const batchUpdateGroupRules = (groupId: number, updates: Record<string, unknown>) => Network.post("/alert/group/batch-update", { groupId, ...updates });
 export const getScopeOptions = () => Network.post<ScopeOptions>("/asset/scope-options");
+export const getActiveAlertsByNode = () => Network.post<Record<string, any[]>>("/alert/active-by-node");
+export const getActiveSummary = () => Network.post<{ total: number; critical: number; warning: number; info: number; affectedNodes: number }>("/alert/active-summary");
+export const getRecentAlertLogs = (size?: number, severity?: string) => Network.post<any[]>("/alert/recent", { size: size || 5, severity });
+export const getAlertingAssetIds = () => Network.post<number[]>("/alert/alerting-assets");
+export const getAlertsForAsset = (assetId: number) => Network.post<any[]>("/alert/alerts-for-asset", { assetId });
+export const acknowledgeAlert = (ruleId: number, nodeId: number) => Network.post("/alert/acknowledge", { ruleId, nodeId });
 
 // Enterprise IAM
 export const getIamAuthOptions = () => Network.post<IamAuthOptions>("/iam/auth/options");

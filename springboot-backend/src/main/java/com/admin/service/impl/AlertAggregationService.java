@@ -48,6 +48,91 @@ public class AlertAggregationService {
     /** 上次 flush 时间 */
     private volatile long lastFlushAt = 0;
 
+    /** 获取当前活跃告警（按 nodeId 分组，同时返回 assetId 映射） */
+    public Map<Long, List<Map<String, Object>>> getActiveAlertsByNode() {
+        Map<Long, List<Map<String, Object>>> result = new LinkedHashMap<>();
+        for (AlertEvent e : activeAlerts.values()) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
+            // 查 assetId
+            Long assetId = null;
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null) assetId = snap.getAssetId();
+            } catch (Exception ignored) {}
+            result.computeIfAbsent(e.getNodeId(), k -> new ArrayList<>()).add(Map.of(
+                    "ruleId", e.getRuleId(),
+                    "ruleName", e.getRuleName() != null ? e.getRuleName() : "",
+                    "metric", e.getMetric() != null ? e.getMetric() : "",
+                    "severity", e.getSeverity() != null ? e.getSeverity() : "warning",
+                    "message", e.getMessage() != null ? e.getMessage() : "",
+                    "category", e.getCategory() != null ? e.getCategory() : "",
+                    "timestamp", e.getTimestamp()
+            ));
+        }
+        return result;
+    }
+
+    /** 获取当前有活跃告警的 assetId 集合 */
+    public Set<Long> getAlertingAssetIds() {
+        Set<Long> result = new HashSet<>();
+        for (AlertEvent e : activeAlerts.values()) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null && snap.getAssetId() != null) result.add(snap.getAssetId());
+            } catch (Exception ignored) {}
+        }
+        return result;
+    }
+
+    /** 确认/已处理告警，从活跃列表中移除 */
+    public void acknowledgeAlert(Long ruleId, Long nodeId) {
+        String activeKey = ruleId + ":" + nodeId;
+        AlertEvent removed = activeAlerts.remove(activeKey);
+        if (removed != null) {
+            log.info("[AlertAggregation] Alert acknowledged: rule={}, node={}", ruleId, nodeId);
+        }
+    }
+
+    /** 按 assetId 获取活跃告警详情 */
+    public List<Map<String, Object>> getActiveAlertsForAsset(Long assetId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AlertEvent e : activeAlerts.values()) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null && assetId.equals(snap.getAssetId())) {
+                    result.add(Map.of(
+                            "ruleId", e.getRuleId(),
+                            "ruleName", e.getRuleName() != null ? e.getRuleName() : "",
+                            "nodeId", e.getNodeId(),
+                            "metric", e.getMetric() != null ? e.getMetric() : "",
+                            "severity", e.getSeverity() != null ? e.getSeverity() : "warning",
+                            "message", e.getMessage() != null ? e.getMessage() : "",
+                            "category", e.getCategory() != null ? e.getCategory() : "",
+                            "timestamp", e.getTimestamp()
+                    ));
+                }
+            } catch (Exception ignored) {}
+        }
+        return result;
+    }
+
+    /** 获取活跃告警汇总统计 */
+    public Map<String, Object> getActiveSummary() {
+        int total = activeAlerts.size();
+        int critical = 0, warning = 0, info = 0;
+        Set<Long> affectedNodes = new HashSet<>();
+        for (AlertEvent e : activeAlerts.values()) {
+            if ("critical".equals(e.getSeverity())) critical++;
+            else if ("warning".equals(e.getSeverity())) warning++;
+            else info++;
+            if (e.getNodeId() != null && e.getNodeId() > 0) affectedNodes.add(e.getNodeId());
+        }
+        return Map.of("total", total, "critical", critical, "warning", warning, "info", info,
+                "affectedNodes", affectedNodes.size());
+    }
+
     /** 聚合窗口: 5分钟 */
     private static final long AGGREGATION_WINDOW_MS = 5 * 60 * 1000;
 

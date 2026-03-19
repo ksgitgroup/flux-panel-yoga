@@ -36,6 +36,10 @@ public class AlertAggregationService {
     private AssetHostMapper assetHostMapper;
     @Resource
     private MonitorAlertRuleMapper alertRuleMapper;
+    @Resource
+    private NotificationMapper notificationMapper;
+    @Resource
+    private NodeMapper nodeMapper;
 
     // ==================== Aggregation Buffer ====================
 
@@ -72,9 +76,11 @@ public class AlertAggregationService {
         return result;
     }
 
-    /** 获取当前有活跃告警的 assetId 集合 */
+    /** 获取当前有活跃告警的 assetId 集合（合并引擎内存 + 通知表） */
     public Set<Long> getAlertingAssetIds() {
         Set<Long> result = new HashSet<>();
+
+        // 1. 引擎内存中的活跃告警 → assetId
         for (AlertEvent e : activeAlerts.values()) {
             if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
             try {
@@ -82,39 +88,138 @@ public class AlertAggregationService {
                 if (snap != null && snap.getAssetId() != null) result.add(snap.getAssetId());
             } catch (Exception ignored) {}
         }
+
+        // 2. notification 表中近 24h 未读的 alert/node_offline 通知 → assetId
+        try {
+            long since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
+            List<Notification> unread = notificationMapper.selectList(
+                    new LambdaQueryWrapper<Notification>()
+                            .eq(Notification::getReadStatus, 0)
+                            .eq(Notification::getStatus, 0)
+                            .in(Notification::getType, "alert", "node_offline")
+                            .ge(Notification::getCreatedTime, since)
+                            .isNull(Notification::getUserId) // 只查广播行，避免重复
+                            .select(Notification::getSourceModule, Notification::getSourceId)
+                            .groupBy(Notification::getSourceModule, Notification::getSourceId));
+            for (Notification n : unread) {
+                if (n.getSourceId() == null) continue;
+                if ("gost".equals(n.getSourceModule())) {
+                    // sourceId = gost node ID → 查 node 表的 assetId
+                    try {
+                        Node gostNode = nodeMapper.selectById(n.getSourceId());
+                        if (gostNode != null && gostNode.getAssetId() != null) result.add(gostNode.getAssetId());
+                    } catch (Exception ignored) {}
+                } else if ("alert_engine".equals(n.getSourceModule())) {
+                    // sourceId = ruleId → 遍历 activeAlerts 已覆盖，跳过
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AlertAggregation] Failed to query notification table for alerting assets: {}", e.getMessage());
+        }
+
         return result;
     }
 
-    /** 确认/已处理告警，从活跃列表中移除 */
+    /** 确认/已处理告警，从活跃列表中移除 + 标记通知已读 */
     public void acknowledgeAlert(Long ruleId, Long nodeId) {
+        // 引擎内存中的活跃告警
         String activeKey = ruleId + ":" + nodeId;
         AlertEvent removed = activeAlerts.remove(activeKey);
         if (removed != null) {
-            log.info("[AlertAggregation] Alert acknowledged: rule={}, node={}", ruleId, nodeId);
+            log.info("[AlertAggregation] Alert acknowledged (engine): rule={}, node={}", ruleId, nodeId);
+        }
+
+        // 通知表中该节点的未读告警也标记已读（ruleId=0 表示来自通知表）
+        if (nodeId != null && nodeId > 0) {
+            try {
+                Notification update = new Notification();
+                update.setReadStatus(1);
+                update.setReadAt(System.currentTimeMillis());
+                notificationMapper.update(update,
+                        new LambdaQueryWrapper<Notification>()
+                                .eq(Notification::getSourceId, nodeId)
+                                .eq(Notification::getSourceModule, "gost")
+                                .eq(Notification::getReadStatus, 0)
+                                .isNull(Notification::getUserId));
+                log.info("[AlertAggregation] Marked gost notifications as read for nodeId={}", nodeId);
+            } catch (Exception e) {
+                log.warn("[AlertAggregation] Failed to mark notifications read: {}", e.getMessage());
+            }
         }
     }
 
-    /** 按 assetId 获取活跃告警详情 */
+    /** 按 assetId 获取活跃告警详情（引擎内存 + 通知表） */
     public List<Map<String, Object>> getActiveAlertsForAsset(Long assetId) {
         List<Map<String, Object>> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>(); // 去重 key
+
+        // 1. 引擎内存中的活跃告警
         for (AlertEvent e : activeAlerts.values()) {
             if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
             try {
                 MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
                 if (snap != null && assetId.equals(snap.getAssetId())) {
-                    result.add(Map.of(
-                            "ruleId", e.getRuleId(),
-                            "ruleName", e.getRuleName() != null ? e.getRuleName() : "",
-                            "nodeId", e.getNodeId(),
-                            "metric", e.getMetric() != null ? e.getMetric() : "",
-                            "severity", e.getSeverity() != null ? e.getSeverity() : "warning",
-                            "message", e.getMessage() != null ? e.getMessage() : "",
-                            "category", e.getCategory() != null ? e.getCategory() : "",
-                            "timestamp", e.getTimestamp()
-                    ));
+                    String key = "engine:" + e.getRuleId() + ":" + e.getNodeId();
+                    seen.add(key);
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("ruleId", e.getRuleId());
+                    m.put("ruleName", e.getRuleName() != null ? e.getRuleName() : "");
+                    m.put("nodeId", e.getNodeId());
+                    m.put("metric", e.getMetric() != null ? e.getMetric() : "");
+                    m.put("severity", e.getSeverity() != null ? e.getSeverity() : "warning");
+                    m.put("message", e.getMessage() != null ? e.getMessage() : "");
+                    m.put("category", e.getCategory() != null ? e.getCategory() : "");
+                    m.put("timestamp", e.getTimestamp());
+                    m.put("source", "engine");
+                    result.add(m);
                 }
             } catch (Exception ignored) {}
         }
+
+        // 2. 通知表中该资产的近 24h 未读告警
+        try {
+            // 查该 assetId 关联的 GOST nodeId 列表
+            List<Node> gostNodes = nodeMapper.selectList(
+                    new LambdaQueryWrapper<Node>()
+                            .eq(Node::getAssetId, assetId)
+                            .eq(Node::getStatus, 0));
+            Set<Long> gostNodeIds = new HashSet<>();
+            for (Node n : gostNodes) gostNodeIds.add(n.getId());
+
+            if (!gostNodeIds.isEmpty()) {
+                long since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
+                List<Notification> unread = notificationMapper.selectList(
+                        new LambdaQueryWrapper<Notification>()
+                                .eq(Notification::getReadStatus, 0)
+                                .eq(Notification::getStatus, 0)
+                                .eq(Notification::getSourceModule, "gost")
+                                .in(Notification::getSourceId, gostNodeIds)
+                                .ge(Notification::getCreatedTime, since)
+                                .isNull(Notification::getUserId)
+                                .orderByDesc(Notification::getCreatedTime)
+                                .last("LIMIT 20"));
+                for (Notification n : unread) {
+                    String key = "notif:" + n.getId();
+                    if (seen.contains(key)) continue;
+                    seen.add(key);
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("notificationId", n.getId());
+                    m.put("ruleId", 0L);
+                    m.put("ruleName", n.getTitle() != null ? n.getTitle() : "");
+                    m.put("nodeId", n.getSourceId() != null ? n.getSourceId() : 0L);
+                    m.put("metric", n.getType() != null ? n.getType() : "");
+                    m.put("severity", n.getSeverity() != null ? n.getSeverity() : "warning");
+                    m.put("message", n.getContent() != null ? n.getContent() : "");
+                    m.put("category", "connectivity");
+                    m.put("timestamp", n.getCreatedTime());
+                    m.put("source", "notification");
+                    result.add(m);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AlertAggregation] Failed to query notifications for asset {}: {}", assetId, e.getMessage());
+        }
+
         return result;
     }
 

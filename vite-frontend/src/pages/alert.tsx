@@ -96,6 +96,7 @@ export default function AlertPage() {
   // Rules state
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
+  const [migrationWarningDismissed, setMigrationWarningDismissed] = useState(false);
 
   // Logs state
   const [logs, setLogs] = useState<AlertLog[]>([]);
@@ -263,14 +264,17 @@ export default function AlertPage() {
             )}
           </div>
 
-          {!rulesLoading && rules.some(r => r.notifyType && r.notifyType !== 'log' && r.notifyTarget) && (
+          {!migrationWarningDismissed && !rulesLoading && rules.some(r => r.notifyType && r.notifyType !== 'log' && r.notifyTarget) && (
             <Card className="border border-warning/30 bg-warning-50/50 dark:bg-warning/5">
               <CardBody className="p-3 text-xs text-default-600 flex flex-col sm:flex-row items-start sm:items-center gap-2">
                 <div className="flex-1">
                   <p className="font-semibold text-sm text-warning-700">通知方式已统一</p>
                   <p className="mt-0.5">部分告警规则仍保留旧的通知配置（企业微信/钉钉/Webhook 地址），这些配置已自动迁移到通知中心。请前往「通知中心 → 通知渠道/策略」确认配置正确。</p>
                 </div>
-                <Button size="sm" variant="flat" color="warning" onPress={() => navigate('/notification')}>前往通知中心</Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="flat" color="warning" onPress={() => navigate('/notification')}>前往通知中心</Button>
+                  <Button size="sm" variant="light" onPress={() => setMigrationWarningDismissed(true)}>关闭</Button>
+                </div>
               </CardBody>
             </Card>
           )}

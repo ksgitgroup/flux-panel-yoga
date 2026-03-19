@@ -54,10 +54,17 @@ public class AlertController extends BaseController {
 
     @RequireRole
     @PostMapping("/logs")
-    public R listLogs(@RequestBody(required = false) java.util.Map<String, Integer> body) {
-        int page = body != null && body.get("page") != null ? body.get("page") : 1;
-        int size = body != null && body.get("size") != null ? body.get("size") : 20;
-        return alertService.listLogs(page, size);
+    public R listLogs(@RequestBody(required = false) java.util.Map<String, Object> body) {
+        int page = 1; int size = 30;
+        String keyword = null; String severity = null; Long ruleId = null;
+        if (body != null) {
+            if (body.get("page") != null) page = ((Number) body.get("page")).intValue();
+            if (body.get("size") != null) size = ((Number) body.get("size")).intValue();
+            if (body.get("keyword") != null) keyword = (String) body.get("keyword");
+            if (body.get("severity") != null) severity = (String) body.get("severity");
+            if (body.get("ruleId") != null) ruleId = ((Number) body.get("ruleId")).longValue();
+        }
+        return alertService.listLogs(page, size, keyword, severity, ruleId);
     }
 
     @LogAnnotation

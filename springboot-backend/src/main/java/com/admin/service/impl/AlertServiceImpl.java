@@ -128,12 +128,37 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
 
     @Override
     public R listLogs(int page, int size) {
+        return listLogs(page, size, null, null, null);
+    }
+
+    @Override
+    public R listLogs(int page, int size, String keyword, String severity, Long ruleId) {
         if (page < 1) page = 1;
         if (size < 1 || size > 100) size = 20;
-        Page<MonitorAlertLog> p = alertLogMapper.selectPage(
-                new Page<>(page, size),
-                new LambdaQueryWrapper<MonitorAlertLog>()
-                        .orderByDesc(MonitorAlertLog::getCreatedTime));
+        LambdaQueryWrapper<MonitorAlertLog> wrapper = new LambdaQueryWrapper<MonitorAlertLog>()
+                .orderByDesc(MonitorAlertLog::getCreatedTime);
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.and(w -> w
+                    .like(MonitorAlertLog::getMessage, keyword)
+                    .or().like(MonitorAlertLog::getNodeName, keyword)
+                    .or().like(MonitorAlertLog::getRuleName, keyword));
+        }
+        if (severity != null && !severity.isBlank()) {
+            // alert_log 没有 severity 列，用 message 中的 [WARNING]/[CRITICAL]/[INFO] 前缀匹配
+            String prefix = switch (severity) {
+                case "critical" -> "[CRITICAL]";
+                case "warning" -> "[WARNING]";
+                case "info" -> "[INFO]";
+                default -> null;
+            };
+            if (prefix != null) {
+                wrapper.likeRight(MonitorAlertLog::getMessage, prefix);
+            }
+        }
+        if (ruleId != null) {
+            wrapper.eq(MonitorAlertLog::getRuleId, ruleId);
+        }
+        Page<MonitorAlertLog> p = alertLogMapper.selectPage(new Page<>(page, size), wrapper);
         return R.ok(Map.of("records", p.getRecords(), "total", p.getTotal(), "page", p.getCurrent(), "size", p.getSize()));
     }
 

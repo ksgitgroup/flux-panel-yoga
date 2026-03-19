@@ -1113,8 +1113,8 @@ export const createAlertRule = (data: Partial<AlertRule>) => Network.post<AlertR
 export const updateAlertRule = (data: Partial<AlertRule>) => Network.post<AlertRule>("/alert/rule/update", data);
 export const deleteAlertRule = (id: number) => Network.post("/alert/rule/delete", { id });
 export const toggleAlertRule = (id: number) => Network.post<AlertRule>("/alert/rule/toggle", { id });
-export const getAlertLogs = (page?: number, size?: number) =>
-  Network.post<{ records: AlertLog[]; total: number }>("/alert/logs", { page: page || 1, size: size || 20 });
+export const getAlertLogs = (page?: number, size?: number, keyword?: string, severity?: string, ruleId?: number) =>
+  Network.post<{ records: AlertLog[]; total: number }>("/alert/logs", { page: page || 1, size: size || 30, keyword, severity, ruleId });
 export const clearAlertLogs = () => Network.post("/alert/logs/clear");
 export const getAlertGroups = () => Network.post<AlertRuleGroup[]>("/alert/groups");
 export const createAlertGroup = (name: string, description?: string) => Network.post<AlertRuleGroup>("/alert/group/create", { name, description });
@@ -1293,7 +1293,7 @@ export interface NotifyPolicyItem {
   muteSchedule?: string | null;
   createdTime: number;
 }
-export const getNotifications = (params?: { page?: number; size?: number; readStatus?: number; type?: string }) =>
+export const getNotifications = (params?: { page?: number; size?: number; readStatus?: number; type?: string; severity?: string; keyword?: string }) =>
   Network.post<{ records: NotificationItem[]; total: number; page: number; size: number }>("/notification/list", params);
 export const getUnreadCount = () => Network.post<{ count: number }>("/notification/unread");
 export const markNotificationRead = (id: number) => Network.post("/notification/read", { id });

@@ -97,6 +97,27 @@ public class AlertController extends BaseController {
         return alertService.recentLogs(size, severity);
     }
 
+    /** 确认/已处理某条告警（从活跃列表中移除） */
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/acknowledge")
+    public R acknowledgeAlert(@RequestBody java.util.Map<String, Object> body) {
+        Long ruleId = body.get("ruleId") != null ? ((Number) body.get("ruleId")).longValue() : null;
+        Long nodeId = body.get("nodeId") != null ? ((Number) body.get("nodeId")).longValue() : null;
+        if (ruleId == null || nodeId == null) return R.error("缺少 ruleId 或 nodeId");
+        aggregationService.acknowledgeAlert(ruleId, nodeId);
+        return R.ok();
+    }
+
+    /** 获取指定资产的活跃告警详情 */
+    @RequireRole
+    @PostMapping("/alerts-for-asset")
+    public R alertsForAsset(@RequestBody java.util.Map<String, Long> body) {
+        Long assetId = body.get("assetId");
+        if (assetId == null) return R.error("缺少 assetId");
+        return R.ok(aggregationService.getActiveAlertsForAsset(assetId));
+    }
+
     // ==================== Rule Groups ====================
 
     @RequireRole

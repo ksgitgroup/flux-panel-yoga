@@ -389,8 +389,10 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                         (asset.getProvider() == null || !providerFilter.contains(asset.getProvider()))) continue;
                 if (regionFilter != null && !regionFilter.isEmpty() &&
                         (asset.getRegion() == null || !regionFilter.contains(asset.getRegion()))) continue;
-                if (osFilter != null && !osFilter.isEmpty() &&
-                        (asset.getOs() == null || !osFilter.contains(asset.getOs()))) continue;
+                if (osFilter != null && !osFilter.isEmpty()) {
+                    String osCategory = classifyOs(asset.getOs());
+                    if (!osFilter.contains(osCategory)) continue;
+                }
                 if (tagFilter != null && !tagFilter.isEmpty()) {
                     String assetTags = asset.getTags();
                     if (assetTags == null || assetTags.isEmpty()) continue;
@@ -622,6 +624,17 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
         if (bytes < 1024L * 1024 * 1024 * 1024) return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
+    }
+
+    private static String classifyOs(String os) {
+        if (os == null) return "Other";
+        String lower = os.toLowerCase();
+        if (lower.contains("windows")) return "Windows";
+        if (lower.contains("ubuntu")) return "Ubuntu";
+        if (lower.contains("debian")) return "Debian";
+        if (lower.contains("centos")) return "CentOS";
+        if (lower.contains("oracle") || lower.contains("alibaba") || lower.contains("linux")) return "Linux";
+        return "Other";
     }
 
     // ==================== Rule Groups ====================

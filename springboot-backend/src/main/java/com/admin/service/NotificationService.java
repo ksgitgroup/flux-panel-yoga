@@ -12,6 +12,7 @@ public interface NotificationService extends IService<Notification> {
     R send(String title, String content, String type, String severity, String sourceModule, Long sourceId, String category, String tags);
 
     R listForCurrentUser(int page, int size, Integer readStatus, String type, String severity);
+    R listForCurrentUser(int page, int size, Integer readStatus, String type, String severity, String keyword);
 
     R unreadCount();
 

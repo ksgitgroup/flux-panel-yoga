@@ -1239,6 +1239,7 @@ export interface NotifyChannelItem {
   type: string;
   enabled: number;
   configJson?: string | null;
+  rateLimitPerMinute?: number;
   createdTime: number;
 }
 export interface NotifyPolicyItem {
@@ -1248,6 +1249,10 @@ export interface NotifyPolicyItem {
   eventTypes?: string | null;
   severityFilter?: string | null;
   channelIds?: string | null;
+  includeRecovery?: number;
+  categoryFilter?: string | null;
+  tagFilter?: string | null;
+  muteSchedule?: string | null;
   createdTime: number;
 }
 export const getNotifications = (params?: { page?: number; size?: number; readStatus?: number; type?: string }) =>

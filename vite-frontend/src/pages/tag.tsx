@@ -175,6 +175,15 @@ export default function TagPage() {
         { value: "danger", label: "危险" }
     ];
 
+    const colorBgClass: Record<string, string> = {
+        default: 'bg-default-400',
+        primary: 'bg-primary',
+        secondary: 'bg-secondary',
+        success: 'bg-success',
+        warning: 'bg-warning',
+        danger: 'bg-danger',
+    };
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -361,7 +370,7 @@ export default function TagPage() {
                                         onSelectionChange={(keys) => setForm({ ...form, color: Array.from(keys)[0] as string })}
                                         renderValue={(items) => items.map((item) => (
                                             <div key={item.key} className="flex items-center gap-2">
-                                                <div className={`w-3 h-3 rounded-full bg-${item.textValue === '默认' ? 'default-400' : item.key}`}></div>
+                                                <div className={`w-3 h-3 rounded-full ${colorBgClass[item.key as string] || 'bg-default-400'}`}></div>
                                                 <span>{item.textValue}</span>
                                             </div>
                                         ))}
@@ -369,7 +378,7 @@ export default function TagPage() {
                                         {colorOptions.map((color) => (
                                             <SelectItem key={color.value} textValue={color.label}>
                                                 <div className="flex items-center gap-2">
-                                                    <div className={`w-3 h-3 rounded-full bg-${color.value === 'default' ? 'default-400' : color.value}`}></div>
+                                                    <div className={`w-3 h-3 rounded-full ${colorBgClass[color.value] || 'bg-default-400'}`}></div>
                                                     <span>{color.label}</span>
                                                 </div>
                                             </SelectItem>

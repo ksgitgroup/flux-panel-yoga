@@ -364,7 +364,7 @@ export default function IndexPage() {
         <div className="w-full max-w-md px-4 sm:px-0">
           <Card className="w-full">
             <CardHeader className="flex-col items-center px-6 pb-0 pt-6">
-              <h1 className={title({ size: "sm" })}>登陆</h1>
+              <h1 className={title({ size: "sm" })}>登录</h1>
               <p className="text-small text-default-500 mt-2">请选择管理员本地登录或钉钉登录</p>
             </CardHeader>
             <CardBody className="px-6 py-6">

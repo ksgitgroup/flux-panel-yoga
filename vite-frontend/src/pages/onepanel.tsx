@@ -450,7 +450,7 @@ export default function OnePanelPage() {
         </CardBody>
       </Card>
 
-      <Modal isOpen={formOpen} onOpenChange={(open) => !open && setFormOpen(false)} size="3xl" scrollBehavior="inside">
+      <Modal isOpen={formOpen} onOpenChange={(open) => !open && setFormOpen(false)} size="3xl" scrollBehavior="inside" isDismissable={!saving}>
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑 1Panel 实例' : '新增 1Panel 实例'}</ModalHeader>
           <ModalBody className="space-y-4">

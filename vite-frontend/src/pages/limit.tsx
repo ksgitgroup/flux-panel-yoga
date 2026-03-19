@@ -338,12 +338,13 @@ export default function LimitPage() {
         )}
 
         {/* 新增/编辑模态框 */}
-        <Modal 
+        <Modal
           isOpen={modalOpen}
           onOpenChange={setModalOpen}
           size="2xl"
-        scrollBehavior="outside"
-        backdrop="blur"
+          scrollBehavior="outside"
+          backdrop="blur"
+          isDismissable={!submitLoading}
         placement="center"
         >
           <ModalContent>

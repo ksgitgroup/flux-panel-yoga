@@ -17,4 +17,7 @@ public class NotifyChannel extends BaseEntity {
     private Integer enabled;
     private String testStatus;
     private Long lastTestAt;
+
+    /** 每分钟最大通知数，0=不限 */
+    private Integer rateLimitPerMinute;
 }

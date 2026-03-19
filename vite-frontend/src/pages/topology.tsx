@@ -296,7 +296,7 @@ export default function TopologyPage() {
           totalCost: res.data.totalMonthlyCost,
         });
       }
-    } catch { /* silent */ }
+    } catch { toast.error('加载拓扑数据失败'); }
   }, []);
 
   // ── Effects ──
@@ -389,7 +389,7 @@ export default function TopologyPage() {
       if (res.code === 0) {
         setAllAssets(res.data ?? []);
       }
-    } catch { /* silent */ }
+    } catch { toast.error('加载资产列表失败'); }
   };
 
   const handleAddMember = async () => {
@@ -414,6 +414,7 @@ export default function TopologyPage() {
 
   const handleRemoveMember = async (memberId: number) => {
     if (!selectedGroup) return;
+    if (!confirm('确定要从分组中移除该成员？')) return;
     try {
       const res = await removeGroupMember(memberId);
       if (res.code === 0) {
@@ -595,7 +596,7 @@ export default function TopologyPage() {
       </Tabs>
 
       {/* ──── Group Create/Edit Modal ──── */}
-      <Modal isOpen={groupModalOpen} onClose={() => setGroupModalOpen(false)}>
+      <Modal isOpen={groupModalOpen} onClose={() => setGroupModalOpen(false)} isDismissable={!groupSaving}>
         <ModalContent>
           <ModalHeader>{editingGroup ? '编辑分组' : '新建分组'}</ModalHeader>
           <ModalBody>

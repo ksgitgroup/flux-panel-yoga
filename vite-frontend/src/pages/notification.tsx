@@ -214,11 +214,11 @@ function NotificationsTab() {
             return (
               <div key={item.id}
                 className={`rounded-lg border p-2 px-3 flex items-center gap-2 ${
-                  item.readStatus === 0 ? 'border-primary/40 bg-primary-50/30' : 'border-divider/40 opacity-70'
-                }`}
-                onClick={() => item.readStatus === 0 && handleMarkRead(item.id)}
-                style={{ cursor: item.readStatus === 0 ? 'pointer' : 'default' }}>
-                {/* 左侧：类别+标题+标签 */}
+                  item.readStatus === 0 ? 'border-primary/40 bg-primary-50/30' : 'border-divider/40 opacity-60'
+                }`}>
+                {/* 左侧未读指示 */}
+                {item.readStatus === 0 && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />}
+                {/* 中部：类别+标题+标签+内容 */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {category && <Chip size="sm" variant="dot" color={category.color} className="h-4 text-[9px]">{category.label}</Chip>}
@@ -228,8 +228,16 @@ function NotificationsTab() {
                   </div>
                   <p className="text-xs text-default-400 truncate mt-0.5">{item.content}</p>
                 </div>
-                {/* 右侧：时间 */}
-                <span className="text-[10px] text-default-400 whitespace-nowrap flex-shrink-0">{formatTime(item.createdTime)}</span>
+                {/* 右侧：时间 + 操作 */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-default-400 whitespace-nowrap">{formatTime(item.createdTime)}</span>
+                  {item.readStatus === 0 && (
+                    <Button size="sm" variant="flat" color="primary" className="h-6 text-[10px] min-w-0 px-2"
+                      onPress={() => handleMarkRead(item.id)}>
+                      已处理
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}

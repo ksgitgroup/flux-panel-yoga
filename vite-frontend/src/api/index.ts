@@ -1068,6 +1068,9 @@ export interface AlertRule {
   probeCondition?: string | null;
   severity?: string | null;
   escalateAfterMinutes?: number | null;
+  triggerCount?: number;
+  maxDailySends?: number;
+  dailySendCount?: number;
   createdTime: number;
   updatedTime: number;
 }
@@ -1085,6 +1088,12 @@ export interface ScopeOptions {
   regions: string[];
   tags: string[];
   osList: string[];
+  counts?: {
+    environments?: Record<string, number>;
+    providers?: Record<string, number>;
+    regions?: Record<string, number>;
+    osList?: Record<string, number>;
+  };
 }
 export interface AlertLog {
   id: number;

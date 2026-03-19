@@ -542,18 +542,18 @@ export default function AlertPage() {
                     description="同规则再次触发间隔"
                     value={String(editRule.cooldownMinutes ?? 5)}
                     onValueChange={v => updateField({ cooldownMinutes: parseNum(v, 5) ?? 5 })} />
-                  <Input label="自动升级(分钟)" size="sm" className="flex-1" inputMode="numeric"
-                    placeholder="不升级"
-                    description="持续触发N分钟后等级升高"
-                    value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
-                    onValueChange={v => updateField({ escalateAfterMinutes: parseNum(v) })} />
+                  <Input label="每日上限" size="sm" className="flex-1" inputMode="numeric"
+                    description="每天最多推送次数,0=不限"
+                    value={String((editRule as any).maxDailySends ?? 10)}
+                    onValueChange={v => updateField({ maxDailySends: parseNum(v, 10) ?? 10 } as any)} />
                 </div>
+                <p className="text-[10px] text-default-300">渐进冷却：连续触发时冷却时间自动翻倍（30min→1h→2h→...→24h），恢复后重置</p>
 
                 <Divider className="my-1" />
 
                 {/* 监控范围 */}
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-default-500">监控范围 <span className="text-default-300 font-normal">（留空=全部节点）</span></p>
+                  <p className="text-xs font-medium text-default-500">监控范围 <span className="text-default-300 font-normal">（维度间 AND，维度内 OR。留空=全部节点）</span></p>
                   {metricNeedsScope ? (<>
                     {scopeOpts && (() => {
                       let scopeObj: Record<string, string[]> = {};
@@ -579,12 +579,13 @@ export default function AlertPage() {
                                 {d.options.map(opt => {
                                   const selected = scopeObj[d.key] || [];
                                   const isActive = selected.includes(opt);
+                                  const count = (scopeOpts as any)?.counts?.[d.key]?.[opt];
                                   return (
                                     <Chip key={opt} size="sm" className="cursor-pointer h-5 text-[10px]"
                                       variant={isActive ? 'solid' : 'bordered'}
                                       color={isActive ? 'primary' : 'default'}
                                       onClick={() => updateScope(d.key, isActive ? selected.filter(v => v !== opt) : [...selected, opt])}>
-                                      {opt}
+                                      {opt}{count ? ` (${count})` : ''}
                                     </Chip>
                                   );
                                 })}

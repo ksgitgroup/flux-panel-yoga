@@ -53,4 +53,16 @@ public class MonitorAlertRule extends BaseEntity {
 
     /** 多维度范围 JSON，NULL = 使用旧的 scopeType/scopeValue，格式：{"environment":["生产"],"provider":["Aliyun"]} */
     private String scopeJson;
+
+    /** 连续触发次数（恢复后重置为 0，用于渐进冷却） */
+    private Integer triggerCount;
+
+    /** 每日最大推送次数，0=不限，默认 10 */
+    private Integer maxDailySends;
+
+    /** 今日已推送次数（跨天自动重置） */
+    private Integer dailySendCount;
+
+    /** 每日计数上次重置时间 */
+    private Long dailySendResetAt;
 }

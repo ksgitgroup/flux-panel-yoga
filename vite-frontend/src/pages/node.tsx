@@ -842,13 +842,14 @@ export default function NodePage() {
         )}
 
         {/* 新增/编辑节点对话框 */}
-        <Modal 
-          isOpen={dialogVisible} 
+        <Modal
+          isOpen={dialogVisible}
           onClose={() => setDialogVisible(false)}
           size="2xl"
           scrollBehavior="outside"
           backdrop="blur"
           placement="center"
+          isDismissable={!submitLoading}
         >
           <ModalContent>
             <ModalHeader>{dialogTitle}</ModalHeader>

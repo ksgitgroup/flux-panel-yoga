@@ -233,13 +233,6 @@ export default function ProtocolPage() {
                                         value={form.description}
                                         onValueChange={(val) => setForm({ ...form, description: val })}
                                     />
-
-                                    {/* <Input
-                    label="配置 Schema (JSON)"
-                    placeholder="用于生成动态表单的 Schema"
-                    value={form.configSchema}
-                    onValueChange={(val) => setForm({...form, configSchema: val})}
-                  /> */}
                                 </div>
                             </ModalBody>
                             <ModalFooter>

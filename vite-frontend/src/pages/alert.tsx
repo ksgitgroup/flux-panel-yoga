@@ -112,7 +112,7 @@ export default function AlertPage() {
     try {
       const res = await getAlertRules();
       if (res.code === 0 && res.data) setRules(res.data as AlertRule[]);
-    } catch { /* ignore */ }
+    } catch { toast.error('加载告警规则失败'); }
     finally { setRulesLoading(false); }
   }, []);
 
@@ -126,7 +126,7 @@ export default function AlertPage() {
         setLogsTotal(d.total || 0);
         setLogsPage(page);
       }
-    } catch { /* ignore */ }
+    } catch { toast.error('加载告警日志失败'); }
     finally { setLogsLoading(false); }
   }, []);
 
@@ -185,7 +185,7 @@ export default function AlertPage() {
     try {
       const res = await toggleAlertRule(id);
       if (res.code === 0) fetchRules();
-    } catch { /* ignore */ }
+    } catch { toast.error('切换规则状态失败'); }
   };
 
   const openCreate = () => {

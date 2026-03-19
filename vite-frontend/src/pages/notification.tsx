@@ -124,7 +124,7 @@ function NotificationsTab() {
         setTotal(d.total || 0);
         setPage(p);
       }
-    } catch { /* ignore */ }
+    } catch { toast.error('加载通知列表失败'); }
     finally { setLoading(false); }
   }, [readFilter, typeFilter]);
 
@@ -245,7 +245,7 @@ function ChannelsTab() {
     try {
       const res = await getNotifyChannels();
       if (res.code === 0 && res.data) setChannels(res.data as NotifyChannelItem[]);
-    } catch { /* ignore */ }
+    } catch { toast.error('加载通知渠道失败'); }
     finally { setLoading(false); }
   }, []);
 
@@ -417,7 +417,7 @@ function PoliciesTab() {
       const [pRes, cRes] = await Promise.all([getNotifyPolicies(), getNotifyChannels()]);
       if (pRes.code === 0 && pRes.data) setPolicies(pRes.data as NotifyPolicyItem[]);
       if (cRes.code === 0 && cRes.data) setChannels(cRes.data as NotifyChannelItem[]);
-    } catch { /* ignore */ }
+    } catch { toast.error('加载通知策略失败'); }
     finally { setLoading(false); }
   }, []);
 

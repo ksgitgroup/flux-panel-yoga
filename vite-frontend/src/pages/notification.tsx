@@ -198,7 +198,19 @@ function NotificationsTab() {
               <CardBody className="flex flex-row items-start gap-3 py-3 px-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm">{item.title}</span>
+                    {/* 提取标题中的类别标签 */}
+                    {item.title?.startsWith('[基础设施]') ? (
+                      <><Chip size="sm" variant="dot" color="primary" className="h-5 text-[10px]">基础设施</Chip>
+                      <span className="font-medium text-sm">{item.title.replace('[基础设施] ', '')}</span></>
+                    ) : item.title?.startsWith('[连通性]') ? (
+                      <><Chip size="sm" variant="dot" color="danger" className="h-5 text-[10px]">连通性</Chip>
+                      <span className="font-medium text-sm">{item.title.replace('[连通性] ', '')}</span></>
+                    ) : item.title?.startsWith('[资源]') ? (
+                      <><Chip size="sm" variant="dot" color="warning" className="h-5 text-[10px]">资源</Chip>
+                      <span className="font-medium text-sm">{item.title.replace('[资源] ', '')}</span></>
+                    ) : (
+                      <span className="font-medium text-sm">{item.title}</span>
+                    )}
                     {severityChip(item.severity)}
                     {item.type && <Chip size="sm" variant="bordered">{EVENT_TYPES.find(t => t.value === item.type)?.label || item.type}</Chip>}
                     {item.readStatus === 0 && <Chip size="sm" color="primary" variant="dot">未读</Chip>}
@@ -480,8 +492,8 @@ function PoliciesTab() {
             <TableColumn>启用</TableColumn>
             <TableColumn>事件类型</TableColumn>
             <TableColumn>严重级别</TableColumn>
+            <TableColumn>路由</TableColumn>
             <TableColumn>通知渠道</TableColumn>
-            <TableColumn>创建时间</TableColumn>
             <TableColumn>操作</TableColumn>
           </TableHeader>
           <TableBody emptyContent="暂无策略">
@@ -509,8 +521,19 @@ function PoliciesTab() {
                     }) : <span className="text-default-400">全部</span>}
                   </div>
                 </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1 text-[10px]">
+                    {p.categoryFilter ? p.categoryFilter.split(',').map((c, i) => {
+                      const label = c.trim() === 'infra' ? '基础设施' : c.trim() === 'connectivity' ? '连通性' : c.trim() === 'resource' ? '资源' : c.trim();
+                      return <Chip key={i} size="sm" variant="flat" className="h-4 text-[9px]">{label}</Chip>;
+                    }) : null}
+                    {p.tagFilter ? <Chip size="sm" variant="bordered" className="h-4 text-[9px]">标签: {p.tagFilter}</Chip> : null}
+                    {p.muteSchedule ? <Chip size="sm" variant="flat" color="default" className="h-4 text-[9px]">静默 {p.muteSchedule}</Chip> : null}
+                    {p.includeRecovery === 0 ? <Chip size="sm" variant="flat" color="warning" className="h-4 text-[9px]">不含恢复</Chip> : null}
+                    {!p.categoryFilter && !p.tagFilter && !p.muteSchedule && p.includeRecovery !== 0 ? <span className="text-default-400">-</span> : null}
+                  </div>
+                </TableCell>
                 <TableCell className="text-sm">{channelName(p.channelIds)}</TableCell>
-                <TableCell className="text-sm text-default-500">{formatTime(p.createdTime)}</TableCell>
                 <TableCell>
                   <div className="flex gap-1">
                     {canUpdate && <Button size="sm" variant="light" color="primary" onPress={() => openEdit(p)}>编辑</Button>}

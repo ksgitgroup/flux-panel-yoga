@@ -8,6 +8,7 @@ import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem, SelectSection } from "@heroui/select";
+import { Tabs, Tab } from "@heroui/tabs";
 import {
   Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure
 } from "@heroui/modal";
@@ -96,6 +97,19 @@ const FIXED_OPERATOR_METRICS: Record<string, { operator: string; label: string; 
   xui_client_traffic: { operator: 'gte', label: '流量使用率 (%)', defaultThreshold: 80, description: '已用百分比 >= 此值时触发' },
 };
 
+/** 从 metric 推导告警类别 */
+function metricCategory(metric?: string): { label: string; color: 'primary' | 'danger' | 'warning' } {
+  if (!metric) return { label: '基础设施', color: 'primary' };
+  switch (metric) {
+    case 'offline': case 'forward_health': case 'probe_stale':
+      return { label: '连通性', color: 'danger' };
+    case 'expiry': case 'traffic_quota': case 'xui_client_expiry': case 'xui_client_traffic':
+      return { label: '资源', color: 'warning' };
+    default:
+      return { label: '基础设施', color: 'primary' };
+  }
+}
+
 function formatTime(ts?: number | null): string {
   if (!ts) return '-';
   return new Date(ts).toLocaleString('zh-CN', { hour12: false });
@@ -114,7 +128,11 @@ export default function AlertPage() {
   const canCreateAlerts = hasPermission('alert.create');
   const canUpdateAlerts = hasPermission('alert.update');
   const canDeleteAlerts = hasPermission('alert.delete');
-  const [tab, setTab] = useState<'rules' | 'logs'>('rules');
+  const [tab, setTab] = useState<string>('rules');
+
+  // Search/filter state
+  const [ruleSearch, setRuleSearch] = useState('');
+  const [logSearch, setLogSearch] = useState('');
 
   // Rules state
   const [rules, setRules] = useState<AlertRule[]>([]);
@@ -271,20 +289,30 @@ export default function AlertPage() {
           <h1 className="text-2xl font-bold tracking-tight">告警管理</h1>
           <p className="mt-0.5 text-sm text-default-500">配置监控告警规则，查看告警日志</p>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant={tab === 'rules' ? 'solid' : 'flat'} color="primary" onPress={() => setTab('rules')}>规则</Button>
-          <Button size="sm" variant={tab === 'logs' ? 'solid' : 'flat'} color="primary" onPress={() => setTab('logs')}>日志</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/notification')}>通知中心</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/monitor')}>诊断看板</Button>
+        <div className="flex items-center gap-3">
+          <Tabs size="sm" variant="underlined" color="primary"
+            selectedKey={tab} onSelectionChange={(k) => setTab(k as string)}>
+            <Tab key="rules" title="规则" />
+            <Tab key="logs" title="日志" />
+          </Tabs>
+          <div className="flex gap-2 ml-auto">
+            <Button size="sm" variant="flat" onPress={() => navigate('/notification')}>通知中心</Button>
+            <Button size="sm" variant="flat" onPress={() => navigate('/monitor')}>诊断看板</Button>
+          </div>
         </div>
       </div>
 
       {tab === 'rules' && (
         <>
-          <div className="flex justify-end">
-            {canCreateAlerts && (
-            <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>
-            )}
+          <div className="flex items-center gap-2">
+            <Input size="sm" placeholder="搜索规则名称…" className="max-w-xs"
+              value={ruleSearch} onValueChange={setRuleSearch}
+              isClearable onClear={() => setRuleSearch('')} />
+            <div className="ml-auto">
+              {canCreateAlerts && (
+              <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>
+              )}
+            </div>
           </div>
 
           {!migrationWarningDismissed && !rulesLoading && rules.some(r => r.notifyType && r.notifyType !== 'log' && r.notifyTarget) && (
@@ -311,24 +339,34 @@ export default function AlertPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {rules.map(rule => (
+              {rules.filter(r => !ruleSearch || r.name.toLowerCase().includes(ruleSearch.toLowerCase())).map(rule => {
+                const cat = metricCategory(rule.metric);
+                return (
                 <div key={rule.id} className={`rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center gap-3 ${rule.enabled ? 'border-divider/60 bg-content1' : 'border-divider/40 bg-default-50 opacity-60'}`}>
                   <Switch size="sm" isSelected={rule.enabled === 1} isDisabled={!canUpdateAlerts} onValueChange={() => handleToggle(rule.id)} />
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-semibold text-sm">{rule.name}</span>
+                      <Chip size="sm" variant="dot" color={cat.color} className="h-5 text-[10px]">{cat.label}</Chip>
                       <Chip size="sm" variant="flat" color={SEVERITIES.find(s => s.value === rule.severity)?.color || 'warning'} className="h-5 text-[10px]">
                         {SEVERITIES.find(s => s.value === rule.severity)?.label || '警告'}
                       </Chip>
-                      <Chip size="sm" variant="flat" color={rule.metric === 'offline' ? 'danger' : rule.metric === 'expiry' ? 'warning' : rule.metric === 'traffic_quota' ? 'secondary' : rule.metric === 'forward_health' ? 'danger' : 'primary'} className="h-5 text-[10px]">
+                      <Chip size="sm" variant="flat" color={
+                        rule.metric === 'offline' || rule.metric === 'forward_health' || rule.metric === 'probe_stale' ? 'danger' :
+                        rule.metric === 'expiry' || rule.metric === 'xui_client_expiry' ? 'warning' :
+                        rule.metric === 'traffic_quota' || rule.metric === 'xui_client_traffic' ? 'secondary' :
+                        rule.metric === 'swap' ? 'primary' : 'primary'
+                      } className="h-5 text-[10px]">
                         {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
                       </Chip>
-                      {rule.metric === 'expiry' ? (
+                      {rule.metric === 'expiry' || rule.metric === 'xui_client_expiry' ? (
                         <span className="text-xs font-mono text-default-500">&le; {rule.threshold} 天</span>
-                      ) : rule.metric === 'traffic_quota' ? (
+                      ) : rule.metric === 'traffic_quota' || rule.metric === 'xui_client_traffic' || rule.metric === 'swap' ? (
                         <span className="text-xs font-mono text-default-500">&ge; {rule.threshold}%</span>
                       ) : rule.metric === 'forward_health' ? (
                         <span className="text-xs font-mono text-default-500">&lt; {rule.threshold}%</span>
+                      ) : rule.metric === 'probe_stale' ? (
+                        <span className="text-xs font-mono text-default-500">&ge; {rule.threshold} 分钟</span>
                       ) : rule.metric !== 'offline' ? (
                         <span className="text-xs font-mono text-default-500">
                           {OPERATORS.find(o => o.value === rule.operator)?.label || rule.operator} {rule.threshold}
@@ -352,7 +390,8 @@ export default function AlertPage() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
@@ -361,7 +400,12 @@ export default function AlertPage() {
       {tab === 'logs' && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-default-500">共 {logsTotal} 条告警记录</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-default-500">共 {logsTotal} 条</p>
+              <Input size="sm" placeholder="搜索消息/节点…" className="max-w-xs"
+                value={logSearch} onValueChange={setLogSearch}
+                isClearable onClear={() => setLogSearch('')} />
+            </div>
             <div className="flex gap-2">
               <Button size="sm" variant="flat" onPress={() => fetchLogs(logsPage)}>刷新</Button>
               {canDeleteAlerts && (
@@ -384,7 +428,7 @@ export default function AlertPage() {
           ) : (
             <>
               <div className="space-y-1.5">
-                {logs.map(log => (
+                {logs.filter(l => !logSearch || (l.message || '').toLowerCase().includes(logSearch.toLowerCase()) || (l.nodeName || '').toLowerCase().includes(logSearch.toLowerCase()) || (l.ruleName || '').toLowerCase().includes(logSearch.toLowerCase())).map(log => (
                   <div key={log.id} className="rounded-lg border border-divider/60 bg-content1 p-2.5 flex items-start gap-2">
                     <Chip size="sm" variant="flat"
                       color={log.notifyStatus === 'sent' ? 'success' : log.notifyStatus === 'failed' ? 'danger' : 'warning'}

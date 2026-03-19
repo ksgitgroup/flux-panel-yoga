@@ -7,7 +7,7 @@ import { Button } from "@heroui/button";
 import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
-import { Select, SelectItem } from "@heroui/select";
+import { Select, SelectItem, SelectSection } from "@heroui/select";
 import {
   Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure
 } from "@heroui/modal";
@@ -20,20 +20,40 @@ import {
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 
-const METRICS = [
-  { value: 'cpu', label: 'CPU 使用率 (%)', needsProbe: true },
-  { value: 'mem', label: '内存使用率 (%)', needsProbe: true },
-  { value: 'disk', label: '磁盘使用率 (%)', needsProbe: true },
-  { value: 'net_in', label: '入站流量 (B/s)', needsProbe: true },
-  { value: 'net_out', label: '出站流量 (B/s)', needsProbe: true },
-  { value: 'load', label: '系统负载 (1min)', needsProbe: true },
-  { value: 'temperature', label: '温度 (°C)', needsProbe: true },
-  { value: 'connections', label: 'TCP 连接数', needsProbe: true },
-  { value: 'offline', label: '节点离线', needsProbe: true },
-  { value: 'expiry', label: '到期提醒 (剩余天数)', needsProbe: false },
-  { value: 'traffic_quota', label: '流量配额 (已用%)', needsProbe: false },
-  { value: 'forward_health', label: '转发健康度', needsProbe: false },
+const METRIC_CATEGORIES = [
+  {
+    label: '基础设施', category: 'infra',
+    metrics: [
+      { value: 'cpu', label: 'CPU 使用率 (%)', needsProbe: true, needsScope: true },
+      { value: 'mem', label: '内存使用率 (%)', needsProbe: true, needsScope: true },
+      { value: 'disk', label: '磁盘使用率 (%)', needsProbe: true, needsScope: true },
+      { value: 'swap', label: 'Swap 使用率 (%)', needsProbe: true, needsScope: true },
+      { value: 'net_in', label: '入站流量 (B/s)', needsProbe: true, needsScope: true },
+      { value: 'net_out', label: '出站流量 (B/s)', needsProbe: true, needsScope: true },
+      { value: 'load', label: '系统负载 (1min)', needsProbe: true, needsScope: true },
+      { value: 'temperature', label: '温度 (°C)', needsProbe: true, needsScope: true },
+      { value: 'connections', label: 'TCP 连接数', needsProbe: true, needsScope: true },
+    ],
+  },
+  {
+    label: '连通性', category: 'connectivity',
+    metrics: [
+      { value: 'offline', label: '节点离线', needsProbe: true, needsScope: true },
+      { value: 'forward_health', label: '转发健康度', needsProbe: false, needsScope: false },
+      { value: 'probe_stale', label: '探针断联 (分钟)', needsProbe: false, needsScope: false },
+    ],
+  },
+  {
+    label: '资源', category: 'resource',
+    metrics: [
+      { value: 'expiry', label: '到期提醒 (剩余天数)', needsProbe: false, needsScope: true },
+      { value: 'traffic_quota', label: '流量配额 (已用%)', needsProbe: false, needsScope: true },
+      { value: 'xui_client_expiry', label: 'XUI 客户端到期 (剩余天数)', needsProbe: false, needsScope: false },
+      { value: 'xui_client_traffic', label: 'XUI 客户端流量 (已用%)', needsProbe: false, needsScope: false },
+    ],
+  },
 ];
+const METRICS = METRIC_CATEGORIES.flatMap(c => c.metrics);
 
 const OPERATORS = [
   { value: 'gt', label: '>' },
@@ -65,12 +85,15 @@ const SEVERITIES = [
 // Metrics that don't need threshold input
 const NO_THRESHOLD_METRICS = ['offline'];
 // Metrics that don't need duration
-const NO_DURATION_METRICS = ['offline', 'expiry', 'traffic_quota', 'forward_health'];
+const NO_DURATION_METRICS = ['offline', 'expiry', 'traffic_quota', 'forward_health', 'xui_client_expiry'];
 // Metrics with fixed operator (auto-set)
 const FIXED_OPERATOR_METRICS: Record<string, { operator: string; label: string; defaultThreshold: number; description: string }> = {
   expiry: { operator: 'lte', label: '提前提醒天数', defaultThreshold: 7, description: '剩余天数 <= 此值时触发（已过期也触发）' },
   traffic_quota: { operator: 'gte', label: '流量使用率 (%)', defaultThreshold: 80, description: '已用百分比 >= 此值时触发' },
   forward_health: { operator: 'lt', label: '健康度阈值 (%)', defaultThreshold: 60, description: '健康度低于此值时触发（100=完美）' },
+  probe_stale: { operator: 'gte', label: '断联阈值 (分钟)', defaultThreshold: 10, description: '探针未同步超过此时间触发' },
+  xui_client_expiry: { operator: 'lte', label: '提前提醒天数', defaultThreshold: 7, description: '剩余天数 <= 此值时触发（已过期也触发）' },
+  xui_client_traffic: { operator: 'gte', label: '流量使用率 (%)', defaultThreshold: 80, description: '已用百分比 >= 此值时触发' },
 };
 
 function formatTime(ts?: number | null): string {
@@ -228,10 +251,10 @@ export default function AlertPage() {
     }
   };
 
-  // Helper to check if current metric needs probe condition
-  const metricNeedsProbe = editRule?.metric
-    ? (METRICS.find(m => m.value === editRule.metric)?.needsProbe ?? true)
-    : true;
+  // Helper to check if current metric needs probe/scope condition
+  const currentMetricDef = editRule?.metric ? METRICS.find(m => m.value === editRule.metric) : null;
+  const metricNeedsProbe = currentMetricDef?.needsProbe ?? true;
+  const metricNeedsScope = currentMetricDef?.needsScope ?? true;
 
   if (!canViewAlerts) {
     return (
@@ -419,7 +442,11 @@ export default function AlertPage() {
                     disallowEmptySelection
                     selectedKeys={editRule.metric ? [editRule.metric] : []}
                     onSelectionChange={keys => handleMetricChange(Array.from(keys)[0] as string)}>
-                    {METRICS.map(m => <SelectItem key={m.value}>{m.label}</SelectItem>)}
+                    {METRIC_CATEGORIES.map(cat => (
+                      <SelectSection key={cat.category} title={cat.label}>
+                        {cat.metrics.map(m => <SelectItem key={m.value}>{m.label}</SelectItem>)}
+                      </SelectSection>
+                    ))}
                   </Select>
 
                   {/* Threshold row — varies by metric */}
@@ -461,29 +488,37 @@ export default function AlertPage() {
                 {/* === Section 2: 监控范围 === */}
                 <div className="space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-default-400">监控范围</p>
-                  <div className="flex gap-2">
-                    <Select label="范围" size="sm" className="flex-1"
-                      disallowEmptySelection
-                      selectedKeys={[editRule.scopeType || 'all']}
-                      onSelectionChange={keys => updateField({ scopeType: Array.from(keys)[0] as string })}>
-                      {SCOPE_TYPES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
-                    </Select>
-
-                    {editRule.scopeType && editRule.scopeType !== 'all' && (
-                      <Input label={editRule.scopeType === 'tag' ? '标签名' : '节点 ID'} size="sm" className="flex-1"
-                        value={editRule.scopeValue || ''}
-                        onValueChange={v => updateField({ scopeValue: v })} />
-                    )}
-
-                    {metricNeedsProbe && (
-                      <Select label="探针" size="sm" className="w-36"
+                  {metricNeedsScope ? (
+                    <div className="flex gap-2">
+                      <Select label="范围" size="sm" className="flex-1"
                         disallowEmptySelection
-                        selectedKeys={[editRule.probeCondition || 'any']}
-                        onSelectionChange={keys => updateField({ probeCondition: Array.from(keys)[0] as string })}>
-                        {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
+                        selectedKeys={[editRule.scopeType || 'all']}
+                        onSelectionChange={keys => updateField({ scopeType: Array.from(keys)[0] as string })}>
+                        {SCOPE_TYPES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
                       </Select>
-                    )}
-                  </div>
+
+                      {editRule.scopeType && editRule.scopeType !== 'all' && (
+                        <Input label={editRule.scopeType === 'tag' ? '标签名' : '节点 ID'} size="sm" className="flex-1"
+                          value={editRule.scopeValue || ''}
+                          onValueChange={v => updateField({ scopeValue: v })} />
+                      )}
+
+                      {metricNeedsProbe && (
+                        <Select label="探针" size="sm" className="w-36"
+                          disallowEmptySelection
+                          selectedKeys={[editRule.probeCondition || 'any']}
+                          onSelectionChange={keys => updateField({ probeCondition: Array.from(keys)[0] as string })}>
+                          {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
+                        </Select>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
+                      {editRule.metric === 'probe_stale' ? '此指标监控所有启用的探针实例，无需选择节点范围。' :
+                       editRule.metric?.startsWith('xui_client_') ? '此指标监控所有启用的 XUI 客户端，无需选择节点范围。' :
+                       '此指标使用独立数据源，无需选择节点范围。'}
+                    </p>
+                  )}
                 </div>
 
                 <Divider />

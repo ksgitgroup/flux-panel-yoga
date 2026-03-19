@@ -63,6 +63,7 @@ public class AlertAggregationService {
         private String notifyTarget;
         private long timestamp;
         private boolean escalation;
+        private String category;    // infra, connectivity, resource
     }
 
     // ==================== Public API ====================
@@ -286,7 +287,8 @@ public class AlertAggregationService {
                     .map(AlertEvent::getSeverity)
                     .reduce(first.getSeverity(), this::higherSeverity);
 
-            String title = first.getRuleName();
+            String categoryLabel = getCategoryLabel(first.getCategory());
+            String title = categoryLabel + first.getRuleName();
             String content;
             if (group.size() == 1) {
                 content = first.getMessage();
@@ -343,6 +345,16 @@ public class AlertAggregationService {
         return oa >= ob ? a : b;
     }
 
+    private String getCategoryLabel(String category) {
+        if (category == null) return "";
+        switch (category) {
+            case "infra": return "[基础设施] ";
+            case "connectivity": return "[连通性] ";
+            case "resource": return "[资源] ";
+            default: return "";
+        }
+    }
+
     // ==================== Daily Summary ====================
 
     /**
@@ -388,6 +400,19 @@ public class AlertAggregationService {
         md.append(String.format("**昨日告警**: %d次 (P0: %d, P1: %d, P2: %d)\n",
                 recentLogs.size(), criticalCount, warningCount, infoCount));
         md.append(String.format("**当前活跃告警**: %d项\n", activeAlertCount));
+
+        // 按类别统计活跃告警
+        if (!activeAlerts.isEmpty()) {
+            Map<String, Integer> catCount = new LinkedHashMap<>();
+            for (AlertEvent e : activeAlerts.values()) {
+                String cat = e.getCategory() != null ? e.getCategory() : "infra";
+                catCount.merge(cat, 1, Integer::sum);
+            }
+            StringBuilder catLine = new StringBuilder("**按类别**: ");
+            catCount.forEach((cat, count) -> catLine.append(getCategoryLabel(cat).trim()).append(" ").append(count).append("项  "));
+            md.append(catLine.toString().trim()).append("\n");
+        }
+
         md.append(String.format("**服务器健康**: %d/%d 在线\n", onlineNodes, totalNodes));
 
         // Top alerting nodes

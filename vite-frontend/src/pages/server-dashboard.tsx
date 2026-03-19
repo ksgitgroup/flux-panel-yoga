@@ -445,7 +445,7 @@ export default function ServerDashboardPage() {
   const handleAckAlert = async (ruleId: number, nodeId: number) => {
     try {
       await acknowledgeAlert(ruleId, nodeId);
-      toast.success('已标记为已处理');
+      toast.success('已标记为已读');
       setAlertPopData(prev => prev.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)));
       if (alertPopData.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)).length === 0) {
         setAlertingAssetIds(prev => { const n = new Set(prev); if (alertPopAssetId) n.delete(alertPopAssetId); return n; });
@@ -1926,7 +1926,7 @@ export default function ServerDashboardPage() {
                       <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
                     </div>
                     <Button size="sm" variant="flat" color="success" className="h-6 text-[10px] min-w-0 flex-shrink-0"
-                      onPress={() => handleAckAlert(a.ruleId, a.nodeId)}>已处理</Button>
+                      onPress={() => handleAckAlert(a.ruleId, a.nodeId)}>已读</Button>
                   </div>
                 ))}
               </div>

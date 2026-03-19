@@ -234,7 +234,7 @@ function NotificationsTab() {
                   {item.readStatus === 0 && (
                     <Button size="sm" variant="flat" color="primary" className="h-6 text-[10px] min-w-0 px-2"
                       onPress={() => handleMarkRead(item.id)}>
-                      已处理
+                      已读
                     </Button>
                   )}
                 </div>

@@ -109,4 +109,11 @@ public class AssetHostController extends BaseController {
             return R.err("IP 查询异常: " + e.getMessage());
         }
     }
+
+    /** 获取资产各维度的可选值（用于告警规则范围选择器） */
+    @RequireRole
+    @PostMapping("/scope-options")
+    public R scopeOptions() {
+        return assetHostService.getScopeOptions();
+    }
 }

@@ -1059,6 +1059,8 @@ export interface AlertRule {
   durationSeconds: number;
   scopeType: string;
   scopeValue?: string | null;
+  scopeJson?: string | null;
+  groupId?: number | null;
   notifyType: string;
   notifyTarget?: string | null;
   cooldownMinutes: number;
@@ -1066,8 +1068,32 @@ export interface AlertRule {
   probeCondition?: string | null;
   severity?: string | null;
   escalateAfterMinutes?: number | null;
+  triggerCount?: number;
+  maxDailySends?: number;
+  dailySendCount?: number;
   createdTime: number;
   updatedTime: number;
+}
+export interface AlertRuleGroup {
+  id: number;
+  name: string;
+  description?: string | null;
+  enabled: number;
+  isDefault: number;
+  createdTime: number;
+}
+export interface ScopeOptions {
+  environments: string[];
+  providers: string[];
+  regions: string[];
+  tags: string[];
+  osList: string[];
+  counts?: {
+    environments?: Record<string, number>;
+    providers?: Record<string, number>;
+    regions?: Record<string, number>;
+    osList?: Record<string, number>;
+  };
 }
 export interface AlertLog {
   id: number;
@@ -1090,6 +1116,12 @@ export const toggleAlertRule = (id: number) => Network.post<AlertRule>("/alert/r
 export const getAlertLogs = (page?: number, size?: number) =>
   Network.post<{ records: AlertLog[]; total: number }>("/alert/logs", { page: page || 1, size: size || 20 });
 export const clearAlertLogs = () => Network.post("/alert/logs/clear");
+export const getAlertGroups = () => Network.post<AlertRuleGroup[]>("/alert/groups");
+export const createAlertGroup = (name: string, description?: string) => Network.post<AlertRuleGroup>("/alert/group/create", { name, description });
+export const updateAlertGroup = (id: number, name: string, description?: string) => Network.post("/alert/group/update", { id, name, description });
+export const deleteAlertGroup = (id: number) => Network.post("/alert/group/delete", { id });
+export const batchUpdateGroupRules = (groupId: number, updates: Record<string, unknown>) => Network.post("/alert/group/batch-update", { groupId, ...updates });
+export const getScopeOptions = () => Network.post<ScopeOptions>("/asset/scope-options");
 
 // Enterprise IAM
 export const getIamAuthOptions = () => Network.post<IamAuthOptions>("/iam/auth/options");

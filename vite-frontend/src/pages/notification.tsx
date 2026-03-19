@@ -1,13 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
 import { Spinner } from "@heroui/spinner";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
-import { Tabs, Tab } from "@heroui/tabs";
 import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell
 } from "@heroui/table";
@@ -20,6 +17,7 @@ import {
   getNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
   getNotifyChannels, createNotifyChannel, updateNotifyChannel, deleteNotifyChannel, testNotifyChannel,
   getNotifyPolicies, createNotifyPolicy, updateNotifyPolicy, deleteNotifyPolicy,
+  getAlertLogs, clearAlertLogs, AlertLog,
   NotificationItem, NotifyChannelItem, NotifyPolicyItem
 } from "@/api";
 import { hasPermission } from '@/utils/auth';
@@ -108,15 +106,17 @@ function NotificationsTab() {
   const [loading, setLoading] = useState(true);
   const [readFilter, setReadFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('');
+  const [sevFilter, setSevFilter] = useState<string>('');
   const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchList = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const params: any = { page: p, size: 20 };
+      const params: any = { page: p, size: 30 };
       if (readFilter === 'unread') params.readStatus = 0;
       else if (readFilter === 'read') params.readStatus = 1;
       if (typeFilter) params.type = typeFilter;
+      if (sevFilter) params.severity = sevFilter;
       const res = await getNotifications(params);
       if (res.code === 0 && res.data) {
         const d = res.data as any;
@@ -126,7 +126,7 @@ function NotificationsTab() {
       }
     } catch { toast.error('加载通知列表失败'); }
     finally { setLoading(false); }
-  }, [readFilter, typeFilter]);
+  }, [readFilter, typeFilter, sevFilter]);
 
   const fetchUnread = useCallback(async () => {
     try {
@@ -154,85 +154,92 @@ function NotificationsTab() {
     } catch { toast.error('操作失败'); }
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  // 提取类别和清理标题
+  const parseTitle = (title?: string) => {
+    if (!title) return { category: null, cleanTitle: '' };
+    const prefixes: Record<string, { label: string; color: 'primary' | 'danger' | 'warning' }> = {
+      '[基础设施] ': { label: '基础设施', color: 'primary' },
+      '[连通性] ': { label: '连通性', color: 'danger' },
+      '[资源] ': { label: '资源', color: 'warning' },
+    };
+    for (const [prefix, meta] of Object.entries(prefixes)) {
+      if (title.startsWith(prefix)) return { category: meta, cleanTitle: title.slice(prefix.length) };
+    }
+    return { category: null, cleanTitle: title };
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / 30));
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Select
-          label="已读状态"
-          size="sm"
-          className="w-36"
+    <div className="flex flex-col gap-3">
+      {/* 紧凑筛选栏 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select size="sm" className="w-28" aria-label="已读状态" placeholder="已读状态"
           selectedKeys={new Set([readFilter])}
-          onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setReadFilter(v || 'all'); }}
-        >
+          onSelectionChange={(keys) => setReadFilter(Array.from(keys)[0] as string || 'all')}>
           <SelectItem key="all">全部</SelectItem>
           <SelectItem key="unread">未读</SelectItem>
           <SelectItem key="read">已读</SelectItem>
         </Select>
-        <Select
-          label="类型筛选"
-          size="sm"
-          className="w-44"
-          selectedKeys={typeFilter ? new Set([typeFilter]) : new Set()}
-          onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setTypeFilter(v || ''); }}
-        >
+        <Select size="sm" className="w-32" aria-label="类型" placeholder="全部类型"
+          selectedKeys={typeFilter ? new Set([typeFilter]) : new Set([''])}
+          onSelectionChange={(keys) => setTypeFilter(Array.from(keys)[0] as string || '')}>
           {[{ value: '', label: '全部类型' }, ...EVENT_TYPES].map(t => (
             <SelectItem key={t.value}>{t.label}</SelectItem>
           ))}
         </Select>
-        <Button size="sm" color="primary" variant="flat" onPress={() => fetchList(1)}>刷新</Button>
-        <Button size="sm" color="warning" variant="flat" onPress={handleMarkAllRead} isDisabled={unreadCount === 0}>
-          全部已读 {unreadCount > 0 && `(${unreadCount})`}
+        <Select size="sm" className="w-28" aria-label="级别" placeholder="全部级别"
+          selectedKeys={sevFilter ? new Set([sevFilter]) : new Set([''])}
+          onSelectionChange={(keys) => setSevFilter(Array.from(keys)[0] as string || '')}>
+          <SelectItem key="">全部级别</SelectItem>
+          <SelectItem key="critical">严重</SelectItem>
+          <SelectItem key="warning">警告</SelectItem>
+          <SelectItem key="info">提示</SelectItem>
+        </Select>
+        <Button size="sm" variant="flat" onPress={() => fetchList(1)}>刷新</Button>
+        <Button size="sm" variant="flat" color="warning" onPress={handleMarkAllRead} isDisabled={unreadCount === 0}>
+          全部已读{unreadCount > 0 ? ` (${unreadCount})` : ''}
         </Button>
+        <span className="text-xs text-default-400 ml-auto">共 {total} 条</span>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+        <div className="flex justify-center py-8"><Spinner size="lg" /></div>
       ) : items.length === 0 ? (
-        <div className="text-center text-default-400 py-12">暂无通知消息</div>
+        <div className="text-center text-default-400 py-8">暂无通知消息</div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {items.map((item) => (
-            <Card key={item.id} shadow="sm" className={item.readStatus === 0 ? 'border-l-3 border-primary' : 'opacity-75'}>
-              <CardBody className="flex flex-row items-start gap-3 py-3 px-4">
+        <div className="space-y-1">
+          {items.map((item) => {
+            const { category, cleanTitle } = parseTitle(item.title);
+            return (
+              <div key={item.id}
+                className={`rounded-lg border p-2 px-3 flex items-center gap-2 ${
+                  item.readStatus === 0 ? 'border-primary/40 bg-primary-50/30' : 'border-divider/40 opacity-70'
+                }`}
+                onClick={() => item.readStatus === 0 && handleMarkRead(item.id)}
+                style={{ cursor: item.readStatus === 0 ? 'pointer' : 'default' }}>
+                {/* 左侧：类别+标题+标签 */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    {/* 提取标题中的类别标签 */}
-                    {item.title?.startsWith('[基础设施]') ? (
-                      <><Chip size="sm" variant="dot" color="primary" className="h-5 text-[10px]">基础设施</Chip>
-                      <span className="font-medium text-sm">{item.title.replace('[基础设施] ', '')}</span></>
-                    ) : item.title?.startsWith('[连通性]') ? (
-                      <><Chip size="sm" variant="dot" color="danger" className="h-5 text-[10px]">连通性</Chip>
-                      <span className="font-medium text-sm">{item.title.replace('[连通性] ', '')}</span></>
-                    ) : item.title?.startsWith('[资源]') ? (
-                      <><Chip size="sm" variant="dot" color="warning" className="h-5 text-[10px]">资源</Chip>
-                      <span className="font-medium text-sm">{item.title.replace('[资源] ', '')}</span></>
-                    ) : (
-                      <span className="font-medium text-sm">{item.title}</span>
-                    )}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {category && <Chip size="sm" variant="dot" color={category.color} className="h-4 text-[9px]">{category.label}</Chip>}
+                    <span className={`text-sm ${item.readStatus === 0 ? 'font-semibold' : ''}`}>{cleanTitle}</span>
                     {severityChip(item.severity)}
-                    {item.type && <Chip size="sm" variant="bordered">{EVENT_TYPES.find(t => t.value === item.type)?.label || item.type}</Chip>}
-                    {item.readStatus === 0 && <Chip size="sm" color="primary" variant="dot">未读</Chip>}
+                    {item.type && <Chip size="sm" variant="bordered" className="h-4 text-[9px]">{EVENT_TYPES.find(t => t.value === item.type)?.label || item.type}</Chip>}
                   </div>
-                  <div className="text-sm text-default-500 line-clamp-2">{item.content}</div>
-                  <div className="text-xs text-default-400 mt-1">{formatTime(item.createdTime)}</div>
+                  <p className="text-xs text-default-400 truncate mt-0.5">{item.content}</p>
                 </div>
-                {item.readStatus === 0 && (
-                  <Button size="sm" variant="light" color="primary" onPress={() => handleMarkRead(item.id)}>
-                    标记已读
-                  </Button>
-                )}
-              </CardBody>
-            </Card>
-          ))}
+                {/* 右侧：时间 */}
+                <span className="text-[10px] text-default-400 whitespace-nowrap flex-shrink-0">{formatTime(item.createdTime)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {totalPages > 1 && (
-        <div className="flex justify-center gap-2 mt-2">
+        <div className="flex justify-center gap-2">
           <Button size="sm" variant="flat" isDisabled={page <= 1} onPress={() => fetchList(page - 1)}>上一页</Button>
-          <span className="text-sm self-center text-default-500">{page} / {totalPages}</span>
+          <span className="text-xs self-center text-default-400">{page} / {totalPages}</span>
           <Button size="sm" variant="flat" isDisabled={page >= totalPages} onPress={() => fetchList(page + 1)}>下一页</Button>
         </div>
       )}
@@ -241,7 +248,7 @@ function NotificationsTab() {
 }
 
 // ==================== Channels Tab ====================
-function ChannelsTab() {
+export function ChannelsTab() {
   const canCreate = hasPermission('notification.create');
   const canUpdate = hasPermission('notification.update');
   const canDelete = hasPermission('notification.delete');
@@ -297,8 +304,7 @@ function ChannelsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-between items-center">
-        <span className="text-default-500 text-sm">管理通知渠道（企业微信 / 钉钉 / Telegram / Webhook / Email）</span>
+      <div className="flex justify-end items-center">
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建渠道</Button>}
       </div>
 
@@ -420,7 +426,7 @@ function ChannelsTab() {
 }
 
 // ==================== Policies Tab ====================
-function PoliciesTab() {
+export function PoliciesTab() {
   const canCreate = hasPermission('notification.create');
   const canUpdate = hasPermission('notification.update');
   const canDelete = hasPermission('notification.delete');
@@ -475,11 +481,7 @@ function PoliciesTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <span className="text-default-500 text-sm">策略决定哪些事件 + 哪些严重等级 → 发送到哪些渠道。</span>
-          <span className="text-default-400 text-xs ml-1">示例："严重告警→微信"：事件类型选告警触发，严重级别选严重，渠道选企业微信</span>
-        </div>
+      <div className="flex justify-end items-center">
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>}
       </div>
 
@@ -550,6 +552,9 @@ function PoliciesTab() {
         <ModalContent>
           <ModalHeader>{editItem?.id ? '编辑策略' : '新建策略'}</ModalHeader>
           <ModalBody className="flex flex-col gap-3">
+            <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
+              匹配规则：事件类型 <strong>且</strong> 严重级别 <strong>且</strong> 告警类别 <strong>且</strong> 标签 全部满足时才发送到渠道。留空的条件视为「全部匹配」。
+            </p>
             <Input
               label="策略名称"
               value={editItem?.name || ''}
@@ -677,19 +682,32 @@ function PoliciesTab() {
               <p className="text-[11px] text-default-400 mt-1.5">在此时间段内不推送外部渠道（支持跨午夜，如 22:00-06:00），留空不静默</p>
             </div>
 
-            <Select
-              label="通知渠道"
-              selectionMode="multiple"
-              selectedKeys={editItem?.channelIds ? new Set(editItem.channelIds.split(',').map(s => s.trim())) : new Set()}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys).join(',');
-                setEditItem(prev => ({ ...prev, channelIds: v }));
-              }}
-            >
-              {channels.map(ch => (
-                <SelectItem key={String(ch.id)}>{ch.name} ({ch.type})</SelectItem>
-              ))}
-            </Select>
+            <div>
+              <p className="text-sm font-medium text-default-700 mb-2">通知渠道</p>
+              <div className="flex flex-wrap gap-2">
+                {channels.length === 0 ? (
+                  <p className="text-xs text-default-400">暂无可用渠道，请先在「通知渠道」中创建</p>
+                ) : channels.map(ch => {
+                  const selectedIds = (editItem?.channelIds || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const isActive = selectedIds.includes(String(ch.id));
+                  return (
+                    <Chip key={ch.id} size="sm"
+                      variant={isActive ? 'solid' : 'bordered'}
+                      color={isActive ? 'primary' : 'default'}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        const next = isActive
+                          ? selectedIds.filter(v => v !== String(ch.id))
+                          : [...selectedIds, String(ch.id)];
+                        setEditItem(prev => ({ ...prev, channelIds: next.join(',') }));
+                      }}>
+                      {ch.name} ({ch.type})
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-default-400 mt-1.5">选择告警要推送到的外部渠道，可多选</p>
+            </div>
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onClose}>取消</Button>
@@ -701,49 +719,128 @@ function PoliciesTab() {
   );
 }
 
+// ==================== Alert Logs Tab ====================
+function AlertLogsTab() {
+  const canDelete = hasPermission('alert.delete');
+  const [logs, setLogs] = useState<AlertLog[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const fetchLogs = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const res = await getAlertLogs(p, 20);
+      if (res.code === 0 && res.data) {
+        const d = res.data as any;
+        setLogs(d.records || []);
+        setTotal(d.total || 0);
+        setPage(p);
+      }
+    } catch { toast.error('加载告警记录失败'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchLogs(1); }, [fetchLogs]);
+
+  const filtered = logs.filter(l =>
+    !search || (l.message || '').toLowerCase().includes(search.toLowerCase())
+    || (l.nodeName || '').toLowerCase().includes(search.toLowerCase())
+    || (l.ruleName || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-default-500">共 {total} 条</span>
+          <Input size="sm" placeholder="搜索消息/节点/规则…" className="max-w-xs"
+            value={search} onValueChange={setSearch}
+            isClearable onClear={() => setSearch('')} />
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="flat" onPress={() => fetchLogs(page)}>刷新</Button>
+          {canDelete && (
+            <Button size="sm" variant="flat" color="danger" onPress={async () => {
+              if (!confirm('确定清除所有告警记录？')) return;
+              await clearAlertLogs();
+              toast.success('已清除');
+              fetchLogs(1);
+            }}>清除全部</Button>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
+          <h3 className="text-base font-semibold text-default-600">暂无告警记录</h3>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            {filtered.map(log => (
+              <div key={log.id} className="rounded-lg border border-divider/60 bg-content1 p-2.5 flex items-start gap-2">
+                <Chip size="sm" variant="flat"
+                  color={log.notifyStatus === 'sent' ? 'success' : log.notifyStatus === 'failed' ? 'danger' : 'warning'}
+                  className="h-5 text-[9px] flex-shrink-0 mt-0.5">
+                  {log.notifyStatus === 'sent' ? '已发送' : log.notifyStatus === 'failed' ? '发送失败' : '记录'}
+                </Chip>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm">{log.message}</p>
+                  <p className="text-[10px] text-default-400 font-mono mt-0.5">
+                    规则: {log.ruleName} · 节点: {log.nodeName || '-'} · {formatTime(log.createdTime)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {total > 20 && (
+            <div className="flex justify-center gap-2 pt-2">
+              <Button size="sm" variant="flat" isDisabled={page <= 1} onPress={() => fetchLogs(page - 1)}>上一页</Button>
+              <span className="text-xs text-default-400 self-center">{page} / {Math.ceil(total / 20)}</span>
+              <Button size="sm" variant="flat" isDisabled={page >= Math.ceil(total / 20)} onPress={() => fetchLogs(page + 1)}>下一页</Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ==================== Main Page ====================
 export default function NotificationPage() {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('notifications');
 
   return (
     <div className="flex flex-col gap-4 p-4 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">通知中心</h1>
-        <div className="flex gap-2">
-          <Button size="sm" variant="flat" onPress={() => navigate('/alert')}>告警规则</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/audit')}>审计日志</Button>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">通知中心</h1>
+          <p className="mt-0.5 text-sm text-default-500">告警规则触发 → 通知策略匹配 → 通知渠道发送 + 站内消息记录</p>
+        </div>
+        <div className="flex gap-1 bg-default-100 rounded-lg p-0.5">
+          {[
+            { key: 'notifications', label: '通知消息' },
+            { key: 'alert_logs', label: '告警记录' },
+          ].map(t => (
+            <button key={t.key}
+              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                activeTab === t.key
+                  ? 'bg-white dark:bg-default-200 font-medium shadow-sm'
+                  : 'text-default-500 hover:text-default-700'
+              }`}
+              onClick={() => setActiveTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Architecture guide */}
-      <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary/5">
-        <CardBody className="p-3 text-xs text-default-600 space-y-1.5">
-          <p className="font-semibold text-sm text-primary">通知架构说明</p>
-          <p><strong>告警规则</strong>（告警管理页面）— 定义监控条件和严重等级（如 CPU &gt; 90% 为「严重」）。规则触发后事件自动进入通知中心。</p>
-          <p><strong>通知渠道</strong> — 配置外部通知的实际端点：企业微信 Webhook、钉钉机器人、Telegram Bot、通用 Webhook、Email。所有渠道统一在此管理。</p>
-          <p><strong>通知策略</strong> — 路由规则：将「事件类型 + 严重等级」匹配到「渠道」。例如：严重级别的告警 → 企业微信；所有级别 → Telegram。不配置策略时，通知仅记录在消息列表中，不会发送到外部渠道。</p>
-          <p><strong>通知消息</strong> — 系统产生的所有通知记录（告警触发、探针离线、到期提醒等），支持已读状态和类型筛选。</p>
-          <p className="text-default-400 pt-1 border-t border-divider/40">完整流程：告警规则触发 → 生成事件（含严重等级） → 通知策略筛选匹配 → 通知渠道发送到外部 + 站内消息列表记录。</p>
-        </CardBody>
-      </Card>
-
-      <Tabs
-        selectedKey={activeTab}
-        onSelectionChange={(key) => setActiveTab(key as string)}
-        variant="underlined"
-        color="primary"
-      >
-        <Tab key="notifications" title="通知消息">
-          <NotificationsTab />
-        </Tab>
-        <Tab key="channels" title="通知渠道">
-          <ChannelsTab />
-        </Tab>
-        <Tab key="policies" title="通知策略">
-          <PoliciesTab />
-        </Tab>
-      </Tabs>
+      {activeTab === 'notifications' && <NotificationsTab />}
+      {activeTab === 'alert_logs' && <AlertLogsTab />}
     </div>
   );
 }

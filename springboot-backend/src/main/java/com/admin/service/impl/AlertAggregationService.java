@@ -34,6 +34,8 @@ public class AlertAggregationService {
     private MonitorNodeSnapshotMapper nodeSnapshotMapper;
     @Resource
     private AssetHostMapper assetHostMapper;
+    @Resource
+    private MonitorAlertRuleMapper alertRuleMapper;
 
     // ==================== Aggregation Buffer ====================
 
@@ -107,6 +109,15 @@ public class AlertAggregationService {
 
             String key = nodeName != null ? nodeName : "unknown";
             windowBuffer.computeIfAbsent(key, k -> Collections.synchronizedList(new ArrayList<>())).add(recovery);
+
+            // 恢复后重置规则的渐进冷却计数
+            try {
+                MonitorAlertRule rule = alertRuleMapper.selectById(ruleId);
+                if (rule != null && rule.getTriggerCount() != null && rule.getTriggerCount() > 0) {
+                    rule.setTriggerCount(0);
+                    alertRuleMapper.updateById(rule);
+                }
+            } catch (Exception ignored) {}
 
             log.info("[AlertAggregation] Recovery detected: {} - {}", ruleName, nodeName);
         }

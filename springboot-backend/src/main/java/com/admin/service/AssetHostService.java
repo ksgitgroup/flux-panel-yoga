@@ -25,4 +25,7 @@ public interface AssetHostService extends IService<AssetHost> {
     R getArchivedAssets();
 
     R batchUpdateField(java.util.Map<String, Object> params);
+
+    /** 获取资产各维度的可选值（用于告警范围选择器） */
+    R getScopeOptions();
 }

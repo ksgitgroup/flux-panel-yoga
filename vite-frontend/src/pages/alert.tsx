@@ -289,17 +289,11 @@ export default function AlertPage() {
           <h1 className="text-2xl font-bold tracking-tight">告警管理</h1>
           <p className="mt-0.5 text-sm text-default-500">配置监控告警规则，查看告警日志</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Tabs size="sm" variant="underlined" color="primary"
-            selectedKey={tab} onSelectionChange={(k) => setTab(k as string)}>
-            <Tab key="rules" title="规则" />
-            <Tab key="logs" title="日志" />
-          </Tabs>
-          <div className="flex gap-2 ml-auto">
-            <Button size="sm" variant="flat" onPress={() => navigate('/notification')}>通知中心</Button>
-            <Button size="sm" variant="flat" onPress={() => navigate('/monitor')}>诊断看板</Button>
-          </div>
-        </div>
+        <Tabs size="sm" variant="underlined" color="primary"
+          selectedKey={tab} onSelectionChange={(k) => setTab(k as string)}>
+          <Tab key="rules" title="规则" />
+          <Tab key="logs" title="日志" />
+        </Tabs>
       </div>
 
       {tab === 'rules' && (

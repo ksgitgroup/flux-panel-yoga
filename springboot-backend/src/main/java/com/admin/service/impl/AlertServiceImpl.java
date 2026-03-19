@@ -744,6 +744,8 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         String severity = body.get("severity") != null ? (String) body.get("severity") : null;
         String scopeJson = body.get("scopeJson") != null ? (String) body.get("scopeJson") : null;
         Integer cooldownMinutes = body.get("cooldownMinutes") != null ? ((Number) body.get("cooldownMinutes")).intValue() : null;
+        Integer maxDailySends = body.get("maxDailySends") != null ? ((Number) body.get("maxDailySends")).intValue() : null;
+        Integer durationSeconds = body.get("durationSeconds") != null ? ((Number) body.get("durationSeconds")).intValue() : null;
 
         long now = System.currentTimeMillis();
         for (MonitorAlertRule r : rules) {
@@ -752,6 +754,8 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             if (severity != null) { r.setSeverity(severity); changed = true; }
             if (scopeJson != null) { r.setScopeJson(scopeJson); changed = true; }
             if (cooldownMinutes != null) { r.setCooldownMinutes(cooldownMinutes); changed = true; }
+            if (maxDailySends != null) { r.setMaxDailySends(maxDailySends); changed = true; }
+            if (durationSeconds != null) { r.setDurationSeconds(durationSeconds); changed = true; }
             if (changed) {
                 r.setUpdatedTime(now);
                 alertRuleMapper.updateById(r);

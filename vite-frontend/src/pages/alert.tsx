@@ -168,6 +168,33 @@ export default function AlertPage() {
     });
   };
 
+  // Batch edit modal
+  const { isOpen: isBatchOpen, onOpen: onBatchOpen, onClose: onBatchClose } = useDisclosure();
+  const [batchGroupId, setBatchGroupId] = useState<number | null>(null);
+  const [batchFields, setBatchFields] = useState<Record<string, any>>({});
+
+  const openBatchEdit = (groupId: number) => {
+    setBatchGroupId(groupId);
+    setBatchFields({});
+    onBatchOpen();
+  };
+
+  const handleBatchSave = async () => {
+    if (!batchGroupId) return;
+    const updates: Record<string, unknown> = {};
+    if (batchFields.severity) updates.severity = batchFields.severity;
+    if (batchFields.cooldownMinutes != null) updates.cooldownMinutes = batchFields.cooldownMinutes;
+    if (batchFields.maxDailySends != null) updates.maxDailySends = batchFields.maxDailySends;
+    if (batchFields.durationSeconds != null) updates.durationSeconds = batchFields.durationSeconds;
+    if (Object.keys(updates).length === 0) { toast.error('请至少修改一项'); return; }
+    try {
+      await batchUpdateGroupRules(batchGroupId, updates);
+      toast.success('已批量更新');
+      onBatchClose();
+      fetchAll();
+    } catch { toast.error('操作失败'); }
+  };
+
   const handleBatchToggle = async (groupId: number, enabled: number) => {
     try {
       await batchUpdateGroupRules(groupId, { enabled });
@@ -212,11 +239,24 @@ export default function AlertPage() {
     } catch { toast.error('操作失败'); }
   };
 
+  // 小红点：追踪规则是否有新日志
+  const getViewedTs = (ruleId: number): number => {
+    try { return Number(localStorage.getItem(`rule_log_viewed_${ruleId}`) || '0'); } catch { return 0; }
+  };
+  const markViewed = (ruleId: number) => {
+    localStorage.setItem(`rule_log_viewed_${ruleId}`, String(Date.now()));
+  };
+  const hasNewLogs = (rule: AlertRule): boolean => {
+    if (!rule.lastTriggeredAt) return false;
+    return rule.lastTriggeredAt > getViewedTs(rule.id);
+  };
+
   const viewRuleLogs = async (ruleId: number, ruleName: string) => {
     setLogRuleId(ruleId);
     setLogRuleName(ruleName);
     setRuleLogs([]);
     setRuleLogsLoading(true);
+    markViewed(ruleId);
     onLogOpen();
     try {
       const res = await getAlertLogs(1, 50);
@@ -262,7 +302,10 @@ export default function AlertPage() {
           <p className="text-[10px] text-default-400 mt-0.5 truncate">{scopeLabel} · 冷却:{rule.cooldownMinutes}min</p>
         </div>
         <div className="flex gap-1 flex-shrink-0">
-          <Button size="sm" variant="light" onPress={() => viewRuleLogs(rule.id, rule.name)}>日志</Button>
+          <div className="relative">
+            <Button size="sm" variant="light" onPress={() => viewRuleLogs(rule.id, rule.name)}>日志</Button>
+            {hasNewLogs(rule) && <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500" />}
+          </div>
           {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openEdit(rule)}>编辑</Button>}
           {canDeleteAlerts && <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>}
         </div>
@@ -439,8 +482,9 @@ export default function AlertPage() {
                       {group.description && <span className="text-xs text-default-400 hidden sm:inline">— {group.description}</span>}
                       <div className="ml-auto flex gap-1" onClick={e => e.stopPropagation()}>
                         {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openGroupEdit(group)}>编辑</Button>}
-                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 1)}>全部启用</Button>}
-                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 0)}>全部禁用</Button>}
+                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openBatchEdit(group.id)}>批量配置</Button>}
+                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 1)}>启用</Button>}
+                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 0)}>禁用</Button>}
                         {canDeleteAlerts && group.isDefault !== 1 && <Button size="sm" variant="light" color="danger" onPress={() => handleDeleteGroup(group.id)}>删除组</Button>}
                       </div>
                     </div>
@@ -628,6 +672,36 @@ export default function AlertPage() {
           <ModalFooter>
             <Button variant="light" onPress={onGroupClose}>取消</Button>
             <Button color="primary" onPress={handleGroupSave}>保存</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Batch Edit Modal */}
+      <Modal isOpen={isBatchOpen} onClose={onBatchClose} size="md">
+        <ModalContent>
+          <ModalHeader>批量配置组内规则</ModalHeader>
+          <ModalBody className="flex flex-col gap-3">
+            <p className="text-xs text-default-400">留空的字段不会被修改。修改将应用到该组所有规则。</p>
+            <Select label="严重等级" size="sm" placeholder="不修改"
+              selectedKeys={batchFields.severity ? [batchFields.severity] : []}
+              onSelectionChange={keys => setBatchFields(p => ({ ...p, severity: Array.from(keys)[0] as string || undefined }))}>
+              {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
+            </Select>
+            <div className="flex gap-2">
+              <Input label="持续触发(秒)" size="sm" className="flex-1" inputMode="numeric" placeholder="不修改"
+                value={batchFields.durationSeconds != null ? String(batchFields.durationSeconds) : ''}
+                onValueChange={v => setBatchFields(p => ({ ...p, durationSeconds: v ? Number(v) : undefined }))} />
+              <Input label="冷却(分钟)" size="sm" className="flex-1" inputMode="numeric" placeholder="不修改"
+                value={batchFields.cooldownMinutes != null ? String(batchFields.cooldownMinutes) : ''}
+                onValueChange={v => setBatchFields(p => ({ ...p, cooldownMinutes: v ? Number(v) : undefined }))} />
+              <Input label="每日上限" size="sm" className="flex-1" inputMode="numeric" placeholder="不修改"
+                value={batchFields.maxDailySends != null ? String(batchFields.maxDailySends) : ''}
+                onValueChange={v => setBatchFields(p => ({ ...p, maxDailySends: v ? Number(v) : undefined }))} />
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="flat" onPress={onBatchClose}>取消</Button>
+            <Button size="sm" color="primary" onPress={handleBatchSave}>应用到组内所有规则</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

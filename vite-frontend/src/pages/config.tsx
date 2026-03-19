@@ -15,7 +15,7 @@ import { hasPermission } from '@/utils/auth';
 import { clearConfigCache, getCachedConfigs, siteConfig, updateSiteConfig } from '@/config/site';
 
 type ConfigType = 'input' | 'switch' | 'select' | 'textarea' | 'redirect';
-type ConfigSectionKey = 'basic' | 'security' | 'iam' | 'jumpserver' | 'diagnosis' | 'alerting' | 'deploy';
+type ConfigSectionKey = 'basic' | 'security' | 'iam' | 'diagnosis' | 'alerting' | 'deploy';
 
 interface ConfigItem {
   key: string;
@@ -63,11 +63,6 @@ const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: st
     title: '钉钉登录',
     description: '配置钉钉 OAuth 应用实现组织成员免密登录。所有敏感字段在保存后会自动脱敏。',
     chip: '身份认证',
-  },
-  jumpserver: {
-    title: 'JumpServer 堡垒机',
-    description: '对接 JumpServer 实现一键 Web 终端登录。需要先在 JumpServer 中创建 Access Key。',
-    chip: '终端接入',
   },
   diagnosis: {
     title: '自动诊断',
@@ -222,43 +217,6 @@ const CONFIG_ITEMS: ConfigItem[] = [
     description: '限制只允许此域名的企业邮箱登录。留空表示不限制。建议设置以防止非组织成员通过钉钉登录。',
     type: 'input',
     dependsOn: 'dingtalk_oauth_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'jumpserver_enabled',
-    label: '启用 JumpServer',
-    section: 'jumpserver',
-    description: '开启后，资产详情页会显示「终端登录」按钮，可一键跳转到 JumpServer Web 终端。',
-    type: 'switch',
-  },
-  {
-    key: 'jumpserver_url',
-    label: 'JumpServer 地址',
-    section: 'jumpserver',
-    placeholder: 'https://jump.example.com',
-    description: '完整的 JumpServer 访问地址（含协议和端口）。',
-    type: 'input',
-    dependsOn: 'jumpserver_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'jumpserver_access_key_id',
-    label: 'Access Key ID',
-    section: 'jumpserver',
-    placeholder: 'UUID 格式',
-    description: '获取方式：登录 JumpServer → 个人信息 → API Key → 创建 Access Key。',
-    type: 'input',
-    dependsOn: 'jumpserver_enabled',
-    dependsValue: 'true',
-  },
-  {
-    key: 'jumpserver_access_key_secret',
-    label: 'Access Key Secret',
-    section: 'jumpserver',
-    placeholder: '保存后自动脱敏为 ******',
-    description: '创建 Access Key 时生成的 Secret。此字段保存后会脱敏显示。',
-    type: 'input',
-    dependsOn: 'jumpserver_enabled',
     dependsValue: 'true',
   },
   {

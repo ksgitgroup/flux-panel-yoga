@@ -5,7 +5,6 @@ import { Button } from "@heroui/button";
 import { Spinner } from "@heroui/spinner";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
-import { Tabs, Tab } from "@heroui/tabs";
 import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell
 } from "@heroui/table";
@@ -175,22 +174,22 @@ function NotificationsTab() {
     <div className="flex flex-col gap-3">
       {/* 紧凑筛选栏 */}
       <div className="flex flex-wrap items-center gap-2">
-        <Select size="sm" className="w-28" aria-label="已读状态"
+        <Select size="sm" className="w-28" aria-label="已读状态" placeholder="已读状态"
           selectedKeys={new Set([readFilter])}
           onSelectionChange={(keys) => setReadFilter(Array.from(keys)[0] as string || 'all')}>
           <SelectItem key="all">全部</SelectItem>
           <SelectItem key="unread">未读</SelectItem>
           <SelectItem key="read">已读</SelectItem>
         </Select>
-        <Select size="sm" className="w-32" aria-label="类型"
-          selectedKeys={typeFilter ? new Set([typeFilter]) : new Set()}
+        <Select size="sm" className="w-32" aria-label="类型" placeholder="全部类型"
+          selectedKeys={typeFilter ? new Set([typeFilter]) : new Set([''])}
           onSelectionChange={(keys) => setTypeFilter(Array.from(keys)[0] as string || '')}>
           {[{ value: '', label: '全部类型' }, ...EVENT_TYPES].map(t => (
             <SelectItem key={t.value}>{t.label}</SelectItem>
           ))}
         </Select>
-        <Select size="sm" className="w-28" aria-label="级别"
-          selectedKeys={sevFilter ? new Set([sevFilter]) : new Set()}
+        <Select size="sm" className="w-28" aria-label="级别" placeholder="全部级别"
+          selectedKeys={sevFilter ? new Set([sevFilter]) : new Set([''])}
           onSelectionChange={(keys) => setSevFilter(Array.from(keys)[0] as string || '')}>
           <SelectItem key="">全部级别</SelectItem>
           <SelectItem key="critical">严重</SelectItem>
@@ -822,16 +821,24 @@ export default function NotificationPage() {
           <h1 className="text-2xl font-bold tracking-tight">通知中心</h1>
           <p className="mt-0.5 text-sm text-default-500">告警规则触发 → 通知策略匹配 → 通知渠道发送 + 站内消息记录</p>
         </div>
-        <Tabs size="sm"
-          selectedKey={activeTab}
-          onSelectionChange={(key) => setActiveTab(key as string)}
-          variant="bordered"
-        >
-          <Tab key="notifications" title="通知消息" />
-          <Tab key="alert_logs" title="告警记录" />
-          <Tab key="channels" title="通知渠道" />
-          <Tab key="policies" title="通知策略" />
-        </Tabs>
+        <div className="flex gap-1 bg-default-100 rounded-lg p-0.5">
+          {[
+            { key: 'notifications', label: '通知消息' },
+            { key: 'alert_logs', label: '告警记录' },
+            { key: 'channels', label: '通知渠道' },
+            { key: 'policies', label: '通知策略' },
+          ].map(t => (
+            <button key={t.key}
+              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                activeTab === t.key
+                  ? 'bg-white dark:bg-default-200 font-medium shadow-sm'
+                  : 'text-default-500 hover:text-default-700'
+              }`}
+              onClick={() => setActiveTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {activeTab === 'notifications' && <NotificationsTab />}

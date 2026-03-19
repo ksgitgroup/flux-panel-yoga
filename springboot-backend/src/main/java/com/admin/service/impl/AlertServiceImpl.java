@@ -171,10 +171,20 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         long now = System.currentTimeMillis();
 
         for (MonitorAlertRule rule : rules) {
-            // Check cooldown with escalation support
+            // 每日上限检查（跨天重置）
+            resetDailyCountIfNeeded(rule, now);
+            int maxDaily = rule.getMaxDailySends() != null ? rule.getMaxDailySends() : 10;
+            if (maxDaily > 0 && rule.getDailySendCount() != null && rule.getDailySendCount() >= maxDaily) {
+                continue; // 今日已达上限
+            }
+
+            // 渐进冷却：baseCooldown × 2^triggerCount，最大 24 小时
             boolean isEscalation = false;
             if (rule.getLastTriggeredAt() != null) {
-                int cooldownMs = (rule.getCooldownMinutes() != null ? rule.getCooldownMinutes() : 5) * 60 * 1000;
+                int baseCooldown = rule.getCooldownMinutes() != null ? rule.getCooldownMinutes() : 30;
+                int triggerCount = rule.getTriggerCount() != null ? rule.getTriggerCount() : 0;
+                int effectiveCooldown = Math.min(baseCooldown * (1 << Math.min(triggerCount, 6)), 1440);
+                int cooldownMs = effectiveCooldown * 60 * 1000;
                 long elapsed = now - rule.getLastTriggeredAt();
                 if (elapsed < cooldownMs) {
                     if (rule.getEscalateAfterMinutes() != null && rule.getEscalateAfterMinutes() > 0) {
@@ -306,6 +316,8 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
 
                     // Update cooldown
                     rule.setLastTriggeredAt(now);
+                    rule.setTriggerCount((rule.getTriggerCount() != null ? rule.getTriggerCount() : 0) + 1);
+                    rule.setDailySendCount((rule.getDailySendCount() != null ? rule.getDailySendCount() : 0) + 1);
                     rule.setUpdatedTime(now);
                     alertRuleMapper.updateById(rule);
 
@@ -626,6 +638,32 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
     }
 
+    /** 跨天重置每日计数 */
+    private void resetDailyCountIfNeeded(MonitorAlertRule rule, long now) {
+        Long resetAt = rule.getDailySendResetAt();
+        if (resetAt == null || !isSameDay(resetAt, now)) {
+            rule.setDailySendCount(0);
+            rule.setDailySendResetAt(now);
+        }
+    }
+
+    private boolean isSameDay(long ts1, long ts2) {
+        java.time.LocalDate d1 = java.time.Instant.ofEpochMilli(ts1).atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+        java.time.LocalDate d2 = java.time.Instant.ofEpochMilli(ts2).atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+        return d1.equals(d2);
+    }
+
+    /** 恢复时重置渐进冷却计数（由 AggregationService.markRecovered 调用） */
+    public void resetTriggerCount(Long ruleId) {
+        if (ruleId == null) return;
+        MonitorAlertRule rule = alertRuleMapper.selectById(ruleId);
+        if (rule != null && rule.getTriggerCount() != null && rule.getTriggerCount() > 0) {
+            rule.setTriggerCount(0);
+            rule.setUpdatedTime(System.currentTimeMillis());
+            alertRuleMapper.updateById(rule);
+        }
+    }
+
     private static String classifyOs(String os) {
         if (os == null) return "Other";
         String lower = os.toLowerCase();
@@ -890,6 +928,8 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                     aggregationService.submitAlert(event);
 
                     rule.setLastTriggeredAt(now);
+                    rule.setTriggerCount((rule.getTriggerCount() != null ? rule.getTriggerCount() : 0) + 1);
+                    rule.setDailySendCount((rule.getDailySendCount() != null ? rule.getDailySendCount() : 0) + 1);
                     rule.setUpdatedTime(now);
                     alertRuleMapper.updateById(rule);
                     log.info("[Alert] {} - {}", rule.getName(), message);

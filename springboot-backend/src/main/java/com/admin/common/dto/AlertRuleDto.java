@@ -44,4 +44,6 @@ public class AlertRuleDto {
     private Long groupId;
 
     private String scopeJson;
+
+    private Integer maxDailySends;
 }

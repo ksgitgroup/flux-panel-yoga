@@ -984,27 +984,30 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         List<AssetHost> assets = assetHostMapper.selectList(
                 new LambdaQueryWrapper<AssetHost>().eq(AssetHost::getStatus, 0));
 
-        Set<String> environments = new TreeSet<>();
-        Set<String> providers = new TreeSet<>();
-        Set<String> regions = new TreeSet<>();
+        Map<String, Integer> environments = new TreeMap<>();
+        Map<String, Integer> providers = new TreeMap<>();
+        Map<String, Integer> regions = new TreeMap<>();
         Set<String> tags = new TreeSet<>();
-        Set<String> osList = new TreeSet<>();
+        Map<String, Integer> osList = new TreeMap<>();
 
         for (AssetHost a : assets) {
-            if (StringUtils.hasText(a.getEnvironment())) environments.add(a.getEnvironment().trim());
-            if (StringUtils.hasText(a.getProvider())) providers.add(a.getProvider().trim());
-            if (StringUtils.hasText(a.getRegion())) regions.add(a.getRegion().trim());
+            String env = StringUtils.hasText(a.getEnvironment()) ? a.getEnvironment().trim() : "未设置";
+            environments.merge(env, 1, Integer::sum);
+            String prov = StringUtils.hasText(a.getProvider()) ? a.getProvider().trim() : "未设置";
+            providers.merge(prov, 1, Integer::sum);
+            if (StringUtils.hasText(a.getRegion())) regions.merge(a.getRegion().trim(), 1, Integer::sum);
 
-            // OS 归类到大类（Windows/Ubuntu/Debian/CentOS/Other）
+            // OS 归类到大类
+            String osCategory = "Other";
             if (StringUtils.hasText(a.getOs())) {
                 String os = a.getOs().toLowerCase().trim();
-                if (os.contains("windows")) osList.add("Windows");
-                else if (os.contains("ubuntu")) osList.add("Ubuntu");
-                else if (os.contains("debian")) osList.add("Debian");
-                else if (os.contains("centos")) osList.add("CentOS");
-                else if (os.contains("oracle") || os.contains("alibaba") || os.contains("linux")) osList.add("Linux");
-                else osList.add("Other");
+                if (os.contains("windows")) osCategory = "Windows";
+                else if (os.contains("ubuntu")) osCategory = "Ubuntu";
+                else if (os.contains("debian")) osCategory = "Debian";
+                else if (os.contains("centos")) osCategory = "CentOS";
+                else if (os.contains("oracle") || os.contains("alibaba") || os.contains("linux")) osCategory = "Linux";
             }
+            osList.merge(osCategory, 1, Integer::sum);
 
             // 标签清洗：处理 JSON 数组格式和普通逗号分隔
             if (StringUtils.hasText(a.getTags())) {
@@ -1021,11 +1024,17 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         }
 
         return R.ok(Map.of(
-                "environments", environments,
-                "providers", providers,
-                "regions", regions,
+                "environments", environments.keySet(),
+                "providers", providers.keySet(),
+                "regions", regions.keySet(),
                 "tags", tags,
-                "osList", osList
+                "osList", osList.keySet(),
+                "counts", Map.of(
+                    "environments", environments,
+                    "providers", providers,
+                    "regions", regions,
+                    "osList", osList
+                )
         ));
     }
 }

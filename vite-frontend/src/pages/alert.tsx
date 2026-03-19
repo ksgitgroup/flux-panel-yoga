@@ -8,16 +8,14 @@ import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem, SelectSection } from "@heroui/select";
-import { Tabs, Tab } from "@heroui/tabs";
 import {
   Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure
 } from "@heroui/modal";
 import toast from 'react-hot-toast';
 
 import {
-  AlertRule, AlertLog,
+  AlertRule,
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, toggleAlertRule,
-  getAlertLogs, clearAlertLogs,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 
@@ -128,22 +126,14 @@ export default function AlertPage() {
   const canCreateAlerts = hasPermission('alert.create');
   const canUpdateAlerts = hasPermission('alert.update');
   const canDeleteAlerts = hasPermission('alert.delete');
-  const [tab, setTab] = useState<string>('rules');
-
-  // Search/filter state
+  // Search state
   const [ruleSearch, setRuleSearch] = useState('');
-  const [logSearch, setLogSearch] = useState('');
 
   // Rules state
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
   const [migrationWarningDismissed, setMigrationWarningDismissed] = useState(false);
 
-  // Logs state
-  const [logs, setLogs] = useState<AlertLog[]>([]);
-  const [logsTotal, setLogsTotal] = useState(0);
-  const [logsPage, setLogsPage] = useState(1);
-  const [logsLoading, setLogsLoading] = useState(false);
 
   // Edit modal
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -158,24 +148,9 @@ export default function AlertPage() {
     finally { setRulesLoading(false); }
   }, []);
 
-  const fetchLogs = useCallback(async (page = 1) => {
-    setLogsLoading(true);
-    try {
-      const res = await getAlertLogs(page, 20);
-      if (res.code === 0 && res.data) {
-        const d = res.data as any;
-        setLogs(d.records || []);
-        setLogsTotal(d.total || 0);
-        setLogsPage(page);
-      }
-    } catch { toast.error('加载告警日志失败'); }
-    finally { setLogsLoading(false); }
-  }, []);
-
   useEffect(() => {
     fetchRules();
-    fetchLogs(1);
-  }, [fetchRules, fetchLogs]);
+  }, [fetchRules]);
 
   const handleSave = async () => {
     if (editRule?.id ? !canUpdateAlerts : !canCreateAlerts) {
@@ -289,15 +264,8 @@ export default function AlertPage() {
           <h1 className="text-2xl font-bold tracking-tight">告警管理</h1>
           <p className="mt-0.5 text-sm text-default-500">配置监控告警规则，查看告警日志</p>
         </div>
-        <Tabs size="sm" variant="underlined" color="primary"
-          selectedKey={tab} onSelectionChange={(k) => setTab(k as string)}>
-          <Tab key="rules" title="规则" />
-          <Tab key="logs" title="日志" />
-        </Tabs>
       </div>
 
-      {tab === 'rules' && (
-        <>
           <div className="flex items-center gap-2">
             <Input size="sm" placeholder="搜索规则名称…" className="max-w-xs"
               value={ruleSearch} onValueChange={setRuleSearch}
@@ -388,67 +356,6 @@ export default function AlertPage() {
               })}
             </div>
           )}
-        </>
-      )}
-
-      {tab === 'logs' && (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <p className="text-sm text-default-500">共 {logsTotal} 条</p>
-              <Input size="sm" placeholder="搜索消息/节点…" className="max-w-xs"
-                value={logSearch} onValueChange={setLogSearch}
-                isClearable onClear={() => setLogSearch('')} />
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="flat" onPress={() => fetchLogs(logsPage)}>刷新</Button>
-              {canDeleteAlerts && (
-                <Button size="sm" variant="flat" color="danger" onPress={async () => {
-                  if (!confirm('确定清除所有告警日志？')) return;
-                  await clearAlertLogs();
-                  toast.success('已清除');
-                  fetchLogs(1);
-                }}>清除全部</Button>
-              )}
-            </div>
-          </div>
-
-          {logsLoading ? (
-            <div className="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
-          ) : logs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
-              <h3 className="text-base font-semibold text-default-600">暂无告警日志</h3>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-1.5">
-                {logs.filter(l => !logSearch || (l.message || '').toLowerCase().includes(logSearch.toLowerCase()) || (l.nodeName || '').toLowerCase().includes(logSearch.toLowerCase()) || (l.ruleName || '').toLowerCase().includes(logSearch.toLowerCase())).map(log => (
-                  <div key={log.id} className="rounded-lg border border-divider/60 bg-content1 p-2.5 flex items-start gap-2">
-                    <Chip size="sm" variant="flat"
-                      color={log.notifyStatus === 'sent' ? 'success' : log.notifyStatus === 'failed' ? 'danger' : 'warning'}
-                      className="h-5 text-[9px] flex-shrink-0 mt-0.5">
-                      {log.notifyStatus === 'sent' ? '已发送' : log.notifyStatus === 'failed' ? '发送失败' : '记录'}
-                    </Chip>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm">{log.message}</p>
-                      <p className="text-[10px] text-default-400 font-mono mt-0.5">
-                        规则: {log.ruleName} · 节点: {log.nodeName || '-'} · {formatTime(log.createdTime)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {logsTotal > 20 && (
-                <div className="flex justify-center gap-2 pt-2">
-                  <Button size="sm" variant="flat" isDisabled={logsPage <= 1} onPress={() => fetchLogs(logsPage - 1)}>上一页</Button>
-                  <span className="text-xs text-default-400 self-center">{logsPage} / {Math.ceil(logsTotal / 20)}</span>
-                  <Button size="sm" variant="flat" isDisabled={logsPage >= Math.ceil(logsTotal / 20)} onPress={() => fetchLogs(logsPage + 1)}>下一页</Button>
-                </div>
-              )}
-            </>
-          )}
-        </>
-      )}
 
       {/* Edit/Create Rule Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">

@@ -20,6 +20,7 @@ import {
   getNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
   getNotifyChannels, createNotifyChannel, updateNotifyChannel, deleteNotifyChannel, testNotifyChannel,
   getNotifyPolicies, createNotifyPolicy, updateNotifyPolicy, deleteNotifyPolicy,
+  getAlertLogs, clearAlertLogs, AlertLog,
   NotificationItem, NotifyChannelItem, NotifyPolicyItem
 } from "@/api";
 import { hasPermission } from '@/utils/auth';
@@ -297,8 +298,7 @@ function ChannelsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-between items-center">
-        <span className="text-default-500 text-sm">管理通知渠道（企业微信 / 钉钉 / Telegram / Webhook / Email）</span>
+      <div className="flex justify-end items-center">
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建渠道</Button>}
       </div>
 
@@ -475,11 +475,7 @@ function PoliciesTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <span className="text-default-500 text-sm">策略决定哪些事件 + 哪些严重等级 → 发送到哪些渠道。</span>
-          <span className="text-default-400 text-xs ml-1">示例："严重告警→微信"：事件类型选告警触发，严重级别选严重，渠道选企业微信</span>
-        </div>
+      <div className="flex justify-end items-center">
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>}
       </div>
 
@@ -717,6 +713,97 @@ function PoliciesTab() {
   );
 }
 
+// ==================== Alert Logs Tab ====================
+function AlertLogsTab() {
+  const canDelete = hasPermission('alert.delete');
+  const [logs, setLogs] = useState<AlertLog[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const fetchLogs = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const res = await getAlertLogs(p, 20);
+      if (res.code === 0 && res.data) {
+        const d = res.data as any;
+        setLogs(d.records || []);
+        setTotal(d.total || 0);
+        setPage(p);
+      }
+    } catch { toast.error('加载告警记录失败'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchLogs(1); }, [fetchLogs]);
+
+  const filtered = logs.filter(l =>
+    !search || (l.message || '').toLowerCase().includes(search.toLowerCase())
+    || (l.nodeName || '').toLowerCase().includes(search.toLowerCase())
+    || (l.ruleName || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-default-500">共 {total} 条</span>
+          <Input size="sm" placeholder="搜索消息/节点/规则…" className="max-w-xs"
+            value={search} onValueChange={setSearch}
+            isClearable onClear={() => setSearch('')} />
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="flat" onPress={() => fetchLogs(page)}>刷新</Button>
+          {canDelete && (
+            <Button size="sm" variant="flat" color="danger" onPress={async () => {
+              if (!confirm('确定清除所有告警记录？')) return;
+              await clearAlertLogs();
+              toast.success('已清除');
+              fetchLogs(1);
+            }}>清除全部</Button>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
+          <h3 className="text-base font-semibold text-default-600">暂无告警记录</h3>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            {filtered.map(log => (
+              <div key={log.id} className="rounded-lg border border-divider/60 bg-content1 p-2.5 flex items-start gap-2">
+                <Chip size="sm" variant="flat"
+                  color={log.notifyStatus === 'sent' ? 'success' : log.notifyStatus === 'failed' ? 'danger' : 'warning'}
+                  className="h-5 text-[9px] flex-shrink-0 mt-0.5">
+                  {log.notifyStatus === 'sent' ? '已发送' : log.notifyStatus === 'failed' ? '发送失败' : '记录'}
+                </Chip>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm">{log.message}</p>
+                  <p className="text-[10px] text-default-400 font-mono mt-0.5">
+                    规则: {log.ruleName} · 节点: {log.nodeName || '-'} · {formatTime(log.createdTime)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {total > 20 && (
+            <div className="flex justify-center gap-2 pt-2">
+              <Button size="sm" variant="flat" isDisabled={page <= 1} onPress={() => fetchLogs(page - 1)}>上一页</Button>
+              <span className="text-xs text-default-400 self-center">{page} / {Math.ceil(total / 20)}</span>
+              <Button size="sm" variant="flat" isDisabled={page >= Math.ceil(total / 20)} onPress={() => fetchLogs(page + 1)}>下一页</Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ==================== Main Page ====================
 export default function NotificationPage() {
   const [activeTab, setActiveTab] = useState<string>('notifications');
@@ -731,16 +818,18 @@ export default function NotificationPage() {
         <Tabs size="sm"
           selectedKey={activeTab}
           onSelectionChange={(key) => setActiveTab(key as string)}
-          variant="underlined"
+          variant="solid"
           color="primary"
         >
           <Tab key="notifications" title="通知消息" />
+          <Tab key="alert_logs" title="告警记录" />
           <Tab key="channels" title="通知渠道" />
           <Tab key="policies" title="通知策略" />
         </Tabs>
       </div>
 
       {activeTab === 'notifications' && <NotificationsTab />}
+      {activeTab === 'alert_logs' && <AlertLogsTab />}
       {activeTab === 'channels' && <ChannelsTab />}
       {activeTab === 'policies' && <PoliciesTab />}
     </div>

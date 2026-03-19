@@ -18,6 +18,7 @@ import {
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, toggleAlertRule,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
+import { ChannelsTab, PoliciesTab } from './notification';
 
 const METRIC_CATEGORIES = [
   {
@@ -126,6 +127,8 @@ export default function AlertPage() {
   const canCreateAlerts = hasPermission('alert.create');
   const canUpdateAlerts = hasPermission('alert.update');
   const canDeleteAlerts = hasPermission('alert.delete');
+  const [activeTab, setActiveTab] = useState<string>('rules');
+
   // Search state
   const [ruleSearch, setRuleSearch] = useState('');
 
@@ -262,10 +265,28 @@ export default function AlertPage() {
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">告警管理</h1>
-          <p className="mt-0.5 text-sm text-default-500">配置监控告警规则，查看告警日志</p>
+          <p className="mt-0.5 text-sm text-default-500">配置告警规则、通知渠道和策略</p>
+        </div>
+        <div className="flex gap-1 bg-default-100 rounded-lg p-0.5">
+          {[
+            { key: 'rules', label: '告警规则' },
+            { key: 'channels', label: '通知渠道' },
+            { key: 'policies', label: '通知策略' },
+          ].map(t => (
+            <button key={t.key}
+              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                activeTab === t.key
+                  ? 'bg-white dark:bg-default-200 font-medium shadow-sm'
+                  : 'text-default-500 hover:text-default-700'
+              }`}
+              onClick={() => setActiveTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
+      {activeTab === 'rules' && (<>
           <div className="flex items-center gap-2">
             <Input size="sm" placeholder="搜索规则名称…" className="max-w-xs"
               value={ruleSearch} onValueChange={setRuleSearch}
@@ -282,10 +303,10 @@ export default function AlertPage() {
               <CardBody className="p-3 text-xs text-default-600 flex flex-col sm:flex-row items-start sm:items-center gap-2">
                 <div className="flex-1">
                   <p className="font-semibold text-sm text-warning-700">通知方式已统一</p>
-                  <p className="mt-0.5">部分告警规则仍保留旧的通知配置（企业微信/钉钉/Webhook 地址），这些配置已自动迁移到通知中心。请前往「通知中心 → 通知渠道/策略」确认配置正确。</p>
+                  <p className="mt-0.5">部分告警规则仍保留旧的通知配置，已自动迁移。请切换到「通知渠道/策略」Tab 确认配置正确。</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="flat" color="warning" onPress={() => navigate('/notification')}>前往通知中心</Button>
+                  <Button size="sm" variant="flat" color="warning" onPress={() => setActiveTab('channels')}>查看渠道</Button>
                   <Button size="sm" variant="light" onPress={() => setMigrationWarningDismissed(true)}>关闭</Button>
                 </div>
               </CardBody>
@@ -356,6 +377,10 @@ export default function AlertPage() {
               })}
             </div>
           )}
+      </>)}
+
+      {activeTab === 'channels' && <ChannelsTab />}
+      {activeTab === 'policies' && <PoliciesTab />}
 
       {/* Edit/Create Rule Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">

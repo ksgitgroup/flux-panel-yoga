@@ -248,7 +248,7 @@ function NotificationsTab() {
 }
 
 // ==================== Channels Tab ====================
-function ChannelsTab() {
+export function ChannelsTab() {
   const canCreate = hasPermission('notification.create');
   const canUpdate = hasPermission('notification.update');
   const canDelete = hasPermission('notification.delete');
@@ -426,7 +426,7 @@ function ChannelsTab() {
 }
 
 // ==================== Policies Tab ====================
-function PoliciesTab() {
+export function PoliciesTab() {
   const canCreate = hasPermission('notification.create');
   const canUpdate = hasPermission('notification.update');
   const canDelete = hasPermission('notification.delete');
@@ -825,8 +825,6 @@ export default function NotificationPage() {
           {[
             { key: 'notifications', label: '通知消息' },
             { key: 'alert_logs', label: '告警记录' },
-            { key: 'channels', label: '通知渠道' },
-            { key: 'policies', label: '通知策略' },
           ].map(t => (
             <button key={t.key}
               className={`px-3 py-1 text-sm rounded-md transition-colors ${
@@ -843,8 +841,6 @@ export default function NotificationPage() {
 
       {activeTab === 'notifications' && <NotificationsTab />}
       {activeTab === 'alert_logs' && <AlertLogsTab />}
-      {activeTab === 'channels' && <ChannelsTab />}
-      {activeTab === 'policies' && <PoliciesTab />}
     </div>
   );
 }

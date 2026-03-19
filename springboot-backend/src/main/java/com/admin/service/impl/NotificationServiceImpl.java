@@ -32,6 +32,7 @@ import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalTime;
 import java.util.*;
 
 @Slf4j
@@ -80,7 +81,34 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             log.info("[Notification] Fan-out {} notifications to {} IAM users: {}", type, eligibleUsers.size(), title);
         }
 
-        dispatchToExternalChannels(title, content, type, sev);
+        dispatchToExternalChannels(title, content, type, sev, null, null);
+
+        return R.ok("sent");
+    }
+
+    @Override
+    public R send(String title, String content, String type, String severity,
+                  String sourceModule, Long sourceId, String category, String tags) {
+        long now = System.currentTimeMillis();
+        String sev = severity != null ? severity : "info";
+
+        List<IamUser> eligibleUsers = iamUserMapper.selectList(
+                new LambdaQueryWrapper<IamUser>()
+                        .eq(IamUser::getEnabled, 1)
+                        .eq(IamUser::getStatus, 0));
+
+        Notification broadcast = buildNotification(null, title, content, type, sev, sourceModule, sourceId, now);
+        notificationMapper.insert(broadcast);
+
+        for (IamUser user : eligibleUsers) {
+            Notification n = buildNotification(user.getId(), title, content, type, sev, sourceModule, sourceId, now);
+            notificationMapper.insert(n);
+        }
+        if (!eligibleUsers.isEmpty()) {
+            log.info("[Notification] Fan-out {} notifications to {} IAM users: {}", type, eligibleUsers.size(), title);
+        }
+
+        dispatchToExternalChannels(title, content, type, sev, category, tags);
 
         return R.ok("sent");
     }
@@ -105,7 +133,8 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     /** 渠道级限流计数器：channelId → 窗口内已发数量 */
     private final Map<Long, long[]> channelRateWindow = new java.util.concurrent.ConcurrentHashMap<>();
 
-    private void dispatchToExternalChannels(String title, String content, String type, String severity) {
+    private void dispatchToExternalChannels(String title, String content, String type, String severity,
+                                               String category, String tags) {
         List<NotifyPolicy> policies = notifyPolicyMapper.selectList(
                 new LambdaQueryWrapper<NotifyPolicy>()
                         .eq(NotifyPolicy::getEnabled, 1)
@@ -119,6 +148,23 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
 
             // 恢复通知过滤：策略可选择不外发恢复通知
             if (isRecovery && policy.getIncludeRecovery() != null && policy.getIncludeRecovery() == 0) {
+                continue;
+            }
+
+            // 告警类别过滤
+            if (StringUtils.hasText(policy.getCategoryFilter()) &&
+                    (category == null || !policy.getCategoryFilter().contains(category))) {
+                continue;
+            }
+
+            // 标签过滤（交集匹配）
+            if (StringUtils.hasText(policy.getTagFilter()) && !matchesTags(policy.getTagFilter(), tags)) {
+                continue;
+            }
+
+            // 静默窗口检查
+            if (StringUtils.hasText(policy.getMuteSchedule()) && isInMuteWindow(policy.getMuteSchedule())) {
+                log.debug("[Notification] Policy {} in mute window, skipping external dispatch: {}", policy.getName(), title);
                 continue;
             }
 
@@ -165,6 +211,37 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             window[1]++;
             return window;
         });
+    }
+
+    /** 标签交集匹配：策略 tagFilter 和事件 tags 有任一共同标签则匹配 */
+    private boolean matchesTags(String policyTagFilter, String eventTags) {
+        if (eventTags == null || eventTags.isEmpty()) return false;
+        Set<String> policyTags = new HashSet<>(Arrays.asList(policyTagFilter.split(",")));
+        for (String tag : eventTags.split(",")) {
+            if (policyTags.contains(tag.trim())) return true;
+        }
+        return false;
+    }
+
+    /** 判断当前时刻是否在静默窗口内，格式 "HH:mm-HH:mm"，支持跨午夜 */
+    private boolean isInMuteWindow(String muteSchedule) {
+        try {
+            String[] parts = muteSchedule.split("-");
+            if (parts.length != 2) return false;
+            LocalTime start = LocalTime.parse(parts[0].trim());
+            LocalTime end = LocalTime.parse(parts[1].trim());
+            LocalTime now = LocalTime.now();
+            if (start.isBefore(end)) {
+                // 同日窗口：如 09:00-18:00
+                return !now.isBefore(start) && now.isBefore(end);
+            } else {
+                // 跨午夜窗口：如 22:00-06:00
+                return !now.isBefore(start) || now.isBefore(end);
+            }
+        } catch (Exception e) {
+            log.warn("[Notification] Invalid muteSchedule format: {}", muteSchedule);
+            return false;
+        }
     }
 
     // ==================== Query (per-user) ====================

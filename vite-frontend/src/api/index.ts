@@ -1250,6 +1250,9 @@ export interface NotifyPolicyItem {
   severityFilter?: string | null;
   channelIds?: string | null;
   includeRecovery?: number;
+  categoryFilter?: string | null;
+  tagFilter?: string | null;
+  muteSchedule?: string | null;
   createdTime: number;
 }
 export const getNotifications = (params?: { page?: number; size?: number; readStatus?: number; type?: string }) =>

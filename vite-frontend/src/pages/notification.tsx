@@ -591,6 +591,69 @@ function PoliciesTab() {
                 onValueChange={(v) => setEditItem(prev => ({ ...prev, includeRecovery: v ? 1 : 0 }))}
               />
             </div>
+            {/* 告警类别过滤 */}
+            <div>
+              <p className="text-sm font-medium text-default-700 mb-2">告警类别</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'infra', label: '基础设施' },
+                  { value: 'connectivity', label: '连通性' },
+                  { value: 'resource', label: '资源' },
+                ].map(cat => {
+                  const selected = (editItem?.categoryFilter || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const isActive = selected.includes(cat.value);
+                  return (
+                    <Chip key={cat.value} size="sm" variant={isActive ? 'solid' : 'bordered'}
+                      color={isActive ? 'primary' : 'default'}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        const next = isActive ? selected.filter(v => v !== cat.value) : [...selected, cat.value];
+                        setEditItem(prev => ({ ...prev, categoryFilter: next.join(',') }));
+                      }}>
+                      {cat.label}
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-default-400 mt-1.5">不选则匹配所有类别</p>
+            </div>
+
+            {/* 标签过滤 */}
+            <Input
+              label="标签过滤"
+              placeholder="prod,hk,us （逗号分隔）"
+              value={editItem?.tagFilter || ''}
+              onValueChange={(v) => setEditItem(prev => ({ ...prev, tagFilter: v }))}
+              description="只接收带有这些标签的节点告警，留空则匹配全部"
+            />
+
+            {/* 静默窗口 */}
+            <div>
+              <p className="text-sm font-medium text-default-700 mb-2">静默窗口</p>
+              <div className="flex gap-2 items-center">
+                <Input
+                  size="sm" type="time" label="开始"
+                  className="flex-1"
+                  value={(editItem?.muteSchedule || '').split('-')[0]?.trim() || ''}
+                  onValueChange={(v) => {
+                    const end = (editItem?.muteSchedule || '').split('-')[1]?.trim() || '';
+                    setEditItem(prev => ({ ...prev, muteSchedule: v && end ? `${v}-${end}` : '' }));
+                  }}
+                />
+                <span className="text-default-400">—</span>
+                <Input
+                  size="sm" type="time" label="结束"
+                  className="flex-1"
+                  value={(editItem?.muteSchedule || '').split('-')[1]?.trim() || ''}
+                  onValueChange={(v) => {
+                    const start = (editItem?.muteSchedule || '').split('-')[0]?.trim() || '';
+                    setEditItem(prev => ({ ...prev, muteSchedule: start && v ? `${start}-${v}` : '' }));
+                  }}
+                />
+              </div>
+              <p className="text-[11px] text-default-400 mt-1.5">在此时间段内不推送外部渠道（支持跨午夜，如 22:00-06:00），留空不静默</p>
+            </div>
+
             <Select
               label="通知渠道"
               selectionMode="multiple"

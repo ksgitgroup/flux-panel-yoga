@@ -32,6 +32,8 @@ public class AlertAggregationService {
     private NotificationService notificationService;
     @Resource
     private MonitorNodeSnapshotMapper nodeSnapshotMapper;
+    @Resource
+    private AssetHostMapper assetHostMapper;
 
     // ==================== Aggregation Buffer ====================
 
@@ -309,7 +311,10 @@ public class AlertAggregationService {
             }
 
             try {
-                notificationService.send(title, content, "alert", highestSeverity, "alert_engine", first.getRuleId());
+                String groupCategory = first.getCategory();
+                String groupTags = resolveGroupTags(group);
+                notificationService.send(title, content, "alert", highestSeverity,
+                        "alert_engine", first.getRuleId(), groupCategory, groupTags);
             } catch (Exception ex) {
                 log.warn("[AlertAggregation] Failed to write aggregated notification: {}", ex.getMessage());
             }
@@ -331,11 +336,35 @@ public class AlertAggregationService {
                 content = String.format("已恢复: %s — %d 台节点恢复正常", first.getRuleName(), group.size());
             }
             try {
-                notificationService.send(first.getRuleName(), content, "alert_recovery", "info", "alert_engine", first.getRuleId());
+                String groupCategory = first.getCategory();
+                String groupTags = resolveGroupTags(group);
+                notificationService.send(first.getRuleName(), content, "alert_recovery", "info",
+                        "alert_engine", first.getRuleId(), groupCategory, groupTags);
             } catch (Exception ex) {
                 log.warn("[AlertAggregation] Failed to write recovery notification: {}", ex.getMessage());
             }
         }
+    }
+
+    /** 从事件组中解析标签并集：通过 nodeId → MonitorNodeSnapshot.assetId → AssetHost.tags */
+    private String resolveGroupTags(List<AlertEvent> events) {
+        Set<String> allTags = new LinkedHashSet<>();
+        for (AlertEvent e : events) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue; // 跳过探针（负 ID）和无 ID
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null && snap.getAssetId() != null) {
+                    AssetHost asset = assetHostMapper.selectById(snap.getAssetId());
+                    if (asset != null && asset.getTags() != null && !asset.getTags().isEmpty()) {
+                        for (String tag : asset.getTags().split(",")) {
+                            String t = tag.trim();
+                            if (!t.isEmpty()) allTags.add(t);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return allTags.isEmpty() ? null : String.join(",", allTags);
     }
 
     private String higherSeverity(String a, String b) {

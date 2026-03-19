@@ -1081,6 +1081,11 @@ public class DatabaseInitService {
             updateColumn("notify_channel", "rate_limit_per_minute", "int(10) DEFAULT 0 COMMENT '每分钟最大通知数，0=不限'");
             updateColumn("notify_policy", "include_recovery", "tinyint(1) DEFAULT 1 COMMENT '是否包含恢复通知外发，默认包含'");
 
+            // 5.5.2 notify_policy 精细路由字段
+            updateColumn("notify_policy", "category_filter", "varchar(200) DEFAULT NULL COMMENT '告警类别过滤(逗号分隔)'");
+            updateColumn("notify_policy", "tag_filter", "varchar(500) DEFAULT NULL COMMENT '资产标签过滤(逗号分隔)'");
+            updateColumn("notify_policy", "mute_schedule", "varchar(50) DEFAULT NULL COMMENT '静默窗口 HH:mm-HH:mm'");
+
         // 5.6 服务器分组表
         try {
             jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `server_group` (" +

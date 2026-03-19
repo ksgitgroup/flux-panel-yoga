@@ -102,15 +102,25 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         return n;
     }
 
+    /** 渠道级限流计数器：channelId → 窗口内已发数量 */
+    private final Map<Long, long[]> channelRateWindow = new java.util.concurrent.ConcurrentHashMap<>();
+
     private void dispatchToExternalChannels(String title, String content, String type, String severity) {
         List<NotifyPolicy> policies = notifyPolicyMapper.selectList(
                 new LambdaQueryWrapper<NotifyPolicy>()
                         .eq(NotifyPolicy::getEnabled, 1)
                         .eq(NotifyPolicy::getStatus, 0));
 
+        boolean isRecovery = "alert_recovery".equals(type);
+
         for (NotifyPolicy policy : policies) {
             if (StringUtils.hasText(policy.getEventTypes()) && !policy.getEventTypes().contains(type)) continue;
             if (StringUtils.hasText(policy.getSeverityFilter()) && !policy.getSeverityFilter().contains(severity)) continue;
+
+            // 恢复通知过滤：策略可选择不外发恢复通知
+            if (isRecovery && policy.getIncludeRecovery() != null && policy.getIncludeRecovery() == 0) {
+                continue;
+            }
 
             if (StringUtils.hasText(policy.getChannelIds())) {
                 for (String channelIdStr : policy.getChannelIds().split(",")) {
@@ -118,13 +128,43 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                         Long channelId = Long.parseLong(channelIdStr.trim());
                         NotifyChannel channel = notifyChannelMapper.selectById(channelId);
                         if (channel == null || channel.getEnabled() == null || channel.getEnabled() != 1) continue;
+
+                        // 渠道限流检查
+                        if (isRateLimited(channel)) {
+                            log.info("[Notification] Channel {} rate-limited, skipping: {}", channel.getName(), title);
+                            continue;
+                        }
+
                         dispatchToChannel(channel, title, content, severity);
+                        recordChannelSend(channelId);
                     } catch (NumberFormatException e) {
                         log.warn("[Notification] Invalid channelId in policy {}: {}", policy.getId(), channelIdStr);
                     }
                 }
             }
         }
+    }
+
+    private boolean isRateLimited(NotifyChannel channel) {
+        Integer limit = channel.getRateLimitPerMinute();
+        if (limit == null || limit <= 0) return false;
+        long now = System.currentTimeMillis();
+        long[] window = channelRateWindow.get(channel.getId());
+        if (window == null) return false;
+        // window[0] = 窗口开始时间, window[1] = 窗口内计数
+        if (now - window[0] > 60_000) return false; // 窗口已过期
+        return window[1] >= limit;
+    }
+
+    private void recordChannelSend(Long channelId) {
+        long now = System.currentTimeMillis();
+        channelRateWindow.compute(channelId, (k, window) -> {
+            if (window == null || now - window[0] > 60_000) {
+                return new long[]{now, 1};
+            }
+            window[1]++;
+            return window;
+        });
     }
 
     // ==================== Query (per-user) ====================

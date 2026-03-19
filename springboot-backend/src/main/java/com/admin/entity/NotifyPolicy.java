@@ -19,4 +19,7 @@ public class NotifyPolicy extends BaseEntity {
     private String recipientUserIds;
     private Integer enabled;
     private Integer cooldownMinutes;
+
+    /** 是否包含恢复通知的外发（站内通知照常记录），默认 1=包含 */
+    private Integer includeRecovery;
 }

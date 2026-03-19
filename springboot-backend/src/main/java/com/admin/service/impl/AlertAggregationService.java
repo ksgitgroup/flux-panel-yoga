@@ -263,23 +263,84 @@ public class AlertAggregationService {
     // ==================== Site Notifications ====================
 
     private void writeSiteNotifications(Map<String, List<AlertEvent>> snapshot) {
+        // 收集所有事件，按 ruleId 聚合（恢复事件单独分组）
+        Map<String, List<AlertEvent>> groupedAlerts = new LinkedHashMap<>();
+        List<AlertEvent> recoveryEvents = new ArrayList<>();
+
         for (List<AlertEvent> events : snapshot.values()) {
             for (AlertEvent e : events) {
-                boolean isRecovery = e.getMessage() != null && e.getMessage().startsWith("已恢复:");
-                String type = isRecovery ? "alert_recovery" : "alert";
-                try {
-                    notificationService.send(
-                            e.getRuleName(),
-                            e.getMessage(),
-                            type,
-                            e.getSeverity(),
-                            "alert_engine",
-                            e.getRuleId());
-                } catch (Exception ex) {
-                    log.warn("[AlertAggregation] Failed to write site notification: {}", ex.getMessage());
+                if (e.getMessage() != null && e.getMessage().startsWith("已恢复:")) {
+                    recoveryEvents.add(e);
+                } else {
+                    String groupKey = e.getRuleId() + ":" + e.getRuleName();
+                    groupedAlerts.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(e);
                 }
             }
         }
+
+        // 告警事件：按规则聚合，每条规则生成 1 条汇总通知
+        for (List<AlertEvent> group : groupedAlerts.values()) {
+            if (group.isEmpty()) continue;
+            AlertEvent first = group.get(0);
+            String highestSeverity = group.stream()
+                    .map(AlertEvent::getSeverity)
+                    .reduce(first.getSeverity(), this::higherSeverity);
+
+            String title = first.getRuleName();
+            String content;
+            if (group.size() == 1) {
+                content = first.getMessage();
+            } else {
+                StringBuilder sb = new StringBuilder();
+                sb.append(String.format("影响节点（%d 台）：\n", group.size()));
+                int shown = 0;
+                for (AlertEvent e : group) {
+                    if (shown < 10) {
+                        sb.append(String.format("• %s", e.getMessage())).append("\n");
+                        shown++;
+                    }
+                }
+                if (group.size() > 10) {
+                    sb.append(String.format("… 等共 %d 台节点\n", group.size()));
+                }
+                content = sb.toString().trim();
+            }
+
+            try {
+                notificationService.send(title, content, "alert", highestSeverity, "alert_engine", first.getRuleId());
+            } catch (Exception ex) {
+                log.warn("[AlertAggregation] Failed to write aggregated notification: {}", ex.getMessage());
+            }
+        }
+
+        // 恢复事件：也按规则聚合
+        Map<String, List<AlertEvent>> groupedRecovery = new LinkedHashMap<>();
+        for (AlertEvent e : recoveryEvents) {
+            String groupKey = e.getRuleId() + ":" + e.getRuleName();
+            groupedRecovery.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(e);
+        }
+        for (List<AlertEvent> group : groupedRecovery.values()) {
+            if (group.isEmpty()) continue;
+            AlertEvent first = group.get(0);
+            String content;
+            if (group.size() == 1) {
+                content = first.getMessage();
+            } else {
+                content = String.format("已恢复: %s — %d 台节点恢复正常", first.getRuleName(), group.size());
+            }
+            try {
+                notificationService.send(first.getRuleName(), content, "alert_recovery", "info", "alert_engine", first.getRuleId());
+            } catch (Exception ex) {
+                log.warn("[AlertAggregation] Failed to write recovery notification: {}", ex.getMessage());
+            }
+        }
+    }
+
+    private String higherSeverity(String a, String b) {
+        Map<String, Integer> order = Map.of("info", 0, "warning", 1, "critical", 2);
+        int oa = order.getOrDefault(a, 0);
+        int ob = order.getOrDefault(b, 0);
+        return oa >= ob ? a : b;
     }
 
     // ==================== Daily Summary ====================

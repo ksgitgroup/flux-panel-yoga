@@ -388,6 +388,14 @@ function ChannelsTab() {
                 </div>
               );
             })()}
+            <Input
+              label="每分钟最大通知数"
+              placeholder="0 = 不限制"
+              type="number"
+              value={String(editItem?.rateLimitPerMinute ?? 0)}
+              onValueChange={(v) => setEditItem(prev => ({ ...prev, rateLimitPerMinute: parseInt(v) || 0 }))}
+              description="防止批量告警轰炸，超过限制的通知将被跳过（站内通知不受影响）"
+            />
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onClose}>取消</Button>
@@ -572,6 +580,16 @@ function PoliciesTab() {
                 })}
               </div>
               <p className="text-[11px] text-default-400 mt-1.5">不选则匹配所有级别。不同级别可关联不同策略实现分级通知</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">包含恢复通知</p>
+                <p className="text-[11px] text-default-400">关闭后，告警恢复时不再推送到外部渠道（站内通知照常记录）</p>
+              </div>
+              <Switch
+                isSelected={editItem?.includeRecovery !== 0}
+                onValueChange={(v) => setEditItem(prev => ({ ...prev, includeRecovery: v ? 1 : 0 }))}
+              />
             </div>
             <Select
               label="通知渠道"

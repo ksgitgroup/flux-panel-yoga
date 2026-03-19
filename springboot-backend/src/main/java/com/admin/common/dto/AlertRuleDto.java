@@ -40,4 +40,8 @@ public class AlertRuleDto {
     private String severity;
 
     private Integer escalateAfterMinutes;
+
+    private Long groupId;
+
+    private String scopeJson;
 }

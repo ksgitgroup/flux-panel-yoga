@@ -23,4 +23,11 @@ public interface AlertService extends IService<MonitorAlertRule> {
 
     /** Evaluate all enabled rules against current metrics. Called after each sync. */
     void evaluateAlerts();
+
+    // Rule Groups
+    R listGroups();
+    R createGroup(String name, String description);
+    R updateGroup(Long id, String name, String description);
+    R deleteGroup(Long id);
+    R batchUpdateGroupRules(java.util.Map<String, Object> body);
 }

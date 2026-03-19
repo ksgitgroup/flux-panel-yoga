@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
@@ -14,8 +13,9 @@ import {
 import toast from 'react-hot-toast';
 
 import {
-  AlertRule,
+  AlertRule, AlertRuleGroup, ScopeOptions,
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, toggleAlertRule,
+  getAlertGroups, createAlertGroup, deleteAlertGroup, batchUpdateGroupRules, getScopeOptions,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { ChannelsTab, PoliciesTab } from './notification';
@@ -63,17 +63,12 @@ const OPERATORS = [
   { value: 'eq', label: '=' },
 ];
 
-const SCOPE_TYPES = [
-  { value: 'all', label: '全部节点' },
-  { value: 'tag', label: '按标签' },
-  { value: 'node', label: '按节点 ID' },
-];
 
 const PROBE_CONDITIONS = [
-  { value: 'any', label: '任意探针' },
+  { value: 'both', label: '全部探针（所有探针异常才触发）' },
+  { value: 'any', label: '任意探针（任一异常即触发）' },
   { value: 'komari', label: '仅 Komari' },
   { value: 'pika', label: '仅 Pika' },
-  { value: 'both', label: '双探针节点' },
 ];
 
 const SEVERITIES = [
@@ -109,10 +104,6 @@ function metricCategory(metric?: string): { label: string; color: 'primary' | 'd
   }
 }
 
-function formatTime(ts?: number | null): string {
-  if (!ts) return '-';
-  return new Date(ts).toLocaleString('zh-CN', { hour12: false });
-}
 
 /** Parse numeric input, allowing empty/partial typing */
 function parseNum(v: string, fallback?: number): number | undefined {
@@ -122,7 +113,6 @@ function parseNum(v: string, fallback?: number): number | undefined {
 }
 
 export default function AlertPage() {
-  const navigate = useNavigate();
   const canViewAlerts = hasPermission('alert.read');
   const canCreateAlerts = hasPermission('alert.create');
   const canUpdateAlerts = hasPermission('alert.update');
@@ -132,28 +122,98 @@ export default function AlertPage() {
   // Search state
   const [ruleSearch, setRuleSearch] = useState('');
 
-  // Rules state
+  // Rules + Groups state
   const [rules, setRules] = useState<AlertRule[]>([]);
+  const [groups, setGroups] = useState<AlertRuleGroup[]>([]);
+  const [scopeOpts, setScopeOpts] = useState<ScopeOptions | null>(null);
   const [rulesLoading, setRulesLoading] = useState(true);
-  const [migrationWarningDismissed, setMigrationWarningDismissed] = useState(false);
-
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set());
 
   // Edit modal
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [editRule, setEditRule] = useState<Partial<AlertRule> | null>(null);
 
-  const fetchRules = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setRulesLoading(true);
     try {
-      const res = await getAlertRules();
-      if (res.code === 0 && res.data) setRules(res.data as AlertRule[]);
-    } catch { toast.error('加载告警规则失败'); }
+      const [rRes, gRes, sRes] = await Promise.all([getAlertRules(), getAlertGroups(), getScopeOptions()]);
+      if (rRes.code === 0 && rRes.data) setRules(rRes.data as AlertRule[]);
+      if (gRes.code === 0 && gRes.data) setGroups(gRes.data as AlertRuleGroup[]);
+      if (sRes.code === 0 && sRes.data) setScopeOpts(sRes.data as ScopeOptions);
+    } catch { toast.error('加载告警数据失败'); }
     finally { setRulesLoading(false); }
   }, []);
 
-  useEffect(() => {
-    fetchRules();
-  }, [fetchRules]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const toggleGroupCollapse = (gid: number) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(gid)) next.delete(gid); else next.add(gid);
+      return next;
+    });
+  };
+
+  const handleBatchToggle = async (groupId: number, enabled: number) => {
+    await batchUpdateGroupRules(groupId, { enabled });
+    toast.success(enabled ? '已批量启用' : '已批量禁用');
+    fetchAll();
+  };
+
+  const handleDeleteGroup = async (groupId: number) => {
+    if (!confirm('删除规则组？组内规则不会删除，将变为未分组。')) return;
+    await deleteAlertGroup(groupId);
+    toast.success('已删除规则组');
+    fetchAll();
+  };
+
+  const handleNewGroup = async () => {
+    const name = prompt('输入规则组名称:');
+    if (!name) return;
+    await createAlertGroup(name);
+    toast.success('已创建规则组');
+    fetchAll();
+  };
+
+  const renderRuleRow = (rule: AlertRule) => {
+    const cat = metricCategory(rule.metric);
+    const scopeLabel = rule.scopeJson ? (() => {
+      try {
+        const s = JSON.parse(rule.scopeJson);
+        const parts: string[] = [];
+        if (s.environment?.length) parts.push(`环境:${s.environment.join('/')}`);
+        if (s.provider?.length) parts.push(`厂商:${s.provider.join('/')}`);
+        if (s.region?.length) parts.push(`地区:${s.region.join('/')}`);
+        if (s.tags?.length) parts.push(`标签:${s.tags.join('/')}`);
+        if (s.os?.length) parts.push(`系统:${s.os.join('/')}`);
+        return parts.length > 0 ? parts.join(' · ') : '全部节点';
+      } catch { return '全部节点'; }
+    })() : (rule.scopeType === 'tag' ? `标签:${rule.scopeValue}` : rule.scopeType === 'node' ? `节点:${rule.scopeValue}` : '全部节点');
+
+    return (
+      <div key={rule.id} className={`px-3 py-2 flex items-center gap-2 ${rule.enabled ? '' : 'opacity-50'}`}>
+        <Switch size="sm" isSelected={rule.enabled === 1} isDisabled={!canUpdateAlerts} onValueChange={() => handleToggle(rule.id)} />
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-sm font-medium">{rule.name}</span>
+            <Chip size="sm" variant="dot" color={cat.color} className="h-4 text-[9px]">{cat.label}</Chip>
+            <Chip size="sm" variant="flat" color={SEVERITIES.find(s => s.value === rule.severity)?.color || 'warning'} className="h-4 text-[9px]">
+              {SEVERITIES.find(s => s.value === rule.severity)?.label || '警告'}
+            </Chip>
+            <span className="text-[10px] font-mono text-default-400">
+              {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
+              {rule.metric !== 'offline' && ` ${rule.operator || '>'} ${rule.threshold}`}
+            </span>
+          </div>
+          <p className="text-[10px] text-default-400 mt-0.5 truncate">{scopeLabel} · 冷却:{rule.cooldownMinutes}min</p>
+        </div>
+        <div className="flex gap-1 flex-shrink-0">
+          {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openEdit(rule)}>编辑</Button>}
+          {canDeleteAlerts && <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>}
+        </div>
+      </div>
+    );
+  };
 
   const handleSave = async () => {
     if (editRule?.id ? !canUpdateAlerts : !canCreateAlerts) {
@@ -180,7 +240,7 @@ export default function AlertPage() {
       if (res.code === 0) {
         toast.success(payload.id ? '已更新' : '已创建');
         onClose();
-        fetchRules();
+        fetchAll();
       } else {
         toast.error(res.msg || '操作失败');
       }
@@ -195,7 +255,7 @@ export default function AlertPage() {
     if (!confirm('确定删除此告警规则？')) return;
     try {
       const res = await deleteAlertRule(id);
-      if (res.code === 0) { toast.success('已删除'); fetchRules(); }
+      if (res.code === 0) { toast.success('已删除'); fetchAll(); }
       else toast.error(res.msg || '删除失败');
     } catch { toast.error('删除失败'); }
   };
@@ -204,7 +264,7 @@ export default function AlertPage() {
     if (!canUpdateAlerts) return;
     try {
       const res = await toggleAlertRule(id);
-      if (res.code === 0) fetchRules();
+      if (res.code === 0) fetchAll();
     } catch { toast.error('切换规则状态失败'); }
   };
 
@@ -215,9 +275,9 @@ export default function AlertPage() {
     }
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
-      durationSeconds: 0, scopeType: 'all',
+      durationSeconds: 0, scopeType: 'all', scopeJson: '',
       cooldownMinutes: 5, enabled: 1, severity: 'warning',
-      probeCondition: 'any',
+      probeCondition: 'both', groupId: groups[0]?.id,
     });
     onOpen();
   };
@@ -291,90 +351,70 @@ export default function AlertPage() {
             <Input size="sm" placeholder="搜索规则名称…" className="max-w-xs"
               value={ruleSearch} onValueChange={setRuleSearch}
               isClearable onClear={() => setRuleSearch('')} />
-            <div className="ml-auto">
-              {canCreateAlerts && (
-              <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>
-              )}
+            <div className="ml-auto flex gap-2">
+              {canCreateAlerts && <Button size="sm" variant="flat" onPress={handleNewGroup}>新建组</Button>}
+              {canCreateAlerts && <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>}
             </div>
           </div>
-
-          {!migrationWarningDismissed && !rulesLoading && rules.some(r => r.notifyType && r.notifyType !== 'log' && r.notifyTarget) && (
-            <Card className="border border-warning/30 bg-warning-50/50 dark:bg-warning/5">
-              <CardBody className="p-3 text-xs text-default-600 flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                <div className="flex-1">
-                  <p className="font-semibold text-sm text-warning-700">通知方式已统一</p>
-                  <p className="mt-0.5">部分告警规则仍保留旧的通知配置，已自动迁移。请切换到「通知渠道/策略」Tab 确认配置正确。</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="flat" color="warning" onPress={() => setActiveTab('channels')}>查看渠道</Button>
-                  <Button size="sm" variant="light" onPress={() => setMigrationWarningDismissed(true)}>关闭</Button>
-                </div>
-              </CardBody>
-            </Card>
-          )}
 
           {rulesLoading ? (
             <div className="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
           ) : rules.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-divider/60 p-12 text-center">
               <h3 className="text-base font-semibold text-default-600">暂无告警规则</h3>
-              <p className="mt-2 text-sm text-default-400">点击「新建规则」开始配置监控告警。</p>
+              <p className="mt-2 text-sm text-default-400">系统将在首次启动时自动创建默认规则组，请刷新页面。</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {rules.filter(r => !ruleSearch || r.name.toLowerCase().includes(ruleSearch.toLowerCase())).map(rule => {
-                const cat = metricCategory(rule.metric);
+            <div className="space-y-3">
+              {/* 按组显示规则 */}
+              {groups.map(group => {
+                const groupRules = rules.filter(r => r.groupId === group.id)
+                  .filter(r => !ruleSearch || r.name.toLowerCase().includes(ruleSearch.toLowerCase()));
+                const collapsed = collapsedGroups.has(group.id);
+                if (groupRules.length === 0 && ruleSearch) return null;
                 return (
-                <div key={rule.id} className={`rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center gap-3 ${rule.enabled ? 'border-divider/60 bg-content1' : 'border-divider/40 bg-default-50 opacity-60'}`}>
-                  <Switch size="sm" isSelected={rule.enabled === 1} isDisabled={!canUpdateAlerts} onValueChange={() => handleToggle(rule.id)} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                      <span className="font-semibold text-sm">{rule.name}</span>
-                      <Chip size="sm" variant="dot" color={cat.color} className="h-5 text-[10px]">{cat.label}</Chip>
-                      <Chip size="sm" variant="flat" color={SEVERITIES.find(s => s.value === rule.severity)?.color || 'warning'} className="h-5 text-[10px]">
-                        {SEVERITIES.find(s => s.value === rule.severity)?.label || '警告'}
-                      </Chip>
-                      <Chip size="sm" variant="flat" color={
-                        rule.metric === 'offline' || rule.metric === 'forward_health' || rule.metric === 'probe_stale' ? 'danger' :
-                        rule.metric === 'expiry' || rule.metric === 'xui_client_expiry' ? 'warning' :
-                        rule.metric === 'traffic_quota' || rule.metric === 'xui_client_traffic' ? 'secondary' :
-                        rule.metric === 'swap' ? 'primary' : 'primary'
-                      } className="h-5 text-[10px]">
-                        {METRICS.find(m => m.value === rule.metric)?.label || rule.metric}
-                      </Chip>
-                      {rule.metric === 'expiry' || rule.metric === 'xui_client_expiry' ? (
-                        <span className="text-xs font-mono text-default-500">&le; {rule.threshold} 天</span>
-                      ) : rule.metric === 'traffic_quota' || rule.metric === 'xui_client_traffic' || rule.metric === 'swap' ? (
-                        <span className="text-xs font-mono text-default-500">&ge; {rule.threshold}%</span>
-                      ) : rule.metric === 'forward_health' ? (
-                        <span className="text-xs font-mono text-default-500">&lt; {rule.threshold}%</span>
-                      ) : rule.metric === 'probe_stale' ? (
-                        <span className="text-xs font-mono text-default-500">&ge; {rule.threshold} 分钟</span>
-                      ) : rule.metric !== 'offline' ? (
-                        <span className="text-xs font-mono text-default-500">
-                          {OPERATORS.find(o => o.value === rule.operator)?.label || rule.operator} {rule.threshold}
-                        </span>
-                      ) : null}
+                  <div key={group.id} className="rounded-xl border border-divider/60 overflow-hidden">
+                    {/* 组标题栏 */}
+                    <div className="flex items-center gap-2 px-3 py-2 bg-default-50 cursor-pointer"
+                      onClick={() => toggleGroupCollapse(group.id)}>
+                      <span className="text-xs text-default-400">{collapsed ? '▶' : '▼'}</span>
+                      <span className="font-semibold text-sm">{group.name}</span>
+                      {group.isDefault === 1 && <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">默认</Chip>}
+                      <span className="text-xs text-default-400">({groupRules.length} 条)</span>
+                      {group.description && <span className="text-xs text-default-400 hidden sm:inline">— {group.description}</span>}
+                      <div className="ml-auto flex gap-1" onClick={e => e.stopPropagation()}>
+                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 1)}>全部启用</Button>}
+                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 0)}>全部禁用</Button>}
+                        {canDeleteAlerts && group.isDefault !== 1 && <Button size="sm" variant="light" color="danger" onPress={() => handleDeleteGroup(group.id)}>删除组</Button>}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-default-400 mt-0.5">
-                      范围: {SCOPE_TYPES.find(s => s.value === rule.scopeType)?.label || rule.scopeType}
-                      {rule.scopeValue ? ` (${rule.scopeValue})` : ''}
-                      {rule.probeCondition && rule.probeCondition !== 'any' ? ` · 探针: ${PROBE_CONDITIONS.find(p => p.value === rule.probeCondition)?.label || rule.probeCondition}` : ''}
-                      {rule.durationSeconds && rule.durationSeconds > 0 ? ` · 持续: ${rule.durationSeconds}秒` : ''}
-                      {' · '}冷却: {rule.cooldownMinutes}分钟
-                      {rule.escalateAfterMinutes ? ` · 升级: ${rule.escalateAfterMinutes}分钟后` : ''}
-                      {rule.lastTriggeredAt ? ` · 上次触发: ${formatTime(rule.lastTriggeredAt)}` : ''}
-                    </p>
+                    {/* 组内规则 */}
+                    {!collapsed && (
+                      <div className="divide-y divide-divider/40">
+                        {groupRules.map(rule => renderRuleRow(rule))}
+                        {groupRules.length === 0 && <p className="text-xs text-default-400 p-3">此组暂无规则</p>}
+                      </div>
+                    )}
                   </div>
-                  {(canUpdateAlerts || canDeleteAlerts) && (
-                    <div className="flex gap-1 ml-auto sm:ml-0">
-                      {canUpdateAlerts && <Button size="sm" variant="flat" onPress={() => openEdit(rule)}>编辑</Button>}
-                      {canDeleteAlerts && <Button size="sm" variant="flat" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>}
-                    </div>
-                  )}
-                </div>
                 );
               })}
+
+              {/* 未分组规则 */}
+              {(() => {
+                const ungrouped = rules.filter(r => !r.groupId)
+                  .filter(r => !ruleSearch || r.name.toLowerCase().includes(ruleSearch.toLowerCase()));
+                if (ungrouped.length === 0) return null;
+                return (
+                  <div className="rounded-xl border border-divider/40 overflow-hidden">
+                    <div className="px-3 py-2 bg-default-50">
+                      <span className="font-semibold text-sm text-default-500">未分组 ({ungrouped.length})</span>
+                    </div>
+                    <div className="divide-y divide-divider/40">
+                      {ungrouped.map(rule => renderRuleRow(rule))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
       </>)}
@@ -389,6 +429,18 @@ export default function AlertPage() {
             <>
               <ModalHeader className="pb-2">{editRule.id ? '编辑告警规则' : '新建告警规则'}</ModalHeader>
               <ModalBody className="space-y-4">
+
+                {/* 所属规则组 */}
+                <Select label="所属规则组" size="sm"
+                  selectedKeys={editRule.groupId ? [String(editRule.groupId)] : []}
+                  onSelectionChange={keys => {
+                    const v = Array.from(keys)[0] as string;
+                    updateField({ groupId: v ? Number(v) : undefined });
+                  }}>
+                  {groups.map(g => <SelectItem key={String(g.id)}>{g.name}</SelectItem>)}
+                </Select>
+
+                <Divider />
 
                 {/* === Section 1: 触发条件 === */}
                 <div className="space-y-3">
@@ -457,32 +509,58 @@ export default function AlertPage() {
 
                 {/* === Section 2: 监控范围 === */}
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">监控范围</p>
-                  {metricNeedsScope ? (
-                    <div className="flex gap-2">
-                      <Select label="范围" size="sm" className="flex-1"
+                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">监控范围 <span className="text-default-300 normal-case">（全部留空 = 监控所有节点，维度间 AND 关系）</span></p>
+                  {metricNeedsScope ? (<>
+                    {scopeOpts && (() => {
+                      // 解析当前 scopeJson
+                      let scopeObj: Record<string, string[]> = {};
+                      try { if (editRule.scopeJson) scopeObj = JSON.parse(editRule.scopeJson); } catch {}
+                      const updateScope = (key: string, values: string[]) => {
+                        const next = { ...scopeObj, [key]: values.filter(Boolean) };
+                        // 清理空数组
+                        Object.keys(next).forEach(k => { if (!next[k]?.length) delete next[k]; });
+                        updateField({ scopeJson: Object.keys(next).length > 0 ? JSON.stringify(next) : '' });
+                      };
+                      const dims = [
+                        { key: 'environment', label: '环境', options: scopeOpts.environments },
+                        { key: 'provider', label: '厂商', options: scopeOpts.providers },
+                        { key: 'region', label: '地区', options: scopeOpts.regions },
+                        { key: 'tags', label: '标签', options: scopeOpts.tags },
+                        { key: 'os', label: '系统', options: scopeOpts.osList },
+                      ];
+                      return (
+                        <div className="space-y-2">
+                          {dims.map(d => d.options.length > 0 && (
+                            <div key={d.key}>
+                              <p className="text-[11px] text-default-500 mb-1">{d.label}</p>
+                              <div className="flex flex-wrap gap-1">
+                                {d.options.map(opt => {
+                                  const selected = scopeObj[d.key] || [];
+                                  const isActive = selected.includes(opt);
+                                  return (
+                                    <Chip key={opt} size="sm" className="cursor-pointer h-5 text-[10px]"
+                                      variant={isActive ? 'solid' : 'bordered'}
+                                      color={isActive ? 'primary' : 'default'}
+                                      onClick={() => updateScope(d.key, isActive ? selected.filter(v => v !== opt) : [...selected, opt])}>
+                                      {opt}
+                                    </Chip>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    {metricNeedsProbe && (
+                      <Select label="探针条件" size="sm"
                         disallowEmptySelection
-                        selectedKeys={[editRule.scopeType || 'all']}
-                        onSelectionChange={keys => updateField({ scopeType: Array.from(keys)[0] as string })}>
-                        {SCOPE_TYPES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
+                        selectedKeys={[editRule.probeCondition || 'both']}
+                        onSelectionChange={keys => updateField({ probeCondition: Array.from(keys)[0] as string })}>
+                        {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
                       </Select>
-
-                      {editRule.scopeType && editRule.scopeType !== 'all' && (
-                        <Input label={editRule.scopeType === 'tag' ? '标签名' : '节点 ID'} size="sm" className="flex-1"
-                          value={editRule.scopeValue || ''}
-                          onValueChange={v => updateField({ scopeValue: v })} />
-                      )}
-
-                      {metricNeedsProbe && (
-                        <Select label="探针" size="sm" className="w-36"
-                          disallowEmptySelection
-                          selectedKeys={[editRule.probeCondition || 'any']}
-                          onSelectionChange={keys => updateField({ probeCondition: Array.from(keys)[0] as string })}>
-                          {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
-                        </Select>
-                      )}
-                    </div>
-                  ) : (
+                    )}
+                  </>) : (
                     <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
                       {editRule.metric === 'probe_stale' ? '此指标监控所有启用的探针实例，无需选择节点范围。' :
                        editRule.metric?.startsWith('xui_client_') ? '此指标监控所有启用的 XUI 客户端，无需选择节点范围。' :
@@ -510,7 +588,7 @@ export default function AlertPage() {
                       onValueChange={v => updateField({ escalateAfterMinutes: parseNum(v) })} />
                   </div>
                   <p className="text-xs text-default-400 bg-primary-50 dark:bg-primary/5 rounded-lg p-2.5 leading-relaxed">
-                    告警触发后将通过「<span className="font-semibold text-primary cursor-pointer" onClick={() => navigate('/notification')}>通知中心</span>」的策略和渠道配置发送外部通知（企业微信、钉钉、Telegram 等）。请在通知中心配置渠道和策略。
+                    告警触发后通过「<span className="font-semibold text-primary cursor-pointer" onClick={() => { onClose(); setActiveTab('policies'); }}>通知策略</span>」匹配后发送到「<span className="font-semibold text-primary cursor-pointer" onClick={() => { onClose(); setActiveTab('channels'); }}>通知渠道</span>」（企业微信、钉钉、Telegram 等）。
                   </p>
                 </div>
 

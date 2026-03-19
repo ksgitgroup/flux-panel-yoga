@@ -978,4 +978,37 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         }
         return value.trim();
     }
+
+    @Override
+    public R getScopeOptions() {
+        List<AssetHost> assets = assetHostMapper.selectList(
+                new LambdaQueryWrapper<AssetHost>().eq(AssetHost::getStatus, 0));
+
+        Set<String> environments = new TreeSet<>();
+        Set<String> providers = new TreeSet<>();
+        Set<String> regions = new TreeSet<>();
+        Set<String> tags = new TreeSet<>();
+        Set<String> osList = new TreeSet<>();
+
+        for (AssetHost a : assets) {
+            if (StringUtils.hasText(a.getEnvironment())) environments.add(a.getEnvironment());
+            if (StringUtils.hasText(a.getProvider())) providers.add(a.getProvider());
+            if (StringUtils.hasText(a.getRegion())) regions.add(a.getRegion());
+            if (StringUtils.hasText(a.getOs())) osList.add(a.getOs());
+            if (StringUtils.hasText(a.getTags())) {
+                for (String t : a.getTags().split(",")) {
+                    String trimmed = t.trim();
+                    if (!trimmed.isEmpty()) tags.add(trimmed);
+                }
+            }
+        }
+
+        return R.ok(Map.of(
+                "environments", environments,
+                "providers", providers,
+                "regions", regions,
+                "tags", tags,
+                "osList", osList
+        ));
+    }
 }

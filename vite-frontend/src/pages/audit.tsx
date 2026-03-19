@@ -4,7 +4,7 @@ import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
 import { Spinner } from "@heroui/spinner";
-import { Switch } from "@heroui/switch";
+
 import { Select, SelectItem } from "@heroui/select";
 import { Tabs, Tab } from "@heroui/tabs";
 import {
@@ -17,8 +17,7 @@ import toast from 'react-hot-toast';
 
 import {
   getAuditLogs, getAuditStats, clearAuditLogs,
-  getExpiryConfig, updateExpiryConfig, checkExpiryNow,
-  AuditLogItem, AuditStats, ExpiryReminderConfig,
+  AuditLogItem, AuditStats,
 } from '@/api';
 
 const MODULES = [
@@ -231,135 +230,7 @@ function AuditLogsTab() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Expiry Reminder Tab                                                */
-/* ------------------------------------------------------------------ */
-function ExpiryReminderTab() {
-  const [_config, setConfig] = useState<ExpiryReminderConfig | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [checkResults, setCheckResults] = useState<string[]>([]);
 
-  const [enabled, setEnabled] = useState(false);
-  const [remindDays, setRemindDays] = useState('7,3,1');
-  const [notifyChannel, setNotifyChannel] = useState('log');
-
-  const fetchConfig = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getExpiryConfig();
-      const cfg = res.data;
-      if (cfg) {
-        setConfig(cfg);
-        setEnabled(cfg.enabled === 1);
-        setRemindDays(cfg.remindDaysBefore ?? '7,3,1');
-        setNotifyChannel(cfg.notifyChannel ?? 'log');
-      }
-    } catch {
-      toast.error('加载到期提醒配置失败');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchConfig(); }, [fetchConfig]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await updateExpiryConfig({ enabled: enabled ? 1 : 0, remindDaysBefore: remindDays, notifyChannel });
-      toast.success('配置已保存');
-      fetchConfig();
-    } catch {
-      toast.error('保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCheckNow = async () => {
-    setChecking(true);
-    setCheckResults([]);
-    try {
-      const res = await checkExpiryNow();
-      if (res.code === 0 && res.data) {
-        const { checkedCount, notifiedCount, details } = res.data;
-        if (Array.isArray(details) && details.length > 0) {
-          setCheckResults(details.map((r: any) =>
-            typeof r === 'string' ? r : `${r.name ?? r.hostname ?? '未知'} - 剩余 ${r.daysLeft ?? '?'} 天 (到期: ${r.expiryDate ?? '-'})`
-          ));
-        } else {
-          setCheckResults([`检查完成: 已检查 ${checkedCount} 项, 通知 ${notifiedCount} 项, 当前没有即将到期的资产`]);
-        }
-        toast.success('检查完成');
-      }
-    } catch {
-      toast.error('检查失败');
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
-
-  return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader className="font-semibold">到期提醒配置</CardHeader>
-        <CardBody className="space-y-4">
-          <div className="flex items-center gap-3">
-            <Switch isSelected={enabled} onValueChange={setEnabled} />
-            <span>{enabled ? '已启用' : '已禁用'}</span>
-          </div>
-
-          <Input
-            label="提前提醒天数 (逗号分隔)"
-            placeholder="例如: 30,14,7,3,1"
-            value={remindDays}
-            onChange={e => setRemindDays(e.target.value)}
-          />
-
-          <Select
-            label="通知渠道"
-            selectedKeys={new Set([notifyChannel])}
-            onSelectionChange={(keys) => {
-              const v = Array.from(keys)[0] as string ?? 'log';
-              setNotifyChannel(v);
-            }}
-          >
-            <SelectItem key="log">仅记录日志</SelectItem>
-            <SelectItem key="webhook">Webhook</SelectItem>
-            <SelectItem key="wechat">企业微信机器人</SelectItem>
-          </Select>
-
-          <div className="flex gap-2 pt-2">
-            <Button color="primary" onPress={handleSave} isLoading={saving}>保存配置</Button>
-            <Button variant="flat" color="warning" onPress={handleCheckNow} isLoading={checking}>
-              立即检查
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
-
-      {checkResults.length > 0 && (
-        <Card>
-          <CardHeader className="font-semibold">检查结果</CardHeader>
-          <CardBody>
-            <ul className="space-y-1">
-              {checkResults.map((r, i) => (
-                <li key={i} className="text-sm flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-warning inline-block" />
-                  {r}
-                </li>
-              ))}
-            </ul>
-          </CardBody>
-        </Card>
-      )}
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Stats Tab                                                          */
@@ -459,11 +330,6 @@ export default function AuditPage() {
         <Tab key="logs" title="审计日志">
           <div className="pt-4">
             <AuditLogsTab />
-          </div>
-        </Tab>
-        <Tab key="expiry" title="到期提醒">
-          <div className="pt-4">
-            <ExpiryReminderTab />
           </div>
         </Tab>
         <Tab key="stats" title="统计">

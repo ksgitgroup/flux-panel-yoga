@@ -47,4 +47,10 @@ public class MonitorAlertRule extends BaseEntity {
 
     /** 升级间隔（分钟）：若持续触发，经过此间隔后自动升级严重等级并重新通知 */
     private Integer escalateAfterMinutes;
+
+    /** 所属规则组 ID，NULL = 未分组 */
+    private Long groupId;
+
+    /** 多维度范围 JSON，NULL = 使用旧的 scopeType/scopeValue，格式：{"environment":["生产"],"provider":["Aliyun"]} */
+    private String scopeJson;
 }

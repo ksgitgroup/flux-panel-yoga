@@ -1,6 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-
-import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
@@ -109,15 +107,17 @@ function NotificationsTab() {
   const [loading, setLoading] = useState(true);
   const [readFilter, setReadFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('');
+  const [sevFilter, setSevFilter] = useState<string>('');
   const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchList = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const params: any = { page: p, size: 20 };
+      const params: any = { page: p, size: 30 };
       if (readFilter === 'unread') params.readStatus = 0;
       else if (readFilter === 'read') params.readStatus = 1;
       if (typeFilter) params.type = typeFilter;
+      if (sevFilter) params.severity = sevFilter;
       const res = await getNotifications(params);
       if (res.code === 0 && res.data) {
         const d = res.data as any;
@@ -127,7 +127,7 @@ function NotificationsTab() {
       }
     } catch { toast.error('加载通知列表失败'); }
     finally { setLoading(false); }
-  }, [readFilter, typeFilter]);
+  }, [readFilter, typeFilter, sevFilter]);
 
   const fetchUnread = useCallback(async () => {
     try {
@@ -155,85 +155,92 @@ function NotificationsTab() {
     } catch { toast.error('操作失败'); }
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  // 提取类别和清理标题
+  const parseTitle = (title?: string) => {
+    if (!title) return { category: null, cleanTitle: '' };
+    const prefixes: Record<string, { label: string; color: 'primary' | 'danger' | 'warning' }> = {
+      '[基础设施] ': { label: '基础设施', color: 'primary' },
+      '[连通性] ': { label: '连通性', color: 'danger' },
+      '[资源] ': { label: '资源', color: 'warning' },
+    };
+    for (const [prefix, meta] of Object.entries(prefixes)) {
+      if (title.startsWith(prefix)) return { category: meta, cleanTitle: title.slice(prefix.length) };
+    }
+    return { category: null, cleanTitle: title };
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / 30));
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Select
-          label="已读状态"
-          size="sm"
-          className="w-36"
+    <div className="flex flex-col gap-3">
+      {/* 紧凑筛选栏 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select size="sm" className="w-28" aria-label="已读状态"
           selectedKeys={new Set([readFilter])}
-          onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setReadFilter(v || 'all'); }}
-        >
+          onSelectionChange={(keys) => setReadFilter(Array.from(keys)[0] as string || 'all')}>
           <SelectItem key="all">全部</SelectItem>
           <SelectItem key="unread">未读</SelectItem>
           <SelectItem key="read">已读</SelectItem>
         </Select>
-        <Select
-          label="类型筛选"
-          size="sm"
-          className="w-44"
+        <Select size="sm" className="w-32" aria-label="类型"
           selectedKeys={typeFilter ? new Set([typeFilter]) : new Set()}
-          onSelectionChange={(keys) => { const v = Array.from(keys)[0] as string; setTypeFilter(v || ''); }}
-        >
+          onSelectionChange={(keys) => setTypeFilter(Array.from(keys)[0] as string || '')}>
           {[{ value: '', label: '全部类型' }, ...EVENT_TYPES].map(t => (
             <SelectItem key={t.value}>{t.label}</SelectItem>
           ))}
         </Select>
-        <Button size="sm" color="primary" variant="flat" onPress={() => fetchList(1)}>刷新</Button>
-        <Button size="sm" color="warning" variant="flat" onPress={handleMarkAllRead} isDisabled={unreadCount === 0}>
-          全部已读 {unreadCount > 0 && `(${unreadCount})`}
+        <Select size="sm" className="w-28" aria-label="级别"
+          selectedKeys={sevFilter ? new Set([sevFilter]) : new Set()}
+          onSelectionChange={(keys) => setSevFilter(Array.from(keys)[0] as string || '')}>
+          <SelectItem key="">全部级别</SelectItem>
+          <SelectItem key="critical">严重</SelectItem>
+          <SelectItem key="warning">警告</SelectItem>
+          <SelectItem key="info">提示</SelectItem>
+        </Select>
+        <Button size="sm" variant="flat" onPress={() => fetchList(1)}>刷新</Button>
+        <Button size="sm" variant="flat" color="warning" onPress={handleMarkAllRead} isDisabled={unreadCount === 0}>
+          全部已读{unreadCount > 0 ? ` (${unreadCount})` : ''}
         </Button>
+        <span className="text-xs text-default-400 ml-auto">共 {total} 条</span>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+        <div className="flex justify-center py-8"><Spinner size="lg" /></div>
       ) : items.length === 0 ? (
-        <div className="text-center text-default-400 py-12">暂无通知消息</div>
+        <div className="text-center text-default-400 py-8">暂无通知消息</div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {items.map((item) => (
-            <Card key={item.id} shadow="sm" className={item.readStatus === 0 ? 'border-l-3 border-primary' : 'opacity-75'}>
-              <CardBody className="flex flex-row items-start gap-3 py-3 px-4">
+        <div className="space-y-1">
+          {items.map((item) => {
+            const { category, cleanTitle } = parseTitle(item.title);
+            return (
+              <div key={item.id}
+                className={`rounded-lg border p-2 px-3 flex items-center gap-2 ${
+                  item.readStatus === 0 ? 'border-primary/40 bg-primary-50/30' : 'border-divider/40 opacity-70'
+                }`}
+                onClick={() => item.readStatus === 0 && handleMarkRead(item.id)}
+                style={{ cursor: item.readStatus === 0 ? 'pointer' : 'default' }}>
+                {/* 左侧：类别+标题+标签 */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    {/* 提取标题中的类别标签 */}
-                    {item.title?.startsWith('[基础设施]') ? (
-                      <><Chip size="sm" variant="dot" color="primary" className="h-5 text-[10px]">基础设施</Chip>
-                      <span className="font-medium text-sm">{item.title.replace('[基础设施] ', '')}</span></>
-                    ) : item.title?.startsWith('[连通性]') ? (
-                      <><Chip size="sm" variant="dot" color="danger" className="h-5 text-[10px]">连通性</Chip>
-                      <span className="font-medium text-sm">{item.title.replace('[连通性] ', '')}</span></>
-                    ) : item.title?.startsWith('[资源]') ? (
-                      <><Chip size="sm" variant="dot" color="warning" className="h-5 text-[10px]">资源</Chip>
-                      <span className="font-medium text-sm">{item.title.replace('[资源] ', '')}</span></>
-                    ) : (
-                      <span className="font-medium text-sm">{item.title}</span>
-                    )}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {category && <Chip size="sm" variant="dot" color={category.color} className="h-4 text-[9px]">{category.label}</Chip>}
+                    <span className={`text-sm ${item.readStatus === 0 ? 'font-semibold' : ''}`}>{cleanTitle}</span>
                     {severityChip(item.severity)}
-                    {item.type && <Chip size="sm" variant="bordered">{EVENT_TYPES.find(t => t.value === item.type)?.label || item.type}</Chip>}
-                    {item.readStatus === 0 && <Chip size="sm" color="primary" variant="dot">未读</Chip>}
+                    {item.type && <Chip size="sm" variant="bordered" className="h-4 text-[9px]">{EVENT_TYPES.find(t => t.value === item.type)?.label || item.type}</Chip>}
                   </div>
-                  <div className="text-sm text-default-500 line-clamp-2">{item.content}</div>
-                  <div className="text-xs text-default-400 mt-1">{formatTime(item.createdTime)}</div>
+                  <p className="text-xs text-default-400 truncate mt-0.5">{item.content}</p>
                 </div>
-                {item.readStatus === 0 && (
-                  <Button size="sm" variant="light" color="primary" onPress={() => handleMarkRead(item.id)}>
-                    标记已读
-                  </Button>
-                )}
-              </CardBody>
-            </Card>
-          ))}
+                {/* 右侧：时间 */}
+                <span className="text-[10px] text-default-400 whitespace-nowrap flex-shrink-0">{formatTime(item.createdTime)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {totalPages > 1 && (
-        <div className="flex justify-center gap-2 mt-2">
+        <div className="flex justify-center gap-2">
           <Button size="sm" variant="flat" isDisabled={page <= 1} onPress={() => fetchList(page - 1)}>上一页</Button>
-          <span className="text-sm self-center text-default-500">{page} / {totalPages}</span>
+          <span className="text-xs self-center text-default-400">{page} / {totalPages}</span>
           <Button size="sm" variant="flat" isDisabled={page >= totalPages} onPress={() => fetchList(page + 1)}>下一页</Button>
         </div>
       )}
@@ -818,8 +825,7 @@ export default function NotificationPage() {
         <Tabs size="sm"
           selectedKey={activeTab}
           onSelectionChange={(key) => setActiveTab(key as string)}
-          variant="solid"
-          color="primary"
+          variant="bordered"
         >
           <Tab key="notifications" title="通知消息" />
           <Tab key="alert_logs" title="告警记录" />

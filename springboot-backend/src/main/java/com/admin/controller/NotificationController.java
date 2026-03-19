@@ -34,13 +34,15 @@ public class NotificationController extends BaseController {
         int size = 20;
         Integer readStatus = null;
         String type = null;
+        String severity = null;
         if (body != null) {
             if (body.get("page") != null) page = ((Number) body.get("page")).intValue();
             if (body.get("size") != null) size = ((Number) body.get("size")).intValue();
             if (body.get("readStatus") != null) readStatus = ((Number) body.get("readStatus")).intValue();
             if (body.get("type") != null) type = (String) body.get("type");
+            if (body.get("severity") != null) severity = (String) body.get("severity");
         }
-        return notificationService.listForCurrentUser(page, size, readStatus, type);
+        return notificationService.listForCurrentUser(page, size, readStatus, type, severity);
     }
 
     @RequireRole

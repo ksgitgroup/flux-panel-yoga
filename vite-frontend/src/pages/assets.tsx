@@ -54,7 +54,8 @@ import {
   jumpServerMatchByIp,
   archiveAsset,
   restoreAsset,
-  getArchivedAssets
+  getArchivedAssets,
+  getAlertingAssetIds
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -536,6 +537,8 @@ export default function AssetsPage() {
   const [filterEnv, setFilterEnv] = useState<string>('');
   const [filterPurpose, setFilterPurpose] = useState<'all' | 'filled' | 'empty'>('all');
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [filterAlertStatus, setFilterAlertStatus] = useState<string>(''); // '' | 'alerting' | 'healthy'
+  const [activeAlertNodeIds, setActiveAlertNodeIds] = useState<Set<number>>(new Set());
   const [sortKey, setSortKey] = useState<'name' | 'cpu' | 'mem' | 'traffic' | 'expiry' | 'cost'>('name');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -793,6 +796,12 @@ export default function AssetsPage() {
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
+    // Alert status filter (by assetId)
+    if (filterAlertStatus === 'alerting') {
+      list = list.filter(a => a.id && activeAlertNodeIds.has(a.id));
+    } else if (filterAlertStatus === 'healthy') {
+      list = list.filter(a => !a.id || !activeAlertNodeIds.has(a.id));
+    }
     // Sort
     const sorted = [...list].sort((a, b) => {
       let cmp = 0;
@@ -821,7 +830,7 @@ export default function AssetsPage() {
       return sortAsc ? cmp : -cmp;
     });
     return sorted;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, filterEnv, filterPurpose, sortKey, sortAsc]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, filterEnv, filterPurpose, filterAlertStatus, activeAlertNodeIds, sortKey, sortAsc]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -831,6 +840,13 @@ export default function AssetsPage() {
       setAssets(response.data || []);
     } catch { toast.error('加载资产失败'); }
     finally { setLoading(false); }
+    // 加载有告警的资产ID（不阻塞主流程）
+    try {
+      const alertRes = await getAlertingAssetIds();
+      if (alertRes.code === 0 && alertRes.data) {
+        setActiveAlertNodeIds(new Set(Array.isArray(alertRes.data) ? alertRes.data : []));
+      }
+    } catch { /* ignore */ }
   };
 
   const loadGostNodes = async () => {
@@ -1843,6 +1859,27 @@ export default function AssetsPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Alert status filter */}
+        {activeAlertNodeIds.size > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">告警:</span>
+            {[
+              { key: '', label: '全部', count: assets.length },
+              { key: 'alerting', label: '告警中', count: assets.filter(a => a.id && activeAlertNodeIds.has(a.id)).length },
+              { key: 'healthy', label: '正常', count: assets.filter(a => !a.id || !activeAlertNodeIds.has(a.id)).length },
+            ].map(opt => (
+              <button key={opt.key} onClick={() => setFilterAlertStatus(filterAlertStatus === opt.key ? '' : opt.key)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
+                  filterAlertStatus === opt.key
+                    ? (opt.key === 'alerting' ? 'border-danger bg-danger-100/60 text-danger dark:bg-danger/20' : 'border-primary bg-primary-100/60 text-primary dark:bg-primary/20')
+                    : 'border-divider text-default-500 hover:border-primary/40'
+                }`}>
+                {opt.label} ({opt.count})
+              </button>
+            ))}
           </div>
         )}
       </div>

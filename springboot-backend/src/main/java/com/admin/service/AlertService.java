@@ -30,4 +30,6 @@ public interface AlertService extends IService<MonitorAlertRule> {
     R updateGroup(Long id, String name, String description);
     R deleteGroup(Long id);
     R batchUpdateGroupRules(java.util.Map<String, Object> body);
+
+    R recentLogs(int size, String severity);
 }

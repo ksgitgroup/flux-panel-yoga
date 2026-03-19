@@ -26,6 +26,8 @@ import {
   deleteMonitorNode,
   getTerminalAccessUrl,
   getAlertingAssetIds,
+  getAlertsForAsset,
+  acknowledgeAlert,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -380,6 +382,10 @@ export default function ServerDashboardPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'expired' | 'expiring_soon' | 'alerting'>('all');
   const [alertingAssetIds, setAlertingAssetIds] = useState<Set<number>>(new Set());
+  const [alertPopAssetId, setAlertPopAssetId] = useState<number | null>(null);
+  const [alertPopName, setAlertPopName] = useState('');
+  const [alertPopData, setAlertPopData] = useState<any[]>([]);
+  const [alertPopLoading, setAlertPopLoading] = useState(false);
   const [probeFilter, setProbeFilter] = useState<'all' | 'komari' | 'pika' | 'dual'>('all');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -423,6 +429,30 @@ export default function ServerDashboardPage() {
       if (alertRes.code === 0 && alertRes.data) setAlertingAssetIds(new Set(Array.isArray(alertRes.data) ? alertRes.data : []));
     } catch { /* ignore */ }
   }, []);
+
+  const openAlertPop = async (assetId: number, name: string) => {
+    setAlertPopAssetId(assetId);
+    setAlertPopName(name);
+    setAlertPopData([]);
+    setAlertPopLoading(true);
+    try {
+      const res = await getAlertsForAsset(assetId);
+      if (res.code === 0 && res.data) setAlertPopData(res.data as any[]);
+    } catch { toast.error('加载告警详情失败'); }
+    finally { setAlertPopLoading(false); }
+  };
+
+  const handleAckAlert = async (ruleId: number, nodeId: number) => {
+    try {
+      await acknowledgeAlert(ruleId, nodeId);
+      toast.success('已标记为已处理');
+      setAlertPopData(prev => prev.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)));
+      if (alertPopData.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)).length === 0) {
+        setAlertingAssetIds(prev => { const n = new Set(prev); if (alertPopAssetId) n.delete(alertPopAssetId); return n; });
+        setAlertPopAssetId(null);
+      }
+    } catch { toast.error('操作失败'); }
+  };
 
   useEffect(() => {
     fetchData(true);
@@ -737,17 +767,15 @@ export default function ServerDashboardPage() {
           <p className={`text-[10px] font-bold tracking-widest uppercase ${serverSummary.expired > 0 ? 'text-danger' : 'text-default-400'}`}>已到期</p>
           <p className={`text-xl sm:text-2xl font-bold font-mono ${serverSummary.expired > 0 ? 'text-danger' : 'text-default-300'}`}>{serverSummary.expired}</p>
         </button>
-        {alertingAssetIds.size > 0 && (
-          <button
-            onClick={() => setStatusFilter(statusFilter === 'alerting' ? 'all' : 'alerting')}
-            className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
-              statusFilter === 'alerting' ? 'border-danger bg-danger-50 dark:bg-danger/10 animate-pulse' : 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40'
-            }`}
-          >
-            <p className="text-[10px] font-bold tracking-widest uppercase text-danger">告警中</p>
-            <p className="text-xl sm:text-2xl font-bold font-mono text-danger">{alertingAssetIds.size}</p>
-          </button>
-        )}
+        <button
+          onClick={() => setStatusFilter(statusFilter === 'alerting' ? 'all' : 'alerting')}
+          className={`rounded-xl border px-3 sm:px-4 py-2 sm:py-2.5 transition-all cursor-pointer flex-shrink-0 ${
+            statusFilter === 'alerting' ? 'border-danger bg-danger-50 dark:bg-danger/10' : alertingAssetIds.size > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10 hover:border-danger/40' : 'border-divider/60 bg-content1'
+          }`}
+        >
+          <p className={`text-[10px] font-bold tracking-widest uppercase ${alertingAssetIds.size > 0 ? 'text-danger' : 'text-default-400'}`}>告警中</p>
+          <p className={`text-xl sm:text-2xl font-bold font-mono ${alertingAssetIds.size > 0 ? 'text-danger' : 'text-default-300'}`}>{alertingAssetIds.size}</p>
+        </button>
       </div>
 
       {/* Sticky toolbar: probe tabs + sort + search + filters */}
@@ -1008,7 +1036,13 @@ export default function ServerDashboardPage() {
                       <span className={`inline-block h-2.5 w-2.5 rounded-full ${server.isOnline ? 'bg-success animate-pulse' : 'bg-danger'}`} />
                     </td>
                     <td className="px-3 py-2">
-                      <p className="font-semibold text-sm truncate max-w-[200px]">{server.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-semibold text-sm truncate max-w-[200px]">{server.name}</p>
+                        {server.assetId && alertingAssetIds.has(server.assetId) && (
+                          <button className="px-1.5 py-0.5 rounded bg-danger-100 text-danger text-[10px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors flex-shrink-0"
+                            onClick={(e) => { e.stopPropagation(); openAlertPop(server.assetId!, server.name); }}>告警</button>
+                        )}
+                      </div>
                       <p className="text-[11px] text-default-400 font-mono">{server.ip}</p>
                     </td>
                     <td className="px-3 py-2">
@@ -1128,6 +1162,10 @@ export default function ServerDashboardPage() {
                         server.isOnline ? 'bg-success animate-pulse' : 'bg-danger'
                       }`} />
                       <span className="truncate font-semibold text-sm">{server.name}</span>
+                      {server.assetId && alertingAssetIds.has(server.assetId) && (
+                        <button className="px-1 py-0 rounded bg-danger-100 text-danger text-[9px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors flex-shrink-0"
+                          onClick={(e) => { e.stopPropagation(); openAlertPop(server.assetId!, server.name); }}>告警</button>
+                      )}
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-4">
                       {server.ip}
@@ -1857,6 +1895,46 @@ export default function ServerDashboardPage() {
               </>
             );
           })()}
+        </ModalContent>
+      </Modal>
+
+      {/* Alert Detail Modal */}
+      <Modal isOpen={alertPopAssetId !== null} onClose={() => setAlertPopAssetId(null)} size="md">
+        <ModalContent>
+          <ModalHeader className="text-base">活跃告警 — {alertPopName}</ModalHeader>
+          <ModalBody>
+            {alertPopLoading ? (
+              <div className="flex justify-center py-6"><Spinner size="sm" /></div>
+            ) : alertPopData.length === 0 ? (
+              <p className="text-center text-default-400 text-sm py-6">暂无活跃告警</p>
+            ) : (
+              <div className="space-y-2">
+                {alertPopData.map((a: any, i: number) => (
+                  <div key={i} className="rounded-lg border border-divider/40 p-2.5 flex items-start gap-2">
+                    <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                      a.severity === 'critical' ? 'bg-danger animate-pulse' : a.severity === 'warning' ? 'bg-warning' : 'bg-primary'
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{a.ruleName}</span>
+                        <Chip size="sm" variant="flat" className="h-4 text-[9px]"
+                          color={a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warning' : 'default'}>
+                          {a.severity === 'critical' ? '严重' : a.severity === 'warning' ? '警告' : '提示'}
+                        </Chip>
+                      </div>
+                      <p className="text-xs text-default-500 mt-0.5">{a.message}</p>
+                      <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
+                    </div>
+                    <Button size="sm" variant="flat" color="success" className="h-6 text-[10px] min-w-0 flex-shrink-0"
+                      onPress={() => handleAckAlert(a.ruleId, a.nodeId)}>已处理</Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={() => setAlertPopAssetId(null)}>关闭</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
     </div>

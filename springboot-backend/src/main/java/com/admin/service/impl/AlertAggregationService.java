@@ -85,6 +85,39 @@ public class AlertAggregationService {
         return result;
     }
 
+    /** 确认/已处理告警，从活跃列表中移除 */
+    public void acknowledgeAlert(Long ruleId, Long nodeId) {
+        String activeKey = ruleId + ":" + nodeId;
+        AlertEvent removed = activeAlerts.remove(activeKey);
+        if (removed != null) {
+            log.info("[AlertAggregation] Alert acknowledged: rule={}, node={}", ruleId, nodeId);
+        }
+    }
+
+    /** 按 assetId 获取活跃告警详情 */
+    public List<Map<String, Object>> getActiveAlertsForAsset(Long assetId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AlertEvent e : activeAlerts.values()) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null && assetId.equals(snap.getAssetId())) {
+                    result.add(Map.of(
+                            "ruleId", e.getRuleId(),
+                            "ruleName", e.getRuleName() != null ? e.getRuleName() : "",
+                            "nodeId", e.getNodeId(),
+                            "metric", e.getMetric() != null ? e.getMetric() : "",
+                            "severity", e.getSeverity() != null ? e.getSeverity() : "warning",
+                            "message", e.getMessage() != null ? e.getMessage() : "",
+                            "category", e.getCategory() != null ? e.getCategory() : "",
+                            "timestamp", e.getTimestamp()
+                    ));
+                }
+            } catch (Exception ignored) {}
+        }
+        return result;
+    }
+
     /** 获取活跃告警汇总统计 */
     public Map<String, Object> getActiveSummary() {
         int total = activeAlerts.size();

@@ -1597,17 +1597,10 @@ public class DatabaseInitService {
 
     private void initDefaultAlertGroups() {
         try {
-            Integer groupCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM `monitor_alert_rule_group` WHERE `status` = 0", Integer.class);
-            if (groupCount != null && groupCount > 0) return; // 已有规则组，跳过
-
             long now = System.currentTimeMillis();
-            log.info("[DatabaseInit] 首次运行，创建默认告警规则组...");
 
             // 组 1: 生产环境核心监控
-            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
-                    "生产环境核心监控", "针对生产环境服务器的高优先级监控，阈值更严格", now, now);
-            Long g1 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            Long g1 = ensureDefaultGroup("生产环境核心监控", "针对生产环境服务器的高优先级监控，阈值更严格", now);
             if (g1 != null) {
                 String scope1 = "{\"environment\":[\"生产\"]}";
                 insertDefaultRule(g1, "生产-CPU过载", "cpu", "gt", 90.0, 120, "critical", 30, scope1, "both", now);
@@ -1619,9 +1612,7 @@ public class DatabaseInitService {
             }
 
             // 组 2: 全局基础监控
-            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
-                    "全局基础监控", "所有服务器的基线监控，阈值相对宽松", now, now);
-            Long g2 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            Long g2 = ensureDefaultGroup("全局基础监控", "所有服务器的基线监控，阈值相对宽松", now);
             if (g2 != null) {
                 insertDefaultRule(g2, "全局-CPU高负载", "cpu", "gt", 95.0, 120, "warning", 30, null, "both", now);
                 insertDefaultRule(g2, "全局-内存高负载", "mem", "gt", 90.0, 120, "warning", 30, null, "both", now);
@@ -1631,18 +1622,14 @@ public class DatabaseInitService {
             }
 
             // 组 3: 连通性监控
-            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
-                    "连通性监控", "探针和转发链路的健康监控", now, now);
-            Long g3 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            Long g3 = ensureDefaultGroup("连通性监控", "探针和转发链路的健康监控", now);
             if (g3 != null) {
                 insertDefaultRule(g3, "探针断联", "probe_stale", "gte", 15.0, 0, "critical", 30, null, "any", now);
                 insertDefaultRule(g3, "转发健康度", "forward_health", "lt", 60.0, 120, "warning", 30, null, "any", now);
             }
 
             // 组 4: Windows 服务器专项
-            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
-                    "Windows 服务器专项", "Windows 服务器通常内存占用较高，独立监控", now, now);
-            Long g4 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            Long g4 = ensureDefaultGroup("Windows 服务器专项", "Windows 服务器通常内存占用较高，独立监控", now);
             if (g4 != null) {
                 String scopeWin = "{\"os\":[\"Windows\"]}";
                 insertDefaultRule(g4, "Win-内存监控", "mem", "gt", 85.0, 120, "warning", 30, scopeWin, "both", now);
@@ -1650,9 +1637,7 @@ public class DatabaseInitService {
             }
 
             // 组 5: 资源到期与配额
-            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
-                    "资源到期与配额", "客户端到期、流量配额、Swap 等资源监控", now, now);
-            Long g5 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            Long g5 = ensureDefaultGroup("资源到期与配额", "客户端到期、流量配额、Swap 等资源监控", now);
             if (g5 != null) {
                 insertDefaultRule(g5, "XUI客户端到期", "xui_client_expiry", "lte", 7.0, 0, "warning", 60, null, "any", now);
                 insertDefaultRule(g5, "XUI客户端流量", "xui_client_traffic", "gte", 80.0, 0, "warning", 30, null, "any", now);
@@ -1660,9 +1645,7 @@ public class DatabaseInitService {
             }
 
             // 组 6: 海外节点监控
-            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
-                    "海外节点监控", "海外节点离线影响全局转发，需重点关注", now, now);
-            Long g6 = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            Long g6 = ensureDefaultGroup("海外节点监控", "海外节点离线影响全局转发，需重点关注", now);
             if (g6 != null) {
                 String scopeOversea = "{\"region\":[\"美国\",\"香港\",\"日本\",\"马来西亚\"]}";
                 insertDefaultRule(g6, "海外-CPU敏感", "cpu", "gt", 80.0, 120, "warning", 30, scopeOversea, "both", now);
@@ -1699,6 +1682,23 @@ public class DatabaseInitService {
             }
         } catch (Exception e) {
             log.warn("[DatabaseInit] 归并未分组规则失败(非关键): {}", e.getMessage());
+        }
+    }
+
+    /** 确保默认规则组存在，返回组ID。已存在则返回null（跳过规则创建） */
+    private Long ensureDefaultGroup(String name, String description, long now) {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `monitor_alert_rule_group` WHERE `name` = ? AND `status` = 0", Integer.class, name);
+            if (exists != null && exists > 0) return null; // 已存在，跳过
+            jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,1,?,?,0)",
+                    name, description, now, now);
+            Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            log.info("[DatabaseInit] 创建默认规则组: {}", name);
+            return id;
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 创建规则组 {} 失败: {}", name, e.getMessage());
+            return null;
         }
     }
 

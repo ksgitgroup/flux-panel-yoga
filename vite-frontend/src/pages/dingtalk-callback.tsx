@@ -32,9 +32,7 @@ export default function DingtalkCallbackPage() {
 
     const completeLogin = async () => {
       try {
-        console.log('[DingTalk] 开始登录，authCode:', authCode?.slice(0, 8) + '...');
         const response = await completeDingtalkAuth(authCode, stateParam);
-        console.log('[DingTalk] API 响应:', JSON.stringify(response).slice(0, 500));
         if (cancelled) return;
 
         // code=1001: 账号待审批（首次登录自动创建或已存在但未启用）
@@ -51,8 +49,6 @@ export default function DingtalkCallbackPage() {
         }
 
         const authData: LoginResponse = response.data;
-        console.log('[DingTalk] 登录数据:', { token: !!authData.token, name: authData.name, role_id: authData.role_id });
-
         if (!persistAuthSession(authData)) {
           setMessage("登录响应不完整（缺少 token/name/role_id），请联系管理员");
           setState('error');

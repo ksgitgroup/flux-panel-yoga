@@ -181,7 +181,7 @@ function IpCheckTab({ assets }: { assets: AssetOption[] }) {
                 <TableColumn>整体状态</TableColumn>
                 <TableColumn>时间</TableColumn>
               </TableHeader>
-              <TableBody>
+              <TableBody emptyContent="暂无检测结果">
                 {results.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>{r.ip}</TableCell>

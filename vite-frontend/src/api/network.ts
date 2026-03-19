@@ -109,7 +109,7 @@ const Network = {
           resolve(response.data);
         })
                  .catch(function(error: any) {
-           console.error('GET请求错误:', error);
+           if (import.meta.env.DEV) console.error('GET请求错误:', error);
            
            // 检查是否是401错误（token失效）
            if (error.response && error.response.status === 401) {
@@ -149,7 +149,7 @@ const Network = {
           resolve(response.data);
         })
                  .catch(function(error: any) {
-           console.error('POST请求错误:', error);
+           if (import.meta.env.DEV) console.error('POST请求错误:', error);
            
            // 检查是否是401错误（token失效）
            if (error.response && error.response.status === 401) {

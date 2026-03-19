@@ -330,7 +330,7 @@ export default function AlertPage() {
     }
     setEditRule({
       name: '', metric: 'cpu', operator: 'gt', threshold: 90,
-      durationSeconds: 0, scopeType: 'all', scopeJson: '',
+      durationSeconds: 120, scopeType: 'all', scopeJson: '',
       cooldownMinutes: 5, enabled: 1, severity: 'warning',
       probeCondition: 'both', groupId: groups[0]?.id,
     });
@@ -478,46 +478,33 @@ export default function AlertPage() {
       {activeTab === 'channels' && <ChannelsTab />}
       {activeTab === 'policies' && <PoliciesTab />}
 
-      {/* Edit/Create Rule Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
+      {/* Edit/Create Rule Modal — 紧凑布局 */}
+      <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
         <ModalContent>
           {editRule && (
             <>
-              <ModalHeader className="pb-2">{editRule.id ? '编辑告警规则' : '新建告警规则'}</ModalHeader>
-              <ModalBody className="space-y-4">
+              <ModalHeader className="pb-1 text-base">{editRule.id ? '编辑告警规则' : '新建告警规则'}</ModalHeader>
+              <ModalBody className="space-y-3 text-sm">
 
-                {/* 所属规则组 */}
-                <Select label="所属规则组" size="sm"
-                  selectedKeys={editRule.groupId ? [String(editRule.groupId)] : []}
-                  onSelectionChange={keys => {
-                    const v = Array.from(keys)[0] as string;
-                    updateField({ groupId: v ? Number(v) : undefined });
-                  }}>
-                  {groups.map(g => <SelectItem key={String(g.id)}>{g.name}</SelectItem>)}
-                </Select>
+                {/* 行 1：规则组 + 名称 + 等级 */}
+                <div className="flex gap-2">
+                  <Select label="规则组" size="sm" className="w-40"
+                    selectedKeys={editRule.groupId ? [String(editRule.groupId)] : []}
+                    onSelectionChange={keys => { const v = Array.from(keys)[0] as string; updateField({ groupId: v ? Number(v) : undefined }); }}>
+                    {groups.map(g => <SelectItem key={String(g.id)}>{g.name}</SelectItem>)}
+                  </Select>
+                  <Input label="规则名称" size="sm" className="flex-1" isRequired
+                    value={editRule.name || ''} onValueChange={v => updateField({ name: v })} />
+                  <Select label="等级" size="sm" className="w-24" disallowEmptySelection
+                    selectedKeys={[editRule.severity || 'warning']}
+                    onSelectionChange={keys => updateField({ severity: Array.from(keys)[0] as string })}>
+                    {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
+                  </Select>
+                </div>
 
-                <Divider />
-
-                {/* === Section 1: 触发条件 === */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">触发条件</p>
-
-                  <div className="flex gap-2">
-                    <Input label="规则名称" size="sm" className="flex-1"
-                      isRequired
-                      value={editRule.name || ''}
-                      onValueChange={v => updateField({ name: v })} />
-                    <Select label="严重等级" size="sm" className="w-32"
-                      disallowEmptySelection
-                      selectedKeys={[editRule.severity || 'warning']}
-                      onSelectionChange={keys => updateField({ severity: Array.from(keys)[0] as string })}>
-                      {SEVERITIES.map(s => <SelectItem key={s.value}>{s.label}</SelectItem>)}
-                    </Select>
-                  </div>
-
-                  <Select label="监控指标" size="sm"
-                    isRequired
-                    disallowEmptySelection
+                {/* 行 2：指标 + 阈值 */}
+                <div className="flex gap-2">
+                  <Select label="监控指标" size="sm" className="flex-1" isRequired disallowEmptySelection
                     selectedKeys={editRule.metric ? [editRule.metric] : []}
                     onSelectionChange={keys => handleMetricChange(Array.from(keys)[0] as string)}>
                     {METRIC_CATEGORIES.map(cat => (
@@ -526,54 +513,53 @@ export default function AlertPage() {
                       </SelectSection>
                     ))}
                   </Select>
-
-                  {/* Threshold row — varies by metric */}
                   {editRule.metric && FIXED_OPERATOR_METRICS[editRule.metric] ? (
-                    <Input label={FIXED_OPERATOR_METRICS[editRule.metric].label} size="sm"
+                    <Input label={FIXED_OPERATOR_METRICS[editRule.metric].label} size="sm" className="w-32"
                       inputMode="decimal"
-                      description={FIXED_OPERATOR_METRICS[editRule.metric].description}
                       value={editRule.threshold != null ? String(editRule.threshold) : ''}
                       onValueChange={v => updateField({ threshold: parseNum(v), operator: FIXED_OPERATOR_METRICS[editRule.metric!].operator })} />
-                  ) : !NO_THRESHOLD_METRICS.includes(editRule.metric || '') ? (
-                    <div className="flex gap-2">
-                      <Select label="操作符" size="sm" className="w-24"
-                        disallowEmptySelection
-                        selectedKeys={[editRule.operator || 'gt']}
-                        onSelectionChange={keys => updateField({ operator: Array.from(keys)[0] as string })}>
-                        {OPERATORS.map(o => <SelectItem key={o.value}>{o.label}</SelectItem>)}
-                      </Select>
-                      <Input label="阈值" size="sm" className="flex-1"
-                        inputMode="decimal"
-                        value={editRule.threshold != null ? String(editRule.threshold) : ''}
-                        onValueChange={v => updateField({ threshold: parseNum(v) })} />
-                      {!NO_DURATION_METRICS.includes(editRule.metric || '') && (
-                        <Input label="持续 (秒)" size="sm" className="w-28"
-                          inputMode="numeric"
-                          description="0=立即"
-                          value={String(editRule.durationSeconds ?? 0)}
-                          onValueChange={v => updateField({ durationSeconds: parseNum(v, 0) ?? 0 })} />
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
-                      节点离线时自动触发告警，无需配置阈值。
-                    </p>
-                  )}
+                  ) : !NO_THRESHOLD_METRICS.includes(editRule.metric || '') ? (<>
+                    <Select label="比较" size="sm" className="w-20" disallowEmptySelection
+                      selectedKeys={[editRule.operator || 'gt']}
+                      onSelectionChange={keys => updateField({ operator: Array.from(keys)[0] as string })}>
+                      {OPERATORS.map(o => <SelectItem key={o.value}>{o.label}</SelectItem>)}
+                    </Select>
+                    <Input label="阈值" size="sm" className="w-24" inputMode="decimal"
+                      value={editRule.threshold != null ? String(editRule.threshold) : ''}
+                      onValueChange={v => updateField({ threshold: parseNum(v) })} />
+                  </>) : null}
                 </div>
 
-                <Divider />
+                {/* 行 3：持续时间 + 冷却 + 升级 */}
+                <div className="flex gap-2">
+                  {!NO_DURATION_METRICS.includes(editRule.metric || '') && (
+                    <Input label="持续触发(秒)" size="sm" className="flex-1" inputMode="numeric"
+                      description="连续异常多久才告警"
+                      value={String(editRule.durationSeconds ?? 120)}
+                      onValueChange={v => updateField({ durationSeconds: parseNum(v, 120) ?? 120 })} />
+                  )}
+                  <Input label="冷却(分钟)" size="sm" className="flex-1" inputMode="numeric"
+                    description="同规则再次触发间隔"
+                    value={String(editRule.cooldownMinutes ?? 5)}
+                    onValueChange={v => updateField({ cooldownMinutes: parseNum(v, 5) ?? 5 })} />
+                  <Input label="自动升级(分钟)" size="sm" className="flex-1" inputMode="numeric"
+                    placeholder="不升级"
+                    description="持续触发N分钟后等级升高"
+                    value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
+                    onValueChange={v => updateField({ escalateAfterMinutes: parseNum(v) })} />
+                </div>
 
-                {/* === Section 2: 监控范围 === */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">监控范围 <span className="text-default-300 normal-case">（全部留空 = 监控所有节点，维度间 AND 关系）</span></p>
+                <Divider className="my-1" />
+
+                {/* 监控范围 */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-default-500">监控范围 <span className="text-default-300 font-normal">（留空=全部节点）</span></p>
                   {metricNeedsScope ? (<>
                     {scopeOpts && (() => {
-                      // 解析当前 scopeJson
                       let scopeObj: Record<string, string[]> = {};
                       try { if (editRule.scopeJson) scopeObj = JSON.parse(editRule.scopeJson); } catch {}
                       const updateScope = (key: string, values: string[]) => {
                         const next = { ...scopeObj, [key]: values.filter(Boolean) };
-                        // 清理空数组
                         Object.keys(next).forEach(k => { if (!next[k]?.length) delete next[k]; });
                         updateField({ scopeJson: Object.keys(next).length > 0 ? JSON.stringify(next) : '' });
                       };
@@ -585,10 +571,10 @@ export default function AlertPage() {
                         { key: 'os', label: '系统', options: scopeOpts.osList },
                       ];
                       return (
-                        <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {dims.map(d => d.options.length > 0 && (
-                            <div key={d.key}>
-                              <p className="text-[11px] text-default-500 mb-1">{d.label}</p>
+                            <div key={d.key} className="space-y-0.5">
+                              <p className="text-[10px] text-default-400">{d.label}</p>
                               <div className="flex flex-wrap gap-1">
                                 {d.options.map(opt => {
                                   const selected = scopeObj[d.key] || [];
@@ -609,49 +595,21 @@ export default function AlertPage() {
                       );
                     })()}
                     {metricNeedsProbe && (
-                      <Select label="探针条件" size="sm"
-                        disallowEmptySelection
+                      <Select label="探针条件" size="sm" disallowEmptySelection
                         selectedKeys={[editRule.probeCondition || 'both']}
                         onSelectionChange={keys => updateField({ probeCondition: Array.from(keys)[0] as string })}>
                         {PROBE_CONDITIONS.map(p => <SelectItem key={p.value}>{p.label}</SelectItem>)}
                       </Select>
                     )}
                   </>) : (
-                    <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
-                      {editRule.metric === 'probe_stale' ? '此指标监控所有启用的探针实例，无需选择节点范围。' :
-                       editRule.metric?.startsWith('xui_client_') ? '此指标监控所有启用的 XUI 客户端，无需选择节点范围。' :
-                       '此指标使用独立数据源，无需选择节点范围。'}
-                    </p>
+                    <p className="text-[11px] text-default-400">此指标使用独立数据源，无需选择节点范围。</p>
                   )}
                 </div>
 
-                <Divider />
-
-                {/* === Section 3: 冷却与升级 === */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-default-400">冷却与升级</p>
-                  <div className="flex gap-2">
-                    <Input label="冷却 (分钟)" size="sm" className="flex-1"
-                      inputMode="numeric"
-                      description="同一规则再次触发的最短间隔"
-                      value={String(editRule.cooldownMinutes ?? 5)}
-                      onValueChange={v => updateField({ cooldownMinutes: parseNum(v, 5) ?? 5 })} />
-                    <Input label="升级 (分钟)" size="sm" className="flex-1"
-                      inputMode="numeric"
-                      placeholder="不升级"
-                      description="持续触发后自动升级严重等级"
-                      value={editRule.escalateAfterMinutes ? String(editRule.escalateAfterMinutes) : ''}
-                      onValueChange={v => updateField({ escalateAfterMinutes: parseNum(v) })} />
-                  </div>
-                  <p className="text-xs text-default-400 bg-primary-50 dark:bg-primary/5 rounded-lg p-2.5 leading-relaxed">
-                    告警触发后通过「<span className="font-semibold text-primary cursor-pointer" onClick={() => { onClose(); setActiveTab('policies'); }}>通知策略</span>」匹配后发送到「<span className="font-semibold text-primary cursor-pointer" onClick={() => { onClose(); setActiveTab('channels'); }}>通知渠道</span>」（企业微信、钉钉、Telegram 等）。
-                  </p>
-                </div>
-
               </ModalBody>
-              <ModalFooter>
-                <Button variant="flat" onPress={onClose}>取消</Button>
-                <Button color="primary" onPress={handleSave}>{editRule.id ? '保存' : '创建'}</Button>
+              <ModalFooter className="pt-2">
+                <Button size="sm" variant="flat" onPress={onClose}>取消</Button>
+                <Button size="sm" color="primary" onPress={handleSave}>{editRule.id ? '保存' : '创建'}</Button>
               </ModalFooter>
             </>
           )}

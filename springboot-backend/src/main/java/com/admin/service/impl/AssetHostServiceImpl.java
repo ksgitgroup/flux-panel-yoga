@@ -991,14 +991,31 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         Set<String> osList = new TreeSet<>();
 
         for (AssetHost a : assets) {
-            if (StringUtils.hasText(a.getEnvironment())) environments.add(a.getEnvironment());
-            if (StringUtils.hasText(a.getProvider())) providers.add(a.getProvider());
-            if (StringUtils.hasText(a.getRegion())) regions.add(a.getRegion());
-            if (StringUtils.hasText(a.getOs())) osList.add(a.getOs());
+            if (StringUtils.hasText(a.getEnvironment())) environments.add(a.getEnvironment().trim());
+            if (StringUtils.hasText(a.getProvider())) providers.add(a.getProvider().trim());
+            if (StringUtils.hasText(a.getRegion())) regions.add(a.getRegion().trim());
+
+            // OS 归类到大类（Windows/Ubuntu/Debian/CentOS/Other）
+            if (StringUtils.hasText(a.getOs())) {
+                String os = a.getOs().toLowerCase().trim();
+                if (os.contains("windows")) osList.add("Windows");
+                else if (os.contains("ubuntu")) osList.add("Ubuntu");
+                else if (os.contains("debian")) osList.add("Debian");
+                else if (os.contains("centos")) osList.add("CentOS");
+                else if (os.contains("oracle") || os.contains("alibaba") || os.contains("linux")) osList.add("Linux");
+                else osList.add("Other");
+            }
+
+            // 标签清洗：处理 JSON 数组格式和普通逗号分隔
             if (StringUtils.hasText(a.getTags())) {
-                for (String t : a.getTags().split(",")) {
-                    String trimmed = t.trim();
-                    if (!trimmed.isEmpty()) tags.add(trimmed);
+                String rawTags = a.getTags().trim();
+                // 处理 JSON 数组格式 ["tag1","tag2"]
+                if (rawTags.startsWith("[")) {
+                    rawTags = rawTags.replaceAll("[\\[\\]\"']", "");
+                }
+                for (String t : rawTags.split(",")) {
+                    String cleaned = t.trim().replaceAll("[\\[\\]\"']", "");
+                    if (!cleaned.isEmpty()) tags.add(cleaned);
                 }
             }
         }

@@ -1039,8 +1039,8 @@ export default function ServerDashboardPage() {
                       <div className="flex items-center gap-1.5">
                         <p className="font-semibold text-sm truncate max-w-[200px]">{server.name}</p>
                         {server.assetId && alertingAssetIds.has(server.assetId) && (
-                          <button className="px-1.5 py-0.5 rounded bg-danger-100 text-danger text-[10px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors flex-shrink-0"
-                            onClick={(e) => { e.stopPropagation(); openAlertPop(server.assetId!, server.name); }}>告警</button>
+                          <button className="px-2 py-0.5 rounded-md bg-danger text-white text-[10px] font-bold shadow-sm hover:bg-danger-600 active:scale-95 transition-all animate-pulse flex-shrink-0"
+                            onClick={(e) => { e.stopPropagation(); openAlertPop(server.assetId!, server.name); }}>告警中</button>
                         )}
                       </div>
                       <p className="text-[11px] text-default-400 font-mono">{server.ip}</p>
@@ -1163,8 +1163,8 @@ export default function ServerDashboardPage() {
                       }`} />
                       <span className="truncate font-semibold text-sm">{server.name}</span>
                       {server.assetId && alertingAssetIds.has(server.assetId) && (
-                        <button className="px-1 py-0 rounded bg-danger-100 text-danger text-[9px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors flex-shrink-0"
-                          onClick={(e) => { e.stopPropagation(); openAlertPop(server.assetId!, server.name); }}>告警</button>
+                        <button className="px-1.5 py-0.5 rounded-md bg-danger text-white text-[9px] font-bold shadow-sm hover:bg-danger-600 active:scale-95 transition-all animate-pulse flex-shrink-0"
+                          onClick={(e) => { e.stopPropagation(); openAlertPop(server.assetId!, server.name); }}>告警中</button>
                       )}
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-default-400 font-mono pl-4">

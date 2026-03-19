@@ -2067,10 +2067,10 @@ export default function AssetsPage() {
                                 )}
                                 {asset.id && activeAlertNodeIds.has(asset.id) && (
                                   <button
-                                    className="px-1.5 py-0.5 rounded bg-danger-100 text-danger text-[10px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors"
+                                    className="px-2 py-0.5 rounded-md bg-danger text-white text-[10px] font-bold shadow-sm hover:bg-danger-600 active:scale-95 transition-all animate-pulse"
                                     onClick={(e) => { e.stopPropagation(); openAlertPopover(asset.id, asset.name || ''); }}
-                                    title="查看活跃告警"
-                                  >告警</button>
+                                    title="点击查看告警详情"
+                                  >告警中</button>
                                 )}
                               </div>
                               {asset.purpose && (

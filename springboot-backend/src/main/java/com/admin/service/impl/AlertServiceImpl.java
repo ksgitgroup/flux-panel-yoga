@@ -143,6 +143,19 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         return R.ok("已清除所有告警日志");
     }
 
+    @Override
+    public R recentLogs(int size, String severity) {
+        if (size < 1 || size > 50) size = 5;
+        LambdaQueryWrapper<MonitorAlertLog> wrapper = new LambdaQueryWrapper<MonitorAlertLog>()
+                .eq(MonitorAlertLog::getStatus, 0)
+                .orderByDesc(MonitorAlertLog::getCreatedTime)
+                .last("LIMIT " + size);
+        if (StringUtils.hasText(severity)) {
+            wrapper.like(MonitorAlertLog::getMessage, "[" + severity.toUpperCase() + "]");
+        }
+        return R.ok(alertLogMapper.selectList(wrapper));
+    }
+
     // ==================== Alert Evaluation Engine (with Aggregation) ====================
 
     @Override

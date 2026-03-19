@@ -107,6 +107,7 @@ function NotificationsTab() {
   const [readFilter, setReadFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [sevFilter, setSevFilter] = useState<string>('');
+  const [keyword, setKeyword] = useState<string>('');
   const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchList = useCallback(async (p = 1) => {
@@ -117,6 +118,7 @@ function NotificationsTab() {
       else if (readFilter === 'read') params.readStatus = 1;
       if (typeFilter) params.type = typeFilter;
       if (sevFilter) params.severity = sevFilter;
+      if (keyword.trim()) params.keyword = keyword.trim();
       const res = await getNotifications(params);
       if (res.code === 0 && res.data) {
         const d = res.data as any;
@@ -126,7 +128,7 @@ function NotificationsTab() {
       }
     } catch { toast.error('加载通知列表失败'); }
     finally { setLoading(false); }
-  }, [readFilter, typeFilter, sevFilter]);
+  }, [readFilter, typeFilter, sevFilter, keyword]);
 
   const fetchUnread = useCallback(async () => {
     try {
@@ -196,7 +198,12 @@ function NotificationsTab() {
           <SelectItem key="warning">警告</SelectItem>
           <SelectItem key="info">提示</SelectItem>
         </Select>
-        <Button size="sm" variant="flat" onPress={() => fetchList(1)}>刷新</Button>
+        <Input size="sm" className="w-48" placeholder="搜索节点/IP/规则..." isClearable
+          value={keyword} onValueChange={setKeyword}
+          onKeyDown={(e) => e.key === 'Enter' && fetchList(1)}
+          onClear={() => { setKeyword(''); }}
+        />
+        <Button size="sm" variant="flat" onPress={() => fetchList(1)}>搜索</Button>
         <Button size="sm" variant="flat" color="warning" onPress={handleMarkAllRead} isDisabled={unreadCount === 0}>
           全部已读{unreadCount > 0 ? ` (${unreadCount})` : ''}
         </Button>
@@ -735,11 +742,12 @@ function AlertLogsTab() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [logSevFilter, setLogSevFilter] = useState('');
 
   const fetchLogs = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const res = await getAlertLogs(p, 20);
+      const res = await getAlertLogs(p, 30, search.trim() || undefined, logSevFilter || undefined);
       if (res.code === 0 && res.data) {
         const d = res.data as any;
         setLogs(d.records || []);
@@ -748,26 +756,30 @@ function AlertLogsTab() {
       }
     } catch { toast.error('加载告警记录失败'); }
     finally { setLoading(false); }
-  }, []);
+  }, [search, logSevFilter]);
 
   useEffect(() => { fetchLogs(1); }, [fetchLogs]);
 
-  const filtered = logs.filter(l =>
-    !search || (l.message || '').toLowerCase().includes(search.toLowerCase())
-    || (l.nodeName || '').toLowerCase().includes(search.toLowerCase())
-    || (l.ruleName || '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = logs; // 后端已筛选
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-default-500">共 {total} 条</span>
-          <Input size="sm" placeholder="搜索消息/节点/规则…" className="max-w-xs"
-            value={search} onValueChange={setSearch}
-            isClearable onClear={() => setSearch('')} />
-        </div>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input size="sm" placeholder="搜索节点/IP/规则..." className="w-48" isClearable
+          value={search} onValueChange={setSearch}
+          onKeyDown={(e) => e.key === 'Enter' && fetchLogs(1)}
+          onClear={() => setSearch('')} />
+        <Select size="sm" className="w-28" aria-label="级别" placeholder="全部级别"
+          selectedKeys={logSevFilter ? new Set([logSevFilter]) : new Set([''])}
+          onSelectionChange={(keys) => setLogSevFilter(Array.from(keys)[0] as string || '')}>
+          <SelectItem key="">全部级别</SelectItem>
+          <SelectItem key="critical">严重</SelectItem>
+          <SelectItem key="warning">警告</SelectItem>
+          <SelectItem key="info">提示</SelectItem>
+        </Select>
+        <Button size="sm" variant="flat" onPress={() => fetchLogs(1)}>搜索</Button>
+        <span className="text-xs text-default-400">共 {total} 条</span>
+        <div className="ml-auto flex gap-2">
           <Button size="sm" variant="flat" onPress={() => fetchLogs(page)}>刷新</Button>
           {canDelete && (
             <Button size="sm" variant="flat" color="danger" onPress={async () => {

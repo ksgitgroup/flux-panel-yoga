@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
@@ -550,6 +550,9 @@ function PoliciesTab() {
         <ModalContent>
           <ModalHeader>{editItem?.id ? '编辑策略' : '新建策略'}</ModalHeader>
           <ModalBody className="flex flex-col gap-3">
+            <p className="text-xs text-default-400 bg-default-50 rounded-lg p-2">
+              匹配规则：事件类型 <strong>且</strong> 严重级别 <strong>且</strong> 告警类别 <strong>且</strong> 标签 全部满足时才发送到渠道。留空的条件视为「全部匹配」。
+            </p>
             <Input
               label="策略名称"
               value={editItem?.name || ''}
@@ -677,19 +680,32 @@ function PoliciesTab() {
               <p className="text-[11px] text-default-400 mt-1.5">在此时间段内不推送外部渠道（支持跨午夜，如 22:00-06:00），留空不静默</p>
             </div>
 
-            <Select
-              label="通知渠道"
-              selectionMode="multiple"
-              selectedKeys={editItem?.channelIds ? new Set(editItem.channelIds.split(',').map(s => s.trim())) : new Set()}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys).join(',');
-                setEditItem(prev => ({ ...prev, channelIds: v }));
-              }}
-            >
-              {channels.map(ch => (
-                <SelectItem key={String(ch.id)}>{ch.name} ({ch.type})</SelectItem>
-              ))}
-            </Select>
+            <div>
+              <p className="text-sm font-medium text-default-700 mb-2">通知渠道</p>
+              <div className="flex flex-wrap gap-2">
+                {channels.length === 0 ? (
+                  <p className="text-xs text-default-400">暂无可用渠道，请先在「通知渠道」中创建</p>
+                ) : channels.map(ch => {
+                  const selectedIds = (editItem?.channelIds || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const isActive = selectedIds.includes(String(ch.id));
+                  return (
+                    <Chip key={ch.id} size="sm"
+                      variant={isActive ? 'solid' : 'bordered'}
+                      color={isActive ? 'primary' : 'default'}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        const next = isActive
+                          ? selectedIds.filter(v => v !== String(ch.id))
+                          : [...selectedIds, String(ch.id)];
+                        setEditItem(prev => ({ ...prev, channelIds: next.join(',') }));
+                      }}>
+                      {ch.name} ({ch.type})
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-default-400 mt-1.5">选择告警要推送到的外部渠道，可多选</p>
+            </div>
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onClose}>取消</Button>
@@ -703,47 +719,30 @@ function PoliciesTab() {
 
 // ==================== Main Page ====================
 export default function NotificationPage() {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('notifications');
 
   return (
     <div className="flex flex-col gap-4 p-4 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">通知中心</h1>
-        <div className="flex gap-2">
-          <Button size="sm" variant="flat" onPress={() => navigate('/alert')}>告警规则</Button>
-          <Button size="sm" variant="flat" onPress={() => navigate('/audit')}>审计日志</Button>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">通知中心</h1>
+          <p className="mt-0.5 text-sm text-default-500">告警规则触发 → 通知策略匹配 → 通知渠道发送 + 站内消息记录</p>
         </div>
+        <Tabs size="sm"
+          selectedKey={activeTab}
+          onSelectionChange={(key) => setActiveTab(key as string)}
+          variant="underlined"
+          color="primary"
+        >
+          <Tab key="notifications" title="通知消息" />
+          <Tab key="channels" title="通知渠道" />
+          <Tab key="policies" title="通知策略" />
+        </Tabs>
       </div>
 
-      {/* Architecture guide */}
-      <Card className="border border-primary/20 bg-primary-50/30 dark:bg-primary/5">
-        <CardBody className="p-3 text-xs text-default-600 space-y-1.5">
-          <p className="font-semibold text-sm text-primary">通知架构说明</p>
-          <p><strong>告警规则</strong>（告警管理页面）— 定义监控条件和严重等级（如 CPU &gt; 90% 为「严重」）。规则触发后事件自动进入通知中心。</p>
-          <p><strong>通知渠道</strong> — 配置外部通知的实际端点：企业微信 Webhook、钉钉机器人、Telegram Bot、通用 Webhook、Email。所有渠道统一在此管理。</p>
-          <p><strong>通知策略</strong> — 路由规则：将「事件类型 + 严重等级」匹配到「渠道」。例如：严重级别的告警 → 企业微信；所有级别 → Telegram。不配置策略时，通知仅记录在消息列表中，不会发送到外部渠道。</p>
-          <p><strong>通知消息</strong> — 系统产生的所有通知记录（告警触发、探针离线、到期提醒等），支持已读状态和类型筛选。</p>
-          <p className="text-default-400 pt-1 border-t border-divider/40">完整流程：告警规则触发 → 生成事件（含严重等级） → 通知策略筛选匹配 → 通知渠道发送到外部 + 站内消息列表记录。</p>
-        </CardBody>
-      </Card>
-
-      <Tabs
-        selectedKey={activeTab}
-        onSelectionChange={(key) => setActiveTab(key as string)}
-        variant="underlined"
-        color="primary"
-      >
-        <Tab key="notifications" title="通知消息">
-          <NotificationsTab />
-        </Tab>
-        <Tab key="channels" title="通知渠道">
-          <ChannelsTab />
-        </Tab>
-        <Tab key="policies" title="通知策略">
-          <PoliciesTab />
-        </Tab>
-      </Tabs>
+      {activeTab === 'notifications' && <NotificationsTab />}
+      {activeTab === 'channels' && <ChannelsTab />}
+      {activeTab === 'policies' && <PoliciesTab />}
     </div>
   );
 }

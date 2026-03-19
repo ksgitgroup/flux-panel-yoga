@@ -263,7 +263,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     }
 
     @Override
-    public R listForCurrentUser(int page, int size, Integer readStatus, String type) {
+    public R listForCurrentUser(int page, int size, Integer readStatus, String type, String severity) {
         if (page < 1) page = 1;
         if (size < 1 || size > 100) size = 20;
         Long userId = requireCurrentUserId();
@@ -276,6 +276,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         }
         if (StringUtils.hasText(type)) {
             wrapper.eq(Notification::getType, type);
+        }
+        if (StringUtils.hasText(severity)) {
+            wrapper.eq(Notification::getSeverity, severity);
         }
 
         Page<Notification> p = notificationMapper.selectPage(new Page<>(page, size), wrapper);

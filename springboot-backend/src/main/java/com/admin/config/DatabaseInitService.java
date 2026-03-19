@@ -1639,6 +1639,33 @@ public class DatabaseInitService {
         } catch (Exception e) {
             log.warn("[DatabaseInit] 创建默认告警规则组失败(非关键): {}", e.getMessage());
         }
+
+        // 将没有 groupId 的旧规则归入"用户自定义规则"组
+        try {
+            Integer ungroupedCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM `monitor_alert_rule` WHERE `group_id` IS NULL AND `status` = 0", Integer.class);
+            if (ungroupedCount != null && ungroupedCount > 0) {
+                long now = System.currentTimeMillis();
+                // 检查是否已有"用户自定义规则"组
+                Integer customGroupExists = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM `monitor_alert_rule_group` WHERE `name` = '用户自定义规则' AND `status` = 0", Integer.class);
+                Long customGroupId;
+                if (customGroupExists != null && customGroupExists > 0) {
+                    customGroupId = jdbcTemplate.queryForObject(
+                            "SELECT `id` FROM `monitor_alert_rule_group` WHERE `name` = '用户自定义规则' AND `status` = 0 LIMIT 1", Long.class);
+                } else {
+                    jdbcTemplate.update("INSERT INTO `monitor_alert_rule_group` (`name`,`description`,`enabled`,`is_default`,`created_time`,`updated_time`,`status`) VALUES (?,?,1,0,?,?,0)",
+                            "用户自定义规则", "用户手动创建的告警规则", now, now);
+                    customGroupId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+                }
+                if (customGroupId != null) {
+                    jdbcTemplate.update("UPDATE `monitor_alert_rule` SET `group_id` = ? WHERE `group_id` IS NULL AND `status` = 0", customGroupId);
+                    log.info("[DatabaseInit] 已将 {} 条未分组规则归入「用户自定义规则」组", ungroupedCount);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[DatabaseInit] 归并未分组规则失败(非关键): {}", e.getMessage());
+        }
     }
 
     private void insertDefaultRule(Long groupId, String name, String metric, String operator, Double threshold,

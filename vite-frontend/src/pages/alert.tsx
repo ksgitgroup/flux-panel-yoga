@@ -15,7 +15,8 @@ import toast from 'react-hot-toast';
 import {
   AlertRule, AlertRuleGroup, ScopeOptions,
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, toggleAlertRule,
-  getAlertGroups, createAlertGroup, deleteAlertGroup, batchUpdateGroupRules, getScopeOptions,
+  getAlertGroups, createAlertGroup, updateAlertGroup, deleteAlertGroup, batchUpdateGroupRules,
+  getScopeOptions, getAlertLogs,
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { ChannelsTab, PoliciesTab } from './notification';
@@ -133,6 +134,19 @@ export default function AlertPage() {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [editRule, setEditRule] = useState<Partial<AlertRule> | null>(null);
 
+  // Group edit modal
+  const { isOpen: isGroupOpen, onOpen: onGroupOpen, onClose: onGroupClose } = useDisclosure();
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupDesc, setEditGroupDesc] = useState('');
+  const [editGroupId, setEditGroupId] = useState<number | null>(null);
+
+  // Rule log viewer
+  const { isOpen: isLogOpen, onOpen: onLogOpen, onClose: onLogClose } = useDisclosure();
+  const [, setLogRuleId] = useState<number | null>(null);
+  const [logRuleName, setLogRuleName] = useState('');
+  const [ruleLogs, setRuleLogs] = useState<any[]>([]);
+  const [ruleLogsLoading, setRuleLogsLoading] = useState(false);
+
   const fetchAll = useCallback(async () => {
     setRulesLoading(true);
     try {
@@ -155,24 +169,64 @@ export default function AlertPage() {
   };
 
   const handleBatchToggle = async (groupId: number, enabled: number) => {
-    await batchUpdateGroupRules(groupId, { enabled });
-    toast.success(enabled ? '已批量启用' : '已批量禁用');
-    fetchAll();
+    try {
+      await batchUpdateGroupRules(groupId, { enabled });
+      toast.success(enabled ? '已批量启用' : '已批量禁用');
+      fetchAll();
+    } catch { toast.error('操作失败'); }
   };
 
   const handleDeleteGroup = async (groupId: number) => {
-    if (!confirm('删除规则组？组内规则不会删除，将变为未分组。')) return;
-    await deleteAlertGroup(groupId);
-    toast.success('已删除规则组');
-    fetchAll();
+    try {
+      const res = await deleteAlertGroup(groupId);
+      if (res.code === 0) { toast.success('已删除规则组'); fetchAll(); }
+      else toast.error(res.msg || '删除失败');
+    } catch { toast.error('删除失败'); }
   };
 
-  const handleNewGroup = async () => {
-    const name = prompt('输入规则组名称:');
-    if (!name) return;
-    await createAlertGroup(name);
-    toast.success('已创建规则组');
-    fetchAll();
+  const openGroupCreate = () => {
+    setEditGroupId(null);
+    setEditGroupName('');
+    setEditGroupDesc('');
+    onGroupOpen();
+  };
+
+  const openGroupEdit = (g: AlertRuleGroup) => {
+    setEditGroupId(g.id);
+    setEditGroupName(g.name);
+    setEditGroupDesc(g.description || '');
+    onGroupOpen();
+  };
+
+  const handleGroupSave = async () => {
+    if (!editGroupName.trim()) { toast.error('组名称不能为空'); return; }
+    try {
+      if (editGroupId) {
+        await updateAlertGroup(editGroupId, editGroupName.trim(), editGroupDesc);
+      } else {
+        await createAlertGroup(editGroupName.trim(), editGroupDesc);
+      }
+      toast.success(editGroupId ? '已更新' : '已创建');
+      onGroupClose();
+      fetchAll();
+    } catch { toast.error('操作失败'); }
+  };
+
+  const viewRuleLogs = async (ruleId: number, ruleName: string) => {
+    setLogRuleId(ruleId);
+    setLogRuleName(ruleName);
+    setRuleLogs([]);
+    setRuleLogsLoading(true);
+    onLogOpen();
+    try {
+      const res = await getAlertLogs(1, 50);
+      if (res.code === 0 && res.data) {
+        const d = res.data as any;
+        const allLogs = d.records || [];
+        setRuleLogs(allLogs.filter((l: any) => l.ruleId === ruleId));
+      }
+    } catch { toast.error('加载日志失败'); }
+    finally { setRuleLogsLoading(false); }
   };
 
   const renderRuleRow = (rule: AlertRule) => {
@@ -208,6 +262,7 @@ export default function AlertPage() {
           <p className="text-[10px] text-default-400 mt-0.5 truncate">{scopeLabel} · 冷却:{rule.cooldownMinutes}min</p>
         </div>
         <div className="flex gap-1 flex-shrink-0">
+          <Button size="sm" variant="light" onPress={() => viewRuleLogs(rule.id, rule.name)}>日志</Button>
           {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openEdit(rule)}>编辑</Button>}
           {canDeleteAlerts && <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>}
         </div>
@@ -352,7 +407,7 @@ export default function AlertPage() {
               value={ruleSearch} onValueChange={setRuleSearch}
               isClearable onClear={() => setRuleSearch('')} />
             <div className="ml-auto flex gap-2">
-              {canCreateAlerts && <Button size="sm" variant="flat" onPress={handleNewGroup}>新建组</Button>}
+              {canCreateAlerts && <Button size="sm" variant="flat" onPress={openGroupCreate}>新建组</Button>}
               {canCreateAlerts && <Button size="sm" color="primary" onPress={openCreate}>新建规则</Button>}
             </div>
           </div>
@@ -379,10 +434,11 @@ export default function AlertPage() {
                       onClick={() => toggleGroupCollapse(group.id)}>
                       <span className="text-xs text-default-400">{collapsed ? '▶' : '▼'}</span>
                       <span className="font-semibold text-sm">{group.name}</span>
-                      {group.isDefault === 1 && <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">默认</Chip>}
+                      {group.isDefault === 1 && <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">推荐模板</Chip>}
                       <span className="text-xs text-default-400">({groupRules.length} 条)</span>
                       {group.description && <span className="text-xs text-default-400 hidden sm:inline">— {group.description}</span>}
                       <div className="ml-auto flex gap-1" onClick={e => e.stopPropagation()}>
+                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openGroupEdit(group)}>编辑</Button>}
                         {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 1)}>全部启用</Button>}
                         {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 0)}>全部禁用</Button>}
                         {canDeleteAlerts && group.isDefault !== 1 && <Button size="sm" variant="light" color="danger" onPress={() => handleDeleteGroup(group.id)}>删除组</Button>}
@@ -599,6 +655,56 @@ export default function AlertPage() {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* Group Edit Modal */}
+      <Modal isOpen={isGroupOpen} onClose={onGroupClose} size="md">
+        <ModalContent>
+          <ModalHeader>{editGroupId ? '编辑规则组' : '新建规则组'}</ModalHeader>
+          <ModalBody className="flex flex-col gap-3">
+            <Input label="组名称" isRequired value={editGroupName} onValueChange={setEditGroupName} />
+            <Input label="描述（可选）" value={editGroupDesc} onValueChange={setEditGroupDesc} />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onGroupClose}>取消</Button>
+            <Button color="primary" onPress={handleGroupSave}>保存</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Rule History Log Modal */}
+      <Modal isOpen={isLogOpen} onClose={onLogClose} size="xl" scrollBehavior="inside">
+        <ModalContent>
+          <ModalHeader>规则历史日志 — {logRuleName}</ModalHeader>
+          <ModalBody>
+            {ruleLogsLoading ? (
+              <div className="flex justify-center py-8"><Spinner size="lg" /></div>
+            ) : ruleLogs.length === 0 ? (
+              <p className="text-center text-default-400 py-8">该规则暂无触发记录</p>
+            ) : (
+              <div className="space-y-1">
+                {ruleLogs.map((log: any) => (
+                  <div key={log.id} className="rounded-lg border border-divider/40 p-2 flex items-start gap-2">
+                    <Chip size="sm" variant="flat"
+                      color={log.notifyStatus === 'sent' ? 'success' : log.notifyStatus === 'failed' ? 'danger' : 'warning'}
+                      className="h-5 text-[9px] flex-shrink-0 mt-0.5">
+                      {log.notifyStatus === 'sent' ? '已发送' : log.notifyStatus === 'failed' ? '失败' : '记录'}
+                    </Chip>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm">{log.message}</p>
+                      <p className="text-[10px] text-default-400 mt-0.5">
+                        节点: {log.nodeName || '-'} · {new Date(log.createdTime).toLocaleString('zh-CN', { hour12: false })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onLogClose}>关闭</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
     </div>

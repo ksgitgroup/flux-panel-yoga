@@ -32,6 +32,8 @@ public class AlertAggregationService {
     private NotificationService notificationService;
     @Resource
     private MonitorNodeSnapshotMapper nodeSnapshotMapper;
+    @Resource
+    private AssetHostMapper assetHostMapper;
 
     // ==================== Aggregation Buffer ====================
 
@@ -63,6 +65,7 @@ public class AlertAggregationService {
         private String notifyTarget;
         private long timestamp;
         private boolean escalation;
+        private String category;    // infra, connectivity, resource
     }
 
     // ==================== Public API ====================
@@ -263,22 +266,121 @@ public class AlertAggregationService {
     // ==================== Site Notifications ====================
 
     private void writeSiteNotifications(Map<String, List<AlertEvent>> snapshot) {
+        // 收集所有事件，按 ruleId 聚合（恢复事件单独分组）
+        Map<String, List<AlertEvent>> groupedAlerts = new LinkedHashMap<>();
+        List<AlertEvent> recoveryEvents = new ArrayList<>();
+
         for (List<AlertEvent> events : snapshot.values()) {
             for (AlertEvent e : events) {
-                boolean isRecovery = e.getMessage() != null && e.getMessage().startsWith("已恢复:");
-                String type = isRecovery ? "alert_recovery" : "alert";
-                try {
-                    notificationService.send(
-                            e.getRuleName(),
-                            e.getMessage(),
-                            type,
-                            e.getSeverity(),
-                            "alert_engine",
-                            e.getRuleId());
-                } catch (Exception ex) {
-                    log.warn("[AlertAggregation] Failed to write site notification: {}", ex.getMessage());
+                if (e.getMessage() != null && e.getMessage().startsWith("已恢复:")) {
+                    recoveryEvents.add(e);
+                } else {
+                    String groupKey = e.getRuleId() + ":" + e.getRuleName();
+                    groupedAlerts.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(e);
                 }
             }
+        }
+
+        // 告警事件：按规则聚合，每条规则生成 1 条汇总通知
+        for (List<AlertEvent> group : groupedAlerts.values()) {
+            if (group.isEmpty()) continue;
+            AlertEvent first = group.get(0);
+            String highestSeverity = group.stream()
+                    .map(AlertEvent::getSeverity)
+                    .reduce(first.getSeverity(), this::higherSeverity);
+
+            String categoryLabel = getCategoryLabel(first.getCategory());
+            String title = categoryLabel + first.getRuleName();
+            String content;
+            if (group.size() == 1) {
+                content = first.getMessage();
+            } else {
+                StringBuilder sb = new StringBuilder();
+                sb.append(String.format("影响节点（%d 台）：\n", group.size()));
+                int shown = 0;
+                for (AlertEvent e : group) {
+                    if (shown < 10) {
+                        sb.append(String.format("• %s", e.getMessage())).append("\n");
+                        shown++;
+                    }
+                }
+                if (group.size() > 10) {
+                    sb.append(String.format("… 等共 %d 台节点\n", group.size()));
+                }
+                content = sb.toString().trim();
+            }
+
+            try {
+                String groupCategory = first.getCategory();
+                String groupTags = resolveGroupTags(group);
+                notificationService.send(title, content, "alert", highestSeverity,
+                        "alert_engine", first.getRuleId(), groupCategory, groupTags);
+            } catch (Exception ex) {
+                log.warn("[AlertAggregation] Failed to write aggregated notification: {}", ex.getMessage());
+            }
+        }
+
+        // 恢复事件：也按规则聚合
+        Map<String, List<AlertEvent>> groupedRecovery = new LinkedHashMap<>();
+        for (AlertEvent e : recoveryEvents) {
+            String groupKey = e.getRuleId() + ":" + e.getRuleName();
+            groupedRecovery.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(e);
+        }
+        for (List<AlertEvent> group : groupedRecovery.values()) {
+            if (group.isEmpty()) continue;
+            AlertEvent first = group.get(0);
+            String content;
+            if (group.size() == 1) {
+                content = first.getMessage();
+            } else {
+                content = String.format("已恢复: %s — %d 台节点恢复正常", first.getRuleName(), group.size());
+            }
+            try {
+                String groupCategory = first.getCategory();
+                String groupTags = resolveGroupTags(group);
+                notificationService.send(first.getRuleName(), content, "alert_recovery", "info",
+                        "alert_engine", first.getRuleId(), groupCategory, groupTags);
+            } catch (Exception ex) {
+                log.warn("[AlertAggregation] Failed to write recovery notification: {}", ex.getMessage());
+            }
+        }
+    }
+
+    /** 从事件组中解析标签并集：通过 nodeId → MonitorNodeSnapshot.assetId → AssetHost.tags */
+    private String resolveGroupTags(List<AlertEvent> events) {
+        Set<String> allTags = new LinkedHashSet<>();
+        for (AlertEvent e : events) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue; // 跳过探针（负 ID）和无 ID
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null && snap.getAssetId() != null) {
+                    AssetHost asset = assetHostMapper.selectById(snap.getAssetId());
+                    if (asset != null && asset.getTags() != null && !asset.getTags().isEmpty()) {
+                        for (String tag : asset.getTags().split(",")) {
+                            String t = tag.trim();
+                            if (!t.isEmpty()) allTags.add(t);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return allTags.isEmpty() ? null : String.join(",", allTags);
+    }
+
+    private String higherSeverity(String a, String b) {
+        Map<String, Integer> order = Map.of("info", 0, "warning", 1, "critical", 2);
+        int oa = order.getOrDefault(a, 0);
+        int ob = order.getOrDefault(b, 0);
+        return oa >= ob ? a : b;
+    }
+
+    private String getCategoryLabel(String category) {
+        if (category == null) return "";
+        switch (category) {
+            case "infra": return "[基础设施] ";
+            case "connectivity": return "[连通性] ";
+            case "resource": return "[资源] ";
+            default: return "";
         }
     }
 
@@ -327,6 +429,19 @@ public class AlertAggregationService {
         md.append(String.format("**昨日告警**: %d次 (P0: %d, P1: %d, P2: %d)\n",
                 recentLogs.size(), criticalCount, warningCount, infoCount));
         md.append(String.format("**当前活跃告警**: %d项\n", activeAlertCount));
+
+        // 按类别统计活跃告警
+        if (!activeAlerts.isEmpty()) {
+            Map<String, Integer> catCount = new LinkedHashMap<>();
+            for (AlertEvent e : activeAlerts.values()) {
+                String cat = e.getCategory() != null ? e.getCategory() : "infra";
+                catCount.merge(cat, 1, Integer::sum);
+            }
+            StringBuilder catLine = new StringBuilder("**按类别**: ");
+            catCount.forEach((cat, count) -> catLine.append(getCategoryLabel(cat).trim()).append(" ").append(count).append("项  "));
+            md.append(catLine.toString().trim()).append("\n");
+        }
+
         md.append(String.format("**服务器健康**: %d/%d 在线\n", onlineNodes, totalNodes));
 
         // Top alerting nodes

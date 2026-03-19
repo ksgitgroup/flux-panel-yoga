@@ -240,6 +240,10 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
 
     @Override
     public R restoreAsset(Long id) {
+        AuthPrincipal dp = AuthContext.getCurrentPrincipal();
+        if (dp != null && !dp.canAccessAsset(id)) {
+            return R.err("无权操作该资产");
+        }
         AssetHost asset = this.getById(id);
         if (asset == null) return R.err("资产不存在");
         if (asset.getStatus() == null || asset.getStatus() != 2) return R.err("该资产不在回收站中");
@@ -256,7 +260,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .eq(AssetHost::getStatus, 2)
                 .orderByDesc(AssetHost::getUpdatedTime, AssetHost::getId));
         List<AssetHostViewDto> views = buildAssetViews(assets);
-        return R.ok(views);
+        return R.ok(filterByAssetScope(views));
     }
 
     @Override

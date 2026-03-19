@@ -1271,7 +1271,7 @@ export default function XuiPage() {
         </div>
       </div>
 
-      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="4xl" scrollBehavior="inside">
+      <Modal isOpen={isFormOpen} onOpenChange={(open) => !open && onFormClose()} size="4xl" scrollBehavior="inside" isDismissable={!submitLoading}>
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑 X-UI 实例' : '新增 X-UI 实例'}</ModalHeader>
           <ModalBody>

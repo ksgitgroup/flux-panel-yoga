@@ -110,7 +110,7 @@ export default function BackupPage() {
       ]);
       setNodes(nodeRes?.data ?? []);
       setXuiInstances(instanceRes?.data ?? []);
-    } catch { /* ignore */ }
+    } catch { toast.error('加载备份数据失败'); }
   }, []);
 
   useEffect(() => {

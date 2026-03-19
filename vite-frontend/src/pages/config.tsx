@@ -9,7 +9,7 @@ import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
 import toast from 'react-hot-toast';
-import { updateConfigs, testWebhook, testDingtalkConfig } from '@/api';
+import { updateConfigs, testDingtalkConfig } from '@/api';
 import { SettingsIcon } from '@/components/icons';
 import { hasPermission } from '@/utils/auth';
 import { clearConfigCache, getCachedConfigs, siteConfig, updateSiteConfig } from '@/config/site';
@@ -30,23 +30,6 @@ interface ConfigItem {
   defaultValue?: string;
   rows?: number;
 }
-
-const DEFAULT_ALERT_TEMPLATE = `# 🚨 {{appName}} {{environment}} 自动诊断告警
-
-> 时间：{{time}}
-> 环境：{{environment}}
-> 诊断范围：{{resourceSummary}}
-> 异常数量：**{{failureCount}}**
-> 发送节奏：{{cooldownLabel}}
-
-{{failureDetails}}`;
-
-const DEFAULT_RECOVERY_TEMPLATE = `# ✅ {{appName}} {{environment}} 诊断已恢复
-
-> 时间：{{time}}
-> 环境：{{environment}}
-> 诊断范围：{{resourceSummary}}
-> 状态：最近一次自动诊断未发现异常`;
 
 const CONFIG_SECTIONS: Record<ConfigSectionKey, { title: string; description: string; chip: string }> = {
   basic: {
@@ -301,7 +284,6 @@ export default function ConfigPage() {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
-  const [testingWebhook, setTestingWebhook] = useState(false);
   const [testingDingtalk, setTestingDingtalk] = useState(false);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -364,12 +346,7 @@ export default function ConfigPage() {
       const configData = await getCachedConfigs();
       const mergedConfigs = {
         ...configData,
-        wechat_webhook_cooldown_minutes: configData.wechat_webhook_cooldown_minutes || '30',
-        wechat_webhook_max_failures: configData.wechat_webhook_max_failures || '8',
         site_environment_name: configData.site_environment_name || siteConfig.environment_name || '默认环境',
-        wechat_notify_recovery_enabled: configData.wechat_notify_recovery_enabled || 'true',
-        wechat_webhook_template: configData.wechat_webhook_template || DEFAULT_ALERT_TEMPLATE,
-        wechat_recovery_template: configData.wechat_recovery_template || DEFAULT_RECOVERY_TEMPLATE,
       };
 
       const hasDataChanged = JSON.stringify(mergedConfigs) !== JSON.stringify(configsToCompare);
@@ -400,14 +377,6 @@ export default function ConfigPage() {
 
     if (key === 'captcha_enabled' && value === 'true' && !nextConfigs.captcha_type) {
       nextConfigs.captcha_type = 'RANDOM';
-    }
-
-    if (key === 'wechat_webhook_enabled' && value === 'true') {
-      nextConfigs.wechat_webhook_cooldown_minutes ||= '30';
-      nextConfigs.wechat_webhook_max_failures ||= '8';
-      nextConfigs.wechat_notify_recovery_enabled ||= 'true';
-      nextConfigs.wechat_webhook_template ||= DEFAULT_ALERT_TEMPLATE;
-      nextConfigs.wechat_recovery_template ||= DEFAULT_RECOVERY_TEMPLATE;
     }
 
     setConfigs(nextConfigs);
@@ -548,47 +517,6 @@ export default function ConfigPage() {
     if (!canUpdateConfig) {
       return null;
     }
-    if (item.key === 'wechat_webhook_url' && configs.wechat_webhook_url) {
-      return (
-        <Button
-          size="sm"
-          color="success"
-          variant="flat"
-          isLoading={testingWebhook}
-          onPress={async () => {
-            setTestingWebhook(true);
-            try {
-              await updateConfigs(configs);
-              const res = await testWebhook();
-              if (res.code === 0) {
-                toast.success(res.data || '测试消息已发送，请检查企业微信群');
-              } else {
-                toast.error(res.msg || '发送失败');
-              }
-            } catch {
-              toast.error('测试推送出错');
-            } finally {
-              setTestingWebhook(false);
-            }
-          }}
-        >
-          发送测试消息
-        </Button>
-      );
-    }
-
-    if ((item.key === 'wechat_webhook_template' || item.key === 'wechat_recovery_template') && item.defaultValue) {
-      return (
-        <Button
-          size="sm"
-          variant="light"
-          onPress={() => handleConfigChange(item.key, item.defaultValue || '')}
-        >
-          恢复默认模板
-        </Button>
-      );
-    }
-
     if (item.key === 'dingtalk_redirect_uri') {
       return (
         <Button

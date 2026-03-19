@@ -22,7 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import com.admin.entity.DiagnosisRecord;
+import com.admin.entity.XuiClientSnapshot;
 import com.admin.mapper.DiagnosisRecordMapper;
+import com.admin.mapper.XuiClientSnapshotMapper;
 
 import javax.annotation.Resource;
 import java.util.*;
@@ -44,6 +46,8 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     private MonitorInstanceMapper monitorInstanceMapper;
     @Resource
     private DiagnosisRecordMapper diagnosisRecordMapper;
+    @Resource
+    private XuiClientSnapshotMapper xuiClientSnapshotMapper;
     @Resource
     private AlertAggregationService aggregationService;
 
@@ -175,9 +179,17 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 }
             }
 
-            // ===== Forward health metric: separate evaluation path =====
+            // ===== Separate evaluation paths for non-node metrics =====
             if ("forward_health".equals(rule.getMetric())) {
                 evaluateForwardHealthRule(rule, now, isEscalation);
+                continue;
+            }
+            if ("probe_stale".equals(rule.getMetric())) {
+                evaluateProbeStaleRule(rule, now, isEscalation);
+                continue;
+            }
+            if ("xui_client_expiry".equals(rule.getMetric()) || "xui_client_traffic".equals(rule.getMetric())) {
+                evaluateXuiClientRules(rule, now, isEscalation);
                 continue;
             }
 
@@ -278,6 +290,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                     event.setNotifyTarget(rule.getNotifyTarget());
                     event.setTimestamp(now);
                     event.setEscalation(isEscalation);
+                    event.setCategory(resolveCategory(rule.getMetric()));
                     aggregationService.submitAlert(event);
 
                     // Update cooldown
@@ -461,6 +474,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
                 event.setNotifyTarget(rule.getNotifyTarget());
                 event.setTimestamp(now);
                 event.setEscalation(isEscalation);
+                event.setCategory(resolveCategory("forward_health"));
                 aggregationService.submitAlert(event);
 
                 rule.setLastTriggeredAt(now);
@@ -493,6 +507,11 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
             case "load": return metric.getLoad1() != null ? metric.getLoad1() : 0;
             case "temperature": return metric.getTemperature() != null ? metric.getTemperature() : 0;
             case "connections": return metric.getConnections() != null ? metric.getConnections() : 0;
+            case "swap":
+                if (metric.getSwapUsed() != null && metric.getSwapTotal() != null && metric.getSwapTotal() > 0) {
+                    return (double) metric.getSwapUsed() / metric.getSwapTotal() * 100;
+                }
+                return 0;
             default: return 0;
         }
     }
@@ -516,7 +535,7 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
     }
 
     private String formatValue(double value, String metric) {
-        if ("cpu".equals(metric) || "mem".equals(metric) || "disk".equals(metric) || "traffic_quota".equals(metric)) {
+        if ("cpu".equals(metric) || "mem".equals(metric) || "disk".equals(metric) || "traffic_quota".equals(metric) || "swap".equals(metric)) {
             return String.format("%.1f%%", value);
         }
         if ("net_in".equals(metric) || "net_out".equals(metric)) {
@@ -536,5 +555,184 @@ public class AlertServiceImpl extends ServiceImpl<MonitorAlertRuleMapper, Monito
         if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
         if (bytes < 1024L * 1024 * 1024 * 1024) return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
         return String.format("%.2f TB", bytes / (1024.0 * 1024 * 1024 * 1024));
+    }
+
+    // ==================== Alert Category ====================
+
+    private static String resolveCategory(String metric) {
+        if (metric == null) return "infra";
+        switch (metric) {
+            case "cpu": case "mem": case "disk": case "load":
+            case "temperature": case "swap": case "connections":
+                return "infra";
+            case "offline": case "forward_health": case "probe_stale":
+                return "connectivity";
+            case "expiry": case "traffic_quota":
+            case "xui_client_expiry": case "xui_client_traffic":
+                return "resource";
+            default:
+                return "infra";
+        }
+    }
+
+    // ==================== Probe Stale Detection ====================
+
+    private void evaluateProbeStaleRule(MonitorAlertRule rule, long now, boolean isEscalation) {
+        try {
+            List<MonitorInstance> instances = monitorInstanceMapper.selectList(
+                    new LambdaQueryWrapper<MonitorInstance>()
+                            .eq(MonitorInstance::getStatus, 0)
+                            .eq(MonitorInstance::getSyncEnabled, 1));
+
+            double thresholdMinutes = rule.getThreshold() != null ? rule.getThreshold() : 10;
+
+            for (MonitorInstance inst : instances) {
+                Long lastSync = inst.getLastSyncAt();
+                boolean stale = (lastSync == null) || (now - lastSync > thresholdMinutes * 60 * 1000);
+                Long probeNodeId = -inst.getId(); // 负 ID 空间
+                String durationKey = rule.getId() + ":probe:" + inst.getId();
+
+                if (!stale) {
+                    aggregationService.markRecovered(rule.getId(), probeNodeId,
+                            rule.getName(), inst.getName(), "probe_stale");
+                    durationTracker.remove(durationKey);
+                    continue;
+                }
+
+                // Duration debounce
+                int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
+                if (requiredDuration > 0) {
+                    long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
+                    if ((now - firstTriggeredAt) / 1000 < requiredDuration) continue;
+                    durationTracker.remove(durationKey);
+                }
+
+                long staleMins = lastSync != null ? (now - lastSync) / 60000 : -1;
+                String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "critical";
+                String effectiveSeverity = isEscalation ? escalateSeverity(baseSeverity) : baseSeverity;
+                String message = String.format("%s探针「%s」(%s) 已断联 %s",
+                        isEscalation ? "[升级] " : "",
+                        inst.getName(), inst.getType(),
+                        staleMins >= 0 ? staleMins + " 分钟" : "未知时长");
+
+                AlertAggregationService.AlertEvent event = new AlertAggregationService.AlertEvent();
+                event.setRuleId(rule.getId());
+                event.setRuleName(rule.getName());
+                event.setNodeId(probeNodeId);
+                event.setNodeName(inst.getName());
+                event.setNodeIp(inst.getBaseUrl());
+                event.setMetric("probe_stale");
+                event.setCurrentValue(staleMins);
+                event.setThreshold(rule.getThreshold());
+                event.setMessage(message);
+                event.setSeverity(effectiveSeverity);
+                event.setNotifyType(rule.getNotifyType());
+                event.setNotifyTarget(rule.getNotifyTarget());
+                event.setTimestamp(now);
+                event.setEscalation(isEscalation);
+                event.setCategory(resolveCategory("probe_stale"));
+                aggregationService.submitAlert(event);
+
+                rule.setLastTriggeredAt(now);
+                rule.setUpdatedTime(now);
+                alertRuleMapper.updateById(rule);
+                log.info("[Alert] {} - {}", rule.getName(), message);
+                break; // One trigger per rule per cycle
+            }
+        } catch (Exception e) {
+            log.error("[Alert] evaluateProbeStaleRule error: {}", e.getMessage(), e);
+        }
+    }
+
+    // ==================== XUI Client Expiry / Traffic ====================
+
+    private void evaluateXuiClientRules(MonitorAlertRule rule, long now, boolean isEscalation) {
+        try {
+            List<XuiClientSnapshot> clients = xuiClientSnapshotMapper.selectList(
+                    new LambdaQueryWrapper<XuiClientSnapshot>()
+                            .eq(XuiClientSnapshot::getStatus, 0)
+                            .eq(XuiClientSnapshot::getEnable, 1));
+
+            for (XuiClientSnapshot client : clients) {
+                boolean triggered = false;
+                double currentValue = 0;
+                String message = "";
+                String clientName = client.getEmail() != null ? client.getEmail() : "ID:" + client.getId();
+                Long clientNodeId = 1_000_000L + client.getId(); // 高位 ID 空间
+                String durationKey = rule.getId() + ":xui:" + client.getId();
+
+                if ("xui_client_expiry".equals(rule.getMetric())) {
+                    if (client.getExpiryTime() == null || client.getExpiryTime() <= 0) continue;
+                    long daysRemaining = (client.getExpiryTime() - now) / (24 * 60 * 60 * 1000L);
+                    currentValue = daysRemaining;
+                    triggered = daysRemaining <= rule.getThreshold().longValue();
+                    if (!triggered) {
+                        aggregationService.markRecovered(rule.getId(), clientNodeId,
+                                rule.getName(), clientName, rule.getMetric());
+                        durationTracker.remove(durationKey);
+                        continue;
+                    }
+                    if (daysRemaining < 0) {
+                        message = String.format("XUI 客户端「%s」已过期 %d 天", clientName, Math.abs(daysRemaining));
+                    } else {
+                        message = String.format("XUI 客户端「%s」将在 %d 天后到期", clientName, daysRemaining);
+                    }
+                } else if ("xui_client_traffic".equals(rule.getMetric())) {
+                    if (client.getTotal() == null || client.getTotal() <= 0) continue; // unlimited
+                    long used = (client.getUp() != null ? client.getUp() : 0)
+                              + (client.getDown() != null ? client.getDown() : 0);
+                    currentValue = (double) used / client.getTotal() * 100;
+                    triggered = compare(currentValue, rule.getOperator(), rule.getThreshold());
+                    if (!triggered) {
+                        aggregationService.markRecovered(rule.getId(), clientNodeId,
+                                rule.getName(), clientName, rule.getMetric());
+                        durationTracker.remove(durationKey);
+                        continue;
+                    }
+                    message = String.format("XUI 客户端「%s」流量已用 %.1f%% (%s / %s)",
+                            clientName, currentValue,
+                            formatTraffic(used), formatTraffic(client.getTotal()));
+                }
+
+                if (triggered) {
+                    // Duration debounce
+                    int requiredDuration = rule.getDurationSeconds() != null ? rule.getDurationSeconds() : 0;
+                    if (requiredDuration > 0) {
+                        long firstTriggeredAt = durationTracker.computeIfAbsent(durationKey, k -> now);
+                        if ((now - firstTriggeredAt) / 1000 < requiredDuration) continue;
+                        durationTracker.remove(durationKey);
+                    }
+
+                    String baseSeverity = rule.getSeverity() != null ? rule.getSeverity() : "warning";
+                    String effectiveSeverity = isEscalation ? escalateSeverity(baseSeverity) : baseSeverity;
+                    if (isEscalation) message = "[升级] " + message;
+
+                    AlertAggregationService.AlertEvent event = new AlertAggregationService.AlertEvent();
+                    event.setRuleId(rule.getId());
+                    event.setRuleName(rule.getName());
+                    event.setNodeId(clientNodeId);
+                    event.setNodeName(clientName);
+                    event.setMetric(rule.getMetric());
+                    event.setCurrentValue(currentValue);
+                    event.setThreshold(rule.getThreshold());
+                    event.setMessage(message);
+                    event.setSeverity(effectiveSeverity);
+                    event.setNotifyType(rule.getNotifyType());
+                    event.setNotifyTarget(rule.getNotifyTarget());
+                    event.setTimestamp(now);
+                    event.setEscalation(isEscalation);
+                    event.setCategory(resolveCategory(rule.getMetric()));
+                    aggregationService.submitAlert(event);
+
+                    rule.setLastTriggeredAt(now);
+                    rule.setUpdatedTime(now);
+                    alertRuleMapper.updateById(rule);
+                    log.info("[Alert] {} - {}", rule.getName(), message);
+                    break; // One trigger per rule per cycle
+                }
+            }
+        } catch (Exception e) {
+            log.error("[Alert] evaluateXuiClientRules error: {}", e.getMessage(), e);
+        }
     }
 }

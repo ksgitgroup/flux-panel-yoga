@@ -131,7 +131,7 @@ export default function ProbePage() {
     try {
       const res = await getMonitorList();
       if (res.code === 0) setInstances(res.data || []);
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch { toast.error('加载探针列表失败'); } finally { setLoading(false); }
   };
 
   const loadDetail = async (id: number) => {

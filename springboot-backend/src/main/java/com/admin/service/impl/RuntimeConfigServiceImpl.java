@@ -37,7 +37,6 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
 
         Set<String> secretKeys = new LinkedHashSet<>();
         secretKeys.add("dingtalk_client_secret");
-        secretKeys.add("jumpserver_access_key_secret");
         SECRET_KEYS = Collections.unmodifiableSet(secretKeys);
     }
 

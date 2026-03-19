@@ -827,6 +827,7 @@ export default function TunnelPage() {
         scrollBehavior="outside"
         backdrop="blur"
         placement="center"
+        isDismissable={!submitLoading}
       >
         <ModalContent>
           {(onClose) => (

@@ -816,7 +816,6 @@ export const getNodeTrafficSummary = () => Network.post<Record<string, {
 // 隧道CRUD操作 - 全部使用POST请求
 export const createTunnel = (data: any) => Network.post("/tunnel/create", data);
 export const getTunnelList = () => Network.post("/tunnel/list");
-export const getTunnelById = (id: number) => Network.post("/tunnel/get", { id });
 export const updateTunnel = (data: any) => Network.post("/tunnel/update", data);
 export const deleteTunnel = (id: number) => Network.post("/tunnel/delete", { id });
 export const diagnoseTunnel = (tunnelId: number) => Network.post("/tunnel/diagnose", { tunnelId });

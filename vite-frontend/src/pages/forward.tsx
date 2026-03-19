@@ -2881,6 +2881,7 @@ export default function ForwardPage() {
         scrollBehavior="outside"
         backdrop="blur"
         placement="center"
+        isDismissable={!submitLoading}
       >
         <ModalContent>
           {(onClose) => (

@@ -104,7 +104,7 @@ public class AlertController extends BaseController {
     public R acknowledgeAlert(@RequestBody java.util.Map<String, Object> body) {
         Long ruleId = body.get("ruleId") != null ? ((Number) body.get("ruleId")).longValue() : null;
         Long nodeId = body.get("nodeId") != null ? ((Number) body.get("nodeId")).longValue() : null;
-        if (ruleId == null || nodeId == null) return R.error("缺少 ruleId 或 nodeId");
+        if (ruleId == null || nodeId == null) return R.err("缺少 ruleId 或 nodeId");
         aggregationService.acknowledgeAlert(ruleId, nodeId);
         return R.ok();
     }
@@ -114,7 +114,7 @@ public class AlertController extends BaseController {
     @PostMapping("/alerts-for-asset")
     public R alertsForAsset(@RequestBody java.util.Map<String, Long> body) {
         Long assetId = body.get("assetId");
-        if (assetId == null) return R.error("缺少 assetId");
+        if (assetId == null) return R.err("缺少 assetId");
         return R.ok(aggregationService.getActiveAlertsForAsset(assetId));
     }
 

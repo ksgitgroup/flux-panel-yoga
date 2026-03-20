@@ -105,8 +105,8 @@ function NotificationsTab() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [readFilter, setReadFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('');
-  const [sevFilter, setSevFilter] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [sevFilter, setSevFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState<string>('');
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -116,8 +116,8 @@ function NotificationsTab() {
       const params: any = { page: p, size: 30 };
       if (readFilter === 'unread') params.readStatus = 0;
       else if (readFilter === 'read') params.readStatus = 1;
-      if (typeFilter) params.type = typeFilter;
-      if (sevFilter) params.severity = sevFilter;
+      if (typeFilter && typeFilter !== 'all') params.type = typeFilter;
+      if (sevFilter && sevFilter !== 'all') params.severity = sevFilter;
       if (keyword.trim()) params.keyword = keyword.trim();
       const res = await getNotifications(params);
       if (res.code === 0 && res.data) {
@@ -184,16 +184,16 @@ function NotificationsTab() {
           <SelectItem key="read">已读</SelectItem>
         </Select>
         <Select size="sm" className="w-32" aria-label="类型" placeholder="全部类型"
-          selectedKeys={typeFilter ? new Set([typeFilter]) : new Set([''])}
-          onSelectionChange={(keys) => setTypeFilter(Array.from(keys)[0] as string || '')}>
-          {[{ value: '', label: '全部类型' }, ...EVENT_TYPES].map(t => (
+          selectedKeys={new Set([typeFilter])}
+          onSelectionChange={(keys) => setTypeFilter(Array.from(keys)[0] as string || 'all')}>
+          {[{ value: 'all', label: '全部类型' }, ...EVENT_TYPES].map(t => (
             <SelectItem key={t.value}>{t.label}</SelectItem>
           ))}
         </Select>
         <Select size="sm" className="w-28" aria-label="级别" placeholder="全部级别"
-          selectedKeys={sevFilter ? new Set([sevFilter]) : new Set([''])}
-          onSelectionChange={(keys) => setSevFilter(Array.from(keys)[0] as string || '')}>
-          <SelectItem key="">全部级别</SelectItem>
+          selectedKeys={new Set([sevFilter])}
+          onSelectionChange={(keys) => setSevFilter(Array.from(keys)[0] as string || 'all')}>
+          <SelectItem key="all">全部级别</SelectItem>
           <SelectItem key="critical">严重</SelectItem>
           <SelectItem key="warning">警告</SelectItem>
           <SelectItem key="info">提示</SelectItem>
@@ -746,12 +746,12 @@ function AlertLogsTab() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [logSevFilter, setLogSevFilter] = useState('');
+  const [logSevFilter, setLogSevFilter] = useState('all');
 
   const fetchLogs = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const res = await getAlertLogs(p, 30, search.trim() || undefined, logSevFilter || undefined);
+      const res = await getAlertLogs(p, 30, search.trim() || undefined, (logSevFilter && logSevFilter !== 'all') ? logSevFilter : undefined);
       if (res.code === 0 && res.data) {
         const d = res.data as any;
         setLogs(d.records || []);
@@ -774,9 +774,9 @@ function AlertLogsTab() {
           onKeyDown={(e) => e.key === 'Enter' && fetchLogs(1)}
           onClear={() => setSearch('')} />
         <Select size="sm" className="w-28" aria-label="级别" placeholder="全部级别"
-          selectedKeys={logSevFilter ? new Set([logSevFilter]) : new Set([''])}
-          onSelectionChange={(keys) => setLogSevFilter(Array.from(keys)[0] as string || '')}>
-          <SelectItem key="">全部级别</SelectItem>
+          selectedKeys={new Set([logSevFilter])}
+          onSelectionChange={(keys) => setLogSevFilter(Array.from(keys)[0] as string || 'all')}>
+          <SelectItem key="all">全部级别</SelectItem>
           <SelectItem key="critical">严重</SelectItem>
           <SelectItem key="warning">警告</SelectItem>
           <SelectItem key="info">提示</SelectItem>

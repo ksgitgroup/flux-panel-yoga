@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import axios from "axios";
-import { siteConfig } from "@/config/site";
 import { title } from "@/components/primitives";
 import DefaultLayout from "@/layouts/default";
 import {
@@ -445,11 +444,6 @@ export default function IndexPage() {
           </Card>
         </div>
       
-        <div className="fixed inset-x-0 bottom-4 py-4 text-center">
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            {siteConfig.release_version} · {siteConfig.build_revision}
-          </p>
-        </div>
 
         {showCaptcha && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">

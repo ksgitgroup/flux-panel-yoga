@@ -1648,26 +1648,26 @@ export default function AssetsPage() {
 
       {/* Summary Stats - compact inline bar */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${!filterStatus ? 'border-primary/40 bg-primary-50/40 ring-1 ring-primary/20 text-primary' : 'border-divider/60 bg-content1 text-default-600'}`} onClick={() => setFilterStatus('')}>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${!filterStatus ? 'border-primary/40 bg-primary-50/40 ring-1 ring-primary/20 text-primary' : 'border-divider/60 bg-content1 text-default-600'}`} onClick={() => setFilterStatus('')}>
           全部 <span className="font-mono font-bold">{summary.totalAssets}</span>
         </button>
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'online' ? 'border-success/40 ring-1 ring-success/20' : 'border-success/20'} bg-success-50/30 dark:bg-success-50/10 text-success`} onClick={() => setFilterStatus(filterStatus === 'online' ? '' : 'online')}>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'online' ? 'border-success/40 ring-1 ring-success/20' : 'border-success/20'} bg-success-50/30 dark:bg-success-50/10 text-success`} onClick={() => setFilterStatus(filterStatus === 'online' ? '' : 'online')}>
           在线 <span className="font-mono font-bold">{summary.onlineAssets}</span>
         </button>
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'offline' ? 'border-danger/40 ring-1 ring-danger/20' : summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'offline' ? '' : 'offline')}>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'offline' ? 'border-danger/40 ring-1 ring-danger/20' : summary.offlineAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.offlineAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'offline' ? '' : 'offline')}>
           离线 <span className="font-mono font-bold">{summary.offlineAssets}</span>
         </button>
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expiring_soon' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiringSoonAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'} ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expiring_soon' ? '' : 'expiring_soon')}>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expiring_soon' ? 'border-warning/40 ring-1 ring-warning/20' : summary.expiringSoonAssets > 0 ? 'border-warning/20 bg-warning-50/30 dark:bg-warning-50/10' : 'border-divider/60 bg-content1'} ${summary.expiringSoonAssets > 0 ? 'text-warning' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expiring_soon' ? '' : 'expiring_soon')}>
           快到期 <span className="font-mono font-bold">{summary.expiringSoonAssets}</span>
         </button>
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
           已到期 <span className="font-mono font-bold">{summary.expiredAssets}</span>
         </button>
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'alerting' ? 'border-danger/40 ring-1 ring-danger/20' : activeAlertNodeIds.size > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${activeAlertNodeIds.size > 0 ? 'text-danger' : 'text-default-400'}`}
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'alerting' ? 'border-danger/40 ring-1 ring-danger/20' : activeAlertNodeIds.size > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${activeAlertNodeIds.size > 0 ? 'text-danger' : 'text-default-400'}`}
           onClick={() => setFilterStatus(filterStatus === 'alerting' ? '' : 'alerting')}>
           告警中 <span className="font-mono font-bold">{activeAlertNodeIds.size}</span>
         </button>
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1 text-xs text-default-500">
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-1.5 text-xs text-default-500">
           <span className="font-mono font-bold">{summary.totalXuiInstances}</span> XUI
           <span className="font-mono font-bold">{summary.totalForwards}</span> 转发
         </span>

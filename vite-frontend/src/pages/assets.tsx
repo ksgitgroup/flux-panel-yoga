@@ -3758,39 +3758,35 @@ export default function AssetsPage() {
                   </div>
                 )}
 
-                {/* ===== Row 1: OS + Name + IP + Provider + Region (5-col) ===== */}
+                {/* ===== Row 1: OS + Name + IP + Provider + Region ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
-                  <div className="grid grid-cols-5 gap-2">
-                    <div className="flex gap-1">
-                      <Select size="sm" label="系统" isRequired className="flex-1"
+                  <div className="flex flex-wrap gap-2">
+                    <Select size="sm" label="系统平台" isRequired className="min-w-[110px] w-[110px]"
+                      classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
+                      selectedKeys={[provisionForm.osPlatform]}
+                      onSelectionChange={keys => {
+                        const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
+                        setProvisionForm(p => ({ ...p, osPlatform: os }));
+                        if (os !== 'linux') setProvisionGostEnabled(false);
+                      }}>
+                      {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                    </Select>
+                    {provisionForm.osPlatform === 'windows' && (
+                      <Select size="sm" label="架构" className="min-w-[90px] w-[90px]"
                         classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
-                        selectedKeys={[provisionForm.osPlatform]}
-                        onSelectionChange={keys => {
-                          const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
-                          setProvisionForm(p => ({ ...p, osPlatform: os }));
-                          if (os !== 'linux') setProvisionGostEnabled(false);
-                        }}>
-                        {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                        selectedKeys={[provisionForm.osArch]}
+                        onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>
+                        {OS_ARCHS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                       </Select>
-                      {provisionForm.osPlatform === 'windows' ? (
-                        <Select size="sm" label="架构" className="w-[90px] min-w-[90px]"
-                          classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
-                          selectedKeys={[provisionForm.osArch]}
-                          onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>
-                          {OS_ARCHS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
-                        </Select>
-                      ) : (
-                        <span className="self-end text-[10px] text-default-400 pb-2 whitespace-nowrap">自动</span>
-                      )}
-                    </div>
-                    <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
+                    )}
+                    <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired className="min-w-[140px] flex-1"
                       value={provisionName} onValueChange={setProvisionName}
                       isInvalid={!!provisionFormErrors.name} errorMessage={provisionFormErrors.name} />
-                    <Input size="sm" label="IP / 域名" placeholder="1.2.3.4" isRequired
+                    <Input size="sm" label="IP / 域名" placeholder="1.2.3.4" isRequired className="min-w-[120px] flex-1"
                       value={provisionForm.primaryIp} isInvalid={!!provisionFormErrors.primaryIp} errorMessage={provisionFormErrors.primaryIp}
                       onValueChange={v => setProvisionForm(p => ({ ...p, primaryIp: v }))} />
-                    <Autocomplete size="sm" label="供应商" isRequired allowsCustomValue
+                    <Autocomplete size="sm" label="供应商" isRequired allowsCustomValue className="min-w-[120px] flex-1"
                       defaultItems={allProviderOptions.filter(p => p.key)}
                       inputValue={provisionForm.provider}
                       onInputChange={v => setProvisionForm(p => ({ ...p, provider: v }))}
@@ -3798,7 +3794,7 @@ export default function AssetsPage() {
                       isInvalid={!!provisionFormErrors.provider} errorMessage={provisionFormErrors.provider}>
                       {(item) => <AutocompleteItem key={item.key}>{item.label}</AutocompleteItem>}
                     </Autocomplete>
-                    <Select size="sm" label="地区（自动识别）"
+                    <Select size="sm" label="地区" className="min-w-[120px] flex-1"
                       classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
                       selectedKeys={provisionForm.region ? [provisionForm.region] : []}
                       onSelectionChange={keys => setProvisionForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
@@ -3807,16 +3803,16 @@ export default function AssetsPage() {
                   </div>
                 </div>
 
-                {/* ===== Row 2: Billing - dates + cost (compact) ===== */}
+                {/* ===== Row 2: Billing ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">计费</p>
-                  <div className="grid grid-cols-5 gap-2">
-                    <DatePicker size="sm" label="购买日期" isRequired granularity="day"
+                  <div className="flex flex-wrap gap-2">
+                    <DatePicker size="sm" label="购买日期" isRequired granularity="day" className="min-w-[140px] flex-1"
                       popoverProps={{ placement: "bottom" }}
                       value={provisionForm.purchaseDate ? parseDate(provisionForm.purchaseDate) : null}
                       isInvalid={!!provisionFormErrors.purchaseDate} errorMessage={provisionFormErrors.purchaseDate}
                       onChange={d => setProvisionForm(p => ({ ...p, purchaseDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
-                    <div className="flex gap-1.5 items-start">
+                    <div className="flex gap-1.5 items-start min-w-[160px] flex-1">
                       {provisionForm.neverExpire ? (
                         <Input size="sm" label="到期" value="永不到期" isReadOnly className="flex-1" classNames={{ input: "text-success font-medium" }} />
                       ) : (
@@ -3833,17 +3829,17 @@ export default function AssetsPage() {
                         ∞
                       </Button>
                     </div>
-                    <Select size="sm" label="周期" isRequired
+                    <Select size="sm" label="周期" isRequired className="min-w-[100px] w-[100px]"
                       classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
                       selectedKeys={provisionForm.billingCycle ? [provisionForm.billingCycle] : []}
                       isInvalid={!!provisionFormErrors.billingCycle} errorMessage={provisionFormErrors.billingCycle}
                       onSelectionChange={keys => setProvisionForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
                       {BILLING_CYCLES.filter(c => c.key).map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
                     </Select>
-                    <Input size="sm" label="周期费用" placeholder="10.00" type="number" isRequired
+                    <Input size="sm" label="周期费用" placeholder="10.00" type="number" isRequired className="min-w-[100px] flex-1"
                       value={provisionForm.monthlyCost} isInvalid={!!provisionFormErrors.monthlyCost} errorMessage={provisionFormErrors.monthlyCost}
                       onValueChange={v => setProvisionForm(p => ({ ...p, monthlyCost: v }))} />
-                    <Select size="sm" label="币种" isRequired
+                    <Select size="sm" label="币种" isRequired className="min-w-[100px] w-[100px]"
                       classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
                       selectedKeys={provisionForm.currency ? [provisionForm.currency] : []}
                       onSelectionChange={keys => setProvisionForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || '' }))}>

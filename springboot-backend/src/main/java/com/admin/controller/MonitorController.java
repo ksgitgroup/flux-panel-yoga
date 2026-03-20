@@ -186,6 +186,7 @@ public class MonitorController extends BaseController {
         String name = body.get("name") != null ? body.get("name").toString() : null;
         String osPlatform = body.get("osPlatform") != null ? body.get("osPlatform").toString() : "linux";
         Long assetId = body.get("assetId") != null ? ((Number) body.get("assetId")).longValue() : null;
-        return monitorService.provisionAllAgents(komariInstanceId, pikaInstanceId, gostConfig, name, osPlatform, assetId);
+        String osArch = body.get("osArch") != null ? body.get("osArch").toString() : "amd64";
+        return monitorService.provisionAllAgents(komariInstanceId, pikaInstanceId, gostConfig, name, osPlatform, assetId, osArch);
     }
 }

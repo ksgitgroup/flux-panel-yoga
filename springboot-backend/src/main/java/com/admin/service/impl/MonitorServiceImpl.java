@@ -3653,18 +3653,42 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         R r = provisionAgent(dto);
         if (r.getCode() == 0) {
             Map<String, Object> data = (Map<String, Object>) r.getData();
-            // Pika's install.sh only works on Linux; for other platforms, provide manual instructions
-            if ("windows".equals(osPlatform) || "macos".equals(osPlatform)) {
-                String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
-                String token = data.get("token") != null ? data.get("token").toString() : "";
-                String note = String.format(
-                        "# Pika 暂无 %s 自动安装脚本，请手动下载二进制并运行:\n# 下载地址: %s/api/agent/download\n# 运行: pika-agent run --server %s --token %s",
-                        "windows".equals(osPlatform) ? "Windows" : "macOS", endpoint, endpoint, token);
-                data.put("installCommand", note);
-                data.remove("installCommandCn");
+            String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
+            String token = data.get("token") != null ? data.get("token").toString() : "";
+            if ("windows".equals(osPlatform)) {
+                // PowerShell one-click install: download binary, install as Windows service
+                String nameParam = (name != null && !name.isEmpty()) ? "&name=" + name : "";
+                String psCmd = String.join("; ",
+                        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+                        "$d = 'C:\\pika-agent'",
+                        "New-Item -ItemType Directory -Force $d | Out-Null",
+                        "Write-Host '正在下载 Pika Agent...' -ForegroundColor Cyan",
+                        "Invoke-WebRequest -Uri '" + endpoint + "/api/agent/download?platform=windows&arch=amd64" + nameParam + "' -OutFile \"$d\\pika-agent.exe\"",
+                        "Write-Host '正在注册 Windows 服务...' -ForegroundColor Cyan",
+                        "& \"$d\\pika-agent.exe\" service stop 2>$null",
+                        "& \"$d\\pika-agent.exe\" service uninstall 2>$null",
+                        "& \"$d\\pika-agent.exe\" service install --server '" + endpoint + "' --token '" + token + "'",
+                        "& \"$d\\pika-agent.exe\" service start",
+                        "Write-Host 'Pika Agent 安装完成并已启动!' -ForegroundColor Green"
+                );
+                data.put("installCommand", psCmd);
+                // Pika binary is self-hosted, same command for CN
+                data.put("installCommandCn", psCmd);
+            } else if ("macos".equals(osPlatform)) {
+                // macOS: download binary and run with launchd hint
+                String macCmd = String.format(
+                        "curl -fsSL \"%s/api/agent/download?platform=darwin&arch=amd64\" -o /usr/local/bin/pika-agent && " +
+                        "chmod +x /usr/local/bin/pika-agent && " +
+                        "pika-agent service install --server '%s' --token '%s' && " +
+                        "pika-agent service start && " +
+                        "echo 'Pika Agent 安装完成!'",
+                        endpoint, endpoint, token);
+                data.put("installCommand", macCmd);
+                data.put("installCommandCn", macCmd);
             }
+            // Linux: install command already set by provisionAgent() (curl | sudo bash)
             result.put("pika", data);
-            cmds.add("# Pika 监控探针\n" + data.get("installCommand"));
+            cmds.add("# Pika 监控探针" + ("windows".equals(osPlatform) ? " (PowerShell 管理员)" : "") + "\n" + data.get("installCommand"));
             if (data.get("installCommandCn") != null) cmdsCn.add("# Pika 监控探针\n" + data.get("installCommandCn"));
         } else {
             result.put("pikaError", r.getMsg());

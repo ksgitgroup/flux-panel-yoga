@@ -4059,8 +4059,8 @@ export default function AssetsPage() {
                         </AccordionItem>
                       ),
                       allProvisionResult.pika && (
-                        <AccordionItem key="pika" title="Pika 安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                          <div className="space-y-1.5 text-xs">
+                        <AccordionItem key="pika" title="Pika 安装参数 & 手动指引" classNames={{ title: "text-xs text-default-400" }}>
+                          <div className="space-y-2 text-xs">
                             <div className="flex items-center gap-2">
                               <span className="text-default-500 min-w-[60px]">Endpoint</span>
                               <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.pika!.endpoint}</code>
@@ -4070,6 +4070,35 @@ export default function AssetsPage() {
                               <span className="text-default-500 min-w-[60px]">Token</span>
                               <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.pika!.token}</code>
                               <Button size="sm" variant="light" className="h-6 min-w-0 px-2" onPress={() => copyToClipboard(allProvisionResult.pika!.token)}>复制</Button>
+                            </div>
+                            <div className="mt-2 rounded border border-default-200 bg-default-50 p-2 space-y-1.5">
+                              <p className="font-medium text-default-600">手动安装指引</p>
+                              {provisionForm.osPlatform === 'windows' ? (
+                                <>
+                                  <p className="text-default-500">Windows PowerShell（管理员）：</p>
+                                  <p className="text-default-500">1. 下载二进制：访问 <code className="bg-default-100 px-1 rounded">{allProvisionResult.pika!.endpoint}/api/agent/download?platform=windows&arch=amd64</code></p>
+                                  <p className="text-default-500">2. 将文件保存为 <code className="bg-default-100 px-1 rounded">C:\pika-agent\pika-agent.exe</code></p>
+                                  <p className="text-default-500">3. 安装服务：<code className="bg-default-100 px-1 rounded">.\pika-agent.exe service install --server '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}'</code></p>
+                                  <p className="text-default-500">4. 启动服务：<code className="bg-default-100 px-1 rounded">.\pika-agent.exe service start</code></p>
+                                  <p className="text-default-500">5. 查看状态：<code className="bg-default-100 px-1 rounded">.\pika-agent.exe service status</code></p>
+                                </>
+                              ) : provisionForm.osPlatform === 'macos' ? (
+                                <>
+                                  <p className="text-default-500">macOS 手动安装：</p>
+                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/download?platform=darwin&arch=amd64" -o /usr/local/bin/pika-agent</code></p>
+                                  <p className="text-default-500">2. 授权：<code className="bg-default-100 px-1 rounded">chmod +x /usr/local/bin/pika-agent</code></p>
+                                  <p className="text-default-500">3. 安装服务：<code className="bg-default-100 px-1 rounded">pika-agent service install --server '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}'</code></p>
+                                  <p className="text-default-500">4. 启动：<code className="bg-default-100 px-1 rounded">pika-agent service start</code></p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-default-500">Linux 手动安装：</p>
+                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/download?platform=linux&arch=amd64" -o /usr/local/bin/pika-agent</code></p>
+                                  <p className="text-default-500">2. 授权：<code className="bg-default-100 px-1 rounded">chmod +x /usr/local/bin/pika-agent</code></p>
+                                  <p className="text-default-500">3. 安装服务：<code className="bg-default-100 px-1 rounded">sudo pika-agent service install --server '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}'</code></p>
+                                  <p className="text-default-500">4. 启动：<code className="bg-default-100 px-1 rounded">sudo pika-agent service start</code></p>
+                                </>
+                              )}
                             </div>
                           </div>
                         </AccordionItem>

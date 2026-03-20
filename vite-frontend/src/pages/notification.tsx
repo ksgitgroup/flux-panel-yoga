@@ -291,10 +291,14 @@ export function ChannelsTab() {
   const handleSave = async () => {
     if (!editItem?.name || !editItem?.type) { toast.error('请填写名称和类型'); return; }
     try {
-      const fn = editItem.id ? updateNotifyChannel : createNotifyChannel;
+      const isNew = !editItem.id;
+      const fn = isNew ? createNotifyChannel : updateNotifyChannel;
       const res = await fn(editItem);
-      if (res.code === 0) { toast.success(editItem.id ? '已更新' : '已创建'); onClose(); fetchChannels(); }
-      else toast.error(res.msg || '操作失败');
+      if (res.code === 0) {
+        toast.success(isNew ? '已创建' : '已更新');
+        if (isNew) toast('💡 请到「通知策略」页签中编辑策略，将此渠道关联到对应策略才能收到推送', { duration: 6000 });
+        onClose(); fetchChannels();
+      } else toast.error(res.msg || '操作失败');
     } catch { toast.error('操作失败'); }
   };
 
@@ -494,8 +498,32 @@ export function PoliciesTab() {
     }).join(', ');
   };
 
+  // 诊断：是否存在启用策略但未关联渠道
+  const hasUnlinkedPolicies = !loading && policies.some(p => p.enabled === 1 && (!p.channelIds || !p.channelIds.trim()));
+  const hasNoChannels = !loading && channels.length === 0;
+
   return (
     <div className="flex flex-col gap-4">
+      {/* 诊断横幅：告警不推送的常见原因 */}
+      {hasNoChannels && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-danger-50 border border-danger-200">
+          <span className="text-danger text-lg mt-0.5">⚠</span>
+          <div className="text-sm">
+            <p className="font-semibold text-danger-600">未配置任何通知渠道</p>
+            <p className="text-danger-500 mt-0.5">告警将仅产生站内通知，不会推送到企业微信等外部渠道。请先在「通知渠道」页签中添加渠道。</p>
+          </div>
+        </div>
+      )}
+      {!hasNoChannels && hasUnlinkedPolicies && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-warning-50 border border-warning-200">
+          <span className="text-warning text-lg mt-0.5">⚠</span>
+          <div className="text-sm">
+            <p className="font-semibold text-warning-700">部分策略未关联通知渠道</p>
+            <p className="text-warning-600 mt-0.5">下方标记「未关联渠道」的策略不会推送到外部渠道（企业微信/邮件等）。请编辑策略并选择要推送的渠道。</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end items-center">
         {canCreate && <Button size="sm" color="primary" onPress={openCreate}>新建策略</Button>}
       </div>

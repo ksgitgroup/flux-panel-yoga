@@ -1818,27 +1818,51 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             if (existingKomari > 0) return false;
         }
 
-        // Dual-probe IP matching: try to find an existing asset with the same IP
-        if (StringUtils.hasText(node.getIp())) {
-            AssetHost existingByIp = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+        // Dual-probe matching: try to find an existing asset by IP or name
+        AssetHost existingAsset = null;
+        String matchMethod = null;
+
+        // Strategy 1: Match by primary IP
+        if (existingAsset == null && StringUtils.hasText(node.getIp())) {
+            existingAsset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
                     .eq(AssetHost::getPrimaryIp, node.getIp())
                     .eq(AssetHost::getStatus, 0)
                     .last("LIMIT 1"));
-            if (existingByIp != null) {
-                // Link this node to the existing asset (dual-probe binding)
-                if (isPika) {
-                    existingByIp.setPikaNodeId(node.getRemoteNodeUuid());
-                } else {
-                    existingByIp.setMonitorNodeUuid(node.getRemoteNodeUuid());
-                }
-                existingByIp.setUpdatedTime(System.currentTimeMillis());
-                assetHostMapper.updateById(existingByIp);
-                node.setAssetId(existingByIp.getId());
-                monitorNodeSnapshotMapper.updateById(node);
-                log.info("[MonitorSync] Linked {} node {} to existing asset '{}' by IP match ({})",
-                        instance.getType(), node.getRemoteNodeUuid(), existingByIp.getName(), node.getIp());
-                return false; // Not a new asset, just linked
+            if (existingAsset != null) matchMethod = "IP=" + node.getIp();
+        }
+
+        // Strategy 2: Match by IPv6 (some Windows nodes may only report v6)
+        if (existingAsset == null && StringUtils.hasText(node.getIpv6())) {
+            existingAsset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getIpv6, node.getIpv6())
+                    .eq(AssetHost::getStatus, 0)
+                    .last("LIMIT 1"));
+            if (existingAsset != null) matchMethod = "IPv6=" + node.getIpv6();
+        }
+
+        // Strategy 3: Match by name (provision flow sets the same name for asset and node)
+        if (existingAsset == null && StringUtils.hasText(node.getName())) {
+            existingAsset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getName, node.getName())
+                    .eq(AssetHost::getStatus, 0)
+                    .last("LIMIT 1"));
+            if (existingAsset != null) matchMethod = "name=" + node.getName();
+        }
+
+        if (existingAsset != null) {
+            // Link this node to the existing asset (dual-probe binding)
+            if (isPika) {
+                existingAsset.setPikaNodeId(node.getRemoteNodeUuid());
+            } else {
+                existingAsset.setMonitorNodeUuid(node.getRemoteNodeUuid());
             }
+            existingAsset.setUpdatedTime(System.currentTimeMillis());
+            assetHostMapper.updateById(existingAsset);
+            node.setAssetId(existingAsset.getId());
+            monitorNodeSnapshotMapper.updateById(node);
+            log.info("[MonitorSync] Linked {} node {} to existing asset '{}' by {} match",
+                    instance.getType(), node.getRemoteNodeUuid(), existingAsset.getName(), matchMethod);
+            return false; // Not a new asset, just linked
         }
 
         // Create new asset
@@ -3481,7 +3505,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     // ==================== Unified Multi-Agent Provision ====================
 
     @Override
-    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name, String osPlatform) {
+    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name, String osPlatform, Long assetId) {
         if (komariInstanceId == null && pikaInstanceId == null && (gostConfig == null || gostConfig.isEmpty())) {
             return R.err("至少需要选择一个组件进行安装");
         }
@@ -3492,8 +3516,14 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         List<String> installCommandsCn = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
-        // Resolve target asset for duplicate detection (from gostConfig.assetId or serverIp)
-        AssetHost targetAsset = resolveTargetAsset(gostConfig);
+        // Resolve target asset for duplicate detection — prefer explicit assetId, fallback to gostConfig
+        AssetHost targetAsset = null;
+        if (assetId != null) {
+            targetAsset = assetHostMapper.selectById(assetId);
+        }
+        if (targetAsset == null) {
+            targetAsset = resolveTargetAsset(gostConfig);
+        }
 
         // Provision Komari (with duplicate check)
         if (komariInstanceId != null) {
@@ -3535,7 +3565,12 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
         }
 
-        // Provision GOST (with duplicate check)
+        // Provision GOST (Linux only, with duplicate check)
+        if (!"linux".equals(osPlatform) && gostConfig != null && !gostConfig.isEmpty()) {
+            skipped.add("GOST（仅支持 Linux 系统）");
+            result.put("gostSkipped", "GOST 仅支持 Linux");
+            gostConfig = null; // Clear to prevent provisioning
+        }
         if (gostConfig != null && !gostConfig.isEmpty()) {
             // Check if asset already has GOST node linked
             if (targetAsset != null && targetAsset.getGostNodeId() != null) {
@@ -3655,36 +3690,19 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             Map<String, Object> data = (Map<String, Object>) r.getData();
             String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
             String token = data.get("token") != null ? data.get("token").toString() : "";
-            if ("windows".equals(osPlatform)) {
-                // PowerShell one-click install: download binary, install as Windows service
-                String nameParam = (name != null && !name.isEmpty()) ? "&name=" + name : "";
-                String psCmd = String.join("; ",
-                        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-                        "$d = 'C:\\pika-agent'",
-                        "New-Item -ItemType Directory -Force $d | Out-Null",
-                        "Write-Host '正在下载 Pika Agent...' -ForegroundColor Cyan",
-                        "Invoke-WebRequest -Uri '" + endpoint + "/api/agent/download?platform=windows&arch=amd64" + nameParam + "' -OutFile \"$d\\pika-agent.exe\"",
-                        "Write-Host '正在注册 Windows 服务...' -ForegroundColor Cyan",
-                        "& \"$d\\pika-agent.exe\" service stop 2>$null",
-                        "& \"$d\\pika-agent.exe\" service uninstall 2>$null",
-                        "& \"$d\\pika-agent.exe\" service install --server '" + endpoint + "' --token '" + token + "'",
-                        "& \"$d\\pika-agent.exe\" service start",
-                        "Write-Host 'Pika Agent 安装完成并已启动!' -ForegroundColor Green"
-                );
-                data.put("installCommand", psCmd);
-                // Pika binary is self-hosted, same command for CN
-                data.put("installCommandCn", psCmd);
-            } else if ("macos".equals(osPlatform)) {
-                // macOS: download binary and run with launchd hint
-                String macCmd = String.format(
-                        "curl -fsSL \"%s/api/agent/download?platform=darwin&arch=amd64\" -o /usr/local/bin/pika-agent && " +
-                        "chmod +x /usr/local/bin/pika-agent && " +
-                        "pika-agent service install --server '%s' --token '%s' && " +
-                        "pika-agent service start && " +
-                        "echo 'Pika Agent 安装完成!'",
-                        endpoint, endpoint, token);
-                data.put("installCommand", macCmd);
-                data.put("installCommandCn", macCmd);
+            if ("windows".equals(osPlatform) || "macos".equals(osPlatform)) {
+                // Pika currently only provides Linux install script (install.sh).
+                // For Windows/macOS, provide clear manual instructions.
+                String platformName = "windows".equals(osPlatform) ? "Windows" : "macOS";
+                String manualNote = String.format(
+                        "# Pika 探针暂不支持 %s 自动安装\n" +
+                        "# 请在 Pika 管理面板手动添加 Agent，或在 Linux 系统上使用以下命令：\n" +
+                        "# curl -fsSL \"%s/api/agent/install.sh?token=%s\" | sudo bash\n" +
+                        "#\n" +
+                        "# 如需 %s 监控，建议使用 Komari 探针（已支持 %s 一键安装）",
+                        platformName, endpoint, token, platformName, platformName);
+                data.put("installCommand", manualNote);
+                data.put("installCommandCn", manualNote);
             }
             // Linux: install command already set by provisionAgent() (curl | sudo bash)
             result.put("pika", data);

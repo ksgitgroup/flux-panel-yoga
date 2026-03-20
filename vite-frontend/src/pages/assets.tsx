@@ -1011,7 +1011,8 @@ export default function AssetsPage() {
 
     const kid = provisionKomariEnabled && provisionKomariId ? parseInt(provisionKomariId) : null;
     const pid = provisionPikaEnabled && provisionPikaId ? parseInt(provisionPikaId) : null;
-    const gostCfg = provisionGostEnabled && pf.primaryIp ? {
+    // GOST only supports Linux — enforce at submission time
+    const gostCfg = provisionGostEnabled && pf.osPlatform === 'linux' && pf.primaryIp ? {
       name: provisionName || 'gost-node',
       serverIp: pf.primaryIp,
       portSta: parseInt(provisionGostPortSta) || 10000,
@@ -1077,7 +1078,7 @@ export default function AssetsPage() {
         return;
       }
 
-      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform);
+      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform, provisionContext?.assetId);
       if (res.code === 0 && res.data) {
         setAllProvisionResult(res.data);
         setProvisionStep('result');
@@ -3757,7 +3758,12 @@ export default function AssetsPage() {
                     <Select size="sm" label="系统平台" isRequired
                       classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
                       selectedKeys={[provisionForm.osPlatform]}
-                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, osPlatform: (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'] }))}>
+                      onSelectionChange={keys => {
+                        const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
+                        setProvisionForm(p => ({ ...p, osPlatform: os }));
+                        // GOST only supports Linux — auto-disable when switching away
+                        if (os !== 'linux') setProvisionGostEnabled(false);
+                      }}>
                       {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                     </Select>
                     <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
@@ -4073,30 +4079,16 @@ export default function AssetsPage() {
                             </div>
                             <div className="mt-2 rounded border border-default-200 bg-default-50 p-2 space-y-1.5">
                               <p className="font-medium text-default-600">手动安装指引</p>
-                              {provisionForm.osPlatform === 'windows' ? (
-                                <>
-                                  <p className="text-default-500">Windows PowerShell（管理员）：</p>
-                                  <p className="text-default-500">1. 下载二进制：访问 <code className="bg-default-100 px-1 rounded">{allProvisionResult.pika!.endpoint}/api/agent/download?platform=windows&arch=amd64</code></p>
-                                  <p className="text-default-500">2. 将文件保存为 <code className="bg-default-100 px-1 rounded">C:\pika-agent\pika-agent.exe</code></p>
-                                  <p className="text-default-500">3. 安装服务：<code className="bg-default-100 px-1 rounded">.\pika-agent.exe service install --server '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}'</code></p>
-                                  <p className="text-default-500">4. 启动服务：<code className="bg-default-100 px-1 rounded">.\pika-agent.exe service start</code></p>
-                                  <p className="text-default-500">5. 查看状态：<code className="bg-default-100 px-1 rounded">.\pika-agent.exe service status</code></p>
-                                </>
-                              ) : provisionForm.osPlatform === 'macos' ? (
-                                <>
-                                  <p className="text-default-500">macOS 手动安装：</p>
-                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/download?platform=darwin&arch=amd64" -o /usr/local/bin/pika-agent</code></p>
-                                  <p className="text-default-500">2. 授权：<code className="bg-default-100 px-1 rounded">chmod +x /usr/local/bin/pika-agent</code></p>
-                                  <p className="text-default-500">3. 安装服务：<code className="bg-default-100 px-1 rounded">pika-agent service install --server '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}'</code></p>
-                                  <p className="text-default-500">4. 启动：<code className="bg-default-100 px-1 rounded">pika-agent service start</code></p>
-                                </>
+                              {provisionForm.osPlatform !== 'linux' ? (
+                                <div className="rounded bg-warning-50 dark:bg-warning-950/30 p-2 text-warning-700 dark:text-warning-400">
+                                  <p className="font-medium text-xs">Pika 探针暂不支持 {provisionForm.osPlatform === 'windows' ? 'Windows' : 'macOS'} 自动安装</p>
+                                  <p className="text-[11px] mt-1">如需 {provisionForm.osPlatform === 'windows' ? 'Windows' : 'macOS'} 监控，建议使用 Komari 探针（已支持一键安装）。</p>
+                                  <p className="text-[11px] mt-1">Pika 仅支持 Linux：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
+                                </div>
                               ) : (
                                 <>
-                                  <p className="text-default-500">Linux 手动安装：</p>
-                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/download?platform=linux&arch=amd64" -o /usr/local/bin/pika-agent</code></p>
-                                  <p className="text-default-500">2. 授权：<code className="bg-default-100 px-1 rounded">chmod +x /usr/local/bin/pika-agent</code></p>
-                                  <p className="text-default-500">3. 安装服务：<code className="bg-default-100 px-1 rounded">sudo pika-agent service install --server '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}'</code></p>
-                                  <p className="text-default-500">4. 启动：<code className="bg-default-100 px-1 rounded">sudo pika-agent service start</code></p>
+                                  <p className="text-default-500">Linux 一键安装（已包含在上方命令中）：</p>
+                                  <p className="text-default-500">或手动执行：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
                                 </>
                               )}
                             </div>

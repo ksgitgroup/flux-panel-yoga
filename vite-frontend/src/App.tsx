@@ -303,6 +303,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LoginRoute />} />
+      <Route path="/login" element={<LoginRoute />} />
       <Route path="/login/dingtalk/callback" element={<DingtalkCallbackPage />} />
       <Route path="/dingtalk-callback" element={<DingtalkCallbackPage />} />
       <Route

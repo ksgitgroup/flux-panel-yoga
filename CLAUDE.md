@@ -80,3 +80,52 @@ git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 - 1Panel → `asset_host.panelUrl` 深度链接
 - JumpServer → 堡垒机映射（规划中）
 - OpenClaw → AI 自动化（规划中）
+
+## 探针安装命令矩阵
+
+添加服务器时通过 `provisionAllAgents` 生成安装命令。Linux/macOS 使用一键脚本（自动检测架构），Windows 需手动选架构。
+
+### Komari 探针
+
+| 平台 | 海外直连 | 国内加速 |
+|------|---------|---------|
+| **Linux** | `curl -fsSL {scriptUrl} \| bash -s -- --endpoint {ep} --token {tk}` | `curl -fsSL {ghProxy}/{scriptUrl} \| bash -s -- --install-ghproxy {ghProxy} --endpoint {ep} --token {tk}` |
+| **macOS** | `zsh <(curl -sL {scriptUrl}) -e {ep} -t {tk}` | `zsh <(curl -sL {ghProxy}/{scriptUrl}) --install-ghproxy {ghProxy} -e {ep} -t {tk}` |
+| **Windows** | PowerShell: 下载 `install.ps1` → 执行 `--endpoint --token` | PowerShell: ghProxy 预装 NSSM → 代理下载 `install.ps1` → `--install-ghproxy` |
+
+- `scriptUrl` = `https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh`
+- Windows 使用 `install.ps1`（同仓库）
+- 架构自动检测：install.sh/ps1 内部自动识别 amd64/arm64
+- ghProxy 默认 `https://ghfast.top`，可在系统配置 `github_proxy_url` 中修改
+
+### Pika 探针
+
+| 平台 | 安装方式 | 架构检测 |
+|------|---------|---------|
+| **Linux** | `curl -fsSL "{ep}/api/agent/install.sh?token={tk}" \| sudo bash` | 自动（amd64/arm64/loongarch64） |
+| **macOS** | `curl -fsSL "{ep}/api/agent/install.sh?token={tk}" \| sudo bash` | 自动（amd64/arm64） |
+| **Windows** | PowerShell: `Invoke-WebRequest` 下载 `agent-windows-{arch}.exe` → `register --yes` | 手动选择（前端架构下拉框） |
+
+- Pika 二进制自托管于 Pika 服务器，无需 GitHub 代理，国内外命令相同
+- 下载 URL：`{ep}/api/agent/downloads/agent-{os}-{arch}[.exe]?key={token}`
+  - Linux: `agent-linux-amd64`, `agent-linux-arm64`, `agent-linux-loong64`
+  - macOS: `agent-darwin-amd64`, `agent-darwin-arm64`
+  - Windows: `agent-windows-amd64.exe`, `agent-windows-arm64.exe`
+- 注册命令：`pika-agent register --endpoint {ep} --token {tk} [--name {name}] --yes`（自动创建配置 + 安装服务 + 启动）
+
+### GOST 代理
+
+| 平台 | 支持 |
+|------|------|
+| **Linux** | 支持（bash 脚本） |
+| **macOS / Windows** | 不支持（前端自动禁用） |
+
+### 资产匹配逻辑
+
+安装新探针后，`autoCreateOrLinkAssetFromNode` 按以下策略匹配已有资产（避免重复创建）：
+1. **IPv4 匹配** — `asset_host.primaryIp = node.ip`
+2. **IPv6 匹配** — `asset_host.ipv6 = node.ipv6`
+3. **名称匹配** — `asset_host.name = node.name`（provision 流程中资产和节点同名）
+4. 若均不匹配 → 创建新资产（名称加 UUID 前 4 位后缀防冲突）
+
+`provisionAllAgents` 接收 `assetId` 参数，直接定位目标资产用于重复检测。

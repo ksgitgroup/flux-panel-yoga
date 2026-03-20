@@ -338,8 +338,8 @@ const OS_PLATFORMS = [
   { key: 'macos', label: 'macOS' },
 ];
 const OS_ARCHS = [
-  { key: 'amd64', label: 'x86_64 (amd64)' },
-  { key: 'arm64', label: 'ARM64 (aarch64)' },
+  { key: 'amd64', label: 'x86_64' },
+  { key: 'arm64', label: 'ARM64' },
 ];
 
 const emptyProvisionForm = (): ProvisionForm => ({
@@ -3761,23 +3761,29 @@ export default function AssetsPage() {
                 {/* ===== Row 1: OS + Name + IP + Provider + Region (5-col) ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
-                  <div className="grid grid-cols-6 gap-2">
-                    <Select size="sm" label="系统" isRequired
-                      classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
-                      selectedKeys={[provisionForm.osPlatform]}
-                      onSelectionChange={keys => {
-                        const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
-                        setProvisionForm(p => ({ ...p, osPlatform: os }));
-                        if (os !== 'linux') setProvisionGostEnabled(false);
-                      }}>
-                      {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
-                    </Select>
-                    <Select size="sm" label="架构"
-                      classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
-                      selectedKeys={[provisionForm.osArch]}
-                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>
-                      {OS_ARCHS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
-                    </Select>
+                  <div className="grid grid-cols-5 gap-2">
+                    <div className="flex gap-1">
+                      <Select size="sm" label="系统" isRequired className="flex-1"
+                        classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
+                        selectedKeys={[provisionForm.osPlatform]}
+                        onSelectionChange={keys => {
+                          const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
+                          setProvisionForm(p => ({ ...p, osPlatform: os }));
+                          if (os !== 'linux') setProvisionGostEnabled(false);
+                        }}>
+                        {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                      </Select>
+                      {provisionForm.osPlatform === 'windows' ? (
+                        <Select size="sm" label="架构" className="w-[90px] min-w-[90px]"
+                          classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
+                          selectedKeys={[provisionForm.osArch]}
+                          onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>
+                          {OS_ARCHS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                        </Select>
+                      ) : (
+                        <span className="self-end text-[10px] text-default-400 pb-2 whitespace-nowrap">自动</span>
+                      )}
+                    </div>
                     <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
                       value={provisionName} onValueChange={setProvisionName}
                       isInvalid={!!provisionFormErrors.name} errorMessage={provisionFormErrors.name} />
@@ -4097,16 +4103,11 @@ export default function AssetsPage() {
                                   <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded text-[10px]">Invoke-WebRequest -Uri "{allProvisionResult.pika!.endpoint}/api/agent/downloads/agent-windows-{provisionForm.osArch}.exe?key={allProvisionResult.pika!.token}" -OutFile "pika-agent.exe"</code></p>
                                   <p className="text-default-500">2. 注册并安装：<code className="bg-default-100 px-1 rounded text-[10px]">.\pika-agent.exe register --endpoint '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}' --yes</code></p>
                                 </>
-                              ) : provisionForm.osPlatform === 'macos' ? (
-                                <>
-                                  <p className="text-default-500">macOS 手动操作：</p>
-                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded text-[10px]">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/downloads/agent-darwin-{provisionForm.osArch}?key={allProvisionResult.pika!.token}" -o /usr/local/bin/pika-agent && chmod +x /usr/local/bin/pika-agent</code></p>
-                                  <p className="text-default-500">2. 注册并安装：<code className="bg-default-100 px-1 rounded text-[10px]">pika-agent register --endpoint '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}' --yes</code></p>
-                                </>
                               ) : (
                                 <>
-                                  <p className="text-default-500">Linux 一键安装（已包含在上方命令中）：</p>
-                                  <p className="text-default-500">或手动：<code className="bg-default-100 px-1 rounded text-[10px]">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
+                                  <p className="text-default-500">{provisionForm.osPlatform === 'macos' ? 'macOS' : 'Linux'} 一键脚本（自动检测架构）：</p>
+                                  <p className="text-default-500"><code className="bg-default-100 px-1 rounded text-[10px]">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
+                                  <p className="text-[10px] text-default-400 mt-0.5">支持 amd64 / arm64 / loongarch64，脚本自动识别当前系统架构</p>
                                 </>
                               )}
                             </div>

@@ -9,6 +9,7 @@ import {
 } from "@heroui/modal";
 import { Chip } from "@heroui/chip";
 import { Spinner } from "@heroui/spinner";
+import { Tooltip } from "@heroui/tooltip";
 import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
 } from "@heroui/table";
@@ -24,6 +25,8 @@ import {
   batchHealthCheckIpPool,
   exportProxyConfig,
   getIpPoolStats,
+  bindShopIp,
+  listShopAccount,
 } from "@/api";
 
 // ===================== Types =====================
@@ -41,6 +44,7 @@ interface IpPoolItem {
   region?: string;
   isp?: string;
   healthStatus: string;
+  healthScore?: number;
   lastCheckTime?: number;
   boundShopName?: string;
   boundShopId?: number;
@@ -101,12 +105,13 @@ const HEALTH_STATUS_OPTIONS = [
   { value: 'healthy', label: '健康' },
   { value: 'degraded', label: '降级' },
   { value: 'down', label: '不可用' },
+  { value: 'unknown', label: '未检测' },
 ];
 
 const EXPORT_FORMATS = [
-  { value: 'ziniao', label: '紫鸟' },
-  { value: 'ads', label: 'ADS' },
-  { value: 'general', label: '通用' },
+  { value: 'ziniao', label: '紫鸟浏览器' },
+  { value: 'ads', label: 'AdsPower' },
+  { value: 'general', label: '通用格式' },
 ];
 
 const IP_TYPE_LABEL: Record<string, string> = {
@@ -175,6 +180,15 @@ export default function IpPoolPage() {
   const [exporting, setExporting] = useState(false);
   const [exportTargetId, setExportTargetId] = useState<number | null>(null);
 
+  // Bind modal
+  const { isOpen: isBindOpen, onOpen: onBindOpen, onClose: onBindClose } = useDisclosure();
+  const [bindIpId, setBindIpId] = useState<number | null>(null);
+  const [bindIpName, setBindIpName] = useState('');
+  const [shopList, setShopList] = useState<{ id: number; name: string; platform: string; ipPoolId?: number }[]>([]);
+  const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
+  const [bindLoading, setBindLoading] = useState(false);
+  const [shopListLoading, setShopListLoading] = useState(false);
+
   // Health check loading per row
   const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set());
   const [batchChecking, setBatchChecking] = useState(false);
@@ -188,7 +202,7 @@ export default function IpPoolPage() {
         listIpPool({ keyword, ipType: filterIpType, healthStatus: filterHealth, countryCode: filterCountry }),
         getIpPoolStats(),
       ]);
-      if (listRes.code === 0) setList(listRes.data || []);
+      if (listRes.code === 0) setList(listRes.data?.records || []);
       else toast.error(listRes.msg || '加载IP池列表失败');
       if (statsRes.code === 0) setStats(statsRes.data || null);
     } catch {
@@ -329,9 +343,13 @@ export default function IpPoolPage() {
   };
 
   const handleExport = async () => {
+    if (!exportTargetId) {
+      toast.error('请选择要导出的 IP');
+      return;
+    }
     setExporting(true);
     try {
-      const res = await exportProxyConfig(exportTargetId!, exportFormat);
+      const res = await exportProxyConfig(exportTargetId, exportFormat);
       if (res.code === 0) {
         setExportResult(res.data || '');
         toast.success('导出成功');
@@ -352,31 +370,84 @@ export default function IpPoolPage() {
     );
   };
 
+  // ===================== Bind to Shop =====================
+
+  const handleOpenBind = async (item: IpPoolItem) => {
+    setBindIpId(item.id);
+    setBindIpName(`${item.name} (${item.exitIp}:${item.exitPort})`);
+    setSelectedShopId(null);
+    setShopListLoading(true);
+    onBindOpen();
+    try {
+      const res = await listShopAccount({});
+      if (res.code === 0) {
+        const records = res.data?.records || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setShopList(records.map((r: any) => ({
+          id: r.shop?.id ?? r.id,
+          name: r.shop?.name ?? r.name ?? '',
+          platform: r.shop?.platform ?? r.platform ?? '',
+          ipPoolId: r.shop?.ipPoolId ?? r.ipPoolId,
+        })));
+      }
+    } catch {
+      toast.error('加载店铺列表失败');
+    } finally {
+      setShopListLoading(false);
+    }
+  };
+
+  const handleBind = async () => {
+    if (!bindIpId || !selectedShopId) { toast.error('请选择店铺'); return; }
+    setBindLoading(true);
+    try {
+      const res = await bindShopIp(selectedShopId, bindIpId);
+      if (res.code === 0) {
+        toast.success('绑定成功');
+        onBindClose();
+        loadData();
+      } else {
+        toast.error(res.msg || '绑定失败');
+      }
+    } catch {
+      toast.error('绑定请求异常');
+    } finally {
+      setBindLoading(false);
+    }
+  };
+
   // ===================== Derived =====================
 
   const countryOptions = stats?.byCountry
     ? [{ value: '', label: '全部国家' }, ...Object.keys(stats.byCountry).map(c => ({ value: c, label: c }))]
     : [{ value: '', label: '全部国家' }];
 
+  const idleShops = shopList.filter(s => !s.ipPoolId);
+  const boundShops = shopList.filter(s => !!s.ipPoolId);
+
   // ===================== Render =====================
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      {/* 标题 */}
+      {/* 标题 & 功能说明 */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">IP 池管理</h1>
+        <div>
+          <h1 className="text-2xl font-bold">IP 池管理</h1>
+          <p className="text-sm text-default-400 mt-1">
+            管理代理出口 IP 资源，支持健康检测、店铺绑定和代理配置导出（紫鸟 / AdsPower / 通用格式）
+          </p>
+        </div>
         <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="flat"
-            isLoading={batchChecking}
-            onPress={handleBatchHealthCheck}
-          >
-            批量健康检测
-          </Button>
-          <Button size="sm" variant="flat" onPress={() => handleOpenExport()}>
-            导出代理配置
-          </Button>
+          <Tooltip content="对所有 IP 执行 TCP 连通性测试，更新健康状态">
+            <Button
+              size="sm"
+              variant="flat"
+              isLoading={batchChecking}
+              onPress={handleBatchHealthCheck}
+            >
+              批量健康检测
+            </Button>
+          </Tooltip>
           {canWrite && (
             <Button size="sm" color="primary" onPress={handleOpenCreate}>
               添加 IP
@@ -385,15 +456,33 @@ export default function IpPoolPage() {
         </div>
       </div>
 
+      {/* 使用指引（仅在无数据时显示） */}
+      {!loading && list.length === 0 && !keyword && !filterIpType && !filterHealth && !filterCountry && (
+        <Card shadow="sm" className="border border-primary/20 bg-primary-50/10">
+          <CardBody className="py-4 px-5">
+            <h2 className="text-sm font-semibold mb-2">快速上手</h2>
+            <ol className="text-sm text-default-600 list-decimal pl-4 space-y-1">
+              <li><strong>添加 IP</strong> — 点击右上角「添加 IP」，填入代理服务器的出口 IP、端口、协议和认证信息</li>
+              <li><strong>健康检测</strong> — 添加后点击「检测」按钮验证连通性，系统会自动计算延迟评分</li>
+              <li><strong>绑定店铺</strong> — 将 IP 绑定到店铺账号，实现 1 个 IP 对应 1 个店铺的环境隔离</li>
+              <li><strong>导出配置</strong> — 导出代理配置到指纹浏览器（紫鸟/AdsPower），一键粘贴使用</li>
+            </ol>
+            <p className="text-xs text-default-400 mt-3">
+              IP 来源可以是购买的代理服务商、GOST 转发隧道的出口 IP、或自建的 VPN 节点
+            </p>
+          </CardBody>
+        </Card>
+      )}
+
       {/* 统计卡片 */}
-      {stats && (
+      {stats && stats.total > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard label="总数" value={stats.total} />
-          <StatCard label="已绑定" value={stats.bound} color="text-primary" />
-          <StatCard label="空闲" value={stats.idle} color="text-default-500" />
-          <StatCard label="健康" value={stats.healthy} color="text-success" />
-          <StatCard label="降级" value={stats.degraded} color="text-warning" />
-          <StatCard label="不可用" value={stats.down} color="text-danger" />
+          <StatCard label="已绑定" value={stats.bound} color="text-primary" hint="已分配给店铺的 IP" />
+          <StatCard label="空闲" value={stats.idle} color="text-default-500" hint="未绑定店铺，可分配" />
+          <StatCard label="健康" value={stats.healthy} color="text-success" hint="TCP 连通且延迟正常" />
+          <StatCard label="降级" value={stats.degraded} color="text-warning" hint="延迟较高或不稳定" />
+          <StatCard label="不可用" value={stats.down} color="text-danger" hint="TCP 连接失败" />
         </div>
       )}
 
@@ -413,7 +502,7 @@ export default function IpPoolPage() {
       <div className="flex flex-wrap gap-2 items-end">
         <Input
           size="sm"
-          placeholder="搜索名称/IP/备注"
+          placeholder="搜索名称 / IP / 备注"
           className="w-48"
           value={keyword}
           onValueChange={setKeyword}
@@ -474,7 +563,7 @@ export default function IpPoolPage() {
         <Table removeWrapper aria-label="IP池列表">
           <TableHeader>
             <TableColumn>名称</TableColumn>
-            <TableColumn>出口IP:端口</TableColumn>
+            <TableColumn>出口 IP:端口</TableColumn>
             <TableColumn>协议</TableColumn>
             <TableColumn>类型</TableColumn>
             <TableColumn>国家/地区</TableColumn>
@@ -482,12 +571,15 @@ export default function IpPoolPage() {
             <TableColumn>绑定店铺</TableColumn>
             <TableColumn>操作</TableColumn>
           </TableHeader>
-          <TableBody emptyContent="暂无数据">
+          <TableBody emptyContent="暂无 IP 数据，点击右上角「添加 IP」开始">
             {list.map(item => (
               <TableRow key={item.id}>
                 <TableCell>
                   <div>
                     <span className="font-medium">{item.name}</span>
+                    {item.usagePurpose && (
+                      <p className="text-xs text-default-400">{item.usagePurpose}</p>
+                    )}
                     {item.remark && (
                       <p className="text-xs text-default-400 truncate max-w-[160px]">{item.remark}</p>
                     )}
@@ -513,7 +605,16 @@ export default function IpPoolPage() {
                   {item.boundShopName ? (
                     <Chip size="sm" color="primary" variant="flat">{item.boundShopName}</Chip>
                   ) : (
-                    <span className="text-default-400 text-sm">未绑定</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-default-400 text-sm">空闲</span>
+                      {canWrite && (
+                        <Tooltip content="将此 IP 绑定到一个店铺账号">
+                          <Button size="sm" variant="light" color="primary" onPress={() => handleOpenBind(item)}>
+                            绑定
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </div>
                   )}
                 </TableCell>
                 <TableCell>
@@ -523,21 +624,25 @@ export default function IpPoolPage() {
                         编辑
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant="light"
-                      isLoading={checkingIds.has(item.id)}
-                      onPress={() => handleHealthCheck(item.id)}
-                    >
-                      检测
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="light"
-                      onPress={() => handleOpenExport(item.id)}
-                    >
-                      导出
-                    </Button>
+                    <Tooltip content="TCP 连通性测试，检测代理是否可用">
+                      <Button
+                        size="sm"
+                        variant="light"
+                        isLoading={checkingIds.has(item.id)}
+                        onPress={() => handleHealthCheck(item.id)}
+                      >
+                        检测
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="导出代理配置，可粘贴到指纹浏览器">
+                      <Button
+                        size="sm"
+                        variant="light"
+                        onPress={() => handleOpenExport(item.id)}
+                      >
+                        导出
+                      </Button>
+                    </Tooltip>
                     {canWrite && (
                       <Button
                         size="sm"
@@ -561,16 +666,26 @@ export default function IpPoolPage() {
         <ModalContent>
           <ModalHeader>{isEdit ? '编辑 IP' : '添加 IP'}</ModalHeader>
           <ModalBody>
+            {!isEdit && (
+              <div className="text-sm text-default-400 bg-default-50 rounded-lg p-3 mb-2">
+                填入代理服务器信息。如果是 GOST 转发的隧道出口，填写 GOST 节点的入口 IP 和转发端口。
+                代理用户名/密码为可选项，取决于代理服务商是否要求认证。
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="名称"
                 isRequired
+                placeholder="例: US-住宅-01"
+                description="建议格式：国家-类型-编号"
                 value={form.name}
                 onValueChange={v => setForm(f => ({ ...f, name: v }))}
               />
               <Input
-                label="出口IP"
+                label="出口 IP"
                 isRequired
+                placeholder="例: 154.23.45.67"
+                description="代理服务器的公网 IP 地址"
                 value={form.exitIp}
                 onValueChange={v => setForm(f => ({ ...f, exitIp: v }))}
               />
@@ -578,6 +693,8 @@ export default function IpPoolPage() {
                 label="端口"
                 isRequired
                 type="number"
+                placeholder="例: 10800"
+                description="代理监听端口"
                 value={String(form.exitPort)}
                 onValueChange={v => setForm(f => ({ ...f, exitPort: v ? Number(v) : '' }))}
               />
@@ -588,6 +705,7 @@ export default function IpPoolPage() {
                   const val = Array.from(keys)[0] as string;
                   if (val) setForm(f => ({ ...f, protocol: val }));
                 }}
+                description="SOCKS5 最常用，部分浏览器仅支持 HTTP"
               >
                 {PROTOCOL_OPTIONS.map(o => (
                   <SelectItem key={o.value}>{o.label}</SelectItem>
@@ -595,22 +713,25 @@ export default function IpPoolPage() {
               </Select>
               <Input
                 label="代理用户名"
+                placeholder="可选"
                 value={form.proxyUser}
                 onValueChange={v => setForm(f => ({ ...f, proxyUser: v }))}
               />
               <Input
                 label="代理密码"
                 type="password"
+                placeholder="可选"
                 value={form.proxyPass}
                 onValueChange={v => setForm(f => ({ ...f, proxyPass: v }))}
               />
               <Select
-                label="IP类型"
+                label="IP 类型"
                 selectedKeys={[form.ipType]}
                 onSelectionChange={keys => {
                   const val = Array.from(keys)[0] as string;
                   if (val) setForm(f => ({ ...f, ipType: val }));
                 }}
+                description="住宅 IP 最安全，数据中心 IP 易被识别"
               >
                 {IP_TYPE_OPTIONS.map(o => (
                   <SelectItem key={o.value}>{o.label}</SelectItem>
@@ -619,28 +740,34 @@ export default function IpPoolPage() {
               <Input
                 label="国家/地区代码"
                 placeholder="例: US, HK, JP"
+                description="ISO 3166-1 两字母代码"
                 value={form.countryCode}
-                onValueChange={v => setForm(f => ({ ...f, countryCode: v }))}
+                onValueChange={v => setForm(f => ({ ...f, countryCode: v.toUpperCase() }))}
               />
               <Input
                 label="地区"
+                placeholder="例: 加利福尼亚"
                 value={form.region}
                 onValueChange={v => setForm(f => ({ ...f, region: v }))}
               />
               <Input
                 label="ISP"
+                placeholder="例: Comcast"
+                description="运营商信息，有助判断 IP 质量"
                 value={form.isp}
                 onValueChange={v => setForm(f => ({ ...f, isp: v }))}
               />
               <Input
                 label="用途"
                 className="col-span-2"
+                placeholder="例: TikTok 美区店铺"
                 value={form.usagePurpose}
                 onValueChange={v => setForm(f => ({ ...f, usagePurpose: v }))}
               />
               <Textarea
                 label="备注"
                 className="col-span-2"
+                placeholder="其他备注信息"
                 value={form.remark}
                 onValueChange={v => setForm(f => ({ ...f, remark: v }))}
                 minRows={2}
@@ -661,7 +788,12 @@ export default function IpPoolPage() {
         <ModalContent>
           <ModalHeader>确认删除</ModalHeader>
           <ModalBody>
-            <p>确定要删除 <strong>{deleteTarget?.name}</strong> ({deleteTarget?.exitIp}:{deleteTarget?.exitPort}) 吗？此操作不可恢复。</p>
+            <p>确定要删除 <strong>{deleteTarget?.name}</strong> ({deleteTarget?.exitIp}:{deleteTarget?.exitPort}) 吗？</p>
+            {deleteTarget?.boundShopName && (
+              <p className="text-warning text-sm mt-2">
+                该 IP 当前已绑定店铺「{deleteTarget.boundShopName}」，删除后将自动解绑。
+              </p>
+            )}
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onDeleteClose}>取消</Button>
@@ -670,11 +802,18 @@ export default function IpPoolPage() {
         </ModalContent>
       </Modal>
 
-      {/* 导出模态框 */}
+      {/* 导出代理配置模态框 */}
       <Modal isOpen={isExportOpen} onClose={onExportClose} size="lg">
         <ModalContent>
           <ModalHeader>导出代理配置</ModalHeader>
           <ModalBody>
+            <div className="text-sm text-default-400 bg-default-50 rounded-lg p-3 mb-3">
+              选择导出格式后点击「生成」，将配置粘贴到对应的指纹浏览器代理设置中。
+              <br />
+              <strong>紫鸟</strong>：直接粘贴 proxyUrl 到代理配置
+              <strong className="ml-3">AdsPower</strong>：粘贴 JSON 到代理导入
+              <strong className="ml-3">通用</strong>：标准 URL 格式
+            </div>
             <div className="flex gap-2 items-end mb-3">
               <Select
                 label="导出格式"
@@ -698,8 +837,8 @@ export default function IpPoolPage() {
                 <Textarea
                   isReadOnly
                   value={exportResult}
-                  minRows={6}
-                  maxRows={16}
+                  minRows={4}
+                  maxRows={12}
                   classNames={{ input: 'font-mono text-xs' }}
                 />
                 <Button size="sm" variant="flat" onPress={handleCopyExport}>
@@ -713,19 +852,95 @@ export default function IpPoolPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* 绑定店铺模态框 */}
+      <Modal isOpen={isBindOpen} onClose={onBindClose} size="lg">
+        <ModalContent>
+          <ModalHeader>绑定店铺</ModalHeader>
+          <ModalBody>
+            <p className="text-sm text-default-500 mb-3">
+              将 IP <strong>{bindIpName}</strong> 绑定到一个店铺账号。
+              每个 IP 仅能绑定 1 个店铺，确保环境隔离。
+            </p>
+            {shopListLoading ? (
+              <div className="flex justify-center py-6"><Spinner /></div>
+            ) : (
+              <>
+                {idleShops.length > 0 ? (
+                  <>
+                    <p className="text-xs text-default-400 mb-2">未绑定 IP 的店铺（{idleShops.length} 个）：</p>
+                    <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+                      {idleShops.map(shop => (
+                        <div
+                          key={shop.id}
+                          onClick={() => setSelectedShopId(shop.id)}
+                          className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                            selectedShopId === shop.id
+                              ? 'border-primary bg-primary-50/30'
+                              : 'border-default-200 hover:bg-default-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{shop.name}</span>
+                            <Chip size="sm" variant="flat">{shop.platform}</Chip>
+                          </div>
+                          {selectedShopId === shop.id && (
+                            <Chip size="sm" color="primary" variant="solid">已选</Chip>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-6 text-default-400">
+                    <p>所有店铺都已绑定 IP</p>
+                    <p className="text-xs mt-1">请先在「店铺管理」中创建新的店铺账号</p>
+                  </div>
+                )}
+                {boundShops.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs text-default-400 mb-1">已绑定其他 IP 的店铺（{boundShops.length} 个）：</p>
+                    <div className="flex flex-wrap gap-1">
+                      {boundShops.slice(0, 10).map(shop => (
+                        <Tooltip key={shop.id} content="该店铺已绑定其他 IP，需先在店铺管理中解绑">
+                          <Chip size="sm" variant="flat" color="default">{shop.name}</Chip>
+                        </Tooltip>
+                      ))}
+                      {boundShops.length > 10 && <span className="text-xs text-default-400">...等 {boundShops.length} 个</span>}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onBindClose}>取消</Button>
+            <Button
+              color="primary"
+              isLoading={bindLoading}
+              isDisabled={!selectedShopId}
+              onPress={handleBind}
+            >
+              确认绑定
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
 
 // ===================== Sub-components =====================
 
-function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
-  return (
-    <Card shadow="sm">
+function StatCard({ label, value, color, hint }: { label: string; value: number; color?: string; hint?: string }) {
+  const content = (
+    <Card shadow="sm" className={hint ? 'cursor-help' : ''}>
       <CardBody className="flex flex-col items-center py-3">
         <span className="text-xs text-default-500">{label}</span>
         <span className={`text-xl font-bold ${color || ''}`}>{value}</span>
       </CardBody>
     </Card>
   );
+  if (hint) return <Tooltip content={hint}>{content}</Tooltip>;
+  return content;
 }

@@ -1045,9 +1045,10 @@ export const provisionAllAgents = (
   gostConfig: GostProvisionConfig | null,
   name?: string,
   osPlatform?: string,
-  assetId?: number
+  assetId?: number,
+  osArch?: string
 ) =>
-  Network.post<ProvisionAllResult>("/monitor/provision-all", { komariInstanceId, pikaInstanceId, gostConfig, name, osPlatform, assetId });
+  Network.post<ProvisionAllResult>("/monitor/provision-all", { komariInstanceId, pikaInstanceId, gostConfig, name, osPlatform, assetId, osArch });
 
 // Alert system
 export interface AlertRule {

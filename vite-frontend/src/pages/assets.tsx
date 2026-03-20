@@ -314,6 +314,7 @@ const BILLING_CYCLES = [
 // Provision form for new server creation within provision modal
 interface ProvisionForm {
   osPlatform: 'linux' | 'windows' | 'macos';
+  osArch: 'amd64' | 'arm64';
   primaryIp: string;
   provider: string;
   region: string;
@@ -336,9 +337,13 @@ const OS_PLATFORMS = [
   { key: 'windows', label: 'Windows' },
   { key: 'macos', label: 'macOS' },
 ];
+const OS_ARCHS = [
+  { key: 'amd64', label: 'x86_64 (amd64)' },
+  { key: 'arm64', label: 'ARM64 (aarch64)' },
+];
 
 const emptyProvisionForm = (): ProvisionForm => ({
-  osPlatform: 'linux', primaryIp: '', provider: '', region: '',
+  osPlatform: 'linux', osArch: 'amd64', primaryIp: '', provider: '', region: '',
   purchaseDate: new Date().toISOString().split('T')[0], // default to today
   expireDate: '', neverExpire: false, billingCycle: '', monthlyCost: '', currency: 'CNY',
   bandwidthMbps: '', monthlyTrafficGb: '', trafficUnlimited: false, trafficUnit: 'GB',
@@ -940,11 +945,13 @@ export default function AssetsPage() {
         const rawTraffic = asset.monthlyTrafficGb != null && asset.monthlyTrafficGb > 0 ? asset.monthlyTrafficGb : '';
         const trafficUnit: 'GB' | 'TB' = typeof rawTraffic === 'number' && rawTraffic >= 1000 ? 'TB' : 'GB';
         const trafficVal = typeof rawTraffic === 'number' ? (trafficUnit === 'TB' ? String(rawTraffic / 1000) : String(rawTraffic)) : '';
-        // Guess osPlatform from OS string
+        // Guess osPlatform and arch from OS/arch strings
         const osLower = (asset.os || asset.osCategory || '').toLowerCase();
         const osPlatform: ProvisionForm['osPlatform'] = osLower.includes('windows') ? 'windows' : osLower.includes('darwin') || osLower.includes('macos') ? 'macos' : 'linux';
+        const archLower = (asset.arch || '').toLowerCase();
+        const osArch: ProvisionForm['osArch'] = archLower.includes('arm') || archLower.includes('aarch') ? 'arm64' : 'amd64';
         setProvisionForm({
-          osPlatform,
+          osPlatform, osArch,
           primaryIp: asset.primaryIp || ctx.assetIp || '',
           provider: asset.provider || '',
           region: asset.region || '',
@@ -1078,7 +1085,7 @@ export default function AssetsPage() {
         return;
       }
 
-      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform, provisionContext?.assetId);
+      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform, provisionContext?.assetId, provisionForm.osArch);
       if (res.code === 0 && res.data) {
         setAllProvisionResult(res.data);
         setProvisionStep('result');
@@ -3754,17 +3761,22 @@ export default function AssetsPage() {
                 {/* ===== Row 1: OS + Name + IP + Provider + Region (5-col) ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
-                  <div className="grid grid-cols-5 gap-2">
-                    <Select size="sm" label="系统平台" isRequired
+                  <div className="grid grid-cols-6 gap-2">
+                    <Select size="sm" label="系统" isRequired
                       classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
                       selectedKeys={[provisionForm.osPlatform]}
                       onSelectionChange={keys => {
                         const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
                         setProvisionForm(p => ({ ...p, osPlatform: os }));
-                        // GOST only supports Linux — auto-disable when switching away
                         if (os !== 'linux') setProvisionGostEnabled(false);
                       }}>
                       {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                    </Select>
+                    <Select size="sm" label="架构"
+                      classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
+                      selectedKeys={[provisionForm.osArch]}
+                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>
+                      {OS_ARCHS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                     </Select>
                     <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
                       value={provisionName} onValueChange={setProvisionName}
@@ -4079,16 +4091,22 @@ export default function AssetsPage() {
                             </div>
                             <div className="mt-2 rounded border border-default-200 bg-default-50 p-2 space-y-1.5">
                               <p className="font-medium text-default-600">手动安装指引</p>
-                              {provisionForm.osPlatform !== 'linux' ? (
-                                <div className="rounded bg-warning-50 dark:bg-warning-950/30 p-2 text-warning-700 dark:text-warning-400">
-                                  <p className="font-medium text-xs">Pika 探针暂不支持 {provisionForm.osPlatform === 'windows' ? 'Windows' : 'macOS'} 自动安装</p>
-                                  <p className="text-[11px] mt-1">如需 {provisionForm.osPlatform === 'windows' ? 'Windows' : 'macOS'} 监控，建议使用 Komari 探针（已支持一键安装）。</p>
-                                  <p className="text-[11px] mt-1">Pika 仅支持 Linux：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
-                                </div>
+                              {provisionForm.osPlatform === 'windows' ? (
+                                <>
+                                  <p className="text-default-500">Windows PowerShell（管理员）手动操作：</p>
+                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded text-[10px]">Invoke-WebRequest -Uri "{allProvisionResult.pika!.endpoint}/api/agent/downloads/agent-windows-{provisionForm.osArch}.exe?key={allProvisionResult.pika!.token}" -OutFile "pika-agent.exe"</code></p>
+                                  <p className="text-default-500">2. 注册并安装：<code className="bg-default-100 px-1 rounded text-[10px]">.\pika-agent.exe register --endpoint '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}' --yes</code></p>
+                                </>
+                              ) : provisionForm.osPlatform === 'macos' ? (
+                                <>
+                                  <p className="text-default-500">macOS 手动操作：</p>
+                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded text-[10px]">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/downloads/agent-darwin-{provisionForm.osArch}?key={allProvisionResult.pika!.token}" -o /usr/local/bin/pika-agent && chmod +x /usr/local/bin/pika-agent</code></p>
+                                  <p className="text-default-500">2. 注册并安装：<code className="bg-default-100 px-1 rounded text-[10px]">pika-agent register --endpoint '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}' --yes</code></p>
+                                </>
                               ) : (
                                 <>
                                   <p className="text-default-500">Linux 一键安装（已包含在上方命令中）：</p>
-                                  <p className="text-default-500">或手动执行：<code className="bg-default-100 px-1 rounded">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
+                                  <p className="text-default-500">或手动：<code className="bg-default-100 px-1 rounded text-[10px]">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
                                 </>
                               )}
                             </div>

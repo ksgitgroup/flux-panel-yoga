@@ -1275,6 +1275,79 @@ public class DatabaseInitService {
             log.info("[DatabaseInit] traffic_anomaly 表校验成功");
         } catch (Exception e) { log.error("[DatabaseInit] traffic_anomaly 表创建失败: {}", e.getMessage()); }
 
+        // 5.15 IP 池管理表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `ip_pool` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT, " +
+                    "`name` varchar(100) DEFAULT NULL COMMENT '名称', " +
+                    "`exit_ip` varchar(45) DEFAULT NULL COMMENT '出口IP', " +
+                    "`exit_port` int(10) DEFAULT NULL COMMENT '代理端口', " +
+                    "`protocol` varchar(20) DEFAULT 'socks5' COMMENT '代理协议', " +
+                    "`proxy_user` varchar(100) DEFAULT NULL COMMENT '代理认证用户', " +
+                    "`proxy_pass` varchar(200) DEFAULT NULL COMMENT '代理认证密码', " +
+                    "`gost_node_id` bigint(20) DEFAULT NULL COMMENT 'GOST节点ID', " +
+                    "`forward_id` bigint(20) DEFAULT NULL COMMENT 'GOST转发规则ID', " +
+                    "`asset_id` bigint(20) DEFAULT NULL COMMENT '关联资产ID', " +
+                    "`ip_type` varchar(20) DEFAULT 'datacenter' COMMENT 'IP类型', " +
+                    "`country_code` varchar(10) DEFAULT NULL COMMENT '国家代码', " +
+                    "`region` varchar(50) DEFAULT NULL COMMENT '地区', " +
+                    "`isp` varchar(100) DEFAULT NULL COMMENT 'ISP', " +
+                    "`asn` varchar(50) DEFAULT NULL COMMENT 'ASN', " +
+                    "`health_status` varchar(20) DEFAULT 'healthy' COMMENT '健康状态', " +
+                    "`health_score` int(10) DEFAULT 100 COMMENT '健康分', " +
+                    "`last_health_check_at` bigint(20) DEFAULT NULL COMMENT '最后检查时间', " +
+                    "`risk_score` int(10) DEFAULT 0 COMMENT '风控评分', " +
+                    "`blacklisted` int(2) DEFAULT 0 COMMENT '黑名单', " +
+                    "`bound_shop_id` bigint(20) DEFAULT NULL COMMENT '绑定店铺ID', " +
+                    "`cooldown_until` bigint(20) DEFAULT NULL COMMENT '冷却期结束', " +
+                    "`rotation_group` varchar(50) DEFAULT NULL COMMENT '轮换组', " +
+                    "`usage_purpose` varchar(100) DEFAULT NULL COMMENT '用途', " +
+                    "`tags` varchar(500) DEFAULT NULL COMMENT '标签JSON', " +
+                    "`remark` varchar(500) DEFAULT NULL, " +
+                    "`created_time` bigint(20) NOT NULL, " +
+                    "`updated_time` bigint(20) DEFAULT NULL, " +
+                    "`status` int(10) DEFAULT 0, " +
+                    "PRIMARY KEY (`id`), " +
+                    "INDEX `idx_ip_pool_exit_ip` (`exit_ip`), " +
+                    "INDEX `idx_ip_pool_country` (`country_code`), " +
+                    "INDEX `idx_ip_pool_bound_shop` (`bound_shop_id`) " +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='IP池管理'");
+            log.info("[DatabaseInit] ip_pool 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] ip_pool 表创建失败: {}", e.getMessage()); }
+
+        // 5.16 店铺/账号管理表
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS `shop_account` (" +
+                    "`id` bigint(20) NOT NULL AUTO_INCREMENT, " +
+                    "`name` varchar(200) DEFAULT NULL COMMENT '店铺名称', " +
+                    "`platform` varchar(30) DEFAULT NULL COMMENT '平台', " +
+                    "`shop_external_id` varchar(200) DEFAULT NULL COMMENT '平台店铺ID', " +
+                    "`login_account` varchar(200) DEFAULT NULL COMMENT '登录账号', " +
+                    "`ip_pool_id` bigint(20) DEFAULT NULL COMMENT '绑定IP池ID', " +
+                    "`forward_id` bigint(20) DEFAULT NULL COMMENT '绑定转发ID', " +
+                    "`asset_id` bigint(20) DEFAULT NULL COMMENT '关联资产ID', " +
+                    "`browser_type` varchar(30) DEFAULT NULL COMMENT '指纹浏览器类型', " +
+                    "`browser_profile_id` varchar(200) DEFAULT NULL COMMENT '浏览器ProfileID', " +
+                    "`proxy_config_snapshot` text COMMENT '代理配置快照JSON', " +
+                    "`last_proxy_export_at` bigint(20) DEFAULT NULL COMMENT '最后导出时间', " +
+                    "`account_status` varchar(20) DEFAULT 'active' COMMENT '账号状态', " +
+                    "`last_login_at` bigint(20) DEFAULT NULL COMMENT '最后登录时间', " +
+                    "`environment` varchar(30) DEFAULT NULL COMMENT '环境', " +
+                    "`team` varchar(100) DEFAULT NULL COMMENT '团队', " +
+                    "`operator` varchar(100) DEFAULT NULL COMMENT '负责人', " +
+                    "`tags` varchar(500) DEFAULT NULL COMMENT '标签JSON', " +
+                    "`remark` varchar(500) DEFAULT NULL, " +
+                    "`created_time` bigint(20) NOT NULL, " +
+                    "`updated_time` bigint(20) DEFAULT NULL, " +
+                    "`status` int(10) DEFAULT 0, " +
+                    "PRIMARY KEY (`id`), " +
+                    "INDEX `idx_shop_platform` (`platform`), " +
+                    "INDEX `idx_shop_ip_pool` (`ip_pool_id`), " +
+                    "INDEX `idx_shop_team` (`team`) " +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='店铺账号管理'");
+            log.info("[DatabaseInit] shop_account 表校验成功");
+        } catch (Exception e) { log.error("[DatabaseInit] shop_account 表创建失败: {}", e.getMessage()); }
+
         // 5.14 新模块权限种子数据
         try {
             ensureIamPermission("audit.read", "查看审计日志", "audit", "允许查看操作审计日志", 180, 1);
@@ -1289,6 +1362,10 @@ public class DatabaseInitService {
             ensureIamPermission("ip_quality.write", "管理IP质量", "ip_quality", "允许执行IP检测", 221, 1);
             ensureIamPermission("traffic_analysis.read", "查看流量分析", "traffic_analysis", "允许查看流量分析面板", 230, 1);
             ensureIamPermission("cost_analysis.read", "查看成本分析", "cost_analysis", "允许查看成本分析面板", 240, 1);
+            ensureIamPermission("ip_pool.read", "查看IP池", "ip_pool", "允许查看IP池管理", 250, 1);
+            ensureIamPermission("ip_pool.write", "管理IP池", "ip_pool", "允许管理IP池", 251, 1);
+            ensureIamPermission("shop_account.read", "查看店铺管理", "shop_account", "允许查看店铺账号", 260, 1);
+            ensureIamPermission("shop_account.write", "管理店铺", "shop_account", "允许管理店铺账号", 261, 1);
 
             // Phase 5 CRUD 细粒度权限
             String[][] phase5CrudModules = {
@@ -1297,6 +1374,8 @@ public class DatabaseInitService {
                     {"topology", "拓扑", "202", "203", "204"},
                     {"backup", "备份", "212", "213", "214"},
                     {"ip_quality", "IP质量", "222", "223", "224"},
+                    {"ip_pool", "IP池", "252", "253", "254"},
+                    {"shop_account", "店铺", "262", "263", "264"},
             };
             for (String[] m : phase5CrudModules) {
                 ensureIamPermission(m[0] + ".create", "新增" + m[1], m[0], "允许新增" + m[1], Integer.parseInt(m[2]), 1);
@@ -1305,7 +1384,7 @@ public class DatabaseInitService {
             }
 
             // SUPER_ADMIN gets all new permissions (read + CUD, except audit write only for OWNER)
-            for (String m : new String[]{"notification","topology","backup","ip_quality"}) {
+            for (String m : new String[]{"notification","topology","backup","ip_quality","ip_pool","shop_account"}) {
                 ensureIamRolePermission("SUPER_ADMIN", m + ".read");
                 ensureIamRolePermission("SUPER_ADMIN", m + ".create");
                 ensureIamRolePermission("SUPER_ADMIN", m + ".update");
@@ -1315,7 +1394,7 @@ public class DatabaseInitService {
             ensureIamRolePermission("SUPER_ADMIN", "traffic_analysis.read");
             ensureIamRolePermission("SUPER_ADMIN", "cost_analysis.read");
             // DEV_ADMIN gets read + CUD for operational modules
-            for (String m : new String[]{"notification","topology","backup","ip_quality"}) {
+            for (String m : new String[]{"notification","topology","backup","ip_quality","ip_pool","shop_account"}) {
                 ensureIamRolePermission("DEV_ADMIN", m + ".read");
                 ensureIamRolePermission("DEV_ADMIN", m + ".create");
                 ensureIamRolePermission("DEV_ADMIN", m + ".update");
@@ -1325,7 +1404,7 @@ public class DatabaseInitService {
             ensureIamRolePermission("DEV_ADMIN", "traffic_analysis.read");
             ensureIamRolePermission("DEV_ADMIN", "cost_analysis.read");
             // DEVELOPER gets read only
-            String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read","cost_analysis.read"};
+            String[] devReadPerms = {"audit.read","notification.read","topology.read","backup.read","ip_quality.read","traffic_analysis.read","cost_analysis.read","ip_pool.read","shop_account.read"};
             for (String p : devReadPerms) {
                 ensureIamRolePermission("DEVELOPER", p);
             }

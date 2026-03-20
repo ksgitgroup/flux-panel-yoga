@@ -1132,6 +1132,29 @@ export const getAlertsForAsset = (assetId: number) => Network.post<any[]>("/aler
 export const acknowledgeAlert = (ruleId: number, nodeId: number) => Network.post("/alert/acknowledge", { ruleId, nodeId });
 export const getAllActiveAlertsBrief = () => Network.post<{assetId: number; ruleId: number; nodeId: number; severity: string}[]>("/alert/all-active-brief");
 
+// IP Pool Management
+export const listIpPool = (params?: Record<string, unknown>) => Network.post<any>("/ip-pool/list", params || {});
+export const createIpPool = (data: Record<string, unknown>) => Network.post<any>("/ip-pool/create", data);
+export const updateIpPool = (data: Record<string, unknown>) => Network.post<any>("/ip-pool/update", data);
+export const deleteIpPool = (id: number) => Network.post("/ip-pool/delete", { id });
+export const healthCheckIpPool = (id: number) => Network.post<any>("/ip-pool/health-check", { id });
+export const batchHealthCheckIpPool = () => Network.post<any>("/ip-pool/batch-health-check");
+export const bindIpToShop = (ipPoolId: number, shopId: number) => Network.post("/ip-pool/bind", { ipPoolId, shopId });
+export const unbindIpFn = (id: number) => Network.post("/ip-pool/unbind", { id });
+export const exportProxyConfig = (id: number, browserType?: string) => Network.post<any>("/ip-pool/export-proxy", { id, browserType });
+export const getIpPoolStats = () => Network.post<any>("/ip-pool/stats");
+
+// Shop Account Management
+export const listShopAccount = (params?: Record<string, unknown>) => Network.post<any>("/shop-account/list", params || {});
+export const createShopAccount = (data: Record<string, unknown>) => Network.post<any>("/shop-account/create", data);
+export const updateShopAccount = (data: Record<string, unknown>) => Network.post<any>("/shop-account/update", data);
+export const deleteShopAccount = (id: number) => Network.post("/shop-account/delete", { id });
+export const getShopAccountDetail = (id: number) => Network.post<any>("/shop-account/detail", { id });
+export const bindShopIp = (shopId: number, ipPoolId: number) => Network.post("/shop-account/bind-ip", { shopId, ipPoolId });
+export const unbindShopIp = (shopId: number) => Network.post("/shop-account/unbind-ip", { shopId });
+export const exportBrowserProfile = (shopId: number) => Network.post<any>("/shop-account/export-profile", { shopId });
+export const getShopAccountStats = () => Network.post<any>("/shop-account/stats");
+
 // Enterprise IAM
 export const getIamAuthOptions = () => Network.post<IamAuthOptions>("/iam/auth/options");
 export const getDingtalkAuthorizeUrl = (channel: string = 'web') =>

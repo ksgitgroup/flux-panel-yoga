@@ -310,7 +310,7 @@ export default function AlertPage() {
         <div className="flex gap-1 flex-shrink-0">
           <div className="relative">
             <Button size="sm" variant="light" onPress={() => viewRuleLogs(rule.id, rule.name)}>日志</Button>
-            {hasNewLogs(rule) && <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500" />}
+            {hasNewLogs(rule) && <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500" title="有新的告警触发记录" />}
           </div>
           {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openEdit(rule)}>编辑</Button>}
           {canDeleteAlerts && <Button size="sm" variant="light" color="danger" onPress={() => handleDelete(rule.id)}>删除</Button>}

@@ -3741,7 +3741,7 @@ export default function AssetsPage() {
           }
           onProvisionClose();
         }
-      }} size="5xl" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
+      }} size="5xl" backdrop="blur" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
         <ModalContent>
           <ModalHeader>
             {provisionContext

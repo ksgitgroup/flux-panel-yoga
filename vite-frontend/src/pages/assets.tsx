@@ -18,6 +18,7 @@ import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Tabs, Tab } from "@heroui/tabs";
 import { Progress } from "@heroui/progress";
 import { DatePicker } from "@heroui/date-picker";
+import { JwtUtil } from "@/utils/jwt";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { parseDate } from "@internationalized/date";
 import toast from 'react-hot-toast';
@@ -312,6 +313,37 @@ const BILLING_CYCLES = [
   { key: '1095', label: '三年付' },
 ];
 
+// ==================== Alert Snooze (per-user, localStorage) ====================
+// Key format: alert_snooze_{userId}, value: { "ruleId:nodeId": snoozeUntilTs, ... }
+const getSnoozeKey = () => {
+  const uid = JwtUtil.getUserIdFromToken();
+  return `alert_snooze_${uid || 'anon'}`;
+};
+const getSnoozeMap = (): Record<string, number> => {
+  try { return JSON.parse(localStorage.getItem(getSnoozeKey()) || '{}'); } catch { return {}; }
+};
+const setSnoozeMap = (m: Record<string, number>) => {
+  localStorage.setItem(getSnoozeKey(), JSON.stringify(m));
+};
+const snoozeKey = (ruleId: number, nodeId: number) => `${ruleId}:${nodeId}`;
+const isSnoozed = (ruleId: number, nodeId: number): number | null => {
+  const m = getSnoozeMap();
+  const until = m[snoozeKey(ruleId, nodeId)];
+  if (until && until > Date.now()) return until;
+  return null;
+};
+const snoozeAlerts = (items: { ruleId: number; nodeId: number }[], days: number) => {
+  const m = getSnoozeMap();
+  const until = Date.now() + days * 24 * 60 * 60 * 1000;
+  items.forEach(({ ruleId, nodeId }) => { m[snoozeKey(ruleId, nodeId)] = until; });
+  setSnoozeMap(m);
+};
+const unsnoozeAlert = (ruleId: number, nodeId: number) => {
+  const m = getSnoozeMap();
+  delete m[snoozeKey(ruleId, nodeId)];
+  setSnoozeMap(m);
+};
+
 // Provision form for new server creation within provision modal
 interface ProvisionForm {
   osPlatform: 'linux' | 'windows' | 'macos';
@@ -552,6 +584,10 @@ export default function AssetsPage() {
   const [alertPopoverName, setAlertPopoverName] = useState('');
   const [alertPopoverData, setAlertPopoverData] = useState<any[]>([]);
   const [alertPopoverLoading, setAlertPopoverLoading] = useState(false);
+  const [snoozeDialogOpen, setSnoozeDialogOpen] = useState(false);
+  const [snoozeDays, setSnoozeDays] = useState(7);
+  const [snoozeChecked, setSnoozeChecked] = useState<Set<string>>(new Set()); // "ruleId:nodeId"
+  const [, forceRender] = useState(0); // trigger re-render after snooze change
   const [sortKey, setSortKey] = useState<'name' | 'cpu' | 'mem' | 'traffic' | 'expiry' | 'cost'>('name');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -891,6 +927,52 @@ export default function AssetsPage() {
         setAlertPopoverAssetId(null);
       }
     } catch { toast.error('操作失败'); }
+  };
+
+  const handleAcknowledgeAll = async () => {
+    const nonSnoozed = alertPopoverData.filter(a => !isSnoozed(a.ruleId, a.nodeId));
+    if (nonSnoozed.length === 0) return;
+    try {
+      await Promise.all(nonSnoozed.map(a => acknowledgeAlert(a.ruleId, a.nodeId)));
+      toast.success(`已标记 ${nonSnoozed.length} 条告警为已读`);
+      setAlertPopoverData(prev => prev.filter(a => isSnoozed(a.ruleId, a.nodeId)));
+      if (alertPopoverData.every(a => isSnoozed(a.ruleId, a.nodeId))) {
+        setActiveAlertNodeIds(prev => {
+          const next = new Set(prev);
+          if (alertPopoverAssetId) next.delete(alertPopoverAssetId);
+          return next;
+        });
+      }
+    } catch { toast.error('批量已读失败'); }
+  };
+
+  const openSnoozeDialog = () => {
+    // Pre-check all non-snoozed alerts
+    const keys = new Set<string>();
+    alertPopoverData.forEach(a => {
+      if (!isSnoozed(a.ruleId, a.nodeId)) keys.add(snoozeKey(a.ruleId, a.nodeId));
+    });
+    setSnoozeChecked(keys);
+    setSnoozeDays(7);
+    setSnoozeDialogOpen(true);
+  };
+
+  const confirmSnooze = () => {
+    const items = [...snoozeChecked].map(k => {
+      const [r, n] = k.split(':').map(Number);
+      return { ruleId: r, nodeId: n };
+    });
+    if (items.length === 0) { toast.error('请至少选择一条告警'); return; }
+    snoozeAlerts(items, snoozeDays);
+    toast.success(`已忽略 ${items.length} 条告警 ${snoozeDays} 天`);
+    setSnoozeDialogOpen(false);
+    forceRender(n => n + 1);
+  };
+
+  const handleUnsnooze = (ruleId: number, nodeId: number) => {
+    unsnoozeAlert(ruleId, nodeId);
+    toast.success('已取消忽略');
+    forceRender(n => n + 1);
   };
 
   const loadGostNodes = async () => {
@@ -4295,7 +4377,7 @@ export default function AssetsPage() {
       </Modal>
 
       {/* Alert Detail Popover */}
-      <Modal isOpen={alertPopoverAssetId !== null} onClose={() => setAlertPopoverAssetId(null)} size="md">
+      <Modal isOpen={alertPopoverAssetId !== null} onClose={() => { setAlertPopoverAssetId(null); setSnoozeDialogOpen(false); }} size="md">
         <ModalContent>
           <ModalHeader className="text-base">活跃告警 — {alertPopoverName}</ModalHeader>
           <ModalBody>
@@ -4305,34 +4387,119 @@ export default function AssetsPage() {
               <p className="text-center text-default-400 text-sm py-6">该资产暂无活跃告警</p>
             ) : (
               <div className="space-y-2">
-                {alertPopoverData.map((a: any, i: number) => (
-                  <div key={i} className="rounded-lg border border-divider/40 p-2.5 flex items-start gap-2">
-                    <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
-                      a.severity === 'critical' ? 'bg-danger animate-pulse' : a.severity === 'warning' ? 'bg-warning' : 'bg-primary'
-                    }`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium">{a.ruleName}</span>
-                        <Chip size="sm" variant="flat" className="h-4 text-[9px]"
-                          color={a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warning' : 'default'}>
-                          {a.severity === 'critical' ? '严重' : a.severity === 'warning' ? '警告' : '提示'}
-                        </Chip>
-                        {a.category && <Chip size="sm" variant="flat" className="h-4 text-[9px]">{a.category}</Chip>}
+                {/* Sort: active first, snoozed last */}
+                {[...alertPopoverData].sort((a, b) => {
+                  const aS = isSnoozed(a.ruleId, a.nodeId) ? 1 : 0;
+                  const bS = isSnoozed(b.ruleId, b.nodeId) ? 1 : 0;
+                  return aS - bS;
+                }).map((a: any, i: number) => {
+                  const snoozedUntil = isSnoozed(a.ruleId, a.nodeId);
+                  return (
+                    <div key={i} className={`rounded-lg border p-2.5 flex items-start gap-2 ${snoozedUntil ? 'border-default-200 bg-default-50 opacity-60' : 'border-divider/40'}`}>
+                      <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                        snoozedUntil ? 'bg-default-300' :
+                        a.severity === 'critical' ? 'bg-danger animate-pulse' : a.severity === 'warning' ? 'bg-warning' : 'bg-primary'
+                      }`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-sm font-medium ${snoozedUntil ? 'text-default-400' : ''}`}>{a.ruleName}</span>
+                          <Chip size="sm" variant="flat" className="h-4 text-[9px]"
+                            color={snoozedUntil ? 'default' : a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warning' : 'default'}>
+                            {a.severity === 'critical' ? '严重' : a.severity === 'warning' ? '警告' : '提示'}
+                          </Chip>
+                          {a.category && <Chip size="sm" variant="flat" className="h-4 text-[9px]">{a.category}</Chip>}
+                          {snoozedUntil && (
+                            <Chip size="sm" variant="flat" color="default" className="h-4 text-[9px]">
+                              已忽略 · 剩余{Math.ceil((snoozedUntil - Date.now()) / 86400000)}天
+                            </Chip>
+                          )}
+                        </div>
+                        <p className={`text-xs mt-0.5 ${snoozedUntil ? 'text-default-300' : 'text-default-500'}`}>{a.message}</p>
+                        <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
                       </div>
-                      <p className="text-xs text-default-500 mt-0.5">{a.message}</p>
-                      <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
+                      {snoozedUntil ? (
+                        <Button size="sm" variant="flat" color="default" className="h-6 text-[10px] min-w-0 flex-shrink-0"
+                          onPress={() => handleUnsnooze(a.ruleId, a.nodeId)}>
+                          取消忽略
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="flat" color="primary" className="h-6 text-[10px] min-w-0 flex-shrink-0"
+                          onPress={() => handleAcknowledgeAlert(a.ruleId, a.nodeId)}>
+                          已读
+                        </Button>
+                      )}
                     </div>
-                    <Button size="sm" variant="flat" color="primary" className="h-6 text-[10px] min-w-0 flex-shrink-0"
-                      onPress={() => handleAcknowledgeAlert(a.ruleId, a.nodeId)}>
-                      已读
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="flex justify-between">
+            <div className="flex gap-2">
+              {alertPopoverData.some(a => !isSnoozed(a.ruleId, a.nodeId)) && (
+                <>
+                  <Button size="sm" variant="flat" onPress={handleAcknowledgeAll}>全部已读</Button>
+                  <Button size="sm" variant="flat" color="warning" onPress={openSnoozeDialog}>忽略告警…</Button>
+                </>
+              )}
+            </div>
             <Button size="sm" variant="light" onPress={() => setAlertPopoverAssetId(null)}>关闭</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Snooze Confirmation Dialog */}
+      <Modal isOpen={snoozeDialogOpen} onClose={() => setSnoozeDialogOpen(false)} size="sm">
+        <ModalContent>
+          <ModalHeader className="text-sm">忽略告警</ModalHeader>
+          <ModalBody>
+            <p className="text-xs text-default-500 mb-2">选择要忽略的告警规则，忽略期间仅记录日志、不再弹出提醒。仅对当前用户生效。</p>
+            <div className="space-y-1.5 max-h-60 overflow-y-auto">
+              {alertPopoverData.filter(a => !isSnoozed(a.ruleId, a.nodeId)).map((a: any, i: number) => {
+                const k = snoozeKey(a.ruleId, a.nodeId);
+                return (
+                  <label key={i} className="flex items-center gap-2 p-1.5 rounded-md hover:bg-default-100 cursor-pointer">
+                    <input type="checkbox" className="h-4 w-4 rounded accent-warning cursor-pointer"
+                      checked={snoozeChecked.has(k)}
+                      onChange={(e) => {
+                        setSnoozeChecked(prev => {
+                          const next = new Set(prev);
+                          e.target.checked ? next.add(k) : next.delete(k);
+                          return next;
+                        });
+                      }} />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm">{a.ruleName}</span>
+                      <Chip size="sm" variant="flat" className="h-4 text-[9px] ml-1.5"
+                        color={a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warning' : 'default'}>
+                        {a.severity === 'critical' ? '严重' : a.severity === 'warning' ? '警告' : '提示'}
+                      </Chip>
+                      <p className="text-[10px] text-default-400 truncate">{a.message}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-divider/40">
+              <span className="text-xs text-default-500 whitespace-nowrap">忽略时长</span>
+              <Input size="sm" type="number" className="w-20" value={String(snoozeDays)}
+                onValueChange={(v) => setSnoozeDays(Math.max(1, parseInt(v) || 7))} />
+              <span className="text-xs text-default-500">天</span>
+              <div className="flex gap-1 ml-auto">
+                {[3, 7, 14, 30].map(d => (
+                  <Button key={d} size="sm" variant={snoozeDays === d ? 'solid' : 'flat'} color={snoozeDays === d ? 'warning' : 'default'}
+                    className="h-6 text-[10px] min-w-0 px-2" onPress={() => setSnoozeDays(d)}>
+                    {d}天
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={() => setSnoozeDialogOpen(false)}>取消</Button>
+            <Button size="sm" color="warning" onPress={confirmSnooze}>
+              确认忽略 ({snoozeChecked.size})
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

@@ -314,6 +314,7 @@ const BILLING_CYCLES = [
 // Provision form for new server creation within provision modal
 interface ProvisionForm {
   osPlatform: 'linux' | 'windows' | 'macos';
+  osArch: 'amd64' | 'arm64';
   primaryIp: string;
   provider: string;
   region: string;
@@ -336,9 +337,13 @@ const OS_PLATFORMS = [
   { key: 'windows', label: 'Windows' },
   { key: 'macos', label: 'macOS' },
 ];
+const OS_ARCHS = [
+  { key: 'amd64', label: 'x86_64' },
+  { key: 'arm64', label: 'ARM64' },
+];
 
 const emptyProvisionForm = (): ProvisionForm => ({
-  osPlatform: 'linux', primaryIp: '', provider: '', region: '',
+  osPlatform: 'linux', osArch: 'amd64', primaryIp: '', provider: '', region: '',
   purchaseDate: new Date().toISOString().split('T')[0], // default to today
   expireDate: '', neverExpire: false, billingCycle: '', monthlyCost: '', currency: 'CNY',
   bandwidthMbps: '', monthlyTrafficGb: '', trafficUnlimited: false, trafficUnit: 'GB',
@@ -940,11 +945,13 @@ export default function AssetsPage() {
         const rawTraffic = asset.monthlyTrafficGb != null && asset.monthlyTrafficGb > 0 ? asset.monthlyTrafficGb : '';
         const trafficUnit: 'GB' | 'TB' = typeof rawTraffic === 'number' && rawTraffic >= 1000 ? 'TB' : 'GB';
         const trafficVal = typeof rawTraffic === 'number' ? (trafficUnit === 'TB' ? String(rawTraffic / 1000) : String(rawTraffic)) : '';
-        // Guess osPlatform from OS string
+        // Guess osPlatform and arch from OS/arch strings
         const osLower = (asset.os || asset.osCategory || '').toLowerCase();
         const osPlatform: ProvisionForm['osPlatform'] = osLower.includes('windows') ? 'windows' : osLower.includes('darwin') || osLower.includes('macos') ? 'macos' : 'linux';
+        const archLower = (asset.arch || '').toLowerCase();
+        const osArch: ProvisionForm['osArch'] = archLower.includes('arm') || archLower.includes('aarch') ? 'arm64' : 'amd64';
         setProvisionForm({
-          osPlatform,
+          osPlatform, osArch,
           primaryIp: asset.primaryIp || ctx.assetIp || '',
           provider: asset.provider || '',
           region: asset.region || '',
@@ -1011,7 +1018,8 @@ export default function AssetsPage() {
 
     const kid = provisionKomariEnabled && provisionKomariId ? parseInt(provisionKomariId) : null;
     const pid = provisionPikaEnabled && provisionPikaId ? parseInt(provisionPikaId) : null;
-    const gostCfg = provisionGostEnabled && pf.primaryIp ? {
+    // GOST only supports Linux — enforce at submission time
+    const gostCfg = provisionGostEnabled && pf.osPlatform === 'linux' && pf.primaryIp ? {
       name: provisionName || 'gost-node',
       serverIp: pf.primaryIp,
       portSta: parseInt(provisionGostPortSta) || 10000,
@@ -1077,7 +1085,7 @@ export default function AssetsPage() {
         return;
       }
 
-      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform);
+      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform, provisionContext?.assetId, provisionForm.osArch);
       if (res.code === 0 && res.data) {
         setAllProvisionResult(res.data);
         setProvisionStep('result');
@@ -3733,7 +3741,7 @@ export default function AssetsPage() {
           }
           onProvisionClose();
         }
-      }} size="4xl" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
+      }} size="5xl" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
         <ModalContent>
           <ModalHeader>
             {provisionContext
@@ -3750,23 +3758,35 @@ export default function AssetsPage() {
                   </div>
                 )}
 
-                {/* ===== Row 1: OS + Name + IP + Provider + Region (5-col) ===== */}
+                {/* ===== Row 1: OS + Name + IP + Provider + Region ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
-                  <div className="grid grid-cols-5 gap-2">
-                    <Select size="sm" label="系统平台" isRequired
+                  <div className="flex flex-wrap gap-2">
+                    <Select size="sm" label="系统平台" isRequired className="min-w-[130px] w-[130px]"
                       classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
                       selectedKeys={[provisionForm.osPlatform]}
-                      onSelectionChange={keys => setProvisionForm(p => ({ ...p, osPlatform: (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'] }))}>
+                      onSelectionChange={keys => {
+                        const os = (Array.from(keys)[0]?.toString() || 'linux') as ProvisionForm['osPlatform'];
+                        setProvisionForm(p => ({ ...p, osPlatform: os }));
+                        if (os !== 'linux') setProvisionGostEnabled(false);
+                      }}>
                       {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                     </Select>
-                    <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired
+                    {provisionForm.osPlatform === 'windows' && (
+                      <Select size="sm" label="架构" className="min-w-[110px] w-[110px]"
+                        classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
+                        selectedKeys={[provisionForm.osArch]}
+                        onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>
+                        {OS_ARCHS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
+                      </Select>
+                    )}
+                    <Input size="sm" label="名称" placeholder="HK-VPS-01" isRequired className="min-w-[140px] flex-1"
                       value={provisionName} onValueChange={setProvisionName}
                       isInvalid={!!provisionFormErrors.name} errorMessage={provisionFormErrors.name} />
-                    <Input size="sm" label="IP / 域名" placeholder="1.2.3.4" isRequired
+                    <Input size="sm" label="IP / 域名" placeholder="1.2.3.4" isRequired className="min-w-[120px] flex-1"
                       value={provisionForm.primaryIp} isInvalid={!!provisionFormErrors.primaryIp} errorMessage={provisionFormErrors.primaryIp}
                       onValueChange={v => setProvisionForm(p => ({ ...p, primaryIp: v }))} />
-                    <Autocomplete size="sm" label="供应商" isRequired allowsCustomValue
+                    <Autocomplete size="sm" label="供应商" isRequired allowsCustomValue className="min-w-[120px] flex-1"
                       defaultItems={allProviderOptions.filter(p => p.key)}
                       inputValue={provisionForm.provider}
                       onInputChange={v => setProvisionForm(p => ({ ...p, provider: v }))}
@@ -3774,7 +3794,7 @@ export default function AssetsPage() {
                       isInvalid={!!provisionFormErrors.provider} errorMessage={provisionFormErrors.provider}>
                       {(item) => <AutocompleteItem key={item.key}>{item.label}</AutocompleteItem>}
                     </Autocomplete>
-                    <Select size="sm" label="地区（自动识别）"
+                    <Select size="sm" label="地区" className="min-w-[120px] flex-1"
                       classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
                       selectedKeys={provisionForm.region ? [provisionForm.region] : []}
                       onSelectionChange={keys => setProvisionForm(p => ({ ...p, region: Array.from(keys)[0]?.toString() || '' }))}>
@@ -3783,16 +3803,16 @@ export default function AssetsPage() {
                   </div>
                 </div>
 
-                {/* ===== Row 2: Billing - dates + cost (compact) ===== */}
+                {/* ===== Row 2: Billing ===== */}
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">计费</p>
-                  <div className="grid grid-cols-5 gap-2">
-                    <DatePicker size="sm" label="购买日期" isRequired granularity="day"
+                  <div className="flex flex-wrap gap-2">
+                    <DatePicker size="sm" label="购买日期" isRequired granularity="day" className="min-w-[140px] flex-1"
                       popoverProps={{ placement: "bottom" }}
                       value={provisionForm.purchaseDate ? parseDate(provisionForm.purchaseDate) : null}
                       isInvalid={!!provisionFormErrors.purchaseDate} errorMessage={provisionFormErrors.purchaseDate}
                       onChange={d => setProvisionForm(p => ({ ...p, purchaseDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
-                    <div className="flex gap-1.5 items-start">
+                    <div className="flex gap-1.5 items-start min-w-[160px] flex-1">
                       {provisionForm.neverExpire ? (
                         <Input size="sm" label="到期" value="永不到期" isReadOnly className="flex-1" classNames={{ input: "text-success font-medium" }} />
                       ) : (
@@ -3809,17 +3829,17 @@ export default function AssetsPage() {
                         ∞
                       </Button>
                     </div>
-                    <Select size="sm" label="周期" isRequired
+                    <Select size="sm" label="周期" isRequired className="min-w-[100px] w-[100px]"
                       classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
                       selectedKeys={provisionForm.billingCycle ? [provisionForm.billingCycle] : []}
                       isInvalid={!!provisionFormErrors.billingCycle} errorMessage={provisionFormErrors.billingCycle}
                       onSelectionChange={keys => setProvisionForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
                       {BILLING_CYCLES.filter(c => c.key).map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
                     </Select>
-                    <Input size="sm" label="周期费用" placeholder="10.00" type="number" isRequired
+                    <Input size="sm" label="周期费用" placeholder="10.00" type="number" isRequired className="min-w-[100px] flex-1"
                       value={provisionForm.monthlyCost} isInvalid={!!provisionFormErrors.monthlyCost} errorMessage={provisionFormErrors.monthlyCost}
                       onValueChange={v => setProvisionForm(p => ({ ...p, monthlyCost: v }))} />
-                    <Select size="sm" label="币种" isRequired
+                    <Select size="sm" label="币种" isRequired className="min-w-[100px] w-[100px]"
                       classNames={{ value: "text-foreground", trigger: "bg-default-100" }}
                       selectedKeys={provisionForm.currency ? [provisionForm.currency] : []}
                       onSelectionChange={keys => setProvisionForm(p => ({ ...p, currency: Array.from(keys)[0]?.toString() || '' }))}>
@@ -4059,8 +4079,8 @@ export default function AssetsPage() {
                         </AccordionItem>
                       ),
                       allProvisionResult.pika && (
-                        <AccordionItem key="pika" title="Pika 安装参数" classNames={{ title: "text-xs text-default-400" }}>
-                          <div className="space-y-1.5 text-xs">
+                        <AccordionItem key="pika" title="Pika 安装参数 & 手动指引" classNames={{ title: "text-xs text-default-400" }}>
+                          <div className="space-y-2 text-xs">
                             <div className="flex items-center gap-2">
                               <span className="text-default-500 min-w-[60px]">Endpoint</span>
                               <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.pika!.endpoint}</code>
@@ -4070,6 +4090,22 @@ export default function AssetsPage() {
                               <span className="text-default-500 min-w-[60px]">Token</span>
                               <code className="flex-1 truncate rounded bg-default-100 px-2 py-0.5">{allProvisionResult.pika!.token}</code>
                               <Button size="sm" variant="light" className="h-6 min-w-0 px-2" onPress={() => copyToClipboard(allProvisionResult.pika!.token)}>复制</Button>
+                            </div>
+                            <div className="mt-2 rounded border border-default-200 bg-default-50 p-2 space-y-1.5">
+                              <p className="font-medium text-default-600">手动安装指引</p>
+                              {provisionForm.osPlatform === 'windows' ? (
+                                <>
+                                  <p className="text-default-500">Windows PowerShell（管理员）手动操作：</p>
+                                  <p className="text-default-500">1. 下载：<code className="bg-default-100 px-1 rounded text-[10px]">Invoke-WebRequest -Uri "{allProvisionResult.pika!.endpoint}/api/agent/downloads/agent-windows-{provisionForm.osArch}.exe?key={allProvisionResult.pika!.token}" -OutFile "pika-agent.exe"</code></p>
+                                  <p className="text-default-500">2. 注册并安装：<code className="bg-default-100 px-1 rounded text-[10px]">.\pika-agent.exe register --endpoint '{allProvisionResult.pika!.endpoint}' --token '{allProvisionResult.pika!.token}' --yes</code></p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-default-500">{provisionForm.osPlatform === 'macos' ? 'macOS' : 'Linux'} 一键脚本（自动检测架构）：</p>
+                                  <p className="text-default-500"><code className="bg-default-100 px-1 rounded text-[10px]">curl -fsSL "{allProvisionResult.pika!.endpoint}/api/agent/install.sh?token={allProvisionResult.pika!.token}" | sudo bash</code></p>
+                                  <p className="text-[10px] text-default-400 mt-0.5">支持 amd64 / arm64 / loongarch64，脚本自动识别当前系统架构</p>
+                                </>
+                              )}
                             </div>
                           </div>
                         </AccordionItem>

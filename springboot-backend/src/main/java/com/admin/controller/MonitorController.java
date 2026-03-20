@@ -185,6 +185,8 @@ public class MonitorController extends BaseController {
         java.util.Map<String, Object> gostConfig = body.get("gostConfig") != null ? (java.util.Map<String, Object>) body.get("gostConfig") : null;
         String name = body.get("name") != null ? body.get("name").toString() : null;
         String osPlatform = body.get("osPlatform") != null ? body.get("osPlatform").toString() : "linux";
-        return monitorService.provisionAllAgents(komariInstanceId, pikaInstanceId, gostConfig, name, osPlatform);
+        Long assetId = body.get("assetId") != null ? ((Number) body.get("assetId")).longValue() : null;
+        String osArch = body.get("osArch") != null ? body.get("osArch").toString() : "amd64";
+        return monitorService.provisionAllAgents(komariInstanceId, pikaInstanceId, gostConfig, name, osPlatform, assetId, osArch);
     }
 }

@@ -1818,27 +1818,51 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             if (existingKomari > 0) return false;
         }
 
-        // Dual-probe IP matching: try to find an existing asset with the same IP
-        if (StringUtils.hasText(node.getIp())) {
-            AssetHost existingByIp = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+        // Dual-probe matching: try to find an existing asset by IP or name
+        AssetHost existingAsset = null;
+        String matchMethod = null;
+
+        // Strategy 1: Match by primary IP
+        if (existingAsset == null && StringUtils.hasText(node.getIp())) {
+            existingAsset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
                     .eq(AssetHost::getPrimaryIp, node.getIp())
                     .eq(AssetHost::getStatus, 0)
                     .last("LIMIT 1"));
-            if (existingByIp != null) {
-                // Link this node to the existing asset (dual-probe binding)
-                if (isPika) {
-                    existingByIp.setPikaNodeId(node.getRemoteNodeUuid());
-                } else {
-                    existingByIp.setMonitorNodeUuid(node.getRemoteNodeUuid());
-                }
-                existingByIp.setUpdatedTime(System.currentTimeMillis());
-                assetHostMapper.updateById(existingByIp);
-                node.setAssetId(existingByIp.getId());
-                monitorNodeSnapshotMapper.updateById(node);
-                log.info("[MonitorSync] Linked {} node {} to existing asset '{}' by IP match ({})",
-                        instance.getType(), node.getRemoteNodeUuid(), existingByIp.getName(), node.getIp());
-                return false; // Not a new asset, just linked
+            if (existingAsset != null) matchMethod = "IP=" + node.getIp();
+        }
+
+        // Strategy 2: Match by IPv6 (some Windows nodes may only report v6)
+        if (existingAsset == null && StringUtils.hasText(node.getIpv6())) {
+            existingAsset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getIpv6, node.getIpv6())
+                    .eq(AssetHost::getStatus, 0)
+                    .last("LIMIT 1"));
+            if (existingAsset != null) matchMethod = "IPv6=" + node.getIpv6();
+        }
+
+        // Strategy 3: Match by name (provision flow sets the same name for asset and node)
+        if (existingAsset == null && StringUtils.hasText(node.getName())) {
+            existingAsset = assetHostMapper.selectOne(new LambdaQueryWrapper<AssetHost>()
+                    .eq(AssetHost::getName, node.getName())
+                    .eq(AssetHost::getStatus, 0)
+                    .last("LIMIT 1"));
+            if (existingAsset != null) matchMethod = "name=" + node.getName();
+        }
+
+        if (existingAsset != null) {
+            // Link this node to the existing asset (dual-probe binding)
+            if (isPika) {
+                existingAsset.setPikaNodeId(node.getRemoteNodeUuid());
+            } else {
+                existingAsset.setMonitorNodeUuid(node.getRemoteNodeUuid());
             }
+            existingAsset.setUpdatedTime(System.currentTimeMillis());
+            assetHostMapper.updateById(existingAsset);
+            node.setAssetId(existingAsset.getId());
+            monitorNodeSnapshotMapper.updateById(node);
+            log.info("[MonitorSync] Linked {} node {} to existing asset '{}' by {} match",
+                    instance.getType(), node.getRemoteNodeUuid(), existingAsset.getName(), matchMethod);
+            return false; // Not a new asset, just linked
         }
 
         // Create new asset
@@ -3481,19 +3505,27 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     // ==================== Unified Multi-Agent Provision ====================
 
     @Override
-    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name, String osPlatform) {
+    public R provisionAllAgents(Long komariInstanceId, Long pikaInstanceId, Map<String, Object> gostConfig, String name, String osPlatform, Long assetId, String osArch) {
         if (komariInstanceId == null && pikaInstanceId == null && (gostConfig == null || gostConfig.isEmpty())) {
             return R.err("至少需要选择一个组件进行安装");
         }
         if (osPlatform == null || osPlatform.isBlank()) osPlatform = "linux";
+        if (osArch == null || osArch.isBlank()) osArch = "amd64";
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("osPlatform", osPlatform);
+        result.put("osArch", osArch);
         List<String> installCommands = new ArrayList<>();
         List<String> installCommandsCn = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
-        // Resolve target asset for duplicate detection (from gostConfig.assetId or serverIp)
-        AssetHost targetAsset = resolveTargetAsset(gostConfig);
+        // Resolve target asset for duplicate detection — prefer explicit assetId, fallback to gostConfig
+        AssetHost targetAsset = null;
+        if (assetId != null) {
+            targetAsset = assetHostMapper.selectById(assetId);
+        }
+        if (targetAsset == null) {
+            targetAsset = resolveTargetAsset(gostConfig);
+        }
 
         // Provision Komari (with duplicate check)
         if (komariInstanceId != null) {
@@ -3509,10 +3541,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     result.put("komariSkipped", "该服务器已安装 Komari 探针且在线");
                 } else {
                     // Existing but offline — proceed (will reuse via orphan logic)
-                    provisionKomariInto(komariInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
+                    provisionKomariInto(komariInstanceId, name, osPlatform, osArch, result, installCommands, installCommandsCn);
                 }
             } else {
-                provisionKomariInto(komariInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
+                provisionKomariInto(komariInstanceId, name, osPlatform, osArch, result, installCommands, installCommandsCn);
             }
         }
 
@@ -3528,14 +3560,19 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                     skipped.add("Pika（该服务器已有在线探针 " + existingNode.getName() + "）");
                     result.put("pikaSkipped", "该服务器已安装 Pika 探针且在线");
                 } else {
-                    provisionPikaInto(pikaInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
+                    provisionPikaInto(pikaInstanceId, name, osPlatform, osArch, result, installCommands, installCommandsCn);
                 }
             } else {
-                provisionPikaInto(pikaInstanceId, name, osPlatform, result, installCommands, installCommandsCn);
+                provisionPikaInto(pikaInstanceId, name, osPlatform, osArch, result, installCommands, installCommandsCn);
             }
         }
 
-        // Provision GOST (with duplicate check)
+        // Provision GOST (Linux only, with duplicate check)
+        if (!"linux".equals(osPlatform) && gostConfig != null && !gostConfig.isEmpty()) {
+            skipped.add("GOST（仅支持 Linux 系统）");
+            result.put("gostSkipped", "GOST 仅支持 Linux");
+            gostConfig = null; // Clear to prevent provisioning
+        }
         if (gostConfig != null && !gostConfig.isEmpty()) {
             // Check if asset already has GOST node linked
             if (targetAsset != null && targetAsset.getGostNodeId() != null) {
@@ -3598,7 +3635,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     }
 
     @SuppressWarnings("unchecked")
-    private void provisionKomariInto(Long instanceId, String name, String osPlatform, Map<String, Object> result,
+    private void provisionKomariInto(Long instanceId, String name, String osPlatform, String osArch, Map<String, Object> result,
                                       List<String> cmds, List<String> cmdsCn) {
         MonitorProvisionDto dto = new MonitorProvisionDto();
         dto.setInstanceId(instanceId);
@@ -3606,18 +3643,19 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         R r = provisionAgent(dto);
         if (r.getCode() == 0) {
             Map<String, Object> data = (Map<String, Object>) r.getData();
-            // Generate platform-specific install commands
+            String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
+            String token = data.get("token") != null ? data.get("token").toString() : "";
+            String ghProxy = getGithubProxyUrl();
+            String scriptUrl = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh";
+
             if ("windows".equals(osPlatform)) {
-                String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
-                String token = data.get("token") != null ? data.get("token").toString() : "";
+                // Windows: PowerShell install.ps1
                 String ps1Url = "https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1";
                 String tlsfix = "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12";
                 String winCmd = String.format(
                         "%s; Invoke-WebRequest -Uri '%s' -OutFile 'C:\\install.ps1'; powershell -ExecutionPolicy Bypass -File 'C:\\install.ps1' --endpoint %s --token %s",
                         tlsfix, ps1Url, endpoint, token);
                 data.put("installCommand", winCmd);
-                // China-friendly: pre-download NSSM via ghproxy (install.ps1 will skip nssm.cc if nssm.exe found in install dir)
-                String ghProxy = getGithubProxyUrl();
                 String nssmPreInstall = String.join("; ",
                         tlsfix,
                         "$d='C:\\Program Files\\Komari'",
@@ -3634,10 +3672,21 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                         "%s; Invoke-WebRequest -Uri '%s/%s' -OutFile 'C:\\install.ps1'; powershell -ExecutionPolicy Bypass -File 'C:\\install.ps1' --install-ghproxy %s --endpoint %s --token %s",
                         nssmPreInstall, ghProxy, ps1Url, ghProxy, endpoint, token);
                 data.put("installCommandCn", winCmdCn);
+            } else if ("macos".equals(osPlatform)) {
+                // macOS: use zsh <(curl ...) format (macOS default shell is zsh)
+                String macCmd = String.format(
+                        "zsh <(curl -sL %s) -e %s -t %s", scriptUrl, endpoint, token);
+                data.put("installCommand", macCmd);
+                String macCmdCn = String.format(
+                        "zsh <(curl -sL %s/%s) --install-ghproxy %s -e %s -t %s",
+                        ghProxy, scriptUrl, ghProxy, endpoint, token);
+                data.put("installCommandCn", macCmdCn);
             }
-            // macOS: install.sh already supports macOS (launchd), same command works
+            // Linux: install command already set by provisionAgent() (curl | bash)
+
+            String platformNote = "windows".equals(osPlatform) ? " (PowerShell 管理员)" : "";
             result.put("komari", data);
-            cmds.add("# Komari 监控探针" + ("windows".equals(osPlatform) ? " (PowerShell 管理员)" : "") + "\n" + data.get("installCommand"));
+            cmds.add("# Komari 监控探针" + platformNote + "\n" + data.get("installCommand"));
             if (data.get("installCommandCn") != null) cmdsCn.add("# Komari 监控探针\n" + data.get("installCommandCn"));
         } else {
             result.put("komariError", r.getMsg());
@@ -3645,7 +3694,7 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
     }
 
     @SuppressWarnings("unchecked")
-    private void provisionPikaInto(Long instanceId, String name, String osPlatform, Map<String, Object> result,
+    private void provisionPikaInto(Long instanceId, String name, String osPlatform, String osArch, Map<String, Object> result,
                                     List<String> cmds, List<String> cmdsCn) {
         MonitorProvisionDto dto = new MonitorProvisionDto();
         dto.setInstanceId(instanceId);
@@ -3653,18 +3702,42 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
         R r = provisionAgent(dto);
         if (r.getCode() == 0) {
             Map<String, Object> data = (Map<String, Object>) r.getData();
-            // Pika's install.sh only works on Linux; for other platforms, provide manual instructions
-            if ("windows".equals(osPlatform) || "macos".equals(osPlatform)) {
-                String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
-                String token = data.get("token") != null ? data.get("token").toString() : "";
-                String note = String.format(
-                        "# Pika 暂无 %s 自动安装脚本，请手动下载二进制并运行:\n# 下载地址: %s/api/agent/download\n# 运行: pika-agent run --server %s --token %s",
-                        "windows".equals(osPlatform) ? "Windows" : "macOS", endpoint, endpoint, token);
-                data.put("installCommand", note);
-                data.remove("installCommandCn");
+            String endpoint = data.get("endpoint") != null ? data.get("endpoint").toString() : "";
+            String token = data.get("token") != null ? data.get("token").toString() : "";
+            String nameParam = (name != null && !name.isEmpty()) ? " --name '" + name + "'" : "";
+
+            if ("windows".equals(osPlatform)) {
+                // Windows: no install script, must download binary manually with arch selection
+                // URL: /api/agent/downloads/agent-windows-{arch}.exe?key=TOKEN
+                String binaryName = "agent-windows-" + osArch + ".exe";
+                String downloadUrl = endpoint + "/api/agent/downloads/" + binaryName + "?key=" + token;
+                String psCmd = String.join("; ",
+                        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+                        "$d = 'C:\\pika-agent'",
+                        "New-Item -ItemType Directory -Force $d | Out-Null",
+                        "Write-Host '正在下载 Pika Agent...' -ForegroundColor Cyan",
+                        "Invoke-WebRequest -Uri '" + downloadUrl + "' -OutFile \"$d\\pika-agent.exe\"",
+                        "Write-Host '正在注册并安装服务...' -ForegroundColor Cyan",
+                        "& \"$d\\pika-agent.exe\" service stop 2>$null",
+                        "& \"$d\\pika-agent.exe\" service uninstall 2>$null",
+                        "& \"$d\\pika-agent.exe\" register --endpoint '" + endpoint + "' --token '" + token + "'" + nameParam + " --yes",
+                        "Write-Host 'Pika Agent 安装完成!' -ForegroundColor Green"
+                );
+                data.put("installCommand", psCmd);
+                data.put("installCommandCn", psCmd); // Pika is self-hosted, no proxy needed
+            } else if ("macos".equals(osPlatform)) {
+                // macOS: install.sh supports macOS and auto-detects arch (amd64/arm64)
+                String macCmd = String.format(
+                        "curl -fsSL \"%s/api/agent/install.sh?token=%s%s\" | sudo bash",
+                        endpoint, token, name != null && !name.isEmpty() ? "&name=" + name : "");
+                data.put("installCommand", macCmd);
+                data.put("installCommandCn", macCmd);
             }
+            // Linux: install command already set by provisionAgent() (curl install.sh | sudo bash, auto-detects arch)
+
+            String platformNote = "windows".equals(osPlatform) ? " (PowerShell 管理员)" : "";
             result.put("pika", data);
-            cmds.add("# Pika 监控探针\n" + data.get("installCommand"));
+            cmds.add("# Pika 监控探针" + platformNote + "\n" + data.get("installCommand"));
             if (data.get("installCommandCn") != null) cmdsCn.add("# Pika 监控探针\n" + data.get("installCommandCn"));
         } else {
             result.put("pikaError", r.getMsg());

@@ -3741,7 +3741,7 @@ export default function AssetsPage() {
           }
           onProvisionClose();
         }
-      }} size="4xl" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
+      }} size="5xl" isDismissable={false} isKeyboardDismissDisabled={provisionStep === 'result' || isProvisionFormDirty(provisionForm, provisionName)} hideCloseButton={provisionStep === 'result'}>
         <ModalContent>
           <ModalHeader>
             {provisionContext
@@ -3762,7 +3762,7 @@ export default function AssetsPage() {
                 <div>
                   <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2">基本信息</p>
                   <div className="flex flex-wrap gap-2">
-                    <Select size="sm" label="系统平台" isRequired className="min-w-[110px] w-[110px]"
+                    <Select size="sm" label="系统平台" isRequired className="min-w-[130px] w-[130px]"
                       classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
                       selectedKeys={[provisionForm.osPlatform]}
                       onSelectionChange={keys => {
@@ -3773,7 +3773,7 @@ export default function AssetsPage() {
                       {OS_PLATFORMS.map(o => <SelectItem key={o.key}>{o.label}</SelectItem>)}
                     </Select>
                     {provisionForm.osPlatform === 'windows' && (
-                      <Select size="sm" label="架构" className="min-w-[90px] w-[90px]"
+                      <Select size="sm" label="架构" className="min-w-[110px] w-[110px]"
                         classNames={{ value: "text-foreground font-medium", trigger: "bg-default-100" }}
                         selectedKeys={[provisionForm.osArch]}
                         onSelectionChange={keys => setProvisionForm(p => ({ ...p, osArch: (Array.from(keys)[0]?.toString() || 'amd64') as ProvisionForm['osArch'] }))}>

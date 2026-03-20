@@ -488,18 +488,18 @@ export default function AlertPage() {
                       {group.description && <span className="text-xs text-default-400 hidden sm:inline">— {group.description}</span>}
                       <div className="ml-auto flex gap-1" onClick={e => e.stopPropagation()}>
                         {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openGroupEdit(group)}>编辑</Button>}
-                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openBatchEdit(group.id)}>批量配置</Button>}
+                        {canUpdateAlerts && <Button size="sm" variant="flat" onPress={() => openBatchEdit(group.id)}>批量配置</Button>}
                         {canUpdateAlerts && (() => {
                           const gRules = rules.filter(r => r.groupId === group.id);
                           const allEnabled = gRules.length > 0 && gRules.every(r => r.enabled === 1);
                           return (
-                            <Button size="sm" variant="light" color={allEnabled ? 'warning' : 'success'}
+                            <Button size="sm" variant="bordered" color={allEnabled ? 'warning' : 'success'}
                               onPress={() => handleBatchToggle(group.id, allEnabled ? 0 : 1)}>
                               {allEnabled ? '全部禁用' : '全部启用'}
                             </Button>
                           );
                         })()}
-                        {canDeleteAlerts && group.isDefault !== 1 && <Button size="sm" variant="light" color="danger" onPress={() => handleDeleteGroup(group.id)}>删除组</Button>}
+                        {canDeleteAlerts && group.isDefault !== 1 && <Button size="sm" variant="bordered" color="danger" onPress={() => handleDeleteGroup(group.id)}>删除组</Button>}
                       </div>
                     </div>
                     {/* 组内规则 */}

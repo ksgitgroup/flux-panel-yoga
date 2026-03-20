@@ -303,6 +303,7 @@ const COUNTRY_TO_REGION: Record<string, string> = {
 
 const BILLING_CYCLES = [
   { key: '', label: '未知' },
+  { key: '0', label: '无需付费' },
   { key: '30', label: '月付' },
   { key: '90', label: '季付' },
   { key: '180', label: '半年付' },
@@ -371,7 +372,8 @@ const getRegionFlag = (region?: string | null) => {
 };
 
 const formatBillingCycle = (days?: number | null) => {
-  if (!days) return '';
+  if (days === null || days === undefined) return '';
+  if (days === 0) return '无需付费';
   if (days >= 27 && days <= 32) return '月付';
   if (days >= 87 && days <= 95) return '季付';
   if (days >= 175 && days <= 185) return '半年付';
@@ -2961,22 +2963,29 @@ export default function AssetsPage() {
                           popoverProps={{ placement: "bottom" }}
                           value={form.purchaseDate ? parseDate(form.purchaseDate) : null}
                           onChange={d => setForm(p => ({ ...p, purchaseDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
-                        <div className="flex gap-1.5 items-start">
-                          {form.expireDate === 'never' ? (
-                            <Input size="sm" label="到期" value="永不到期" isReadOnly className="flex-1" classNames={{ input: "text-success font-medium" }} />
-                          ) : (
-                            <DatePicker size="sm" label="到期日期" granularity="day" className="flex-1"
+                        {form.expireDate === 'never' ? (
+                          <Input size="sm" label="到期" value="永不到期" isReadOnly
+                            classNames={{ input: "text-success font-medium" }}
+                            endContent={
+                              <Button size="sm" isIconOnly variant="solid" color="success" className="min-w-6 w-6 h-6"
+                                title="取消永久"
+                                onPress={() => setForm(p => ({ ...p, expireDate: '' }))}>
+                                ∞
+                              </Button>
+                            } />
+                        ) : (
+                          <div className="relative">
+                            <DatePicker size="sm" label="到期日期" granularity="day"
                               popoverProps={{ placement: "bottom" }}
                               value={form.expireDate ? parseDate(form.expireDate) : null}
                               onChange={d => setForm(p => ({ ...p, expireDate: d ? `${d.year}-${String(d.month).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` : '' }))} />
-                          )}
-                          <Button size="sm" isIconOnly variant={form.expireDate === 'never' ? 'solid' : 'flat'}
-                            color={form.expireDate === 'never' ? 'success' : 'default'} className="shrink-0 mt-1"
-                            title={form.expireDate === 'never' ? '取消永久' : '设为永不到期'}
-                            onPress={() => setForm(p => ({ ...p, expireDate: p.expireDate === 'never' ? '' : 'never' }))}>
-                            ∞
-                          </Button>
-                        </div>
+                            <Button size="sm" isIconOnly variant="flat" color="default" className="absolute right-8 top-1/2 -translate-y-1/2 min-w-6 w-6 h-6 z-10"
+                              title="设为永不到期"
+                              onPress={() => setForm(p => ({ ...p, expireDate: 'never' }))}>
+                              ∞
+                            </Button>
+                          </div>
+                        )}
                         <Select size="sm" label="付费周期" selectedKeys={form.billingCycle ? [form.billingCycle] : []}
                           onSelectionChange={(keys) => setForm(p => ({ ...p, billingCycle: Array.from(keys)[0]?.toString() || '' }))}>
                           {BILLING_CYCLES.filter(c => c.key).map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
@@ -3015,22 +3024,28 @@ export default function AssetsPage() {
                           onValueChange={(v) => setForm(p => ({ ...p, purpose: v }))} />
                         <Input size="sm" label="带宽 (Mbps)" type="number" value={form.bandwidthMbps}
                           onValueChange={(v) => setForm(p => ({ ...p, bandwidthMbps: v }))} />
-                        <div className="flex gap-1.5 items-start">
-                          {form.monthlyTrafficGb === '-1' ? (
-                            <Input size="sm" label="月流量" value="不限量" isReadOnly className="flex-1"
-                              classNames={{ input: "text-success font-medium" }} />
-                          ) : (
-                            <Input size="sm" label="月流量 (GB)" type="number" className="flex-1"
-                              value={form.monthlyTrafficGb}
-                              onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))} />
-                          )}
-                          <Button size="sm" isIconOnly variant={form.monthlyTrafficGb === '-1' ? 'solid' : 'flat'}
-                            color={form.monthlyTrafficGb === '-1' ? 'success' : 'default'} className="shrink-0 mt-1"
-                            title={form.monthlyTrafficGb === '-1' ? '取消不限量' : '设为不限量'}
-                            onPress={() => setForm(p => ({ ...p, monthlyTrafficGb: p.monthlyTrafficGb === '-1' ? '' : '-1' }))}>
-                            ∞
-                          </Button>
-                        </div>
+                        {form.monthlyTrafficGb === '-1' ? (
+                          <Input size="sm" label="月流量" value="不限量" isReadOnly
+                            classNames={{ input: "text-success font-medium" }}
+                            endContent={
+                              <Button size="sm" isIconOnly variant="solid" color="success" className="min-w-6 w-6 h-6"
+                                title="取消不限量"
+                                onPress={() => setForm(p => ({ ...p, monthlyTrafficGb: '' }))}>
+                                ∞
+                              </Button>
+                            } />
+                        ) : (
+                          <Input size="sm" label="月流量 (GB)" type="number"
+                            value={form.monthlyTrafficGb}
+                            onValueChange={(v) => setForm(p => ({ ...p, monthlyTrafficGb: v }))}
+                            endContent={
+                              <Button size="sm" isIconOnly variant="flat" color="default" className="min-w-6 w-6 h-6"
+                                title="设为不限量"
+                                onPress={() => setForm(p => ({ ...p, monthlyTrafficGb: '-1' }))}>
+                                ∞
+                              </Button>
+                            } />
+                        )}
                       </div>
 
                       {/* Tag chip input */}

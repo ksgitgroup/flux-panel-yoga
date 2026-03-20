@@ -3546,6 +3546,18 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             } else {
                 provisionKomariInto(komariInstanceId, name, osPlatform, osArch, result, installCommands, installCommandsCn);
             }
+            // Pre-link: write the provisioned Komari client UUID into asset so sync won't create a duplicate
+            if (targetAsset != null && result.containsKey("komari") && !result.containsKey("komariError")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> komariData = (Map<String, Object>) result.get("komari");
+                String komariUuid = komariData != null ? (String) komariData.get("uuid") : null;
+                if (StringUtils.hasText(komariUuid) && !StringUtils.hasText(targetAsset.getMonitorNodeUuid())) {
+                    targetAsset.setMonitorNodeUuid(komariUuid);
+                    targetAsset.setUpdatedTime(System.currentTimeMillis());
+                    assetHostMapper.updateById(targetAsset);
+                    log.info("[MonitorProvision] Pre-linked Komari client {} to asset '{}'", komariUuid, targetAsset.getName());
+                }
+            }
         }
 
         // Provision Pika (with duplicate check)
@@ -3565,6 +3577,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             } else {
                 provisionPikaInto(pikaInstanceId, name, osPlatform, osArch, result, installCommands, installCommandsCn);
             }
+            // Pre-link: Pika agents self-register so UUID is unknown until first connection.
+            // However, the name-based matching in autoCreateOrLinkAssetFromNode should work
+            // because Pika install.sh uses the --name parameter from provision.
         }
 
         // Provision GOST (Linux only, with duplicate check)

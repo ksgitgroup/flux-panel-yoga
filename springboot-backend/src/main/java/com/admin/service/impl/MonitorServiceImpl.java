@@ -3706,9 +3706,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             String token = data.get("token") != null ? data.get("token").toString() : "";
             String nameParam = (name != null && !name.isEmpty()) ? " --name '" + name + "'" : "";
 
-            // Pika download URL: /api/agent/downloads/agent-{platform}-{arch}[.exe]?key=TOKEN
             if ("windows".equals(osPlatform)) {
-                // Windows PowerShell one-click install
+                // Windows: no install script, must download binary manually with arch selection
+                // URL: /api/agent/downloads/agent-windows-{arch}.exe?key=TOKEN
                 String binaryName = "agent-windows-" + osArch + ".exe";
                 String downloadUrl = endpoint + "/api/agent/downloads/" + binaryName + "?key=" + token;
                 String psCmd = String.join("; ",
@@ -3724,20 +3724,16 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                         "Write-Host 'Pika Agent 安装完成!' -ForegroundColor Green"
                 );
                 data.put("installCommand", psCmd);
-                data.put("installCommandCn", psCmd); // Pika is self-hosted, no GitHub proxy needed
+                data.put("installCommandCn", psCmd); // Pika is self-hosted, no proxy needed
             } else if ("macos".equals(osPlatform)) {
-                // macOS: curl download + register
-                String binaryName = "agent-darwin-" + osArch;
-                String downloadUrl = endpoint + "/api/agent/downloads/" + binaryName + "?key=" + token;
+                // macOS: install.sh supports macOS and auto-detects arch (amd64/arm64)
                 String macCmd = String.format(
-                        "curl -fsSL '%s' -o /usr/local/bin/pika-agent && " +
-                        "chmod +x /usr/local/bin/pika-agent && " +
-                        "pika-agent register --endpoint '%s' --token '%s'%s --yes",
-                        downloadUrl, endpoint, token, nameParam);
+                        "curl -fsSL \"%s/api/agent/install.sh?token=%s%s\" | sudo bash",
+                        endpoint, token, name != null && !name.isEmpty() ? "&name=" + name : "");
                 data.put("installCommand", macCmd);
                 data.put("installCommandCn", macCmd);
             }
-            // Linux: install command already set by provisionAgent() (curl install.sh | sudo bash)
+            // Linux: install command already set by provisionAgent() (curl install.sh | sudo bash, auto-detects arch)
 
             String platformNote = "windows".equals(osPlatform) ? " (PowerShell 管理员)" : "";
             result.put("pika", data);

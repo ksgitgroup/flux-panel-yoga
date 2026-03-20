@@ -95,6 +95,13 @@ public class AlertController extends BaseController {
         return R.ok(aggregationService.getAlertingAssetIds());
     }
 
+    /** 获取所有活跃告警的简要信息（含 assetId/ruleId/nodeId/severity，供前端 snooze 过滤） */
+    @RequireRole
+    @PostMapping("/all-active-brief")
+    public R allActiveBrief() {
+        return R.ok(aggregationService.getAllActiveAlertsBrief());
+    }
+
     /** 获取最近 N 条告警日志（用于首页展示） */
     @RequireRole
     @PostMapping("/recent")

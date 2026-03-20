@@ -80,16 +80,17 @@ public class AlertAggregationService {
     public Set<Long> getAlertingAssetIds() {
         Set<Long> result = new HashSet<>();
 
-        // 1. 引擎内存中的活跃告警 → assetId
+        // 1. 引擎内存中的活跃告警 → assetId（排除恢复事件）
         for (AlertEvent e : activeAlerts.values()) {
             if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
+            if (isRecoveryMessage(e.getMessage())) continue;
             try {
                 MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
                 if (snap != null && snap.getAssetId() != null) result.add(snap.getAssetId());
             } catch (Exception ignored) {}
         }
 
-        // 2. alert_log 表近 24h 的告警记录 → 通过 nodeId 关联 assetId
+        // 2. alert_log 表近 24h 的告警记录（排除恢复）→ 通过 nodeId 关联 assetId
         try {
             long since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
             List<MonitorAlertLog> recentLogs = alertLogMapper.selectList(
@@ -97,6 +98,7 @@ public class AlertAggregationService {
                             .eq(MonitorAlertLog::getStatus, 0)
                             .ge(MonitorAlertLog::getCreatedTime, since)
                             .isNotNull(MonitorAlertLog::getNodeId)
+                            .notLike(MonitorAlertLog::getMessage, "已恢复:")
                             .select(MonitorAlertLog::getNodeId)
                             .groupBy(MonitorAlertLog::getNodeId));
             for (MonitorAlertLog log : recentLogs) {
@@ -157,10 +159,10 @@ public class AlertAggregationService {
         } catch (Exception ignored) {}
         if (snapshotIds.isEmpty()) return result;
 
-        // 1. 引擎内存中的活跃告警
+        // 1. 引擎内存中的活跃告警（排除恢复事件）
         Set<String> seen = new HashSet<>();
         for (AlertEvent e : activeAlerts.values()) {
-            if (e.getNodeId() != null && snapshotIds.contains(e.getNodeId())) {
+            if (e.getNodeId() != null && snapshotIds.contains(e.getNodeId()) && !isRecoveryMessage(e.getMessage())) {
                 String key = e.getRuleId() + ":" + e.getNodeId() + ":" + e.getMetric();
                 if (seen.add(key)) {
                     Map<String, Object> m = new HashMap<>();
@@ -178,7 +180,7 @@ public class AlertAggregationService {
             }
         }
 
-        // 2. alert_log 表近 24h 的历史记录
+        // 2. alert_log 表近 24h 的历史记录（排除恢复）
         try {
             long since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
             List<MonitorAlertLog> logs = alertLogMapper.selectList(
@@ -186,6 +188,7 @@ public class AlertAggregationService {
                             .eq(MonitorAlertLog::getStatus, 0)
                             .in(MonitorAlertLog::getNodeId, snapshotIds)
                             .ge(MonitorAlertLog::getCreatedTime, since)
+                            .notLike(MonitorAlertLog::getMessage, "已恢复:")
                             .orderByDesc(MonitorAlertLog::getCreatedTime)
                             .last("LIMIT 20"));
             for (MonitorAlertLog lg : logs) {
@@ -225,6 +228,12 @@ public class AlertAggregationService {
         }
         return Map.of("total", total, "critical", critical, "warning", warning, "info", info,
                 "affectedNodes", affectedNodes.size());
+    }
+
+    /** 判断消息是否为恢复通知（不应计入告警中） */
+    private static boolean isRecoveryMessage(String message) {
+        if (message == null) return false;
+        return message.startsWith("已恢复:") || message.startsWith("[INFO] 已恢复:") || message.contains("恢复正常");
     }
 
     /** 聚合窗口: 5分钟 */

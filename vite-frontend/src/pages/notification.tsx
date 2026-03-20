@@ -550,7 +550,11 @@ export function PoliciesTab() {
                     {!p.categoryFilter && !p.tagFilter && !p.muteSchedule && p.includeRecovery !== 0 ? <span className="text-default-400">-</span> : null}
                   </div>
                 </TableCell>
-                <TableCell className="text-sm">{channelName(p.channelIds)}</TableCell>
+                <TableCell className="text-sm">
+                  {p.channelIds && p.channelIds.trim() ? channelName(p.channelIds) : (
+                    <span className="text-warning text-xs">未关联渠道（仅站内记录）</span>
+                  )}
+                </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
                     {canUpdate && <Button size="sm" variant="light" color="primary" onPress={() => openEdit(p)}>编辑</Button>}

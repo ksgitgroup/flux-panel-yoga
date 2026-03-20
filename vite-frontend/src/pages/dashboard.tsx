@@ -261,7 +261,7 @@ export default function DashboardPage() {
             <div className="mb-4 flex items-center gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
               <Spinner size="sm" color="primary" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold">诊断执行中 · {runtime.completedCount}/{runtime.totalCount}</p>
+                <h2 className="text-sm font-semibold">诊断执行中 · {runtime.completedCount}/{runtime.totalCount}</h2>
                 {runtime.currentTargetName && <p className="text-xs text-default-500 truncate">正在诊断: {runtime.currentTargetName}</p>}
               </div>
               <Progress size="sm" value={runtime.progressPercent} color="primary" className="w-20 sm:w-32" />
@@ -428,8 +428,8 @@ export default function DashboardPage() {
           <Card className="border border-divider/60">
             <CardBody className="p-4">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold">异常资源</p>
-                <Link to="/monitor" className="text-xs text-primary font-medium hover:underline">诊断看板</Link>
+                <h2 className="text-sm font-semibold">异常资源</h2>
+                <Link to="/monitor" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">诊断看板</Link>
               </div>
               {(summary?.recentFailures?.length || assetStats.offlineAssets.length > 0) ? (
                 <div className="space-y-2">
@@ -469,10 +469,10 @@ export default function DashboardPage() {
             <Card className="border border-divider/60">
               <CardBody className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">最近告警</p>
+                  <h2 className="text-sm font-semibold">最近告警</h2>
                   <div className="flex gap-2">
-                    <Link to="/notification" className="text-xs text-primary font-medium hover:underline">通知中心</Link>
-                    <Link to="/alert" className="text-xs text-primary font-medium hover:underline">告警配置</Link>
+                    <Link to="/notification" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">通知中心</Link>
+                    <Link to="/alert" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">告警配置</Link>
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -502,8 +502,8 @@ export default function DashboardPage() {
             <Card className="border border-warning/30">
               <CardBody className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">流量预警</p>
-                  <Link to="/traffic" className="text-xs text-primary font-medium hover:underline">流量分析</Link>
+                  <h2 className="text-sm font-semibold">流量预警</h2>
+                  <Link to="/traffic" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">流量分析</Link>
                 </div>
                 <div className="space-y-2">
                   {trafficWarnings.map(a => (
@@ -531,8 +531,8 @@ export default function DashboardPage() {
                 <Card className="border border-divider/60">
                   <CardBody className="p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-semibold">地区分布</p>
-                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline">全部</Link>
+                      <h2 className="text-sm font-semibold">地区分布</h2>
+                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">全部</Link>
                     </div>
                     <div className="space-y-1.5">
                       {assetStats.topRegions.map(([region, count]) => (
@@ -552,8 +552,8 @@ export default function DashboardPage() {
                 <Card className="border border-divider/60">
                   <CardBody className="p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-semibold">操作系统</p>
-                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline">全部</Link>
+                      <h2 className="text-sm font-semibold">操作系统</h2>
+                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">全部</Link>
                     </div>
                     <div className="space-y-1.5">
                       {assetStats.topOs.map(([os, count]) => (
@@ -573,8 +573,8 @@ export default function DashboardPage() {
                 <Card className="border border-divider/60">
                   <CardBody className="p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-semibold">厂商分布</p>
-                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline">全部</Link>
+                      <h2 className="text-sm font-semibold">厂商分布</h2>
+                      <Link to="/assets" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">全部</Link>
                     </div>
                     <div className="space-y-1.5">
                       {assetStats.topProviders.map(([provider, count]) => (
@@ -597,7 +597,7 @@ export default function DashboardPage() {
           {/* Quick nav */}
           <Card className="border border-divider/60">
             <CardBody className="p-4">
-              <p className="text-sm font-semibold mb-3">快捷导航</p>
+              <h2 className="text-sm font-semibold mb-3">快捷导航</h2>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { to: '/forward', label: '转发管理', count: forwardCount, color: 'primary' as const },
@@ -633,8 +633,8 @@ export default function DashboardPage() {
             <Card className="border border-divider/60">
               <CardBody className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">探针实例</p>
-                  <Link to="/probe" className="text-xs text-primary font-medium hover:underline">探针配置</Link>
+                  <h2 className="text-sm font-semibold">探针实例</h2>
+                  <Link to="/probe" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">探针配置</Link>
                 </div>
                 <div className="space-y-2">
                   {probeInstances.map(inst => (
@@ -686,8 +686,8 @@ export default function DashboardPage() {
             <Card className="border border-warning/30">
               <CardBody className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold text-warning">即将到期</p>
-                  <Link to="/cost" className="text-xs text-primary font-medium hover:underline">成本分析</Link>
+                  <h2 className="text-sm font-semibold text-warning">即将到期</h2>
+                  <Link to="/cost" className="text-xs text-primary font-medium hover:underline px-2 py-1 rounded-md hover:bg-primary-50/50 transition-colors">成本分析</Link>
                 </div>
                 <div className="space-y-1.5">
                   {assets

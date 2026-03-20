@@ -18,6 +18,7 @@ public interface AlertService extends IService<MonitorAlertRule> {
     R toggleRule(Long id);
 
     R listLogs(int page, int size);
+    R listLogs(int page, int size, String keyword, String severity, Long ruleId);
 
     R clearLogs();
 

@@ -204,6 +204,12 @@ export default function AlertPage() {
   };
 
   const handleDeleteGroup = async (groupId: number) => {
+    const groupRuleCount = rules.filter(r => r.groupId === groupId).length;
+    if (groupRuleCount > 0) {
+      toast.error(`该组内还有 ${groupRuleCount} 条规则，请先移除或删除组内规则`);
+      return;
+    }
+    if (!window.confirm('确定要删除该规则组吗？此操作不可撤销。')) return;
     try {
       const res = await deleteAlertGroup(groupId);
       if (res.code === 0) { toast.success('已删除规则组'); fetchAll(); }
@@ -483,8 +489,16 @@ export default function AlertPage() {
                       <div className="ml-auto flex gap-1" onClick={e => e.stopPropagation()}>
                         {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openGroupEdit(group)}>编辑</Button>}
                         {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => openBatchEdit(group.id)}>批量配置</Button>}
-                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 1)}>启用</Button>}
-                        {canUpdateAlerts && <Button size="sm" variant="light" onPress={() => handleBatchToggle(group.id, 0)}>禁用</Button>}
+                        {canUpdateAlerts && (() => {
+                          const gRules = rules.filter(r => r.groupId === group.id);
+                          const allEnabled = gRules.length > 0 && gRules.every(r => r.enabled === 1);
+                          return (
+                            <Button size="sm" variant="light" color={allEnabled ? 'warning' : 'success'}
+                              onPress={() => handleBatchToggle(group.id, allEnabled ? 0 : 1)}>
+                              {allEnabled ? '全部禁用' : '全部启用'}
+                            </Button>
+                          );
+                        })()}
                         {canDeleteAlerts && group.isDefault !== 1 && <Button size="sm" variant="light" color="danger" onPress={() => handleDeleteGroup(group.id)}>删除组</Button>}
                       </div>
                     </div>

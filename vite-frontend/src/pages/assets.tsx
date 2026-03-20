@@ -872,7 +872,7 @@ export default function AssetsPage() {
   const handleAcknowledgeAlert = async (ruleId: number, nodeId: number) => {
     try {
       await acknowledgeAlert(ruleId, nodeId);
-      toast.success('已标记为已处理');
+      toast.success('已标记为已读');
       setAlertPopoverData(prev => prev.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)));
       // 如果该资产无剩余告警，更新 activeAlertNodeIds
       if (alertPopoverData.filter(a => !(a.ruleId === ruleId && a.nodeId === nodeId)).length === 0) {
@@ -2067,10 +2067,10 @@ export default function AssetsPage() {
                                 )}
                                 {asset.id && activeAlertNodeIds.has(asset.id) && (
                                   <button
-                                    className="px-1.5 py-0.5 rounded bg-danger-100 text-danger text-[10px] font-bold dark:bg-danger/20 hover:bg-danger-200 transition-colors"
+                                    className="px-2 py-0.5 rounded-md bg-danger text-white text-[10px] font-bold shadow-sm hover:bg-danger-600 active:scale-95 transition-all animate-pulse"
                                     onClick={(e) => { e.stopPropagation(); openAlertPopover(asset.id, asset.name || ''); }}
-                                    title="查看活跃告警"
-                                  >告警</button>
+                                    title="点击查看告警详情"
+                                  >告警中</button>
                                 )}
                               </div>
                               {asset.purpose && (
@@ -4267,9 +4267,9 @@ export default function AssetsPage() {
                       <p className="text-xs text-default-500 mt-0.5">{a.message}</p>
                       <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
                     </div>
-                    <Button size="sm" variant="flat" color="success" className="h-6 text-[10px] min-w-0 flex-shrink-0"
+                    <Button size="sm" variant="flat" color="primary" className="h-6 text-[10px] min-w-0 flex-shrink-0"
                       onPress={() => handleAcknowledgeAlert(a.ruleId, a.nodeId)}>
-                      已处理
+                      已读
                     </Button>
                   </div>
                 ))}

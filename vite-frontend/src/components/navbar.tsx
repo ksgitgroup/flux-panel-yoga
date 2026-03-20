@@ -285,7 +285,7 @@ export const Navbar = () => {
                   {criticalCount > 0 && (
                     <div className="bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-800/50 px-4 py-2 flex items-center gap-2">
                       <span className="text-red-600 dark:text-red-400 text-xs font-semibold">
-                        {criticalCount} 条紧急告警未处理
+                        {criticalCount} 条紧急告警未读
                       </span>
                       <Button
                         size="sm"

@@ -1130,6 +1130,7 @@ export const getRecentAlertLogs = (size?: number, severity?: string) => Network.
 export const getAlertingAssetIds = () => Network.post<number[]>("/alert/alerting-assets");
 export const getAlertsForAsset = (assetId: number) => Network.post<any[]>("/alert/alerts-for-asset", { assetId });
 export const acknowledgeAlert = (ruleId: number, nodeId: number) => Network.post("/alert/acknowledge", { ruleId, nodeId });
+export const getAllActiveAlertsBrief = () => Network.post<{assetId: number; ruleId: number; nodeId: number; severity: string}[]>("/alert/all-active-brief");
 
 // Enterprise IAM
 export const getIamAuthOptions = () => Network.post<IamAuthOptions>("/iam/auth/options");

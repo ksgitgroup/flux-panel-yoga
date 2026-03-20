@@ -58,7 +58,8 @@ import {
   getArchivedAssets,
   getAlertingAssetIds,
   getAlertsForAsset,
-  acknowledgeAlert
+  acknowledgeAlert,
+  getAllActiveAlertsBrief
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -344,6 +345,19 @@ const unsnoozeAlert = (ruleId: number, nodeId: number) => {
   setSnoozeMap(m);
 };
 
+// Format alert duration from firstLogTime to now
+const formatAlertDuration = (firstLogTime?: number): string => {
+  if (!firstLogTime) return '';
+  const diffMs = Date.now() - firstLogTime;
+  if (diffMs < 60000) return '刚刚';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 60) return `持续 ${mins} 分钟`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `持续 ${hours} 小时 ${mins % 60} 分钟`;
+  const days = Math.floor(hours / 24);
+  return `持续 ${days} 天 ${hours % 24} 小时`;
+};
+
 // Provision form for new server creation within provision modal
 interface ProvisionForm {
   osPlatform: 'linux' | 'windows' | 'macos';
@@ -580,6 +594,8 @@ export default function AssetsPage() {
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [filterAlertStatus, setFilterAlertStatus] = useState<string>(''); // '' | 'alerting' | 'healthy'
   const [activeAlertNodeIds, setActiveAlertNodeIds] = useState<Set<number>>(new Set());
+  // Bulk alert brief data for snooze-aware filtering
+  const [allAlertsBrief, setAllAlertsBrief] = useState<{assetId: number; ruleId: number; nodeId: number; severity: string}[]>([]);
   const [alertPopoverAssetId, setAlertPopoverAssetId] = useState<number | null>(null);
   const [alertPopoverName, setAlertPopoverName] = useState('');
   const [alertPopoverData, setAlertPopoverData] = useState<any[]>([]);
@@ -634,6 +650,31 @@ export default function AssetsPage() {
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
+
+  // Derived: effective alerting IDs (non-snoozed) and snoozed-only IDs
+  const { effectiveAlertIds, snoozedOnlyAlertIds } = useMemo(() => {
+    const effective = new Set<number>();
+    const allWithAlerts = new Set<number>();
+    const withActiveAlerts = new Set<number>();
+    for (const a of allAlertsBrief) {
+      allWithAlerts.add(a.assetId);
+      if (!isSnoozed(a.ruleId, a.nodeId)) {
+        withActiveAlerts.add(a.assetId);
+      }
+    }
+    // If we have brief data, use it; otherwise fall back to activeAlertNodeIds
+    if (allAlertsBrief.length > 0) {
+      withActiveAlerts.forEach(id => effective.add(id));
+    } else {
+      activeAlertNodeIds.forEach(id => effective.add(id));
+    }
+    const snoozedOnly = new Set<number>();
+    allWithAlerts.forEach(id => {
+      if (!withActiveAlerts.has(id)) snoozedOnly.add(id);
+    });
+    return { effectiveAlertIds: effective, snoozedOnlyAlertIds: snoozedOnly };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allAlertsBrief, activeAlertNodeIds, /* forceRender triggers re-derive */]);
 
   useEffect(() => {
     void loadAssets(); void loadGostNodes();
@@ -823,7 +864,7 @@ export default function AssetsPage() {
     } else if (filterStatus === 'expiring_soon') {
       list = list.filter(a => a.expireDate && !isNeverExpireTs(a.expireDate) && a.expireDate >= Date.now() && a.expireDate < Date.now() + 14 * 86400000);
     } else if (filterStatus === 'alerting') {
-      list = list.filter(a => a.id && activeAlertNodeIds.has(a.id));
+      list = list.filter(a => a.id && effectiveAlertIds.has(a.id));
     }
     if (filterEnv) {
       list = list.filter(a => filterEnv === '_empty' ? !a.environment : a.environment === filterEnv);
@@ -847,11 +888,11 @@ export default function AssetsPage() {
           .some((v) => normalizeKeyword(v).includes(kw))
       );
     }
-    // Alert status filter (by assetId)
+    // Alert status filter (by assetId, snooze-aware)
     if (filterAlertStatus === 'alerting') {
-      list = list.filter(a => a.id && activeAlertNodeIds.has(a.id));
+      list = list.filter(a => a.id && effectiveAlertIds.has(a.id));
     } else if (filterAlertStatus === 'healthy') {
-      list = list.filter(a => !a.id || !activeAlertNodeIds.has(a.id));
+      list = list.filter(a => a.id ? !effectiveAlertIds.has(a.id) && !snoozedOnlyAlertIds.has(a.id) : true);
     }
     // Sort
     const sorted = [...list].sort((a, b) => {
@@ -881,7 +922,7 @@ export default function AssetsPage() {
       return sortAsc ? cmp : -cmp;
     });
     return sorted;
-  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, filterEnv, filterPurpose, filterAlertStatus, activeAlertNodeIds, sortKey, sortAsc]);
+  }, [assets, searchKeyword, filterRole, filterProbe, filterTag, filterRegion, filterOs, filterProvider, filterStatus, filterEnv, filterPurpose, filterAlertStatus, effectiveAlertIds, snoozedOnlyAlertIds, sortKey, sortAsc]);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -893,9 +934,15 @@ export default function AssetsPage() {
     finally { setLoading(false); }
     // 加载有告警的资产ID（不阻塞主流程）
     try {
-      const alertRes = await getAlertingAssetIds();
+      const [alertRes, briefRes] = await Promise.all([
+        getAlertingAssetIds(),
+        getAllActiveAlertsBrief()
+      ]);
       if (alertRes.code === 0 && alertRes.data) {
         setActiveAlertNodeIds(new Set(Array.isArray(alertRes.data) ? alertRes.data : []));
+      }
+      if (briefRes.code === 0 && briefRes.data) {
+        setAllAlertsBrief(Array.isArray(briefRes.data) ? briefRes.data : []);
       }
     } catch { /* ignore */ }
   };
@@ -967,6 +1014,15 @@ export default function AssetsPage() {
     toast.success(`已忽略 ${items.length} 条告警 ${snoozeDays} 天`);
     setSnoozeDialogOpen(false);
     forceRender(n => n + 1);
+    // Check if all alerts for this asset are now snoozed → update badge immediately
+    const allSnoozed = alertPopoverData.every(a => isSnoozed(a.ruleId, a.nodeId) || items.some(it => it.ruleId === a.ruleId && it.nodeId === a.nodeId));
+    if (allSnoozed && alertPopoverAssetId) {
+      setActiveAlertNodeIds(prev => {
+        const next = new Set(prev);
+        next.delete(alertPopoverAssetId!);
+        return next;
+      });
+    }
   };
 
   const handleUnsnooze = (ruleId: number, nodeId: number) => {
@@ -1751,9 +1807,9 @@ export default function AssetsPage() {
         <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'expired' ? 'border-danger/40 ring-1 ring-danger/20' : summary.expiredAssets > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${summary.expiredAssets > 0 ? 'text-danger' : 'text-default-400'}`} onClick={() => setFilterStatus(filterStatus === 'expired' ? '' : 'expired')}>
           已到期 <span className="font-mono font-bold">{summary.expiredAssets}</span>
         </button>
-        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'alerting' ? 'border-danger/40 ring-1 ring-danger/20' : activeAlertNodeIds.size > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${activeAlertNodeIds.size > 0 ? 'text-danger' : 'text-default-400'}`}
+        <button className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:shadow-sm ${filterStatus === 'alerting' ? 'border-danger/40 ring-1 ring-danger/20' : effectiveAlertIds.size > 0 ? 'border-danger/20 bg-danger-50/30 dark:bg-danger-50/10' : 'border-divider/60 bg-content1'} ${effectiveAlertIds.size > 0 ? 'text-danger' : 'text-default-400'}`}
           onClick={() => setFilterStatus(filterStatus === 'alerting' ? '' : 'alerting')}>
-          告警中 <span className="font-mono font-bold">{activeAlertNodeIds.size}</span>
+          告警中 <span className="font-mono font-bold">{effectiveAlertIds.size}</span>
         </button>
         <span className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-1.5 text-xs text-default-500">
           <span className="font-mono font-bold">{summary.totalXuiInstances}</span> XUI
@@ -2000,13 +2056,13 @@ export default function AssetsPage() {
         )}
 
         {/* Alert status filter */}
-        {activeAlertNodeIds.size > 0 && (
+        {(effectiveAlertIds.size > 0 || snoozedOnlyAlertIds.size > 0) && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">告警:</span>
             {[
               { key: '', label: '全部', count: assets.length },
-              { key: 'alerting', label: '告警中', count: assets.filter(a => a.id && activeAlertNodeIds.has(a.id)).length },
-              { key: 'healthy', label: '正常', count: assets.filter(a => !a.id || !activeAlertNodeIds.has(a.id)).length },
+              { key: 'alerting', label: '告警中', count: assets.filter(a => a.id && effectiveAlertIds.has(a.id)).length },
+              { key: 'healthy', label: '正常', count: assets.filter(a => a.id ? !effectiveAlertIds.has(a.id) && !snoozedOnlyAlertIds.has(a.id) : true).length },
             ].map(opt => (
               <button key={opt.key} onClick={() => setFilterAlertStatus(filterAlertStatus === opt.key ? '' : opt.key)}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
@@ -2161,12 +2217,19 @@ export default function AssetsPage() {
                                     'bg-secondary-100 text-secondary dark:bg-secondary/20'
                                   }`}>{roleChip.text}</span>
                                 )}
-                                {asset.id && activeAlertNodeIds.has(asset.id) && (
+                                {asset.id && effectiveAlertIds.has(asset.id) && (
                                   <button
                                     className="px-2 py-0.5 rounded-md bg-danger text-white text-[10px] font-bold shadow-sm hover:bg-danger-600 active:scale-95 transition-all animate-pulse"
                                     onClick={(e) => { e.stopPropagation(); openAlertPopover(asset.id, asset.name || ''); }}
                                     title="点击查看告警详情"
                                   >告警中</button>
+                                )}
+                                {asset.id && !effectiveAlertIds.has(asset.id) && snoozedOnlyAlertIds.has(asset.id) && (
+                                  <button
+                                    className="px-2 py-0.5 rounded-md bg-default-300 text-white text-[10px] font-bold shadow-sm hover:bg-default-400 active:scale-95 transition-all"
+                                    onClick={(e) => { e.stopPropagation(); openAlertPopover(asset.id, asset.name || ''); }}
+                                    title="所有告警已忽略，点击管理"
+                                  >已忽略</button>
                                 )}
                               </div>
                               {asset.purpose && (
@@ -2638,6 +2701,45 @@ export default function AssetsPage() {
                         </div>
                       </div>
                     </div>
+                  );
+                })()}
+
+                {/* Alert Status Card */}
+                {selectedAsset.id && (effectiveAlertIds.has(selectedAsset.id) || snoozedOnlyAlertIds.has(selectedAsset.id)) && (() => {
+                  const assetAlerts = allAlertsBrief.filter(a => a.assetId === selectedAsset.id);
+                  const activeCount = assetAlerts.filter(a => !isSnoozed(a.ruleId, a.nodeId)).length;
+                  const snoozedCount = assetAlerts.filter(a => !!isSnoozed(a.ruleId, a.nodeId)).length;
+                  const criticalCount = assetAlerts.filter(a => a.severity === 'critical' && !isSnoozed(a.ruleId, a.nodeId)).length;
+                  const warningCount = assetAlerts.filter(a => a.severity === 'warning' && !isSnoozed(a.ruleId, a.nodeId)).length;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => openAlertPopover(selectedAsset.id!, selectedAsset.name || '')}
+                      className={`w-full rounded-xl border p-3 text-left transition-all hover:shadow-sm cursor-pointer ${
+                        activeCount > 0
+                          ? 'border-danger/30 bg-danger-50/60 dark:bg-danger-50/10'
+                          : 'border-default-200 bg-default-50/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${activeCount > 0 ? 'bg-danger animate-pulse' : 'bg-default-300'}`} />
+                          <span className="text-xs font-bold tracking-wider uppercase text-default-500">告警状态</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {criticalCount > 0 && <Chip size="sm" variant="flat" color="danger" className="h-4 text-[9px]">严重 {criticalCount}</Chip>}
+                          {warningCount > 0 && <Chip size="sm" variant="flat" color="warning" className="h-4 text-[9px]">警告 {warningCount}</Chip>}
+                          {snoozedCount > 0 && <Chip size="sm" variant="flat" color="default" className="h-4 text-[9px]">已忽略 {snoozedCount}</Chip>}
+                          <span className="text-[10px] text-primary ml-1">查看详情 →</span>
+                        </div>
+                      </div>
+                      {activeCount > 0 && (
+                        <p className="text-xs text-danger mt-1.5">{activeCount} 条活跃告警需要关注</p>
+                      )}
+                      {activeCount === 0 && snoozedCount > 0 && (
+                        <p className="text-xs text-default-400 mt-1.5">所有告警已忽略，{snoozedCount} 条规则被静音中</p>
+                      )}
+                    </button>
                   );
                 })()}
 
@@ -4415,7 +4517,12 @@ export default function AssetsPage() {
                           )}
                         </div>
                         <p className={`text-xs mt-0.5 ${snoozedUntil ? 'text-default-300' : 'text-default-500'}`}>{a.message}</p>
-                        <p className="text-[10px] text-default-300 mt-0.5">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-default-300">{a.timestamp ? new Date(a.timestamp).toLocaleString('zh-CN', { hour12: false }) : ''}</span>
+                          {a.firstLogTime && !snoozedUntil && (
+                            <span className="text-[10px] text-warning font-medium">{formatAlertDuration(a.firstLogTime)}</span>
+                          )}
+                        </div>
                       </div>
                       {snoozedUntil ? (
                         <Button size="sm" variant="flat" color="default" className="h-6 text-[10px] min-w-0 flex-shrink-0"

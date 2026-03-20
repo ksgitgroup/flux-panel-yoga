@@ -76,6 +76,62 @@ public class AlertAggregationService {
         return result;
     }
 
+    /**
+     * 获取所有活跃告警的简要信息（用于前端按 snooze 过滤）
+     * 返回 List<{assetId, ruleId, nodeId, severity}>
+     */
+    public List<Map<String, Object>> getAllActiveAlertsBrief() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        // 1. 引擎内存活跃告警
+        for (AlertEvent e : activeAlerts.values()) {
+            if (e.getNodeId() == null || e.getNodeId() <= 0) continue;
+            if (isRecoveryMessage(e.getMessage())) continue;
+            try {
+                MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(e.getNodeId());
+                if (snap != null && snap.getAssetId() != null) {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("assetId", snap.getAssetId());
+                    m.put("ruleId", e.getRuleId());
+                    m.put("nodeId", e.getNodeId());
+                    m.put("severity", e.getSeverity() != null ? e.getSeverity() : "warning");
+                    result.add(m);
+                }
+            } catch (Exception ignored) {}
+        }
+        // 2. alert_log 近 24h（补充引擎内存中不存在的）
+        Set<String> seenKeys = new HashSet<>();
+        result.forEach(m -> seenKeys.add(m.get("ruleId") + ":" + m.get("nodeId")));
+        try {
+            long since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
+            List<MonitorAlertLog> logs = alertLogMapper.selectList(
+                    new LambdaQueryWrapper<MonitorAlertLog>()
+                            .eq(MonitorAlertLog::getStatus, 0)
+                            .ge(MonitorAlertLog::getCreatedTime, since)
+                            .isNotNull(MonitorAlertLog::getNodeId)
+                            .notLike(MonitorAlertLog::getMessage, "已恢复:")
+                            .select(MonitorAlertLog::getRuleId, MonitorAlertLog::getNodeId));
+            for (MonitorAlertLog lg : logs) {
+                if (lg.getNodeId() == null || lg.getNodeId() <= 0) continue;
+                String key = lg.getRuleId() + ":" + lg.getNodeId();
+                if (!seenKeys.add(key)) continue;
+                try {
+                    MonitorNodeSnapshot snap = nodeSnapshotMapper.selectById(lg.getNodeId());
+                    if (snap != null && snap.getAssetId() != null) {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("assetId", snap.getAssetId());
+                        m.put("ruleId", lg.getRuleId());
+                        m.put("nodeId", lg.getNodeId());
+                        m.put("severity", "warning");
+                        result.add(m);
+                    }
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            log.warn("[AlertAggregation] Failed to query alert_log for brief: {}", e.getMessage());
+        }
+        return result;
+    }
+
     /** 获取当前有活跃告警的 assetId 集合（引擎内存 + alert_log 近24h） */
     public Set<Long> getAlertingAssetIds() {
         Set<Long> result = new HashSet<>();
@@ -210,6 +266,45 @@ public class AlertAggregationService {
             }
         } catch (Exception e) {
             log.warn("[AlertAggregation] Failed to query alert_log for asset {}: {}", assetId, e.getMessage());
+        }
+
+        // 3. 为每条告警补充 firstLogTime（最早触发时间，用于计算持续时长）
+        if (!result.isEmpty()) {
+            try {
+                for (Map<String, Object> alert : result) {
+                    Long ruleId = alert.get("ruleId") instanceof Number ? ((Number) alert.get("ruleId")).longValue() : null;
+                    Long nodeId = alert.get("nodeId") instanceof Number ? ((Number) alert.get("nodeId")).longValue() : null;
+                    if (ruleId == null || nodeId == null) continue;
+                    // 查询该 ruleId+nodeId 最早的告警日志（无恢复记录以后的最早记录）
+                    // 先查最近的恢复记录时间
+                    Long lastRecoveryAt = null;
+                    try {
+                        MonitorAlertLog recoveryLog = alertLogMapper.selectOne(
+                                new LambdaQueryWrapper<MonitorAlertLog>()
+                                        .eq(MonitorAlertLog::getRuleId, ruleId)
+                                        .eq(MonitorAlertLog::getNodeId, nodeId)
+                                        .eq(MonitorAlertLog::getStatus, 0)
+                                        .like(MonitorAlertLog::getMessage, "已恢复:")
+                                        .orderByDesc(MonitorAlertLog::getCreatedTime)
+                                        .last("LIMIT 1"));
+                        if (recoveryLog != null) lastRecoveryAt = recoveryLog.getCreatedTime();
+                    } catch (Exception ignored) {}
+                    // 查最早的告警记录（在恢复之后）
+                    LambdaQueryWrapper<MonitorAlertLog> q = new LambdaQueryWrapper<MonitorAlertLog>()
+                            .eq(MonitorAlertLog::getRuleId, ruleId)
+                            .eq(MonitorAlertLog::getNodeId, nodeId)
+                            .eq(MonitorAlertLog::getStatus, 0)
+                            .notLike(MonitorAlertLog::getMessage, "已恢复:");
+                    if (lastRecoveryAt != null) q.gt(MonitorAlertLog::getCreatedTime, lastRecoveryAt);
+                    q.orderByAsc(MonitorAlertLog::getCreatedTime).last("LIMIT 1");
+                    MonitorAlertLog firstLog = alertLogMapper.selectOne(q);
+                    if (firstLog != null) {
+                        alert.put("firstLogTime", firstLog.getCreatedTime());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[AlertAggregation] Failed to enrich firstLogTime: {}", e.getMessage());
+            }
         }
 
         return result;

@@ -1032,6 +1032,7 @@ export default function AssetsPage() {
     setProvisionLoading(true);
     try {
       // Step 1: Create asset record (if not editing existing)
+      let newlyCreatedAssetId: number | undefined;
       if (!provisionContext) {
         // Convert traffic: TB → GB
         let trafficGb = pf.trafficUnlimited ? '-1' : pf.monthlyTrafficGb;
@@ -1060,9 +1061,10 @@ export default function AssetsPage() {
           setProvisionLoading(false);
           return;
         }
+        newlyCreatedAssetId = createRes.data?.id;
         // If GOST enabled, link to new asset
-        if (gostCfg && createRes.data?.id) {
-          gostCfg.assetId = createRes.data.id;
+        if (gostCfg && newlyCreatedAssetId) {
+          gostCfg.assetId = newlyCreatedAssetId;
         }
         // Auto-geolocate IP → region (background, don't block)
         if (!pf.region && pf.primaryIp && createRes.data?.id) {
@@ -1087,7 +1089,9 @@ export default function AssetsPage() {
         return;
       }
 
-      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform, provisionContext?.assetId, provisionForm.osArch);
+      // Pass asset ID so backend can link probe node to this asset (prevents duplicate creation)
+      const effectiveAssetId = provisionContext?.assetId || newlyCreatedAssetId;
+      const res = await provisionAllAgents(kid, pid, gostCfg, provisionName || undefined, provisionForm.osPlatform, effectiveAssetId, provisionForm.osArch);
       if (res.code === 0 && res.data) {
         setAllProvisionResult(res.data);
         setProvisionStep('result');

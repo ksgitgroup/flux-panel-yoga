@@ -10,7 +10,9 @@ import com.admin.service.AssetHostService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import com.admin.common.utils.AdsPowerClient;
 import com.admin.common.utils.IpQualityClient;
+import com.admin.entity.AssetHost;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
@@ -25,6 +27,9 @@ public class AssetHostController extends BaseController {
 
     @Autowired
     private IpQualityClient ipQualityClient;
+
+    @Autowired
+    private AdsPowerClient adsPowerClient;
 
     @LogAnnotation
     @RequireRole
@@ -90,6 +95,67 @@ public class AssetHostController extends BaseController {
         IpQualityClient.IpQualityResult result = ipQualityClient.check(ip.trim());
         if (result == null) return R.err("IP 检测失败（可能请求过于频繁，ip-api.com 限 45 次/分钟）");
         return R.ok(result);
+    }
+
+    /**
+     * AdsPower 代理模式：检查 AdsPower 可达性
+     */
+    @RequireRole
+    @PostMapping("/adspower/ping")
+    public R adsPowerPing(@RequestBody Map<String, Object> params) {
+        String apiBase = (String) params.getOrDefault("apiBase", "http://localhost:50325");
+        return R.ok(Map.of("reachable", adsPowerClient.ping(apiBase)));
+    }
+
+    /**
+     * AdsPower 代理模式：查询 Profile 列表
+     */
+    @RequireRole
+    @PostMapping("/adspower/profiles")
+    public R adsPowerProfiles(@RequestBody Map<String, Object> params) {
+        String apiBase = (String) params.getOrDefault("apiBase", "http://localhost:50325");
+        int page = params.containsKey("page") ? ((Number) params.get("page")).intValue() : 1;
+        int pageSize = params.containsKey("pageSize") ? ((Number) params.get("pageSize")).intValue() : 50;
+        return R.ok(adsPowerClient.listProfiles(apiBase, page, pageSize));
+    }
+
+    /**
+     * AdsPower 代理模式：创建 Profile 并配置代理
+     * 从资产的转发规则自动提取代理地址
+     */
+    @RequireRole
+    @PostMapping("/adspower/push-proxy")
+    public R adsPowerPushProxy(@RequestBody Map<String, Object> params) {
+        String apiBase = (String) params.getOrDefault("apiBase", "http://localhost:50325");
+        String profileName = (String) params.get("profileName");
+        String profileId = (String) params.get("profileId");  // 更新已有 Profile 时传入
+        String proxyType = (String) params.getOrDefault("proxyType", "socks5");
+        String proxyHost = (String) params.get("proxyHost");
+        int proxyPort = params.containsKey("proxyPort") ? ((Number) params.get("proxyPort")).intValue() : 0;
+        String proxyUser = (String) params.get("proxyUser");
+        String proxyPass = (String) params.get("proxyPass");
+
+        if (proxyHost == null || proxyHost.isBlank() || proxyPort <= 0) {
+            return R.err("代理地址和端口不能为空");
+        }
+
+        AdsPowerClient.ProxyConfig cfg = new AdsPowerClient.ProxyConfig();
+        cfg.setProxyType(proxyType);
+        cfg.setHost(proxyHost);
+        cfg.setPort(proxyPort);
+        cfg.setUsername(proxyUser);
+        cfg.setPassword(proxyPass);
+
+        if (profileId != null && !profileId.isBlank()) {
+            // 更新已有 Profile
+            boolean ok = adsPowerClient.updateProfileProxy(apiBase, profileId, cfg);
+            return ok ? R.ok(Map.of("action", "updated", "profileId", profileId)) : R.err("更新 Profile 代理失败");
+        } else {
+            // 创建新 Profile
+            if (profileName == null || profileName.isBlank()) profileName = "flux-proxy-" + System.currentTimeMillis();
+            String newId = adsPowerClient.createProfile(apiBase, profileName, cfg);
+            return newId != null ? R.ok(Map.of("action", "created", "profileId", newId)) : R.err("创建 AdsPower Profile 失败");
+        }
     }
 
     @LogAnnotation

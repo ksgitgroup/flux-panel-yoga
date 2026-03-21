@@ -66,7 +66,8 @@ import {
   InitScript,
   quickSetup1Panel,
   checkIpQualitySimple,
-  IpQualityResult
+  IpQualityResult,
+  adsPowerPushProxy
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -771,6 +772,44 @@ export default function AssetsPage() {
       else toast.error(res.msg || 'IP 检测失败');
     } catch { toast.error('IP 检测失败'); }
     finally { setIpQualityLoading(false); }
+  };
+
+  // ── AdsPower 推送 ──
+  const { isOpen: isAdsPowerOpen, onOpen: onAdsPowerOpen, onClose: onAdsPowerClose } = useDisclosure();
+  const [adsPowerForm, setAdsPowerForm] = useState({ proxyHost: '', proxyPort: '', proxyType: 'socks5', profileName: '' });
+  const [adsPowerLoading, setAdsPowerLoading] = useState(false);
+
+  const openAdsPowerPush = (asset: AssetHost) => {
+    // 预填代理地址：优先用转发规则的入口端口，否则用资产 IP
+    const fwd = detail?.forwards?.[0];
+    setAdsPowerForm({
+      proxyHost: asset.primaryIp || '',
+      proxyPort: fwd ? '' : '',
+      proxyType: 'socks5',
+      profileName: `${asset.name || 'proxy'}-${Date.now().toString(36).slice(-4)}`,
+    });
+    onAdsPowerOpen();
+  };
+
+  const submitAdsPowerPush = async () => {
+    const port = parseInt(adsPowerForm.proxyPort);
+    if (!adsPowerForm.proxyHost || !port) { toast.error('请填写代理地址和端口'); return; }
+    setAdsPowerLoading(true);
+    try {
+      const res = await adsPowerPushProxy({
+        proxyHost: adsPowerForm.proxyHost,
+        proxyPort: port,
+        proxyType: adsPowerForm.proxyType,
+        profileName: adsPowerForm.profileName || undefined,
+      });
+      if (res.code === 0 && res.data) {
+        toast.success(`AdsPower Profile ${res.data.action === 'created' ? '已创建' : '已更新'}: ${res.data.profileId}`);
+        onAdsPowerClose();
+      } else {
+        toast.error(res.msg || '推送失败（请确认 AdsPower 已运行）');
+      }
+    } catch { toast.error('推送失败'); }
+    finally { setAdsPowerLoading(false); }
   };
 
   // ── Provision Modal 额外安装选项 ──
@@ -2742,6 +2781,13 @@ export default function AssetsPage() {
                       1Panel摘要 {selectedAsset.onePanelLastReportStatus === 'success' ? '✓' : '?'}
                     </button>
                   )}
+                  {/* AdsPower */}
+                  {selectedAsset.primaryIp && (
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      <span className="text-default-600 font-medium">AdsPower</span>
+                      <button type="button" onClick={() => openAdsPowerPush(selectedAsset)} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">推送代理</button>
+                    </span>
+                  )}
                   {/* CTA: 安装探针/GOST */}
                   {(canCreateAssets || canUpdateAssets) && (!selectedAsset.monitorNodeUuid || !selectedAsset.pikaNodeId || !selectedAsset.gostNodeId) && (
                     <button type="button" onClick={() => { onDetailClose(); openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, assetIp: selectedAsset.primaryIp || undefined, asset: selectedAsset, missingKomari: !selectedAsset.monitorNodeUuid, missingPika: !selectedAsset.pikaNodeId, missingGost: !selectedAsset.gostNodeId }); }}
@@ -3093,6 +3139,34 @@ export default function AssetsPage() {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* ── AdsPower 推送代理弹窗 ── */}
+      <Modal isOpen={isAdsPowerOpen} onOpenChange={(open) => !open && onAdsPowerClose()} size="md">
+        <ModalContent>
+          <ModalHeader>推送代理到 AdsPower</ModalHeader>
+          <ModalBody className="space-y-3">
+            <Input label="Profile 名称" size="sm" value={adsPowerForm.profileName} onValueChange={v => setAdsPowerForm(f => ({ ...f, profileName: v }))} placeholder="如: us-proxy-01" />
+            <div className="grid grid-cols-2 gap-2">
+              <Input label="代理地址" size="sm" value={adsPowerForm.proxyHost} onValueChange={v => setAdsPowerForm(f => ({ ...f, proxyHost: v }))} placeholder="IP 或域名" />
+              <Input label="端口" size="sm" type="number" value={adsPowerForm.proxyPort} onValueChange={v => setAdsPowerForm(f => ({ ...f, proxyPort: v }))} placeholder="如: 10801" />
+            </div>
+            <Select label="协议" size="sm" selectedKeys={[adsPowerForm.proxyType]} onSelectionChange={keys => { const v = Array.from(keys)[0]; if (v) setAdsPowerForm(f => ({ ...f, proxyType: String(v) })); }}>
+              <SelectItem key="socks5">SOCKS5</SelectItem>
+              <SelectItem key="http">HTTP</SelectItem>
+              <SelectItem key="https">HTTPS</SelectItem>
+            </Select>
+            <div className="rounded-lg bg-default-50 p-2 text-[11px] text-default-400 space-y-1">
+              <p>将在 AdsPower 中创建新 Profile 并配置指定代理。</p>
+              <p>确保 AdsPower 已运行（本地模式: localhost:50325）。</p>
+              <p>如需使用远程 AdsPower，请在系统配置中设置 AdsPower API 地址。</p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={onAdsPowerClose}>取消</Button>
+            <Button size="sm" color="primary" isLoading={adsPowerLoading} onPress={submitAdsPowerPush}>推送</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
 

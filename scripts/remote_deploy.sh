@@ -121,7 +121,26 @@ for i in $(seq 1 60); do
   sleep 5
 done
 
-echo "🚀 启动其余容器..."
+echo "🚀 启动后端..."
+$DC up -d backend phpmyadmin
+
+echo "⏳ 等待后端健康检查..."
+for i in $(seq 1 30); do
+  status=$(docker inspect --format='{{.State.Health.Status}}' springboot-backend 2>/dev/null || echo "starting")
+  if [ "$status" = "healthy" ]; then
+    echo "✅ 后端已健康 (${i}次检查)"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "⚠️ 后端健康检查超时，查看日志..."
+    docker logs --tail=30 springboot-backend
+    echo "---"
+    echo "⚠️ 继续尝试启动前端..."
+  fi
+  sleep 10
+done
+
+echo "🚀 启动前端..."
 $DC up -d
 
 # ── 7. 关键步骤：校验密码 + 检测并导入数据库表 ──

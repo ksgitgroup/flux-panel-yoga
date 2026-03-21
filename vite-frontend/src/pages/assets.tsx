@@ -2754,6 +2754,8 @@ export default function AssetsPage() {
                         <span className="text-default-300">→</span>
                         <span className="font-mono text-default-400 truncate max-w-40">{fwd.remoteAddr || '?'}</span>
                         {fwd.name && <span className="text-default-400 truncate max-w-24">{fwd.name}</span>}
+                        {fwd.matchType === 'ip_match' && <Chip size="sm" variant="flat" color="default" classNames={{base: "h-4", content: "text-[10px] px-1"}}>IP匹配</Chip>}
+                        {fwd.remoteSourceProtocol && <span className="text-default-400 text-[11px]">{fwd.remoteSourceProtocol}</span>}
                       </div>
                     ))}
                     {detail?.xuiInstances?.map((inst) => {

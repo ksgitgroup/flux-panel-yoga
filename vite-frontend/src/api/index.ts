@@ -466,6 +466,8 @@ export interface AssetForwardLink {
   remoteSourceProtocol?: string | null;
   createdTime?: number | null;
   updatedTime?: number | null;
+  /** 匹配方式: "bound"=手动绑定, "ip_match"=IP自动匹配 */
+  matchType?: 'bound' | 'ip_match';
 }
 
 export interface MonitorMetricLatest {

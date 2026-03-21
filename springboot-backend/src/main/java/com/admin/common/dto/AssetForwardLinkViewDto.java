@@ -26,4 +26,7 @@ public class AssetForwardLinkViewDto {
     private Long createdTime;
 
     private Long updatedTime;
+
+    /** 匹配方式: "bound"=手动绑定(remoteSourceAssetId), "ip_match"=IP自动匹配(remoteAddr包含本机IP) */
+    private String matchType;
 }

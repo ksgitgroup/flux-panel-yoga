@@ -3,6 +3,7 @@ package com.admin.service.impl;
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
 import com.admin.entity.AssetHost;
+import com.admin.entity.Forward;
 import com.admin.entity.MonitorInstance;
 import com.admin.entity.MonitorMetricLatest;
 import com.admin.entity.MonitorNodeSnapshot;
@@ -15,6 +16,7 @@ import com.admin.mapper.MonitorNodeSnapshotMapper;
 import com.admin.common.auth.AuthContext;
 import com.admin.common.auth.AuthPrincipal;
 import com.admin.service.AlertService;
+import com.admin.service.ForwardService;
 import com.admin.service.ViteConfigService;
 import com.admin.service.MonitorService;
 import com.admin.service.NodeService;
@@ -112,6 +114,9 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
 
     @Resource
     private ViteConfigService viteConfigService;
+
+    @Resource
+    private ForwardService forwardService;
 
     /**
      * 从系统配置读取 GitHub 代理 URL，默认 https://ghfast.top
@@ -1034,6 +1039,10 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             boolean isOnline = nodeMetric != null && nodeMetric.getBooleanValue("online");
             if (isOnline) onlineCount++;
 
+            // Detect online→offline transition for auto-heal
+            boolean wasOnline = Integer.valueOf(1).equals(existing.getOnline());
+            boolean wentOffline = wasOnline && !isOnline;
+
             existing.setOnline(isOnline ? 1 : 0);
             Long prevActive = existing.getLastActiveAt();
             existing.setLastActiveAt(isOnline ? now : (prevActive != null ? prevActive : 0L));
@@ -1045,6 +1054,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             }
 
             monitorNodeSnapshotMapper.updateById(existing);
+
+            // Auto-heal: pause forwards when server goes offline
+            if (wentOffline && existing.getAssetId() != null) {
+                autoHealPauseForwards(existing.getAssetId(), existing.getName());
+            }
 
             // Upsert latest metrics if data available
             if (nodeMetric != null) {
@@ -1586,6 +1600,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
             // Pika status: 1=online, 0=offline
             boolean isOnline = agent.getIntValue("status") == 1;
             if (isOnline) onlineCount++;
+
+            // Detect online→offline transition for auto-heal
+            boolean wasOnline = Integer.valueOf(1).equals(existing.getOnline());
+            boolean wentOffline = wasOnline && !isOnline;
+
             existing.setOnline(isOnline ? 1 : 0);
 
             // Expiry (Pika uses ms timestamp, 0 = never)
@@ -1603,6 +1622,11 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
                 existing.setFirstSeenAt(now);
             }
             monitorNodeSnapshotMapper.updateById(existing);
+
+            // Auto-heal: pause forwards when server goes offline
+            if (wentOffline && existing.getAssetId() != null) {
+                autoHealPauseForwards(existing.getAssetId(), existing.getName());
+            }
 
             // 3. Fetch per-agent latest metrics (Pika returns {cpu:{...}, memory:{...}, ...} directly)
             try {
@@ -2016,6 +2040,34 @@ public class MonitorServiceImpl extends ServiceImpl<MonitorInstanceMapper, Monit
      * Ongoing sync: refresh existing asset with probe data (label, tags, billing).
      * Only fills empty fields — never overwrites user-edited values.
      */
+    /**
+     * 自愈：当探针检测到服务器离线时，自动暂停该资产关联的 GOST 转发规则，
+     * 避免流量被路由到不可达的服务器。
+     * 只暂停 remoteSourceAssetId 匹配的转发（目标是该服务器的转发）。
+     */
+    private void autoHealPauseForwards(Long assetId, String nodeName) {
+        try {
+            List<Forward> forwards = forwardService.list(new LambdaQueryWrapper<Forward>()
+                    .eq(Forward::getRemoteSourceAssetId, assetId)
+                    .eq(Forward::getStatus, 1)); // 只暂停运行中的
+            if (forwards.isEmpty()) return;
+            int paused = 0;
+            for (Forward fwd : forwards) {
+                try {
+                    R result = forwardService.pauseForward(fwd.getId());
+                    if (result.getCode() == 0) paused++;
+                } catch (Exception e) {
+                    log.warn("[AutoHeal] Failed to pause forward {} for offline asset {}: {}", fwd.getId(), assetId, e.getMessage());
+                }
+            }
+            if (paused > 0) {
+                log.info("[AutoHeal] Server '{}' (assetId={}) went offline → auto-paused {} forward(s)", nodeName, assetId, paused);
+            }
+        } catch (Exception e) {
+            log.warn("[AutoHeal] Error checking forwards for offline asset {}: {}", assetId, e.getMessage());
+        }
+    }
+
     private void refreshAssetFromProbe(MonitorNodeSnapshot node) {
         if (node.getAssetId() == null) return;
         try {

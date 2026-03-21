@@ -61,7 +61,10 @@ import {
   acknowledgeAlert,
   getAllActiveAlertsBrief,
   createForward,
-  getTunnelList
+  getTunnelList,
+  getInitScripts,
+  InitScript,
+  quickSetup1Panel
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -710,6 +713,55 @@ export default function AssetsPage() {
     } catch { toast.error('创建失败'); }
     finally { setQuickFwdLoading(false); }
   };
+
+  // ── 初始化脚本 + 1Panel 快速配置 ──
+  const [initScripts, setInitScripts] = useState<InitScript[]>([]);
+  const [initScriptsOpen, setInitScriptsOpen] = useState(false);
+  const [onePanelQuickUrl, setOnePanelQuickUrl] = useState('');
+  const [onePanelQuickLoading, setOnePanelQuickLoading] = useState(false);
+  const { isOpen: isOnePanelQuickOpen, onOpen: onOnePanelQuickOpen, onClose: onOnePanelQuickClose } = useDisclosure();
+  const [onePanelQuickAssetId, setOnePanelQuickAssetId] = useState<number | null>(null);
+
+  const loadInitScripts = async () => {
+    try {
+      const res = await getInitScripts('linux');
+      if (res.code === 0 && Array.isArray(res.data)) setInitScripts(res.data);
+    } catch { /* ignore */ }
+  };
+
+  const openOnePanelQuick = (assetId: number, existingUrl?: string) => {
+    setOnePanelQuickAssetId(assetId);
+    setOnePanelQuickUrl(existingUrl || '');
+    setOnePanelQuickLoading(false);
+    onOnePanelQuickOpen();
+  };
+
+  const submitOnePanelQuick = async () => {
+    if (!onePanelQuickAssetId || !onePanelQuickUrl.trim()) { toast.error('请输入 1Panel 地址'); return; }
+    setOnePanelQuickLoading(true);
+    try {
+      const res = await quickSetup1Panel(onePanelQuickAssetId, onePanelQuickUrl.trim());
+      if (res.code === 0 && res.data) {
+        toast.success('1Panel 配置成功');
+        onOnePanelQuickClose();
+        // 打开现有的 OnePanelBootstrap 弹窗显示 token
+        setOnePanelBootstrap(res.data);
+        setOnePanelBootstrapOpen(true);
+        // 刷新资产详情和列表
+        if (expandedAssetId) void loadAssetDetail(expandedAssetId);
+        void loadAssets();
+      } else {
+        toast.error(res.msg || '配置失败');
+      }
+    } catch { toast.error('配置失败'); }
+    finally { setOnePanelQuickLoading(false); }
+  };
+
+  // ── Provision Modal 额外安装选项 ──
+  const [provisionInstall3xui, setProvisionInstall3xui] = useState(false);
+  const [provisionInstall1panel, setProvisionInstall1panel] = useState(false);
+  const [provisionInstallBaseTools, setProvisionInstallBaseTools] = useState(false);
+  const [provisionInstallDevEnv, setProvisionInstallDevEnv] = useState(false);
 
   // Derived: effective alerting IDs (non-snoozed) and snoozed-only IDs
   const { effectiveAlertIds, snoozedOnlyAlertIds } = useMemo(() => {
@@ -2727,6 +2779,48 @@ export default function AssetsPage() {
                   </div>
                 )}
 
+                {/* ── 初始化脚本（折叠） ── */}
+                <div className="border-t border-divider/40 pt-2 mt-3">
+                  <button type="button" className="flex items-center gap-1 text-xs font-semibold text-default-500 cursor-pointer hover:text-default-700 w-full"
+                    onClick={() => { setInitScriptsOpen(!initScriptsOpen); if (!initScriptsOpen && initScripts.length === 0) void loadInitScripts(); }}>
+                    <span className={`transition-transform ${initScriptsOpen ? 'rotate-90' : ''}`}>▶</span>
+                    初始化脚本
+                  </button>
+                  {initScriptsOpen && (
+                    <div className="mt-2 space-y-1.5">
+                      {initScripts.map((s) => (
+                        <div key={s.key} className="flex items-center gap-2 text-xs">
+                          <span className="text-default-600 font-medium w-20 shrink-0">{s.label}</span>
+                          <span className="text-default-400 truncate flex-1" title={s.description}>{s.description}</span>
+                          <button type="button" className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[11px] hover:bg-default-200 cursor-pointer shrink-0"
+                            onClick={() => { navigator.clipboard.writeText(s.command); toast.success(`${s.label} 命令已复制`); }}>复制</button>
+                          {/* 3X-UI 状态 */}
+                          {s.key === '3xui' && (detail?.xuiInstances?.length ?? 0) > 0 && (
+                            <Chip size="sm" variant="flat" color="success" classNames={{base: "h-4", content: "text-[10px] px-1"}}>已绑定</Chip>
+                          )}
+                          {s.key === '3xui' && (detail?.xuiInstances?.length ?? 0) === 0 && (canCreateAssets || canUpdateAssets) && (
+                            <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
+                              className="text-[11px] text-primary font-medium hover:underline cursor-pointer shrink-0">安装后绑定→</button>
+                          )}
+                          {/* 1Panel 状态 */}
+                          {s.key === '1panel' && selectedAsset.panelUrl && (
+                            <Chip size="sm" variant="flat" color="success" classNames={{base: "h-4", content: "text-[10px] px-1"}}>已配置</Chip>
+                          )}
+                          {s.key === '1panel' && !selectedAsset.panelUrl && (canCreateAssets || canUpdateAssets) && (
+                            <button type="button" onClick={() => openOnePanelQuick(selectedAsset.id!)}
+                              className="text-[11px] text-primary font-medium hover:underline cursor-pointer shrink-0">配置→</button>
+                          )}
+                          {s.key === '1panel' && selectedAsset.panelUrl && !selectedAsset.onePanelInstanceId && (canCreateAssets || canUpdateAssets) && (
+                            <button type="button" onClick={() => openOnePanelQuick(selectedAsset.id!, selectedAsset.panelUrl || undefined)}
+                              className="text-[11px] text-warning font-medium hover:underline cursor-pointer shrink-0">配置摘要→</button>
+                          )}
+                        </div>
+                      ))}
+                      {initScripts.length === 0 && <p className="text-[11px] text-default-400">加载中...</p>}
+                    </div>
+                  )}
+                </div>
+
                 {/* ── 隧道/转发/X-UI 明细 ── */}
                 {((detail?.tunnels?.length ?? 0) > 0 || (detail?.forwards?.length ?? 0) > 0 || (detail?.xuiInstances?.length ?? 0) > 0) && (
                   <div className="border-t border-divider/40 pt-3 mt-3 space-y-1">
@@ -2936,6 +3030,35 @@ export default function AssetsPage() {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* ── 1Panel 快速配置弹窗 ── */}
+      <Modal isOpen={isOnePanelQuickOpen} onOpenChange={(open) => !open && onOnePanelQuickClose()} size="md">
+        <ModalContent>
+          <ModalHeader>快速配置 1Panel</ModalHeader>
+          <ModalBody className="space-y-3">
+            <Input
+              label="1Panel 面板地址"
+              size="sm"
+              value={onePanelQuickUrl}
+              onValueChange={setOnePanelQuickUrl}
+              placeholder="https://IP:19382"
+              description="安装 1Panel 后的面板访问地址"
+            />
+            <div className="rounded-lg bg-default-50 p-2 text-[11px] text-default-400 space-y-1">
+              <p>点击「保存并生成 Token」将：</p>
+              <p>1. 保存面板地址到当前资产</p>
+              <p>2. 自动创建 1Panel 摘要实例并生成 Node Token</p>
+              <p>3. 显示安装脚本（在 1Panel 服务器上执行）</p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={onOnePanelQuickClose}>取消</Button>
+            <Button size="sm" color="primary" isLoading={onePanelQuickLoading} onPress={submitOnePanelQuick}>
+              保存并生成 Token
+            </Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
 
@@ -4220,6 +4343,47 @@ export default function AssetsPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* 面板安装 + 基础环境 */}
+                  {provisionForm.osPlatform === 'linux' && (
+                    <>
+                      <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2 mt-3">面板安装</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className={`rounded-lg border p-2 transition-all ${provisionInstall3xui ? 'border-primary/40 bg-primary-50/20' : 'border-divider'}`}>
+                          <div className="flex items-center gap-1.5">
+                            <Switch size="sm" isSelected={provisionInstall3xui} onValueChange={setProvisionInstall3xui} />
+                            <span className="text-xs font-medium">3X-UI</span>
+                          </div>
+                          <p className="text-[10px] text-default-400 mt-1">V2Ray/Xray 代理面板</p>
+                        </div>
+                        <div className={`rounded-lg border p-2 transition-all ${provisionInstall1panel ? 'border-success/40 bg-success-50/20' : 'border-divider'}`}>
+                          <div className="flex items-center gap-1.5">
+                            <Switch size="sm" isSelected={provisionInstall1panel} onValueChange={setProvisionInstall1panel} />
+                            <span className="text-xs font-medium">1Panel</span>
+                          </div>
+                          <p className="text-[10px] text-default-400 mt-1">服务器运维面板</p>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] font-semibold text-default-400 uppercase tracking-wider mb-2 mt-3">基础环境</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className={`rounded-lg border p-2 transition-all ${provisionInstallBaseTools ? 'border-default-400/40 bg-default-50' : 'border-divider'}`}>
+                          <div className="flex items-center gap-1.5">
+                            <Switch size="sm" isSelected={provisionInstallBaseTools} onValueChange={setProvisionInstallBaseTools} />
+                            <span className="text-xs font-medium">基础工具</span>
+                          </div>
+                          <p className="text-[10px] text-default-400 mt-1">dnsutils / iperf3 / jq / tmux</p>
+                        </div>
+                        <div className={`rounded-lg border p-2 transition-all ${provisionInstallDevEnv ? 'border-default-400/40 bg-default-50' : 'border-divider'}`}>
+                          <div className="flex items-center gap-1.5">
+                            <Switch size="sm" isSelected={provisionInstallDevEnv} onValueChange={setProvisionInstallDevEnv} />
+                            <span className="text-xs font-medium">开发环境</span>
+                          </div>
+                          <p className="text-[10px] text-default-400 mt-1">Node.js 22 / Python3 / GCC</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ) : allProvisionResult ? (
@@ -4310,6 +4474,50 @@ export default function AssetsPage() {
                         </div>
                       );
                     })()}
+                  </div>
+                )}
+
+                {/* 额外安装脚本（3X-UI / 1Panel / 基础工具 / 开发环境） */}
+                {(provisionInstall3xui || provisionInstall1panel || provisionInstallBaseTools || provisionInstallDevEnv) && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">附加安装脚本</p>
+                    <p className="text-xs text-default-400">以下脚本需要在探针安装完成后，以 root 权限在服务器上执行：</p>
+                    {provisionInstall3xui && (
+                      <div className="rounded-lg bg-default-100 p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">3X-UI 面板</span>
+                          <Button size="sm" variant="flat" onPress={() => copyToClipboard('apt update && apt install -y curl && bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)')}>复制</Button>
+                        </div>
+                        <code className="block text-[11px] text-default-500 break-all">apt update && apt install -y curl && bash &lt;(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)</code>
+                      </div>
+                    )}
+                    {provisionInstall1panel && (
+                      <div className="rounded-lg bg-default-100 p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">1Panel 面板</span>
+                          <Button size="sm" variant="flat" onPress={() => copyToClipboard('bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"')}>复制</Button>
+                        </div>
+                        <code className="block text-[11px] text-default-500 break-all">bash -c &quot;$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)&quot;</code>
+                      </div>
+                    )}
+                    {provisionInstallBaseTools && (
+                      <div className="rounded-lg bg-default-100 p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">基础工具</span>
+                          <Button size="sm" variant="flat" onPress={() => copyToClipboard('apt update && apt install -y dnsutils iperf3 jq tmux')}>复制</Button>
+                        </div>
+                        <code className="block text-[11px] text-default-500 break-all">apt update && apt install -y dnsutils iperf3 jq tmux</code>
+                      </div>
+                    )}
+                    {provisionInstallDevEnv && (
+                      <div className="rounded-lg bg-default-100 p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">开发环境</span>
+                          <Button size="sm" variant="flat" onPress={() => copyToClipboard('apt update && apt install -y python3-pip python3-venv build-essential git unzip zip tree && curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs')}>复制</Button>
+                        </div>
+                        <code className="block text-[11px] text-default-500 break-all">apt update && apt install -y python3-pip python3-venv build-essential git unzip zip tree && curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs</code>
+                      </div>
+                    )}
                   </div>
                 )}
 

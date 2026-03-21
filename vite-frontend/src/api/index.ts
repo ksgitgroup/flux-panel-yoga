@@ -1001,6 +1001,11 @@ export const updateOnePanelInstance = (data: any) => Network.post<OnePanelInstan
 export const deleteOnePanelInstance = (id: number) => Network.post("/onepanel/delete", { id });
 export const rotateOnePanelToken = (id: number) => Network.post<OnePanelBootstrap>("/onepanel/rotate-token", { id });
 export const diagnoseOnePanelInstance = (id: number) => Network.post("/onepanel/diagnose", { id });
+export const quickSetup1Panel = (assetId: number, panelUrl: string) => Network.post<OnePanelBootstrap>("/onepanel/quick-setup", { assetId, panelUrl });
+
+// 服务器初始化脚本
+export interface InitScript { key: string; label: string; command: string; description: string; }
+export const getInitScripts = (osPlatform?: string) => Network.post<InitScript[]>("/asset/init-scripts", { osPlatform: osPlatform || 'linux' });
 
 // JumpServer integration
 export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");

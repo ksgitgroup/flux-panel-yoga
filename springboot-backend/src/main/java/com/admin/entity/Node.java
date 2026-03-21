@@ -34,4 +34,14 @@ public class Node extends BaseEntity {
 
     private Long assetId;
 
+    /**
+     * 部署位置: overseas=海外, domestic_cloud=国内云, domestic_ix=国内IX专线, domestic_idc=国内自建机房
+     */
+    private String deployLocation;
+
+    /**
+     * GOST Web API 地址 (如 http://IP:18080)，用于远程配置下发
+     */
+    private String apiUrl;
+
 }

@@ -2743,6 +2743,38 @@ export default function AssetsPage() {
                   );
                 })()}
 
+                {/* Network Endpoints - aggregated proxy endpoints on this asset */}
+                {((detail?.forwards?.length ?? 0) > 0 || (detail?.protocolSummaries?.length ?? 0) > 0) && (
+                  <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
+                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">网络端点</p>
+                    <p className="text-[10px] text-default-400 mb-2">该服务器上可用的代理/转发出口端点</p>
+                    <div className="space-y-1.5">
+                      {/* GOST Forward endpoints */}
+                      {detail?.forwards?.map((fwd) => (
+                        <div key={fwd.id} className="flex items-center gap-2 text-xs">
+                          <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">GOST</Chip>
+                          <span className="font-mono">{selectedAsset.primaryIp}</span>
+                          <span className="text-default-400">→</span>
+                          <span className="font-mono text-default-500">{fwd.remoteAddr || '?'}</span>
+                          <Chip size="sm" variant="flat" color={fwd.status === 1 ? 'success' : 'default'} className="h-4 text-[9px]">
+                            {fwd.status === 1 ? '运行' : '停止'}
+                          </Chip>
+                          {fwd.name && <span className="text-default-400 truncate max-w-24">{fwd.name}</span>}
+                        </div>
+                      ))}
+                      {/* XUI Inbound endpoints */}
+                      {detail?.protocolSummaries?.map((p) => (
+                        <div key={p.protocol} className="flex items-center gap-2 text-xs">
+                          <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">XUI</Chip>
+                          <span className="font-mono">{selectedAsset.primaryIp}</span>
+                          <span className="font-bold uppercase text-default-600">{p.protocol}</span>
+                          <span className="font-mono text-default-400">{p.inboundCount} 入站 / {p.clientCount} 客户端</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Protocol Summary - inline chips */}
                 {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">

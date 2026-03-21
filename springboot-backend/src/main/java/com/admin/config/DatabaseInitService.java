@@ -354,6 +354,8 @@ public class DatabaseInitService {
             updateColumn("asset_host", "gpu_name", "varchar(120) DEFAULT NULL COMMENT 'GPU 型号（探针同步）'");
             updateColumn("asset_host", "swap_total_mb", "int(10) DEFAULT NULL COMMENT 'Swap 容量 (MB)（探针同步）'");
             updateColumn("node", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
+            updateColumn("node", "deploy_location", "varchar(32) DEFAULT 'overseas' COMMENT '部署位置: overseas/domestic_cloud/domestic_ix/domestic_idc'");
+            updateColumn("node", "api_url", "varchar(255) DEFAULT NULL COMMENT 'GOST Web API 地址'");
             log.info("[DatabaseInit] AssetHost VPS 管理字段增量升级完成");
         } catch (Exception e) {
             log.warn("[DatabaseInit] AssetHost 字段升级异常: {}", e.getMessage());

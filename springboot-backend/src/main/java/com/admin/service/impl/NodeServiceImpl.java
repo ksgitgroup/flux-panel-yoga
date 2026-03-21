@@ -248,6 +248,9 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         // 设置默认属性
         node.setSecret(IdUtil.simpleUUID());
         node.setStatus(NODE_STATUS_ACTIVE);
+        if (node.getDeployLocation() == null) {
+            node.setDeployLocation("overseas");
+        }
 
         // 设置时间戳
         long currentTime = System.currentTimeMillis();

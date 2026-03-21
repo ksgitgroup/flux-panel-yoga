@@ -34,8 +34,6 @@ import NotificationPage from "@/pages/notification";
 import TopologyPage from "@/pages/topology";
 import BackupPage from "@/pages/backup";
 import IpQualityPage from "@/pages/ip-quality";
-import IpPoolPage from "@/pages/ip-pool";
-import ShopAccountPage from "@/pages/shop-account";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 
 import AdminLayout from "@/layouts/admin";
@@ -580,26 +578,6 @@ function App() {
           <ProtectedRoute requiredPermissions={['ip_quality.read']}>
             <SystemWorkspace>
               <IpQualityPage />
-            </SystemWorkspace>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/ip-pool"
-        element={
-          <ProtectedRoute requiredPermissions={['ip_pool.read']}>
-            <SystemWorkspace>
-              <IpPoolPage />
-            </SystemWorkspace>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/shop-account"
-        element={
-          <ProtectedRoute requiredPermissions={['shop_account.read']}>
-            <SystemWorkspace>
-              <ShopAccountPage />
             </SystemWorkspace>
           </ProtectedRoute>
         }

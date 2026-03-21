@@ -407,31 +407,6 @@ export default function AdminLayout({
 
       requiredPermissions: ['ip_quality.read']
     },
-    {
-      path: '/ip-pool',
-      label: 'IP池管理',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M2 12h20" />
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-        </svg>
-      ),
-      requiredPermissions: ['ip_pool.read']
-    },
-    {
-      path: '/shop-account',
-      label: '店铺管理',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          <polyline points="9 22 9 12 15 12 15 22" />
-        </svg>
-      ),
-      requiredPermissions: ['shop_account.read']
-    }
   ];
 
 
@@ -587,7 +562,7 @@ export default function AdminLayout({
     .filter((item): item is MenuItem => Boolean(item));
 
   // Grouped dropdown menus — "服务器"含看板+分析，"监控"含诊断+探针
-  const serverGroupPaths = ['/monitor', '/node', '/cost', '/traffic', '/topology', '/ip-quality', '/ip-pool', '/shop-account'];
+  const serverGroupPaths = ['/monitor', '/node', '/cost', '/traffic', '/topology', '/ip-quality'];
   // 系统工作台：点击直接进入 /config，侧边栏导航所有子页面
   const systemGroupPaths = [
     '/xui', '/xui-protocols', '/onepanel',

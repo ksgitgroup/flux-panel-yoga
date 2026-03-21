@@ -1015,6 +1015,15 @@ export interface IpQualityResult {
 }
 export const checkIpQualitySimple = (ip: string) => Network.post<IpQualityResult>("/asset/ip-quality", { ip });
 
+// AdsPower 集成
+/** 后端代理模式：检查可达性 */
+export const adsPowerPing = (apiBase?: string) => Network.post<{ reachable: boolean }>("/asset/adspower/ping", { apiBase });
+/** 后端代理模式：查询 Profile 列表 */
+export const adsPowerProfiles = (apiBase?: string, page?: number) => Network.post<any[]>("/asset/adspower/profiles", { apiBase, page: page || 1, pageSize: 50 });
+/** 后端代理模式：推送代理到 AdsPower */
+export const adsPowerPushProxy = (params: { apiBase?: string; profileName?: string; profileId?: string; proxyType?: string; proxyHost: string; proxyPort: number; proxyUser?: string; proxyPass?: string }) =>
+  Network.post<{ action: string; profileId: string }>("/asset/adspower/push-proxy", params);
+
 // JumpServer integration
 export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");
 export const jumpServerConnect = (assetId: number, protocol?: string, account?: string) =>

@@ -2256,6 +2256,34 @@ export default function AssetsPage() {
           <Button size="sm" color="primary" isDisabled={selectedIds.size === 0} onPress={openBatchModal}>
             批量修改
           </Button>
+          <Button size="sm" variant="flat" isDisabled={selectedIds.size === 0} onPress={() => {
+            const selected = assets.filter(a => selectedIds.has(a.id));
+            const headers = ['名称','IP','厂商','地区','用途','系统','到期日期','月费','币种','标签','备注'];
+            const rows = selected.map(a => [
+              a.name || '', a.primaryIp || '', a.provider || '', a.region || '', a.purpose || '',
+              a.os || a.osCategory || '', a.expireDate && a.expireDate !== -1 ? new Date(a.expireDate).toLocaleDateString('zh-CN') : '',
+              a.monthlyCost || '', a.currency || '', a.tags || '', a.remark || ''
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+            const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `flux-assets-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+            URL.revokeObjectURL(url);
+            toast.success(`已导出 ${selected.length} 台服务器`);
+          }}>
+            导出 CSV
+          </Button>
+          <Button size="sm" variant="flat" color="warning" isDisabled={selectedIds.size === 0} onPress={async () => {
+            if (!confirm(`确认批量归档 ${selectedIds.size} 台服务器？归档后可在回收站恢复。`)) return;
+            let ok = 0, fail = 0;
+            for (const id of selectedIds) {
+              try { const r = await archiveAsset(id); if (r.code === 0) ok++; else fail++; } catch { fail++; }
+            }
+            toast.success(`归档完成：成功 ${ok}，失败 ${fail}`);
+            setSelectedIds(new Set()); void loadAssets();
+          }}>
+            批量归档
+          </Button>
         </div>
       )}
 

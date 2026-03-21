@@ -747,11 +747,25 @@ export interface MonitorNodeProviderDetail {
   error?: string | null;
 }
 
+export interface AssetTunnelLink {
+  id: number;
+  name: string;
+  type: number; // 1=端口转发, 2=隧道转发
+  inNodeName: string;
+  inIp: string;
+  outNodeName?: string | null;
+  outIp?: string | null;
+  protocol?: string | null;
+  role: 'source' | 'target';
+  forwardCount: number;
+}
+
 export interface AssetHostDetail {
   asset: AssetHost;
   xuiInstances: XuiInstance[];
   protocolSummaries: XuiProtocolSummary[];
   forwards: AssetForwardLink[];
+  tunnels?: AssetTunnelLink[];
   monitorNodes?: MonitorNodeSnapshot[];
   onePanelInstance?: OnePanelInstance | null;
 }

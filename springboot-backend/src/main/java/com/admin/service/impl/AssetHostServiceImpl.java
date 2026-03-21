@@ -121,9 +121,23 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .orderByAsc(XuiInboundSnapshot::getStatus)
                 .orderByAsc(XuiInboundSnapshot::getProtocol, XuiInboundSnapshot::getPort));
 
-        List<Forward> forwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
+        // 转发规则：精确绑定 + IP 自动匹配（不修改数据，仅展示层扩大范围）
+        List<Forward> boundForwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
                 .eq(Forward::getRemoteSourceAssetId, asset.getId())
                 .orderByDesc(Forward::getUpdatedTime, Forward::getId));
+        Set<Long> boundIds = boundForwards.stream().map(Forward::getId).collect(Collectors.toSet());
+
+        // IP 自动匹配：remoteAddr 包含本机 IP 但尚未通过 remoteSourceAssetId 绑定的转发
+        List<Forward> ipMatchForwards = Collections.emptyList();
+        if (StringUtils.hasText(asset.getPrimaryIp())) {
+            ipMatchForwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
+                    .like(Forward::getRemoteAddr, asset.getPrimaryIp())
+                    .orderByDesc(Forward::getUpdatedTime, Forward::getId))
+                    .stream().filter(f -> !boundIds.contains(f.getId())).collect(Collectors.toList());
+        }
+
+        List<Forward> allForwards = new ArrayList<>(boundForwards);
+        allForwards.addAll(ipMatchForwards);
 
         OnePanelInstance onePanelInstance = onePanelInstanceMapper.selectOne(new LambdaQueryWrapper<OnePanelInstance>()
                 .eq(OnePanelInstance::getAssetId, asset.getId())
@@ -141,7 +155,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         detail.setAsset(assetView);
         detail.setXuiInstances(enrichInstanceCounts(instanceViews, inbounds));
         detail.setProtocolSummaries(buildProtocolSummaries(inbounds));
-        detail.setForwards(buildForwardLinks(forwards));
+        detail.setForwards(buildForwardLinks(allForwards, boundIds));
         detail.setMonitorNodes(monitorNodes);
         detail.setOnePanelInstance(toOnePanelInstanceView(onePanelInstance, asset));
         detail.setTunnels(tunnelLinks);
@@ -891,7 +905,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .collect(Collectors.toList());
     }
 
-    private List<AssetForwardLinkViewDto> buildForwardLinks(List<Forward> forwards) {
+    private List<AssetForwardLinkViewDto> buildForwardLinks(List<Forward> forwards, Set<Long> boundIds) {
         if (forwards == null || forwards.isEmpty()) {
             return Collections.emptyList();
         }
@@ -916,6 +930,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             dto.setRemoteSourceProtocol(forward.getRemoteSourceProtocol());
             dto.setCreatedTime(forward.getCreatedTime());
             dto.setUpdatedTime(forward.getUpdatedTime());
+            dto.setMatchType(boundIds.contains(forward.getId()) ? "bound" : "ip_match");
             return dto;
         }).collect(Collectors.toList());
     }

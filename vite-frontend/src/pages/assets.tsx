@@ -59,7 +59,9 @@ import {
   getAlertingAssetIds,
   getAlertsForAsset,
   acknowledgeAlert,
-  getAllActiveAlertsBrief
+  getAllActiveAlertsBrief,
+  createForward,
+  getTunnelList
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -650,6 +652,64 @@ export default function AssetsPage() {
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isProvisionOpen, onOpen: onProvisionOpen, onClose: onProvisionClose } = useDisclosure();
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure();
+
+  // ── 快速创建转发 ──
+  const { isOpen: isQuickFwdOpen, onOpen: onQuickFwdOpen, onClose: onQuickFwdClose } = useDisclosure();
+  const [quickFwdAsset, setQuickFwdAsset] = useState<AssetHost | null>(null);
+  const [quickFwdTunnels, setQuickFwdTunnels] = useState<{ id: number; name: string; inNodeId: number; outNodeId?: number; type: number }[]>([]);
+  const [quickFwdTunnelId, setQuickFwdTunnelId] = useState<number | null>(null);
+  const [quickFwdName, setQuickFwdName] = useState('');
+  const [quickFwdRemoteAddr, setQuickFwdRemoteAddr] = useState('');
+  const [quickFwdLoading, setQuickFwdLoading] = useState(false);
+
+  const openQuickForward = async (asset: AssetHost) => {
+    if (!asset.gostNodeId) {
+      toast.error('请先安装 GOST 节点');
+      return;
+    }
+    setQuickFwdAsset(asset);
+    setQuickFwdName(`${asset.name || 'fwd'}-${(detail?.forwards?.length ?? 0) + 1}`);
+    setQuickFwdRemoteAddr('');
+    setQuickFwdTunnelId(null);
+    setQuickFwdLoading(false);
+    // 加载隧道列表，过滤出该节点相关的隧道
+    try {
+      const res = await getTunnelList();
+      if (res.code === 0 && Array.isArray(res.data)) {
+        const matching = res.data.filter((t: any) => t.inNodeId === asset.gostNodeId || t.outNodeId === asset.gostNodeId);
+        setQuickFwdTunnels(matching);
+        if (matching.length === 1) setQuickFwdTunnelId(matching[0].id);
+      } else {
+        setQuickFwdTunnels([]);
+      }
+    } catch { setQuickFwdTunnels([]); }
+    onQuickFwdOpen();
+  };
+
+  const submitQuickForward = async () => {
+    if (!quickFwdTunnelId) { toast.error('请选择隧道'); return; }
+    if (!quickFwdRemoteAddr.trim()) { toast.error('请输入目标地址'); return; }
+    if (!quickFwdName.trim()) { toast.error('请输入名称'); return; }
+    setQuickFwdLoading(true);
+    try {
+      const res = await createForward({
+        name: quickFwdName.trim(),
+        tunnelId: quickFwdTunnelId,
+        remoteAddr: quickFwdRemoteAddr.trim(),
+        strategy: 'fifo',
+        remoteSourceType: 'manual',
+      });
+      if (res.code === 0) {
+        toast.success('转发规则已创建');
+        onQuickFwdClose();
+        // 刷新资产详情
+        if (expandedAssetId) void loadAssetDetail(expandedAssetId);
+      } else {
+        toast.error(res.msg || '创建失败');
+      }
+    } catch { toast.error('创建失败'); }
+    finally { setQuickFwdLoading(false); }
+  };
 
   // Derived: effective alerting IDs (non-snoozed) and snoozed-only IDs
   const { effectiveAlertIds, snoozedOnlyAlertIds } = useMemo(() => {
@@ -2515,8 +2575,11 @@ export default function AssetsPage() {
                   <span className="inline-flex items-center gap-1 text-xs">
                     <span className="text-default-600 font-medium">转发</span>
                     <span className="text-default-400">{(detail?.forwards?.length ?? 0) > 0 ? `${detail!.forwards!.length}条` : '无'}</span>
-                    <button type="button" onClick={() => navigate('/forward')} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">
-                      {(detail?.forwards?.length ?? 0) > 0 ? '管理' : '添加'}
+                    {(detail?.forwards?.length ?? 0) > 0 && (
+                      <button type="button" onClick={() => navigate('/forward')} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">管理</button>
+                    )}
+                    <button type="button" onClick={() => openQuickForward(selectedAsset)} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">
+                      +添加
                     </button>
                   </span>
                   {/* X-UI */}
@@ -2849,6 +2912,76 @@ export default function AssetsPage() {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* ── 快速创建转发弹窗 ── */}
+      <Modal isOpen={isQuickFwdOpen} onOpenChange={(open) => !open && onQuickFwdClose()} size="lg">
+        <ModalContent>
+          <ModalHeader>快速创建转发</ModalHeader>
+          <ModalBody className="space-y-3">
+            {quickFwdAsset && (
+              <>
+                <div className="text-xs text-default-400">
+                  入口节点：<span className="text-default-600 font-mono">{quickFwdAsset.gostNodeName || `Node#${quickFwdAsset.gostNodeId}`}</span>
+                  <span className="ml-2">({quickFwdAsset.primaryIp})</span>
+                </div>
+
+                {quickFwdTunnels.length === 0 ? (
+                  <div className="rounded-lg bg-warning-50 p-3 text-sm text-warning-700 space-y-1">
+                    <p>该节点暂无可用隧道，请先创建隧道。</p>
+                    <Button size="sm" variant="flat" color="warning" onPress={() => { onQuickFwdClose(); navigate('/tunnel'); }}>
+                      前往隧道管理 →
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Select
+                      label="选择隧道"
+                      size="sm"
+                      selectedKeys={quickFwdTunnelId ? [String(quickFwdTunnelId)] : []}
+                      onSelectionChange={(keys) => {
+                        const v = Array.from(keys)[0];
+                        setQuickFwdTunnelId(v ? Number(v) : null);
+                      }}
+                    >
+                      {quickFwdTunnels.map((t) => (
+                        <SelectItem key={String(t.id)} textValue={t.name}>
+                          {t.name} ({t.type === 1 ? '端口转发' : '隧道转发'})
+                        </SelectItem>
+                      ))}
+                    </Select>
+
+                    <Input
+                      label="转发名称"
+                      size="sm"
+                      value={quickFwdName}
+                      onValueChange={setQuickFwdName}
+                      placeholder="如: us-proxy-443"
+                    />
+
+                    <Textarea
+                      label="目标地址"
+                      size="sm"
+                      value={quickFwdRemoteAddr}
+                      onValueChange={setQuickFwdRemoteAddr}
+                      placeholder="IP:端口 或 域名:端口，如 192.168.1.100:443"
+                      description="多个地址换行分隔，支持负载均衡"
+                      minRows={2}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="light" onPress={onQuickFwdClose}>取消</Button>
+            {quickFwdTunnels.length > 0 && (
+              <Button size="sm" color="primary" isLoading={quickFwdLoading} onPress={submitQuickForward}>
+                创建转发
+              </Button>
+            )}
+          </ModalFooter>
         </ModalContent>
       </Modal>
 

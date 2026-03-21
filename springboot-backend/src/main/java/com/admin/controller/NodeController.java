@@ -12,6 +12,10 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import com.admin.common.utils.GostApiClient;
+import com.admin.entity.Node;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.util.*;
 
 /**
@@ -26,6 +30,9 @@ import java.util.*;
 @CrossOrigin
 @RequestMapping("/api/v1/node")
 public class NodeController extends BaseController {
+
+    @Autowired
+    private GostApiClient gostApiClient;
 
     @LogAnnotation
     @RequireRole
@@ -67,6 +74,27 @@ public class NodeController extends BaseController {
         if (idObj == null) return R.err("ID 不能为空");
         Long id = Long.valueOf(idObj.toString());
         return nodeService.getInstallCommand(id);
+    }
+
+    /**
+     * 查询 GOST 节点的 REST API 状态（需要节点已配置 apiUrl）。
+     * 返回: { reachable, serviceCount, chainCount }
+     */
+    @RequireRole
+    @PostMapping("/gost-status")
+    public R gostStatus(@RequestBody Map<String, Object> params) {
+        Object idObj = params.get("id");
+        if (idObj == null) return R.err("ID 不能为空");
+        Long id = Long.valueOf(idObj.toString());
+        Node node = nodeService.getNodeById(id);
+        if (node == null) return R.err("节点不存在");
+        if (node.getApiUrl() == null || node.getApiUrl().isBlank()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("reachable", false);
+            result.put("error", "未配置 API 地址");
+            return R.ok(result);
+        }
+        return R.ok(gostApiClient.getStatus(node.getApiUrl()));
     }
 
     /**

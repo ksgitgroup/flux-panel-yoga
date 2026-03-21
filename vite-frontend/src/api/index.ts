@@ -813,6 +813,8 @@ export const getNodeTrafficSummary = () => Network.post<Record<string, {
   forwards: { id: number; name: string; inFlow: number; outFlow: number; inPort: number; remoteAddr: string }[];
 }>>("/node/traffic-summary");
 
+export const getGostNodeStatus = (id: number) => Network.post<{ reachable: boolean; serviceCount?: number; chainCount?: number; error?: string }>("/node/gost-status", { id });
+
 // 隧道CRUD操作 - 全部使用POST请求
 export const createTunnel = (data: any) => Network.post("/tunnel/create", data);
 export const getTunnelList = () => Network.post("/tunnel/list");

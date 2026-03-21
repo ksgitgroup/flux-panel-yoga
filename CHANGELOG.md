@@ -1,5 +1,45 @@
 # Flux Panel Yoga 更新日志
 
+## v1.4.7-dev.2 (2026-03-21)
+
+### 资产管理架构升级
+
+- **服务与端点统一视图**：资产详情弹窗整体重排，7 个子系统（Komari/Pika/GOST/隧道/转发/X-UI/1Panel）聚合到一个紧凑的 inline chips 行，取代分散的多个卡片
+- **三个数据断裂带修复**：
+  - GOST 转发一键创建：资产详情中直接添加转发（自动定位节点+隧道，无需跳转页面）
+  - 隧道-资产关联：`tunnel` 表新增 `sourceAssetId`/`targetAssetId`，资产详情可查看关联隧道
+  - 转发 IP 自动匹配：`remoteAddr` 包含本机 IP 的转发自动显示在资产详情中
+
+### GOST REST API Client
+
+- 新增 `GostApiClient.java`，通过 GOST v3 HTTP API（`node.apiUrl`）直接查询节点配置状态
+- 新增 `POST /node/gost-status` 端点，返回 GOST 节点的 service/chain 数量和可达性
+- GOST 节点实体新增 `deployLocation`（海外/国内IX/国内云/自建机房）和 `apiUrl` 字段
+
+### 服务器初始化一键配置
+
+- 添加服务器弹窗新增 3X-UI / 1Panel / 基础工具 / 开发环境四个安装选项
+- 资产详情新增「初始化脚本」折叠区，5 类安装脚本一键复制
+- 新增 `POST /asset/init-scripts` 端点，返回标准化安装脚本
+
+### 1Panel 快速配置
+
+- 新增 `POST /onepanel/quick-setup` 端点，一步到位：保存 panelUrl + 创建实例 + 返回 Token
+- 修复原有的配置断裂问题（之前需要保存资产→重新打开→才能配置）
+
+### 资产详情弹窗重新设计
+
+- 统一字体规范：正文 `text-xs`，辅助 `text-[11px]`，chip `text-[10px]`
+- 去掉所有 section 独立卡片边框，改为分隔线
+- 告警状态精简为一行 flex
+- 探针指标区资源条改为 2×2 紧凑布局，整体高度减少约 40%
+
+### 部署修复
+
+- `remote_deploy.sh` 改为分步启动后端和前端，避免健康检查超时导致 CI 失败
+
+---
+
 ## v1.4.7-dev (2026-03-08)
 
 ### 同步逻辑改进

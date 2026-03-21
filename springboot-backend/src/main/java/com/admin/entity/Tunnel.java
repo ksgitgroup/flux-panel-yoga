@@ -70,4 +70,10 @@ public class Tunnel extends BaseEntity {
     private String udpListenAddr;
 
     private String interfaceName;
+
+    /** 入口节点对应的资产ID（通过 node.assetId 自动填充） */
+    private Long sourceAssetId;
+
+    /** 出口节点对应的资产ID（通过 node.assetId 自动填充） */
+    private Long targetAssetId;
 }

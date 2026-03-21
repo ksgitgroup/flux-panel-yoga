@@ -406,7 +406,7 @@ export default function AdminLayout({
       ),
 
       requiredPermissions: ['ip_quality.read']
-    }
+    },
   ];
 
 

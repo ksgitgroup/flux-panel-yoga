@@ -466,6 +466,8 @@ export interface AssetForwardLink {
   remoteSourceProtocol?: string | null;
   createdTime?: number | null;
   updatedTime?: number | null;
+  /** 匹配方式: "bound"=手动绑定, "ip_match"=IP自动匹配 */
+  matchType?: 'bound' | 'ip_match';
 }
 
 export interface MonitorMetricLatest {
@@ -747,11 +749,25 @@ export interface MonitorNodeProviderDetail {
   error?: string | null;
 }
 
+export interface AssetTunnelLink {
+  id: number;
+  name: string;
+  type: number; // 1=端口转发, 2=隧道转发
+  inNodeName: string;
+  inIp: string;
+  outNodeName?: string | null;
+  outIp?: string | null;
+  protocol?: string | null;
+  role: 'source' | 'target';
+  forwardCount: number;
+}
+
 export interface AssetHostDetail {
   asset: AssetHost;
   xuiInstances: XuiInstance[];
   protocolSummaries: XuiProtocolSummary[];
   forwards: AssetForwardLink[];
+  tunnels?: AssetTunnelLink[];
   monitorNodes?: MonitorNodeSnapshot[];
   onePanelInstance?: OnePanelInstance | null;
 }
@@ -812,6 +828,8 @@ export const getNodeTrafficSummary = () => Network.post<Record<string, {
   forwardCount: number; totalInFlow: number; totalOutFlow: number;
   forwards: { id: number; name: string; inFlow: number; outFlow: number; inPort: number; remoteAddr: string }[];
 }>>("/node/traffic-summary");
+
+export const getGostNodeStatus = (id: number) => Network.post<{ reachable: boolean; serviceCount?: number; chainCount?: number; error?: string }>("/node/gost-status", { id });
 
 // 隧道CRUD操作 - 全部使用POST请求
 export const createTunnel = (data: any) => Network.post("/tunnel/create", data);
@@ -983,6 +1001,19 @@ export const updateOnePanelInstance = (data: any) => Network.post<OnePanelInstan
 export const deleteOnePanelInstance = (id: number) => Network.post("/onepanel/delete", { id });
 export const rotateOnePanelToken = (id: number) => Network.post<OnePanelBootstrap>("/onepanel/rotate-token", { id });
 export const diagnoseOnePanelInstance = (id: number) => Network.post("/onepanel/diagnose", { id });
+export const quickSetup1Panel = (assetId: number, panelUrl: string) => Network.post<OnePanelBootstrap>("/onepanel/quick-setup", { assetId, panelUrl });
+
+// 服务器初始化脚本
+export interface InitScript { key: string; label: string; command: string; description: string; }
+export const getInitScripts = (osPlatform?: string) => Network.post<InitScript[]>("/asset/init-scripts", { osPlatform: osPlatform || 'linux' });
+
+export interface IpQualityResult {
+  ip: string; country: string; countryCode: string; region: string; city: string;
+  isp: string; org: string; asNumber: string; asName: string;
+  hosting: boolean; proxy: boolean; mobile: boolean;
+  riskScore: number; riskLevel: 'low' | 'medium' | 'high';
+}
+export const checkIpQualitySimple = (ip: string) => Network.post<IpQualityResult>("/asset/ip-quality", { ip });
 
 // JumpServer integration
 export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");
@@ -1131,6 +1162,29 @@ export const getAlertingAssetIds = () => Network.post<number[]>("/alert/alerting
 export const getAlertsForAsset = (assetId: number) => Network.post<any[]>("/alert/alerts-for-asset", { assetId });
 export const acknowledgeAlert = (ruleId: number, nodeId: number) => Network.post("/alert/acknowledge", { ruleId, nodeId });
 export const getAllActiveAlertsBrief = () => Network.post<{assetId: number; ruleId: number; nodeId: number; severity: string}[]>("/alert/all-active-brief");
+
+// IP Pool Management
+export const listIpPool = (params?: Record<string, unknown>) => Network.post<any>("/ip-pool/list", params || {});
+export const createIpPool = (data: Record<string, unknown>) => Network.post<any>("/ip-pool/create", data);
+export const updateIpPool = (data: Record<string, unknown>) => Network.post<any>("/ip-pool/update", data);
+export const deleteIpPool = (id: number) => Network.post("/ip-pool/delete", { id });
+export const healthCheckIpPool = (id: number) => Network.post<any>("/ip-pool/health-check", { id });
+export const batchHealthCheckIpPool = () => Network.post<any>("/ip-pool/batch-health-check");
+export const bindIpToShop = (ipPoolId: number, shopId: number) => Network.post("/ip-pool/bind", { ipPoolId, shopId });
+export const unbindIpFn = (id: number) => Network.post("/ip-pool/unbind", { id });
+export const exportProxyConfig = (id: number, browserType?: string) => Network.post<any>("/ip-pool/export-proxy", { id, browserType });
+export const getIpPoolStats = () => Network.post<any>("/ip-pool/stats");
+
+// Shop Account Management
+export const listShopAccount = (params?: Record<string, unknown>) => Network.post<any>("/shop-account/list", params || {});
+export const createShopAccount = (data: Record<string, unknown>) => Network.post<any>("/shop-account/create", data);
+export const updateShopAccount = (data: Record<string, unknown>) => Network.post<any>("/shop-account/update", data);
+export const deleteShopAccount = (id: number) => Network.post("/shop-account/delete", { id });
+export const getShopAccountDetail = (id: number) => Network.post<any>("/shop-account/detail", { id });
+export const bindShopIp = (shopId: number, ipPoolId: number) => Network.post("/shop-account/bind-ip", { shopId, ipPoolId });
+export const unbindShopIp = (shopId: number) => Network.post("/shop-account/unbind-ip", { shopId });
+export const exportBrowserProfile = (shopId: number) => Network.post<any>("/shop-account/export-profile", { shopId });
+export const getShopAccountStats = () => Network.post<any>("/shop-account/stats");
 
 // Enterprise IAM
 export const getIamAuthOptions = () => Network.post<IamAuthOptions>("/iam/auth/options");

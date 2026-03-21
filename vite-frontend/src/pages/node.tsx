@@ -8,6 +8,8 @@ import { Chip } from "@heroui/chip";
 import { Spinner } from "@heroui/spinner";
 import { Alert } from "@heroui/alert";
 import { Progress } from "@heroui/progress";
+import { Select, SelectItem } from "@heroui/select";
+import { Tooltip } from "@heroui/tooltip";
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -32,6 +34,7 @@ interface Node {
   version?: string;
   status: number; // 1: 在线, 0: 离线
   connectionStatus: 'online' | 'offline';
+  deployLocation?: string;
   systemInfo?: {
     cpuUsage: number;
     memoryUsage: number;
@@ -44,6 +47,20 @@ interface Node {
   copyLoading?: boolean;
 }
 
+const DEPLOY_LOCATION_OPTIONS = [
+  { key: 'overseas', label: '海外' },
+  { key: 'domestic_ix', label: '国内IX专线' },
+  { key: 'domestic_cloud', label: '国内云' },
+  { key: 'domestic_idc', label: '国内自建机房' },
+] as const;
+
+const DEPLOY_LOCATION_MAP: Record<string, { label: string; color: 'primary' | 'success' | 'warning' | 'secondary' }> = {
+  overseas: { label: '海外', color: 'primary' },
+  domestic_ix: { label: 'IX专线', color: 'success' },
+  domestic_cloud: { label: '国内云', color: 'warning' },
+  domestic_idc: { label: '自建机房', color: 'secondary' },
+};
+
 interface NodeForm {
   id: number | null;
   name: string;
@@ -51,6 +68,7 @@ interface NodeForm {
   serverIp: string;
   portSta: number;
   portEnd: number;
+  deployLocation: string;
 }
 
 export default function NodePage() {
@@ -72,7 +90,8 @@ export default function NodePage() {
     ipString: '',
     serverIp: '',
     portSta: 1000,
-    portEnd: 65535
+    portEnd: 65535,
+    deployLocation: ''
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   
@@ -431,7 +450,8 @@ export default function NodePage() {
       ipString: node.ip ? node.ip.split(',').map(ip => ip.trim()).join('\n') : '',
       serverIp: node.serverIp || '',
       portSta: node.portSta,
-      portEnd: node.portEnd
+      portEnd: node.portEnd,
+      deployLocation: node.deployLocation || ''
     });
     setDialogVisible(true);
   };
@@ -524,12 +544,13 @@ export default function NodePage() {
       delete (submitData as any).ipString;
       
       const apiCall = isEdit ? updateNode : createNode;
-      const data = isEdit ? submitData : { 
-        name: form.name, 
+      const data = isEdit ? submitData : {
+        name: form.name,
         ip: ipString,
         serverIp: form.serverIp,
         portSta: form.portSta,
-        portEnd: form.portEnd
+        portEnd: form.portEnd,
+        deployLocation: form.deployLocation || undefined
       };
       
       const res = await apiCall(data);
@@ -538,14 +559,15 @@ export default function NodePage() {
         setDialogVisible(false);
         
         if (isEdit) {
-          setNodeList(prev => prev.map(n => 
+          setNodeList(prev => prev.map(n =>
             n.id === form.id ? {
               ...n,
               name: form.name,
               ip: ipString,
               serverIp: form.serverIp,
               portSta: form.portSta,
-              portEnd: form.portEnd
+              portEnd: form.portEnd,
+              deployLocation: form.deployLocation
             } : n
           ));
         } else {
@@ -569,7 +591,8 @@ export default function NodePage() {
       ipString: '',
       serverIp: '',
       portSta: 1000,
-      portEnd: 65535
+      portEnd: 65535,
+      deployLocation: ''
     });
     setErrors({});
   };
@@ -634,9 +657,32 @@ export default function NodePage() {
                       <p className="text-xs text-default-500 truncate">{node.serverIp}</p>
                     </div>
                     <div className="flex items-center gap-1.5 ml-2">
-                      <Chip 
-                        color={node.connectionStatus === 'online' ? 'success' : 'danger'} 
-                        variant="flat" 
+                      {node.deployLocation && DEPLOY_LOCATION_MAP[node.deployLocation] && (
+                        node.deployLocation === 'domestic_cloud' ? (
+                          <Tooltip content="国内云服务器安装 GOST 可能触发厂商风控，建议仅在 IX 专线场景使用" color="warning">
+                            <Chip
+                              color={DEPLOY_LOCATION_MAP[node.deployLocation].color}
+                              variant="flat"
+                              size="sm"
+                              className="text-xs cursor-help"
+                            >
+                              {DEPLOY_LOCATION_MAP[node.deployLocation].label}
+                            </Chip>
+                          </Tooltip>
+                        ) : (
+                          <Chip
+                            color={DEPLOY_LOCATION_MAP[node.deployLocation].color}
+                            variant="flat"
+                            size="sm"
+                            className="text-xs"
+                          >
+                            {DEPLOY_LOCATION_MAP[node.deployLocation].label}
+                          </Chip>
+                        )
+                      )}
+                      <Chip
+                        color={node.connectionStatus === 'online' ? 'success' : 'danger'}
+                        variant="flat"
                         size="sm"
                         className="text-xs"
                       >
@@ -874,6 +920,23 @@ export default function NodePage() {
                   errorMessage={errors.serverIp}
                   variant="bordered"
                 />
+
+                <Select
+                  label="部署位置"
+                  placeholder="请选择部署位置"
+                  selectedKeys={form.deployLocation ? [form.deployLocation] : []}
+                  onSelectionChange={(keys) => {
+                    const selected = Array.from(keys)[0] as string || '';
+                    setForm(prev => ({ ...prev, deployLocation: selected }));
+                  }}
+                  variant="bordered"
+                  description={form.deployLocation === 'domestic_cloud' ? '⚠️ 国内云服务器安装 GOST 可能触发厂商风控，建议仅在 IX 专线场景使用' : undefined}
+                  classNames={form.deployLocation === 'domestic_cloud' ? { description: 'text-warning-600' } : undefined}
+                >
+                  {DEPLOY_LOCATION_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.key}>{opt.label}</SelectItem>
+                  ))}
+                </Select>
 
                 <Textarea
                   label="入口IP"

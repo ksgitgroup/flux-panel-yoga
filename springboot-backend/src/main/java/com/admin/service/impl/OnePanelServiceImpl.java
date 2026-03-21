@@ -605,4 +605,46 @@ public class OnePanelServiceImpl extends ServiceImpl<OnePanelInstanceMapper, One
     private int sizeOf(List<?> items) {
         return items == null ? 0 : items.size();
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public R quickSetup(Long assetId, String panelUrl) {
+        if (assetId == null) return R.err("资产 ID 不能为空");
+        if (!StringUtils.hasText(panelUrl)) return R.err("1Panel 地址不能为空");
+
+        // 1. 更新资产的 panelUrl
+        AssetHost asset = assetHostMapper.selectById(assetId);
+        if (asset == null) return R.err("资产不存在");
+        asset.setPanelUrl(panelUrl.trim());
+        asset.setUpdatedTime(System.currentTimeMillis());
+        assetHostMapper.updateById(asset);
+
+        // 2. 检查是否已有实例
+        String duplicateAssetError = checkDuplicateAssetBinding(assetId, null);
+        if (duplicateAssetError != null) {
+            // 已有实例，直接返回轮换 token
+            OnePanelInstance existing = this.list(new LambdaQueryWrapper<OnePanelInstance>()
+                    .eq(OnePanelInstance::getAssetId, assetId)
+                    .eq(OnePanelInstance::getStatus, 0)
+                    .last("LIMIT 1")).stream().findFirst().orElse(null);
+            if (existing != null) {
+                existing.setPanelUrl(panelUrl.trim());
+                existing.setUpdatedTime(System.currentTimeMillis());
+                this.updateById(existing);
+                String token = generateNodeToken();
+                existing.setExporterTokenHash(sha256Hex(token));
+                existing.setTokenIssuedAt(System.currentTimeMillis());
+                this.updateById(existing);
+                return R.ok(buildBootstrapDto(existing, token));
+            }
+        }
+
+        // 3. 创建新实例
+        OnePanelInstanceDto dto = new OnePanelInstanceDto();
+        dto.setName(asset.getName() + "-1panel");
+        dto.setAssetId(assetId);
+        dto.setPanelUrl(panelUrl.trim());
+        dto.setReportEnabled(1);
+        return createInstance(dto);
+    }
 }

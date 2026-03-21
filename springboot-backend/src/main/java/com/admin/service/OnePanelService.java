@@ -25,4 +25,7 @@ public interface OnePanelService extends IService<OnePanelInstance> {
     R receiveReport(String instanceKey, String token, OnePanelExporterReportDto dto, String remoteIp);
 
     R diagnoseConnectivity(Long id);
+
+    /** 一键配置：同时保存 panelUrl 到资产 + 创建 OnePanelInstance */
+    R quickSetup(Long assetId, String panelUrl);
 }

@@ -18,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.Map;
 import java.util.Set;
 
 @RestController
@@ -74,6 +75,19 @@ public class OnePanelController extends BaseController {
     @PostMapping("/rotate-token")
     public R rotateToken(@Validated @RequestBody OnePanelInstanceIdDto dto) {
         return onePanelService.rotateToken(dto);
+    }
+
+    /**
+     * 一键配置：同时保存 panelUrl 到资产 + 创建/更新 OnePanelInstance，返回 bootstrap 数据
+     */
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/quick-setup")
+    public R quickSetup(@RequestBody Map<String, Object> params) {
+        Object assetIdObj = params.get("assetId");
+        String panelUrl = (String) params.get("panelUrl");
+        if (assetIdObj == null) return R.err("assetId 不能为空");
+        return onePanelService.quickSetup(Long.valueOf(assetIdObj.toString()), panelUrl);
     }
 
     @LogAnnotation

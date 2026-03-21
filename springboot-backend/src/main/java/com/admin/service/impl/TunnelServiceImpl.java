@@ -381,11 +381,14 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         }
         
         // 设置TCP和UDP监听地址
-        tunnel.setTcpListenAddr(StrUtil.isNotBlank(tunnelDto.getTcpListenAddr()) ? 
+        tunnel.setTcpListenAddr(StrUtil.isNotBlank(tunnelDto.getTcpListenAddr()) ?
                                tunnelDto.getTcpListenAddr() : "0.0.0.0");
-        tunnel.setUdpListenAddr(StrUtil.isNotBlank(tunnelDto.getUdpListenAddr()) ? 
+        tunnel.setUdpListenAddr(StrUtil.isNotBlank(tunnelDto.getUdpListenAddr()) ?
                                tunnelDto.getUdpListenAddr() : "0.0.0.0");
-        
+
+        // 自动填充入口节点关联的资产ID
+        tunnel.setSourceAssetId(inNode.getAssetId());
+
         return tunnel;
     }
 
@@ -456,7 +459,9 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         // 设置出口参数
         tunnel.setOutNodeId(tunnelDto.getOutNodeId());
         tunnel.setOutIp(outNode.getServerIp());
-        
+        // 自动填充出口节点关联的资产ID
+        tunnel.setTargetAssetId(outNode.getAssetId());
+
         return R.ok();
     }
 

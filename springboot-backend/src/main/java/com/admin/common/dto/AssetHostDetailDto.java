@@ -18,4 +18,7 @@ public class AssetHostDetailDto {
     private List<MonitorNodeSnapshotViewDto> monitorNodes;
 
     private OnePanelInstanceViewDto onePanelInstance;
+
+    /** 该资产关联的隧道（作为入口或出口） */
+    private List<AssetTunnelLinkViewDto> tunnels;
 }

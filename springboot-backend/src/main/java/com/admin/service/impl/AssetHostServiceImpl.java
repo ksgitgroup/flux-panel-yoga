@@ -121,9 +121,23 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .orderByAsc(XuiInboundSnapshot::getStatus)
                 .orderByAsc(XuiInboundSnapshot::getProtocol, XuiInboundSnapshot::getPort));
 
-        List<Forward> forwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
+        // 转发规则：精确绑定 + IP 自动匹配（不修改数据，仅展示层扩大范围）
+        List<Forward> boundForwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
                 .eq(Forward::getRemoteSourceAssetId, asset.getId())
                 .orderByDesc(Forward::getUpdatedTime, Forward::getId));
+        Set<Long> boundIds = boundForwards.stream().map(Forward::getId).collect(Collectors.toSet());
+
+        // IP 自动匹配：remoteAddr 包含本机 IP 但尚未通过 remoteSourceAssetId 绑定的转发
+        List<Forward> ipMatchForwards = Collections.emptyList();
+        if (StringUtils.hasText(asset.getPrimaryIp())) {
+            ipMatchForwards = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
+                    .like(Forward::getRemoteAddr, asset.getPrimaryIp())
+                    .orderByDesc(Forward::getUpdatedTime, Forward::getId))
+                    .stream().filter(f -> !boundIds.contains(f.getId())).collect(Collectors.toList());
+        }
+
+        List<Forward> allForwards = new ArrayList<>(boundForwards);
+        allForwards.addAll(ipMatchForwards);
 
         OnePanelInstance onePanelInstance = onePanelInstanceMapper.selectOne(new LambdaQueryWrapper<OnePanelInstance>()
                 .eq(OnePanelInstance::getAssetId, asset.getId())
@@ -134,13 +148,17 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
         // Build monitor nodes for this asset
         List<MonitorNodeSnapshotViewDto> monitorNodes = buildMonitorNodesForAsset(asset);
 
+        // Build tunnel links for this asset
+        List<AssetTunnelLinkViewDto> tunnelLinks = buildTunnelLinksForAsset(asset);
+
         AssetHostDetailDto detail = new AssetHostDetailDto();
         detail.setAsset(assetView);
         detail.setXuiInstances(enrichInstanceCounts(instanceViews, inbounds));
         detail.setProtocolSummaries(buildProtocolSummaries(inbounds));
-        detail.setForwards(buildForwardLinks(forwards));
+        detail.setForwards(buildForwardLinks(allForwards, boundIds));
         detail.setMonitorNodes(monitorNodes);
         detail.setOnePanelInstance(toOnePanelInstanceView(onePanelInstance, asset));
+        detail.setTunnels(tunnelLinks);
         return R.ok(detail);
     }
 
@@ -887,7 +905,7 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
                 .collect(Collectors.toList());
     }
 
-    private List<AssetForwardLinkViewDto> buildForwardLinks(List<Forward> forwards) {
+    private List<AssetForwardLinkViewDto> buildForwardLinks(List<Forward> forwards, Set<Long> boundIds) {
         if (forwards == null || forwards.isEmpty()) {
             return Collections.emptyList();
         }
@@ -912,6 +930,44 @@ public class AssetHostServiceImpl extends ServiceImpl<AssetHostMapper, AssetHost
             dto.setRemoteSourceProtocol(forward.getRemoteSourceProtocol());
             dto.setCreatedTime(forward.getCreatedTime());
             dto.setUpdatedTime(forward.getUpdatedTime());
+            dto.setMatchType(boundIds.contains(forward.getId()) ? "bound" : "ip_match");
+            return dto;
+        }).collect(Collectors.toList());
+    }
+
+    private List<AssetTunnelLinkViewDto> buildTunnelLinksForAsset(AssetHost asset) {
+        if (asset.getGostNodeId() == null) return Collections.emptyList();
+        // 查找该资产 GOST 节点参与的所有隧道
+        Long nodeId = asset.getGostNodeId();
+        List<Tunnel> tunnels = tunnelService.list(new LambdaQueryWrapper<Tunnel>()
+                .eq(Tunnel::getInNodeId, nodeId)
+                .or().eq(Tunnel::getOutNodeId, nodeId));
+        if (tunnels.isEmpty()) return Collections.emptyList();
+
+        // 收集所有节点 ID 以批量查名称
+        Set<Long> allNodeIds = new java.util.HashSet<>();
+        tunnels.forEach(t -> { allNodeIds.add(t.getInNodeId()); if (t.getOutNodeId() != null) allNodeIds.add(t.getOutNodeId()); });
+        Map<Long, String> nodeNameMap = nodeMapper.selectBatchIds(allNodeIds).stream()
+                .collect(Collectors.toMap(Node::getId, Node::getName, (a, b) -> a));
+
+        // 统计每条隧道的转发规则数
+        Map<Integer, Long> fwdCountMap = forwardMapper.selectList(new LambdaQueryWrapper<Forward>()
+                .select(Forward::getTunnelId))
+                .stream().filter(f -> f.getTunnelId() != null)
+                .collect(Collectors.groupingBy(Forward::getTunnelId, Collectors.counting()));
+
+        return tunnels.stream().map(t -> {
+            AssetTunnelLinkViewDto dto = new AssetTunnelLinkViewDto();
+            dto.setId(t.getId());
+            dto.setName(t.getName());
+            dto.setType(t.getType());
+            dto.setInNodeName(nodeNameMap.getOrDefault(t.getInNodeId(), "?"));
+            dto.setInIp(t.getInIp());
+            dto.setOutNodeName(t.getOutNodeId() != null ? nodeNameMap.getOrDefault(t.getOutNodeId(), "?") : null);
+            dto.setOutIp(t.getOutIp());
+            dto.setProtocol(t.getProtocol());
+            dto.setRole(t.getInNodeId().equals(nodeId) ? "source" : "target");
+            dto.setForwardCount(fwdCountMap.getOrDefault(t.getId().intValue(), 0L).intValue());
             return dto;
         }).collect(Collectors.toList());
     }

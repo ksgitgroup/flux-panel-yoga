@@ -1,0 +1,21 @@
+{
+  "date": "2026-03-20",
+  "url": "http://localhost:8080",
+  "healthScore": 91,
+  "issues": [
+    {"id": "ISSUE-001", "title": "服务器名称 '11' 疑似数据异常", "severity": "low", "category": "content"},
+    {"id": "ISSUE-002", "title": "添加服务器弹窗无背景遮罩", "severity": "medium", "category": "ux"},
+    {"id": "ISSUE-003", "title": "已登录用户访问 /login 显示空白页", "severity": "high", "category": "functional"},
+    {"id": "ISSUE-004", "title": "告警规则红点指示器含义不明", "severity": "medium", "category": "ux"}
+  ],
+  "categoryScores": {
+    "console": 100,
+    "links": 100,
+    "visual": 92,
+    "functional": 85,
+    "ux": 84,
+    "performance": 95,
+    "content": 92,
+    "accessibility": 85
+  }
+}

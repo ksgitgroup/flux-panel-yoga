@@ -10,6 +10,7 @@ import com.admin.service.AssetHostService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import com.admin.common.utils.IpQualityClient;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
@@ -21,6 +22,9 @@ public class AssetHostController extends BaseController {
 
     @Autowired
     private AssetHostService assetHostService;
+
+    @Autowired
+    private IpQualityClient ipQualityClient;
 
     @LogAnnotation
     @RequireRole
@@ -73,6 +77,19 @@ public class AssetHostController extends BaseController {
         script.put("command", command);
         script.put("description", description);
         return script;
+    }
+
+    /**
+     * IP 质量检测：查询 IP 的 ISP/ASN/地区/风险（代理/数据中心/移动网络）
+     */
+    @RequireRole
+    @PostMapping("/ip-quality")
+    public R ipQuality(@RequestBody Map<String, Object> params) {
+        String ip = (String) params.get("ip");
+        if (ip == null || ip.isBlank()) return R.err("IP 不能为空");
+        IpQualityClient.IpQualityResult result = ipQualityClient.check(ip.trim());
+        if (result == null) return R.err("IP 检测失败（可能请求过于频繁，ip-api.com 限 45 次/分钟）");
+        return R.ok(result);
     }
 
     @LogAnnotation

@@ -1007,6 +1007,14 @@ export const quickSetup1Panel = (assetId: number, panelUrl: string) => Network.p
 export interface InitScript { key: string; label: string; command: string; description: string; }
 export const getInitScripts = (osPlatform?: string) => Network.post<InitScript[]>("/asset/init-scripts", { osPlatform: osPlatform || 'linux' });
 
+export interface IpQualityResult {
+  ip: string; country: string; countryCode: string; region: string; city: string;
+  isp: string; org: string; asNumber: string; asName: string;
+  hosting: boolean; proxy: boolean; mobile: boolean;
+  riskScore: number; riskLevel: 'low' | 'medium' | 'high';
+}
+export const checkIpQualitySimple = (ip: string) => Network.post<IpQualityResult>("/asset/ip-quality", { ip });
+
 // JumpServer integration
 export const getJumpServerStatus = () => Network.post<{ enabled: boolean; configured: boolean; url: string }>("/jumpserver/status");
 export const jumpServerConnect = (assetId: number, protocol?: string, account?: string) =>

@@ -64,7 +64,9 @@ import {
   getTunnelList,
   getInitScripts,
   InitScript,
-  quickSetup1Panel
+  quickSetup1Panel,
+  checkIpQualitySimple,
+  IpQualityResult
 } from '@/api';
 import { hasPermission } from '@/utils/auth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -755,6 +757,20 @@ export default function AssetsPage() {
       }
     } catch { toast.error('配置失败'); }
     finally { setOnePanelQuickLoading(false); }
+  };
+
+  // ── IP 质量检测 ──
+  const [ipQuality, setIpQuality] = useState<IpQualityResult | null>(null);
+  const [ipQualityLoading, setIpQualityLoading] = useState(false);
+  const handleIpQualityCheck = async (ip: string) => {
+    setIpQualityLoading(true);
+    setIpQuality(null);
+    try {
+      const res = await checkIpQualitySimple(ip);
+      if (res.code === 0 && res.data) setIpQuality(res.data);
+      else toast.error(res.msg || 'IP 检测失败');
+    } catch { toast.error('IP 检测失败'); }
+    finally { setIpQualityLoading(false); }
   };
 
   // ── Provision Modal 额外安装选项 ──
@@ -2256,6 +2272,34 @@ export default function AssetsPage() {
           <Button size="sm" color="primary" isDisabled={selectedIds.size === 0} onPress={openBatchModal}>
             批量修改
           </Button>
+          <Button size="sm" variant="flat" isDisabled={selectedIds.size === 0} onPress={() => {
+            const selected = assets.filter(a => selectedIds.has(a.id));
+            const headers = ['名称','IP','厂商','地区','用途','系统','到期日期','月费','币种','标签','备注'];
+            const rows = selected.map(a => [
+              a.name || '', a.primaryIp || '', a.provider || '', a.region || '', a.purpose || '',
+              a.os || a.osCategory || '', a.expireDate && a.expireDate !== -1 ? new Date(a.expireDate).toLocaleDateString('zh-CN') : '',
+              a.monthlyCost || '', a.currency || '', a.tags || '', a.remark || ''
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+            const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `flux-assets-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+            URL.revokeObjectURL(url);
+            toast.success(`已导出 ${selected.length} 台服务器`);
+          }}>
+            导出 CSV
+          </Button>
+          <Button size="sm" variant="flat" color="warning" isDisabled={selectedIds.size === 0} onPress={async () => {
+            if (!confirm(`确认批量归档 ${selectedIds.size} 台服务器？归档后可在回收站恢复。`)) return;
+            let ok = 0, fail = 0;
+            for (const id of selectedIds) {
+              try { const r = await archiveAsset(id); if (r.code === 0) ok++; else fail++; } catch { fail++; }
+            }
+            toast.success(`归档完成：成功 ${ok}，失败 ${fail}`);
+            setSelectedIds(new Set()); void loadAssets();
+          }}>
+            批量归档
+          </Button>
         </div>
       )}
 
@@ -2595,7 +2639,26 @@ export default function AssetsPage() {
                   {selectedAsset.label && <Chip size="sm" variant="flat">{selectedAsset.label}</Chip>}
                   {getRoleChip(selectedAsset.role) && <Chip size="sm" color={getRoleChip(selectedAsset.role)!.color} variant="flat">{getRoleChip(selectedAsset.role)!.text}</Chip>}
                 </div>
-                <p className="text-sm font-normal text-default-500 font-mono">{selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-normal text-default-500 font-mono">{selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</span>
+                  {selectedAsset.primaryIp && (
+                    <button type="button" onClick={() => handleIpQualityCheck(selectedAsset.primaryIp!)}
+                      className="text-[11px] text-primary font-medium hover:underline cursor-pointer">
+                      {ipQualityLoading ? '检测中...' : ipQuality?.ip === selectedAsset.primaryIp ? '重新检测' : 'IP检测'}
+                    </button>
+                  )}
+                  {ipQuality && ipQuality.ip === selectedAsset.primaryIp && (
+                    <div className="flex items-center gap-1.5">
+                      <Chip size="sm" variant="flat" color={ipQuality.riskLevel === 'high' ? 'danger' : ipQuality.riskLevel === 'medium' ? 'warning' : 'success'}
+                        classNames={{base: "h-4", content: "text-[10px] px-1"}}>
+                        {ipQuality.riskLevel === 'high' ? '高风险' : ipQuality.riskLevel === 'medium' ? '中风险' : '低风险'}
+                      </Chip>
+                      <span className="text-[11px] text-default-400">{ipQuality.isp} · {ipQuality.asName}</span>
+                      {ipQuality.proxy && <Chip size="sm" variant="flat" color="danger" classNames={{base: "h-4", content: "text-[10px] px-1"}}>代理</Chip>}
+                      {ipQuality.hosting && <Chip size="sm" variant="flat" color="default" classNames={{base: "h-4", content: "text-[10px] px-1"}}>数据中心</Chip>}
+                    </div>
+                  )}
+                </div>
               </ModalHeader>
               <ModalBody className="space-y-0 px-5 pb-4">
                 {detailLoading && <div className="flex justify-center py-4"><Spinner /></div>}

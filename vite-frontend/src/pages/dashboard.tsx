@@ -220,7 +220,37 @@ export default function DashboardPage() {
     const topProviders = Object.entries(providerMap)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 6);
-    return { total: assets.length, expiringSoon, expired, totalMonthlyCNY, costByCurrency, topRegions, topOs, topProviders, offlineAssets };
+    // 按厂商费用（CNY）
+    const costByProvider: Record<string, number> = {};
+    // 按用途费用（CNY）
+    const costByPurpose: Record<string, number> = {};
+    // 即将到期列表
+    const expiringAssets: { name: string; ip: string; expireDate: number; daysLeft: number; provider?: string }[] = [];
+    assets.forEach(a => {
+      if (a.monthlyCost && a.billingCycle && a.billingCycle > 0) {
+        const v = parseFloat(a.monthlyCost);
+        if (!isNaN(v) && v > 0) {
+          const monthlyEquiv = (v / a.billingCycle) * 30;
+          const rate = rates[a.currency || 'CNY'] || 1;
+          const cny = monthlyEquiv * rate;
+          const prov = a.provider || '未设置';
+          costByProvider[prov] = (costByProvider[prov] || 0) + cny;
+          const purpose = a.purpose || '未设置';
+          costByPurpose[purpose] = (costByPurpose[purpose] || 0) + cny;
+        }
+      }
+      if (a.expireDate && a.expireDate !== -1) {
+        const daysLeft = Math.ceil((a.expireDate - now) / 86400000);
+        if (daysLeft > 0 && daysLeft <= 30) {
+          expiringAssets.push({ name: a.name || '-', ip: a.primaryIp || '-', expireDate: a.expireDate, daysLeft, provider: a.provider || undefined });
+        }
+      }
+    });
+    expiringAssets.sort((a, b) => a.daysLeft - b.daysLeft);
+    const topCostByProvider = Object.entries(costByProvider).sort(([,a], [,b]) => b - a).slice(0, 6);
+    const topCostByPurpose = Object.entries(costByPurpose).sort(([,a], [,b]) => b - a).slice(0, 6);
+
+    return { total: assets.length, expiringSoon, expired, totalMonthlyCNY, costByCurrency, topRegions, topOs, topProviders, offlineAssets, topCostByProvider, topCostByPurpose, expiringAssets };
   }, [assets, exchangeRates]);
 
   // Traffic warning assets
@@ -582,6 +612,74 @@ export default function DashboardPage() {
                           <span className="w-24 truncate text-xs">{provider}</span>
                           <Progress size="sm" value={(count / assetStats.total) * 100} color="warning" className="flex-1" />
                           <span className="text-xs font-mono text-default-500 w-6 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════ 成本看板 ═══════════ */}
+          {admin && assetStats.totalMonthlyCNY > 0 && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {/* 厂商费用 */}
+              {assetStats.topCostByProvider.length > 0 && (
+                <Card className="border border-divider/60">
+                  <CardBody className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-sm font-semibold">厂商月费</h2>
+                      <span className="text-xs text-default-400">总计 ¥{assetStats.totalMonthlyCNY.toFixed(0)}/月</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {assetStats.topCostByProvider.map(([provider, cost]) => (
+                        <div key={provider} className="flex items-center gap-2 text-sm">
+                          <span className="w-24 truncate text-xs">{provider}</span>
+                          <Progress size="sm" value={(cost / assetStats.totalMonthlyCNY) * 100} color="success" className="flex-1" />
+                          <span className="text-xs font-mono text-default-500 w-14 text-right">¥{cost.toFixed(0)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+
+              {/* 用途费用 */}
+              {assetStats.topCostByPurpose.length > 0 && (
+                <Card className="border border-divider/60">
+                  <CardBody className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-sm font-semibold">用途月费</h2>
+                      <span className="text-xs text-default-400">均 ¥{assetStats.total > 0 ? (assetStats.totalMonthlyCNY / assetStats.total).toFixed(0) : 0}/台</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {assetStats.topCostByPurpose.map(([purpose, cost]) => (
+                        <div key={purpose} className="flex items-center gap-2 text-sm">
+                          <span className="w-24 truncate text-xs">{purpose}</span>
+                          <Progress size="sm" value={(cost / assetStats.totalMonthlyCNY) * 100} color="primary" className="flex-1" />
+                          <span className="text-xs font-mono text-default-500 w-14 text-right">¥{cost.toFixed(0)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+
+              {/* 即将到期 */}
+              {assetStats.expiringAssets.length > 0 && (
+                <Card className="border border-warning/30 bg-warning-50/20">
+                  <CardBody className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-sm font-semibold text-warning-700">即将到期</h2>
+                      <Chip size="sm" variant="flat" color="warning" classNames={{content: "text-[10px]"}}>{assetStats.expiringAssets.length} 台</Chip>
+                    </div>
+                    <div className="space-y-1.5">
+                      {assetStats.expiringAssets.slice(0, 8).map((a) => (
+                        <div key={a.ip} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-warning-100/50 rounded-lg px-1 -mx-1 transition-colors" onClick={() => navigate(`/assets?search=${encodeURIComponent(a.ip)}`)}>
+                          <span className="truncate flex-1">{a.name}</span>
+                          <span className="font-mono text-default-400">{a.provider || ''}</span>
+                          <span className={`font-mono font-semibold ${a.daysLeft <= 7 ? 'text-danger' : 'text-warning'}`}>{a.daysLeft}天</span>
                         </div>
                       ))}
                     </div>

@@ -2541,69 +2541,171 @@ export default function AssetsPage() {
                   );
                 })()}
 
-                {/* Quick Links - compact horizontal chips */}
-                {((detail?.xuiInstances && detail.xuiInstances.length > 0) || selectedAsset.panelUrl || selectedAsset.onePanelInstanceId || (detail?.forwards && detail.forwards.length > 0)) && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {detail?.xuiInstances && detail.xuiInstances.map((inst) => {
+                {/* ══════ 服务与端点 ══════ */}
+                <div className="rounded-xl border border-divider/60 bg-default-50/40 p-3 space-y-2.5">
+                  <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务与端点</p>
+
+                  {/* ── 探针 ── */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-default-500 w-12 shrink-0">探针</span>
+                    {selectedAsset.monitorNodeUuid && (
+                      <div className="inline-flex items-center gap-1 rounded-md bg-content1 border border-divider/40 px-2 py-1 text-[11px]">
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300'}`} />
+                        <span className="font-semibold text-primary">Komari</span>
+                        <span className="text-default-400">{selectedAsset.monitorOnline === 1 ? '在线' : '离线'}</span>
+                      </div>
+                    )}
+                    {selectedAsset.pikaNodeId && (
+                      <div className="inline-flex items-center gap-1 rounded-md bg-content1 border border-divider/40 px-2 py-1 text-[11px]">
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300'}`} />
+                        <span className="font-semibold text-secondary">Pika</span>
+                        <span className="text-default-400">{selectedAsset.monitorOnline === 1 ? '在线' : '离线'}</span>
+                      </div>
+                    )}
+                    {!selectedAsset.monitorNodeUuid && !selectedAsset.pikaNodeId && (
+                      <span className="text-[11px] text-default-300">未安装</span>
+                    )}
+                    {(canCreateAssets || canUpdateAssets) && (!selectedAsset.monitorNodeUuid || !selectedAsset.pikaNodeId) && (
+                      <button type="button" onClick={() => { onDetailClose(); openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, assetIp: selectedAsset.primaryIp || undefined, asset: selectedAsset, missingKomari: !selectedAsset.monitorNodeUuid, missingPika: !selectedAsset.pikaNodeId, missingGost: !selectedAsset.gostNodeId }); }}
+                        className="px-1.5 py-0.5 rounded bg-primary-50 text-primary text-[10px] font-semibold hover:bg-primary-100 cursor-pointer">
+                        安装探针 →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ── GOST 节点 ── */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-default-500 w-12 shrink-0">GOST</span>
+                    {selectedAsset.gostNodeName ? (
+                      <div className="inline-flex items-center gap-1.5 rounded-md bg-content1 border border-divider/40 px-2 py-1 text-[11px]">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                        <span className="font-mono">{selectedAsset.gostNodeName}</span>
+                        <button type="button" onClick={() => navigate('/node')}
+                          className="px-1 py-0.5 rounded bg-default-100 text-default-600 text-[9px] hover:bg-default-200 cursor-pointer">
+                          管理
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-[11px] text-default-300">未安装</span>
+                        {(canCreateAssets || canUpdateAssets) && (
+                          <button type="button" onClick={() => { onDetailClose(); openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, assetIp: selectedAsset.primaryIp || undefined, asset: selectedAsset, missingKomari: false, missingPika: false, missingGost: true }); }}
+                            className="px-1.5 py-0.5 rounded bg-primary-50 text-primary text-[10px] font-semibold hover:bg-primary-100 cursor-pointer">
+                            安装 →
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── 转发规则 ── */}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-default-500 w-12 shrink-0">转发</span>
+                      {(detail?.forwards?.length ?? 0) > 0 ? (
+                        <Chip size="sm" variant="flat" className="h-4 text-[9px]">{detail!.forwards!.length} 条规则</Chip>
+                      ) : (
+                        <span className="text-[11px] text-default-300">无转发规则</span>
+                      )}
+                      <button type="button" onClick={() => navigate('/forward')}
+                        className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] hover:bg-default-200 cursor-pointer">
+                        {(detail?.forwards?.length ?? 0) > 0 ? '管理' : '+ 添加'}
+                      </button>
+                    </div>
+                    {detail?.forwards?.map((fwd) => (
+                      <div key={fwd.id} className="flex items-center gap-2 text-[11px] ml-[52px]">
+                        <Chip size="sm" variant="flat" color={fwd.status === 1 ? 'success' : fwd.status === 0 ? 'warning' : 'danger'} className="h-4 text-[9px]">
+                          {fwd.status === 1 ? '运行' : fwd.status === 0 ? '暂停' : '异常'}
+                        </Chip>
+                        <span className="font-mono text-default-600">{selectedAsset.primaryIp}</span>
+                        <span className="text-default-300">→</span>
+                        <span className="font-mono text-default-500 truncate max-w-40">{fwd.remoteAddr || '?'}</span>
+                        <span className="text-default-400 truncate max-w-24">{fwd.name}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ── X-UI 实例 ── */}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-default-500 w-12 shrink-0">X-UI</span>
+                      {(detail?.xuiInstances?.length ?? 0) > 0 ? (
+                        <Chip size="sm" variant="flat" className="h-4 text-[9px]">{detail!.xuiInstances!.length} 个实例</Chip>
+                      ) : (
+                        <span className="text-[11px] text-default-300">未绑定</span>
+                      )}
+                      {(canCreateAssets || canUpdateAssets) && (
+                        <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
+                          className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] hover:bg-default-200 cursor-pointer">
+                          {(detail?.xuiInstances?.length ?? 0) > 0 ? '配置' : '+ 绑定'}
+                        </button>
+                      )}
+                    </div>
+                    {detail?.xuiInstances?.map((inst) => {
                       const syncChip = getStatusChip(inst.lastSyncStatus);
                       const instUrl = buildInstanceAddress(inst);
                       return (
-                        <div key={inst.id} className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-2 text-xs">
-                          <span className="font-semibold text-primary">X-UI</span>
-                          <span className="font-mono text-default-500 truncate max-w-40">{inst.name}</span>
+                        <div key={inst.id} className="flex items-center gap-2 text-[11px] ml-[52px]">
                           <Chip size="sm" color={syncChip.color} variant="flat" className="h-4 text-[9px]">{syncChip.text}</Chip>
+                          <span className="font-mono text-default-600 truncate max-w-32">{inst.name}</span>
                           <span className="text-default-400 font-mono">{inst.inboundCount || 0}入/{inst.clientCount || 0}客</span>
                           <a href={instUrl} target="_blank" rel="noopener noreferrer"
-                            className="ml-1 px-1.5 py-0.5 rounded bg-primary-50 text-primary text-[10px] font-semibold hover:bg-primary-100 no-underline">
-                            打开后台
+                            className="px-1 py-0.5 rounded bg-primary-50 text-primary text-[9px] font-semibold hover:bg-primary-100 no-underline">
+                            后台
                           </a>
-                          <button type="button" onClick={() => navigate('/xui')}
-                            className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] font-semibold hover:bg-default-200 cursor-pointer">
-                            配置
-                          </button>
                         </div>
                       );
                     })}
-                    {selectedAsset.panelUrl && (
-                      <div className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-3 py-2 text-xs">
-                        <span className="font-semibold text-secondary">1Panel</span>
-                        <span className="text-default-400 font-mono truncate max-w-40">{selectedAsset.panelUrl}</span>
-                        <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
-                          className="ml-1 px-1.5 py-0.5 rounded bg-success-50 text-success text-[10px] font-semibold hover:bg-success-100 no-underline">
-                          打开后台
-                        </a>
-                        {(canCreateAssets || canUpdateAssets) && (
-                          <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
-                            className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] font-semibold hover:bg-default-200 cursor-pointer">
-                            配置
-                          </button>
-                        )}
+                    {/* XUI Protocol endpoints */}
+                    {detail?.protocolSummaries?.map((p) => (
+                      <div key={p.protocol} className="flex items-center gap-2 text-[11px] ml-[52px]">
+                        <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">{p.protocol.toUpperCase()}</Chip>
+                        <span className="font-mono text-default-400">{p.inboundCount} 入站 / {p.clientCount} 客户端 ({p.onlineClientCount} 在线)</span>
+                        {p.allTime ? <span className="font-mono text-default-400">{formatFlow(p.allTime)}</span> : null}
                       </div>
-                    )}
-                    {selectedAsset.onePanelInstanceId && (
-                      <button type="button" onClick={() => navigate(`/onepanel?instanceId=${selectedAsset.onePanelInstanceId}`)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1.5 text-[11px] transition-all hover:border-primary/40 hover:shadow-sm">
-                        <span className="font-semibold text-warning">1P 摘要</span>
-                        <Chip size="sm" color={getStatusChip(selectedAsset.onePanelLastReportStatus).color} variant="flat" className="h-4 text-[9px]">
-                          {getStatusChip(selectedAsset.onePanelLastReportStatus).text}
-                        </Chip>
-                        <span className="text-default-400 font-mono">
-                          {selectedAsset.onePanelLastReportAt ? formatDateShort(selectedAsset.onePanelLastReportAt) : '未上报'}
-                        </span>
-                      </button>
-                    )}
-                    {detail?.forwards && detail.forwards.map((item) => (
-                      <button type="button" key={item.id} onClick={() => navigate('/forward')}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-divider/60 bg-content1 px-2.5 py-1.5 text-[11px] transition-all hover:border-primary/40 cursor-pointer">
-                        <span className="font-semibold text-default-600">FWD</span>
-                        <span className="font-mono text-default-500 truncate max-w-32">{item.name}</span>
-                        <Chip size="sm" color={item.status === 1 ? 'success' : item.status === 0 ? 'warning' : 'danger'} variant="flat" className="h-4 text-[9px]">
-                          {item.status === 1 ? '运行' : item.status === 0 ? '暂停' : '异常'}
-                        </Chip>
-                      </button>
                     ))}
                   </div>
-                )}
+
+                  {/* ── 1Panel ── */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-default-500 w-12 shrink-0">1Panel</span>
+                    {selectedAsset.panelUrl ? (
+                      <>
+                        <span className="text-[11px] font-mono text-default-500 truncate max-w-40">{selectedAsset.panelUrl}</span>
+                        <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
+                          className="px-1.5 py-0.5 rounded bg-success-50 text-success text-[10px] font-semibold hover:bg-success-100 no-underline">
+                          打开
+                        </a>
+                        {selectedAsset.onePanelInstanceId && (
+                          <button type="button" onClick={() => navigate(`/onepanel?instanceId=${selectedAsset.onePanelInstanceId}`)}
+                            className="px-1.5 py-0.5 rounded bg-warning-50 text-warning text-[10px] font-semibold hover:bg-warning-100 cursor-pointer">
+                            摘要 {selectedAsset.onePanelLastReportStatus === 'success' ? '✓' : '?'}
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[11px] text-default-300">未配置</span>
+                        {(canCreateAssets || canUpdateAssets) && (
+                          <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
+                            className="px-1.5 py-0.5 rounded bg-default-100 text-default-600 text-[10px] hover:bg-default-200 cursor-pointer">
+                            + 配置
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── JumpServer ── */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-default-500 w-12 shrink-0">堡垒机</span>
+                    {selectedAsset.jumpserverAssetId ? (
+                      <Chip size="sm" variant="flat" color="success" className="h-4 text-[9px]">已绑定</Chip>
+                    ) : (
+                      <span className="text-[11px] text-default-300">未绑定</span>
+                    )}
+                  </div>
+                </div>
 
                 {/* Info Cards - 2-column layout */}
                 {(() => {
@@ -2653,24 +2755,6 @@ export default function AssetsPage() {
                                 </p>
                               );
                             })()}
-                          </div>
-                          {/* Integrations summary */}
-                          <div className="pt-1 border-t border-divider/40 space-y-1">
-                            {(selectedAsset.totalXuiInstances || 0) > 0 && (
-                              <p className="flex justify-between"><span className="text-default-400">X-UI</span><span className="font-mono">{selectedAsset.totalXuiInstances} 实例 / {selectedAsset.totalInbounds || 0} 入站 / {selectedAsset.totalClients || 0} 客户端 ({selectedAsset.onlineClients || 0} 在线)</span></p>
-                            )}
-                            {(selectedAsset.totalForwards || 0) > 0 && (
-                              <p className="flex justify-between"><span className="text-default-400">转发</span><span className="font-mono">{selectedAsset.totalForwards}</span></p>
-                            )}
-                            {selectedAsset.gostNodeName && (
-                              <p className="flex justify-between"><span className="text-default-400">GOST</span><span className="font-mono">{selectedAsset.gostNodeName}</span></p>
-                            )}
-                            {selectedAsset.panelUrl && (
-                              <p className="flex justify-between"><span className="text-default-400">1Panel</span><span className="font-mono truncate max-w-[65%]">{selectedAsset.panelUrl}</span></p>
-                            )}
-                            {selectedAsset.onePanelInstanceId && (
-                              <p className="flex justify-between"><span className="text-default-400">1Panel 摘要</span><span className="font-mono">{selectedAsset.onePanelLastReportStatus === 'success' ? '已上报' : selectedAsset.onePanelLastReportStatus === 'failed' ? '异常' : '待上报'}</span></p>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -2743,60 +2827,6 @@ export default function AssetsPage() {
                   );
                 })()}
 
-                {/* Network Endpoints - aggregated proxy endpoints on this asset */}
-                <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">网络端点</p>
-                    {((detail?.forwards?.length ?? 0) + (detail?.protocolSummaries?.length ?? 0)) > 0 && (
-                      <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">
-                        {(detail?.forwards?.length ?? 0) + (detail?.protocolSummaries?.reduce((n, p) => n + (p.inboundCount || 0), 0) ?? 0)} 个端点
-                      </Chip>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    {/* GOST Forward endpoints */}
-                    {detail?.forwards?.map((fwd) => (
-                      <div key={fwd.id} className="flex items-center gap-2 text-xs">
-                        <Chip size="sm" variant="flat" color="primary" className="h-4 text-[9px]">GOST</Chip>
-                        <span className="font-mono">{selectedAsset.primaryIp}</span>
-                        <span className="text-default-400">→</span>
-                        <span className="font-mono text-default-500 truncate max-w-40">{fwd.remoteAddr || '?'}</span>
-                        <Chip size="sm" variant="flat" color={fwd.status === 1 ? 'success' : 'default'} className="h-4 text-[9px]">
-                          {fwd.status === 1 ? '运行' : '停止'}
-                        </Chip>
-                        {fwd.name && <span className="text-default-400 truncate max-w-24">{fwd.name}</span>}
-                      </div>
-                    ))}
-                    {/* XUI Inbound endpoints */}
-                    {detail?.protocolSummaries?.map((p) => (
-                      <div key={p.protocol} className="flex items-center gap-2 text-xs">
-                        <Chip size="sm" variant="flat" color="secondary" className="h-4 text-[9px]">XUI</Chip>
-                        <span className="font-mono">{selectedAsset.primaryIp}</span>
-                        <span className="font-bold uppercase text-default-600">{p.protocol}</span>
-                        <span className="font-mono text-default-400">{p.inboundCount} 入站 / {p.clientCount} 客户端</span>
-                      </div>
-                    ))}
-                    {/* Empty state */}
-                    {(detail?.forwards?.length ?? 0) === 0 && (detail?.protocolSummaries?.length ?? 0) === 0 && (
-                      <p className="text-xs text-default-400 py-1">
-                        暂无代理/转发端点。可通过「转发管理」添加 GOST 转发，或在「X-UI 管理」绑定实例后自动展示。
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Protocol Summary - inline chips */}
-                {detail?.protocolSummaries && detail.protocolSummaries.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] font-bold tracking-widest text-default-400 uppercase mr-1">协议</span>
-                    {detail.protocolSummaries.map((p) => (
-                      <Chip key={p.protocol} size="sm" variant="flat" color="default" className="text-[10px]">
-                        <span className="font-bold uppercase">{p.protocol}</span>
-                        <span className="ml-1 font-mono">{p.inboundCount}入/{p.clientCount}客({p.onlineClientCount}线){p.allTime ? ` ${formatFlow(p.allTime)}` : ''}</span>
-                      </Chip>
-                    ))}
-                  </div>
-                )}
 
                 {/* Remarks */}
                 {selectedAsset.remark && (

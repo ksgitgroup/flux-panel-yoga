@@ -2571,6 +2571,14 @@ export default function AssetsPage() {
                       : <span className="text-default-400">未装</span>
                     }
                   </span>
+                  {/* 隧道 */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className="text-default-600 font-medium">隧道</span>
+                    <span className="text-default-400">{(detail?.tunnels?.length ?? 0) > 0 ? `${detail!.tunnels!.length}条` : '无'}</span>
+                    <button type="button" onClick={() => navigate('/tunnel')} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">
+                      {(detail?.tunnels?.length ?? 0) > 0 ? '管理' : '创建'}
+                    </button>
+                  </span>
                   {/* 转发 */}
                   <span className="inline-flex items-center gap-1 text-xs">
                     <span className="text-default-600 font-medium">转发</span>
@@ -2719,10 +2727,24 @@ export default function AssetsPage() {
                   </div>
                 )}
 
-                {/* ── 转发/X-UI 明细 ── */}
-                {((detail?.forwards?.length ?? 0) > 0 || (detail?.xuiInstances?.length ?? 0) > 0) && (
+                {/* ── 隧道/转发/X-UI 明细 ── */}
+                {((detail?.tunnels?.length ?? 0) > 0 || (detail?.forwards?.length ?? 0) > 0 || (detail?.xuiInstances?.length ?? 0) > 0) && (
                   <div className="border-t border-divider/40 pt-3 mt-3 space-y-1">
                     <p className="text-xs font-semibold text-default-500 mb-1">端点明细</p>
+                    {detail?.tunnels?.map((tun) => (
+                      <div key={`tun-${tun.id}`} className="flex items-center gap-2 text-xs">
+                        <Chip size="sm" variant="flat" color="primary" classNames={{base: "h-4", content: "text-[10px] px-1"}}>
+                          {tun.type === 1 ? '端口' : '隧道'}
+                        </Chip>
+                        <span className="font-mono text-default-500">{tun.inNodeName}</span>
+                        {tun.outNodeName && <><span className="text-default-300">→</span><span className="font-mono text-default-500">{tun.outNodeName}</span></>}
+                        {tun.protocol && <span className="text-default-400 text-[11px]">{tun.protocol.toUpperCase()}</span>}
+                        <span className="text-default-400">{tun.forwardCount}条转发</span>
+                        <Chip size="sm" variant="flat" color={tun.role === 'source' ? 'success' : 'warning'} classNames={{base: "h-4", content: "text-[10px] px-1"}}>
+                          {tun.role === 'source' ? '入口' : '出口'}
+                        </Chip>
+                      </div>
+                    ))}
                     {detail?.forwards?.map((fwd) => (
                       <div key={fwd.id} className="flex items-center gap-2 text-xs">
                         <Chip size="sm" variant="flat" color={fwd.status === 1 ? 'success' : fwd.status === 0 ? 'warning' : 'danger'} classNames={{base: "h-4", content: "text-[10px] px-1"}}>

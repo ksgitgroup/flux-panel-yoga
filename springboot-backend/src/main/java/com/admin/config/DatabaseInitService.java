@@ -356,6 +356,8 @@ public class DatabaseInitService {
             updateColumn("node", "asset_id", "bigint(20) DEFAULT NULL COMMENT '关联资产 ID'");
             updateColumn("node", "deploy_location", "varchar(32) DEFAULT 'overseas' COMMENT '部署位置: overseas/domestic_cloud/domestic_ix/domestic_idc'");
             updateColumn("node", "api_url", "varchar(255) DEFAULT NULL COMMENT 'GOST Web API 地址'");
+            updateColumn("tunnel", "source_asset_id", "bigint(20) DEFAULT NULL COMMENT '入口节点对应的资产ID'");
+            updateColumn("tunnel", "target_asset_id", "bigint(20) DEFAULT NULL COMMENT '出口节点对应的资产ID'");
             log.info("[DatabaseInit] AssetHost VPS 管理字段增量升级完成");
         } catch (Exception e) {
             log.warn("[DatabaseInit] AssetHost 字段升级异常: {}", e.getMessage());

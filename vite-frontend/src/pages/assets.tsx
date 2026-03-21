@@ -2485,151 +2485,88 @@ export default function AssetsPage() {
                 </div>
                 <p className="text-sm font-normal text-default-500 font-mono">{selectedAsset.primaryIp || '-'}{selectedAsset.ipv6 ? ` / ${selectedAsset.ipv6}` : ''}</p>
               </ModalHeader>
-              <ModalBody className="space-y-3">
+              <ModalBody className="space-y-0 px-5 pb-4">
                 {detailLoading && <div className="flex justify-center py-4"><Spinner /></div>}
 
-                {/* ══════ 服务与端点 — 紧凑 grid ══════ */}
-                <div className="rounded-xl border border-divider/60 bg-default-50/40 p-2.5">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">服务与端点</p>
-                    {(canCreateAssets || canUpdateAssets) && (!selectedAsset.monitorNodeUuid || !selectedAsset.pikaNodeId || !selectedAsset.gostNodeId) && (
-                      <button type="button" onClick={() => { onDetailClose(); openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, assetIp: selectedAsset.primaryIp || undefined, asset: selectedAsset, missingKomari: !selectedAsset.monitorNodeUuid, missingPika: !selectedAsset.pikaNodeId, missingGost: !selectedAsset.gostNodeId }); }}
-                        className="px-1.5 py-0.5 rounded bg-primary-50 text-primary text-[9px] font-semibold hover:bg-primary-100 cursor-pointer">
-                        安装探针/GOST →
+                {/* ── 服务关联 (inline chips) ── */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-3">
+                  {/* Komari */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className={`h-1.5 w-1.5 rounded-full ${selectedAsset.monitorNodeUuid ? (selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300') : 'bg-default-200'}`} />
+                    <span className="text-default-600 font-medium">Komari</span>
+                    <span className="text-default-400">{selectedAsset.monitorNodeUuid ? (selectedAsset.monitorOnline === 1 ? '在线' : '离线') : '未装'}</span>
+                  </span>
+                  {/* Pika */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className={`h-1.5 w-1.5 rounded-full ${selectedAsset.pikaNodeId ? (selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300') : 'bg-default-200'}`} />
+                    <span className="text-default-600 font-medium">Pika</span>
+                    <span className="text-default-400">{selectedAsset.pikaNodeId ? (selectedAsset.monitorOnline === 1 ? '在线' : '离线') : '未装'}</span>
+                  </span>
+                  {/* GOST */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className={`h-1.5 w-1.5 rounded-full ${selectedAsset.gostNodeName ? 'bg-success' : 'bg-default-200'}`} />
+                    <span className="text-default-600 font-medium">GOST</span>
+                    {selectedAsset.gostNodeName
+                      ? <button type="button" onClick={() => navigate('/node')} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">管理</button>
+                      : <span className="text-default-400">未装</span>
+                    }
+                  </span>
+                  {/* 转发 */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className="text-default-600 font-medium">转发</span>
+                    <span className="text-default-400">{(detail?.forwards?.length ?? 0) > 0 ? `${detail!.forwards!.length}条` : '无'}</span>
+                    <button type="button" onClick={() => navigate('/forward')} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">
+                      {(detail?.forwards?.length ?? 0) > 0 ? '管理' : '添加'}
+                    </button>
+                  </span>
+                  {/* X-UI */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className="text-default-600 font-medium">X-UI</span>
+                    <span className="text-default-400">{(detail?.xuiInstances?.length ?? 0) > 0 ? `${detail!.xuiInstances!.length}实例` : '无'}</span>
+                    {(canCreateAssets || canUpdateAssets) && (
+                      <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">
+                        {(detail?.xuiInstances?.length ?? 0) > 0 ? '配置' : '绑定'}
                       </button>
                     )}
-                  </div>
-                  {/* 紧凑 grid: 基础 6 格 */}
-                  <div className="grid grid-cols-3 gap-1.5 text-[11px]">
-                    {/* Komari */}
-                    <div className="flex items-center gap-1 rounded-md border border-divider/40 bg-content1 px-2 py-1 min-h-[28px]">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${selectedAsset.monitorNodeUuid ? (selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300') : 'bg-default-200'}`} />
-                      <span className="font-semibold text-primary truncate">Komari</span>
-                      {selectedAsset.monitorNodeUuid
-                        ? <span className="text-default-400 text-[10px] ml-auto shrink-0">{selectedAsset.monitorOnline === 1 ? '在线' : '离线'}</span>
-                        : <span className="text-default-300 text-[10px] ml-auto shrink-0">未装</span>
-                      }
-                    </div>
-                    {/* Pika */}
-                    <div className="flex items-center gap-1 rounded-md border border-divider/40 bg-content1 px-2 py-1 min-h-[28px]">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${selectedAsset.pikaNodeId ? (selectedAsset.monitorOnline === 1 ? 'bg-success' : 'bg-default-300') : 'bg-default-200'}`} />
-                      <span className="font-semibold text-secondary truncate">Pika</span>
-                      {selectedAsset.pikaNodeId
-                        ? <span className="text-default-400 text-[10px] ml-auto shrink-0">{selectedAsset.monitorOnline === 1 ? '在线' : '离线'}</span>
-                        : <span className="text-default-300 text-[10px] ml-auto shrink-0">未装</span>
-                      }
-                    </div>
-                    {/* GOST */}
-                    <div className="flex items-center gap-1 rounded-md border border-divider/40 bg-content1 px-2 py-1 min-h-[28px]">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${selectedAsset.gostNodeName ? 'bg-success' : 'bg-default-200'}`} />
-                      <span className="font-semibold text-default-600 truncate">GOST</span>
-                      {selectedAsset.gostNodeName ? (
-                        <button type="button" onClick={() => navigate('/node')}
-                          className="ml-auto px-1 py-0 rounded bg-default-100 text-default-500 text-[9px] hover:bg-default-200 cursor-pointer shrink-0">管理</button>
-                      ) : (
-                        <span className="text-default-300 text-[10px] ml-auto shrink-0">未装</span>
-                      )}
-                    </div>
-                    {/* 转发 */}
-                    <div className="flex items-center gap-1 rounded-md border border-divider/40 bg-content1 px-2 py-1 min-h-[28px]">
-                      <span className="font-semibold text-default-600 truncate">转发</span>
-                      {(detail?.forwards?.length ?? 0) > 0 ? (
-                        <span className="text-default-400 text-[10px]">{detail!.forwards!.length}条</span>
-                      ) : (
-                        <span className="text-default-300 text-[10px]">无</span>
-                      )}
-                      <button type="button" onClick={() => navigate('/forward')}
-                        className="ml-auto px-1 py-0 rounded bg-default-100 text-default-500 text-[9px] hover:bg-default-200 cursor-pointer shrink-0">
-                        {(detail?.forwards?.length ?? 0) > 0 ? '管理' : '+'}
-                      </button>
-                    </div>
-                    {/* X-UI */}
-                    <div className="flex items-center gap-1 rounded-md border border-divider/40 bg-content1 px-2 py-1 min-h-[28px]">
-                      <span className="font-semibold text-default-600 truncate">X-UI</span>
-                      {(detail?.xuiInstances?.length ?? 0) > 0 ? (
-                        <span className="text-default-400 text-[10px]">{detail!.xuiInstances!.length}实例</span>
-                      ) : (
-                        <span className="text-default-300 text-[10px]">无</span>
-                      )}
-                      {(canCreateAssets || canUpdateAssets) && (
-                        <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
-                          className="ml-auto px-1 py-0 rounded bg-default-100 text-default-500 text-[9px] hover:bg-default-200 cursor-pointer shrink-0">
-                          {(detail?.xuiInstances?.length ?? 0) > 0 ? '配置' : '+'}
-                        </button>
-                      )}
-                    </div>
-                    {/* 1Panel */}
-                    <div className="flex items-center gap-1 rounded-md border border-divider/40 bg-content1 px-2 py-1 min-h-[28px]">
-                      <span className="font-semibold text-default-600 truncate">1Panel</span>
-                      {selectedAsset.panelUrl ? (
-                        <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer"
-                          className="ml-auto px-1 py-0 rounded bg-success-50 text-success text-[9px] font-semibold hover:bg-success-100 no-underline shrink-0">打开</a>
-                      ) : (
-                        <>
-                          <span className="text-default-300 text-[10px]">无</span>
-                          {(canCreateAssets || canUpdateAssets) && (
-                            <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }}
-                              className="ml-auto px-1 py-0 rounded bg-default-100 text-default-500 text-[9px] hover:bg-default-200 cursor-pointer shrink-0">+</button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 展开明细：转发规则 + X-UI 实例 + 协议（仅有数据时显示） */}
-                  {((detail?.forwards?.length ?? 0) > 0 || (detail?.xuiInstances?.length ?? 0) > 0) && (
-                    <div className="mt-1.5 space-y-1 border-t border-divider/30 pt-1.5">
-                      {detail?.forwards?.map((fwd) => (
-                        <div key={fwd.id} className="flex items-center gap-1.5 text-[10px]">
-                          <Chip size="sm" variant="flat" color={fwd.status === 1 ? 'success' : fwd.status === 0 ? 'warning' : 'danger'} className="h-3.5 text-[8px]">
-                            {fwd.status === 1 ? '转发' : fwd.status === 0 ? '暂停' : '异常'}
-                          </Chip>
-                          <span className="font-mono text-default-500">{selectedAsset.primaryIp}</span>
-                          <span className="text-default-300">→</span>
-                          <span className="font-mono text-default-400 truncate max-w-36">{fwd.remoteAddr || '?'}</span>
-                          {fwd.name && <span className="text-default-300 truncate max-w-20">{fwd.name}</span>}
-                        </div>
-                      ))}
-                      {detail?.xuiInstances?.map((inst) => {
-                        const syncChip = getStatusChip(inst.lastSyncStatus);
-                        const instUrl = buildInstanceAddress(inst);
-                        return (
-                          <div key={inst.id} className="flex items-center gap-1.5 text-[10px]">
-                            <Chip size="sm" color={syncChip.color} variant="flat" className="h-3.5 text-[8px]">{syncChip.text}</Chip>
-                            <span className="font-mono text-default-500 truncate max-w-28">{inst.name}</span>
-                            <span className="text-default-400 font-mono">{inst.inboundCount || 0}入/{inst.clientCount || 0}客</span>
-                            <a href={instUrl} target="_blank" rel="noopener noreferrer"
-                              className="px-1 rounded bg-primary-50 text-primary text-[8px] font-semibold hover:bg-primary-100 no-underline">后台</a>
-                          </div>
-                        );
-                      })}
-                      {detail?.protocolSummaries?.map((p) => (
-                        <div key={p.protocol} className="flex items-center gap-1.5 text-[10px]">
-                          <Chip size="sm" variant="flat" color="secondary" className="h-3.5 text-[8px]">{p.protocol.toUpperCase()}</Chip>
-                          <span className="font-mono text-default-400">{p.inboundCount}入站/{p.clientCount}客户端({p.onlineClientCount}线)</span>
-                          {p.allTime ? <span className="font-mono text-default-300">{formatFlow(p.allTime)}</span> : null}
-                        </div>
-                      ))}
-                    </div>
+                  </span>
+                  {/* 1Panel */}
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <span className="text-default-600 font-medium">1Panel</span>
+                    {selectedAsset.panelUrl ? (
+                      <a href={selectedAsset.panelUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-[11px] font-medium hover:underline no-underline">打开</a>
+                    ) : (
+                      <>
+                        <span className="text-default-400">无</span>
+                        {(canCreateAssets || canUpdateAssets) && (
+                          <button type="button" onClick={() => { onDetailClose(); openEditModal(selectedAsset, 'services'); }} className="text-primary text-[11px] font-medium hover:underline cursor-pointer">配置</button>
+                        )}
+                      </>
+                    )}
+                  </span>
+                  {/* 堡垒机 */}
+                  {selectedAsset.jumpserverAssetId && (
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      <span className="text-default-600 font-medium">堡垒机</span>
+                      <Chip size="sm" variant="flat" color="success" classNames={{base: "h-4", content: "text-[10px] px-1"}}>已绑定</Chip>
+                    </span>
                   )}
-
-                  {/* 附加行：堡垒机 + 1Panel 摘要（非核心服务，折叠显示） */}
-                  {(selectedAsset.jumpserverAssetId || selectedAsset.onePanelInstanceId) && (
-                    <div className="mt-1 flex items-center gap-2 text-[10px] text-default-400">
-                      {selectedAsset.jumpserverAssetId && <span>堡垒机 <Chip size="sm" variant="flat" color="success" className="h-3.5 text-[8px]">已绑定</Chip></span>}
-                      {selectedAsset.onePanelInstanceId && (
-                        <button type="button" onClick={() => navigate(`/onepanel?instanceId=${selectedAsset.onePanelInstanceId}`)}
-                          className="px-1 py-0 rounded bg-warning-50 text-warning text-[9px] hover:bg-warning-100 cursor-pointer">
-                          1Panel 摘要 {selectedAsset.onePanelLastReportStatus === 'success' ? '✓' : '?'}
-                        </button>
-                      )}
-                    </div>
+                  {/* 1Panel 摘要 */}
+                  {selectedAsset.onePanelInstanceId && (
+                    <button type="button" onClick={() => navigate(`/onepanel?instanceId=${selectedAsset.onePanelInstanceId}`)} className="text-[11px] text-warning font-medium hover:underline cursor-pointer">
+                      1Panel摘要 {selectedAsset.onePanelLastReportStatus === 'success' ? '✓' : '?'}
+                    </button>
+                  )}
+                  {/* CTA: 安装探针/GOST */}
+                  {(canCreateAssets || canUpdateAssets) && (!selectedAsset.monitorNodeUuid || !selectedAsset.pikaNodeId || !selectedAsset.gostNodeId) && (
+                    <button type="button" onClick={() => { onDetailClose(); openProvisionModal({ assetId: selectedAsset.id, assetName: selectedAsset.name, assetIp: selectedAsset.primaryIp || undefined, asset: selectedAsset, missingKomari: !selectedAsset.monitorNodeUuid, missingPika: !selectedAsset.pikaNodeId, missingGost: !selectedAsset.gostNodeId }); }}
+                      className="ml-auto text-[11px] text-primary font-medium hover:underline cursor-pointer">
+                      安装探针/GOST →
+                    </button>
                   )}
                 </div>
 
-                {/* Info Cards - 2-column layout */}
+                {/* ── 基本信息 + 硬件配置 (双列无框) ── */}
                 {(() => {
-                  // Find first online probe node to auto-fill missing asset data
                   const probeNode = detail?.monitorNodes?.find(n => n.online === 1) || detail?.monitorNodes?.[0];
                   const effectiveOs = selectedAsset.os || probeNode?.os || '-';
                   const effectiveCpuCores = selectedAsset.cpuCores || probeNode?.cpuCores;
@@ -2639,76 +2576,60 @@ export default function AssetsPage() {
                   const effectiveSwapMb = selectedAsset.swapTotalMb || (probeNode?.swapTotal ? Math.round(probeNode.swapTotal / 1024 / 1024) : null);
                   const effectiveArch = selectedAsset.arch || probeNode?.arch;
                   const effectiveVirt = selectedAsset.virtualization || probeNode?.virtualization;
-
+                  // unified row component
+                  const R = ({ k, v, cls }: { k: string; v: React.ReactNode; cls?: string }) => (
+                    <p className="flex justify-between text-xs"><span className="text-default-400">{k}</span><span className={`font-mono text-right max-w-[65%] truncate ${cls || ''}`}>{v}</span></p>
+                  );
                   return (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {/* Left: 基本信息 & 费用 (matches Edit Tab1) */}
-                      <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                        <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">基本信息</p>
-                        <div className="space-y-1 text-xs">
-                          {selectedAsset.provider && <p className="flex justify-between"><span className="text-default-400">厂商</span><span>{selectedAsset.provider}</span></p>}
-                          {selectedAsset.region && <p className="flex justify-between"><span className="text-default-400">地区</span><span>{getRegionFlag(selectedAsset.region)} {selectedAsset.region}</span></p>}
-                          {selectedAsset.environment && <p className="flex justify-between"><span className="text-default-400">环境</span><span>{selectedAsset.environment}</span></p>}
-                          {selectedAsset.purpose && <p className="flex justify-between"><span className="text-default-400">用途</span><span className="text-primary font-medium">{selectedAsset.purpose}</span></p>}
-                          {selectedAsset.bandwidthMbps && <p className="flex justify-between"><span className="text-default-400">带宽</span><span className="font-mono">{selectedAsset.bandwidthMbps} Mbps</span></p>}
-                          {selectedAsset.monthlyTrafficGb && <p className="flex justify-between"><span className="text-default-400">月流量</span><span className="font-mono">{selectedAsset.monthlyTrafficGb === -1 ? '不限量' : `${selectedAsset.monthlyTrafficGb >= 1024 ? (selectedAsset.monthlyTrafficGb / 1024).toFixed(1) + ' TB' : selectedAsset.monthlyTrafficGb + ' GB'}/月`}</span></p>}
-                          <p className="flex justify-between"><span className="text-default-400">SSH</span><span className="font-mono">{selectedAsset.sshPort || 22}</span></p>
-                          {/* Cost section */}
-                          <div className="pt-1 border-t border-divider/40 space-y-1">
-                            {selectedAsset.monthlyCost && <p className="flex justify-between"><span className="text-default-400">费用</span><span className="font-mono">{getCurrencySymbol(selectedAsset.currency || 'CNY')}{selectedAsset.monthlyCost}/{formatBillingCycle(selectedAsset.billingCycle) || '周期'}</span></p>}
-                            {selectedAsset.purchaseDate && <p className="flex justify-between"><span className="text-default-400">购买</span><span className="font-mono">{formatDateShort(selectedAsset.purchaseDate)}</span></p>}
-                            {selectedAsset.expireDate && (
-                              <p className="flex justify-between">
-                                <span className="text-default-400">到期</span>
-                                <span className={`font-mono ${selectedAsset.expireDate !== -1 && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''}`}>
-                                  {formatDateShort(selectedAsset.expireDate)}
-                                </span>
-                              </p>
-                            )}
-                            {(() => {
-                              const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency);
-                              if (!rv) return null;
-                              return (
-                                <p className="flex justify-between">
-                                  <span className="text-default-400">剩余价值</span>
-                                  <span className="font-mono font-semibold text-primary">{rv.currency}{rv.remainingValue}</span>
-                                </p>
-                              );
-                            })()}
+                    <div className="grid grid-cols-2 gap-x-8 border-t border-divider/40 pt-3">
+                      {/* 左列：基本信息 */}
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-semibold text-default-500 mb-1">基本信息</p>
+                        {selectedAsset.provider && <R k="厂商" v={selectedAsset.provider} />}
+                        {selectedAsset.region && <R k="地区" v={`${getRegionFlag(selectedAsset.region)} ${selectedAsset.region}`} />}
+                        {selectedAsset.environment && <R k="环境" v={selectedAsset.environment} />}
+                        {selectedAsset.purpose && <R k="用途" v={selectedAsset.purpose} cls="text-primary font-medium" />}
+                        {selectedAsset.bandwidthMbps && <R k="带宽" v={`${selectedAsset.bandwidthMbps} Mbps`} />}
+                        {selectedAsset.monthlyTrafficGb && <R k="月流量" v={selectedAsset.monthlyTrafficGb === -1 ? '不限量' : `${selectedAsset.monthlyTrafficGb >= 1024 ? (selectedAsset.monthlyTrafficGb / 1024).toFixed(1) + ' TB' : selectedAsset.monthlyTrafficGb + ' GB'}/月`} />}
+                        <R k="SSH" v={selectedAsset.sshPort || 22} />
+                        {/* 费用 */}
+                        {(selectedAsset.monthlyCost || selectedAsset.expireDate) && (
+                          <div className="pt-1.5 mt-1 border-t border-divider/30 space-y-1.5">
+                            {selectedAsset.monthlyCost && <R k="费用" v={`${getCurrencySymbol(selectedAsset.currency || 'CNY')}${selectedAsset.monthlyCost}/${formatBillingCycle(selectedAsset.billingCycle) || '周期'}`} />}
+                            {selectedAsset.purchaseDate && <R k="购买" v={formatDateShort(selectedAsset.purchaseDate)} />}
+                            {selectedAsset.expireDate && <R k="到期" v={formatDateShort(selectedAsset.expireDate)} cls={selectedAsset.expireDate !== -1 && selectedAsset.expireDate < Date.now() + 30 * 86400000 ? 'text-warning font-semibold' : ''} />}
+                            {(() => { const rv = calcRemainingValue(selectedAsset.expireDate, selectedAsset.monthlyCost, selectedAsset.billingCycle, selectedAsset.currency); return rv ? <R k="剩余价值" v={`${rv.currency}${rv.remainingValue}`} cls="text-primary font-semibold" /> : null; })()}
                           </div>
-                        </div>
+                        )}
                       </div>
-
-                      {/* Right: 硬件配置 (matches Edit Tab3) */}
-                      <div className="rounded-xl border border-divider/60 bg-default-50/60 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase">硬件配置</p>
+                      {/* 右列：硬件配置 */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-semibold text-default-500">硬件配置</p>
                           <div className="flex items-center gap-1">
                             {selectedAsset.probeSource && <Chip size="sm" variant="dot" color={selectedAsset.probeSource === 'dual' ? 'warning' : 'primary'} classNames={{content: "text-[10px]"}}>{selectedAsset.probeSource === 'dual' ? '双探针' : selectedAsset.probeSource === 'komari' ? 'Komari' : selectedAsset.probeSource === 'pika' ? 'Pika' : selectedAsset.probeSource}</Chip>}
                             {!selectedAsset.probeSource && selectedAsset.monitorNodeUuid && <Chip size="sm" variant="flat" color="primary" classNames={{content: "text-[10px]"}}>Komari</Chip>}
                             {!selectedAsset.probeSource && selectedAsset.pikaNodeId && <Chip size="sm" variant="flat" color="secondary" classNames={{content: "text-[10px]"}}>Pika</Chip>}
-                            {selectedAsset.monitorLastSyncAt && <span className="text-[10px] text-default-400 ml-1">同步 {new Date(selectedAsset.monitorLastSyncAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
                           </div>
                         </div>
-                        <div className="space-y-1 text-xs">
-                          <p className="flex justify-between"><span className="text-default-400">系统</span><span className="font-mono text-right max-w-[65%] truncate">{effectiveOs}</span></p>
-                          {effectiveCpuCores && (
-                            <p className="flex justify-between"><span className="text-default-400">CPU</span><span className="font-mono text-right max-w-[65%] truncate">{effectiveCpuCores} 核{effectiveCpuName ? ` (${effectiveCpuName})` : ''}</span></p>
-                          )}
-                          {effectiveMemMb && <p className="flex justify-between"><span className="text-default-400">内存</span><span className="font-mono">{effectiveMemMb} MB</span></p>}
-                          {effectiveDiskGb && <p className="flex justify-between"><span className="text-default-400">硬盘</span><span className="font-mono">{effectiveDiskGb} GB</span></p>}
-                          {effectiveSwapMb && Number(effectiveSwapMb) > 0 && <p className="flex justify-between"><span className="text-default-400">Swap</span><span className="font-mono">{effectiveSwapMb} MB</span></p>}
-                          {effectiveArch && <p className="flex justify-between"><span className="text-default-400">架构</span><span className="font-mono">{effectiveArch}</span></p>}
-                          {effectiveVirt && <p className="flex justify-between"><span className="text-default-400">虚拟化</span><span className="font-mono">{effectiveVirt}</span></p>}
-                          {probeNode?.kernelVersion && <p className="flex justify-between"><span className="text-default-400">内核</span><span className="font-mono text-right max-w-[65%] truncate">{probeNode.kernelVersion}</span></p>}
-                          {probeNode?.gpuName && probeNode.gpuName !== 'None' && <p className="flex justify-between"><span className="text-default-400">GPU</span><span className="font-mono text-right max-w-[65%] truncate">{probeNode.gpuName}</span></p>}
-                        </div>
+                        <R k="系统" v={effectiveOs} />
+                        {effectiveCpuCores && <R k="CPU" v={`${effectiveCpuCores} 核${effectiveCpuName ? ` (${effectiveCpuName})` : ''}`} />}
+                        {effectiveMemMb && <R k="内存" v={`${effectiveMemMb} MB`} />}
+                        {effectiveDiskGb && <R k="硬盘" v={`${effectiveDiskGb} GB`} />}
+                        {effectiveSwapMb && Number(effectiveSwapMb) > 0 && <R k="Swap" v={`${effectiveSwapMb} MB`} />}
+                        {effectiveArch && <R k="架构" v={effectiveArch} />}
+                        {effectiveVirt && <R k="虚拟化" v={effectiveVirt} />}
+                        {probeNode?.kernelVersion && <R k="内核" v={probeNode.kernelVersion} />}
+                        {probeNode?.gpuName && probeNode.gpuName !== 'None' && <R k="GPU" v={probeNode.gpuName} />}
+                        {selectedAsset.monitorLastSyncAt && (
+                          <p className="text-[11px] text-default-400 pt-1">同步于 {new Date(selectedAsset.monitorLastSyncAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        )}
                       </div>
                     </div>
                   );
                 })()}
 
-                {/* Alert Status Card */}
+                {/* ── 告警 (一行) ── */}
                 {selectedAsset.id && (effectiveAlertIds.has(selectedAsset.id) || snoozedOnlyAlertIds.has(selectedAsset.id)) && (() => {
                   const assetAlerts = allAlertsBrief.filter(a => a.assetId === selectedAsset.id);
                   const activeCount = assetAlerts.filter(a => !isSnoozed(a.ruleId, a.nodeId)).length;
@@ -2716,181 +2637,163 @@ export default function AssetsPage() {
                   const criticalCount = assetAlerts.filter(a => a.severity === 'critical' && !isSnoozed(a.ruleId, a.nodeId)).length;
                   const warningCount = assetAlerts.filter(a => a.severity === 'warning' && !isSnoozed(a.ruleId, a.nodeId)).length;
                   return (
-                    <button
-                      type="button"
-                      onClick={() => openAlertPopover(selectedAsset.id!, selectedAsset.name || '')}
-                      className={`w-full rounded-xl border p-3 text-left transition-all hover:shadow-sm cursor-pointer ${
-                        activeCount > 0
-                          ? 'border-danger/30 bg-danger-50/60 dark:bg-danger-50/10'
-                          : 'border-default-200 bg-default-50/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${activeCount > 0 ? 'bg-danger animate-pulse' : 'bg-default-300'}`} />
-                          <span className="text-xs font-bold tracking-wider uppercase text-default-500">告警状态</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {criticalCount > 0 && <Chip size="sm" variant="flat" color="danger" className="h-4 text-[9px]">严重 {criticalCount}</Chip>}
-                          {warningCount > 0 && <Chip size="sm" variant="flat" color="warning" className="h-4 text-[9px]">警告 {warningCount}</Chip>}
-                          {snoozedCount > 0 && <Chip size="sm" variant="flat" color="default" className="h-4 text-[9px]">已忽略 {snoozedCount}</Chip>}
-                          <span className="text-[10px] text-primary ml-1">查看详情 →</span>
-                        </div>
-                      </div>
-                      {activeCount > 0 && (
-                        <p className="text-xs text-danger mt-1.5">{activeCount} 条活跃告警需要关注</p>
-                      )}
-                      {activeCount === 0 && snoozedCount > 0 && (
-                        <p className="text-xs text-default-400 mt-1.5">所有告警已忽略，{snoozedCount} 条规则被静音中</p>
-                      )}
+                    <button type="button" onClick={() => openAlertPopover(selectedAsset.id!, selectedAsset.name || '')}
+                      className="w-full flex items-center gap-2 border-t border-divider/40 pt-3 mt-3 cursor-pointer text-left hover:opacity-80">
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${activeCount > 0 ? 'bg-danger animate-pulse' : 'bg-default-300'}`} />
+                      <span className="text-xs font-semibold text-default-500">告警</span>
+                      {criticalCount > 0 && <Chip size="sm" variant="flat" color="danger" classNames={{base: "h-4", content: "text-[10px] px-1"}}>严重 {criticalCount}</Chip>}
+                      {warningCount > 0 && <Chip size="sm" variant="flat" color="warning" classNames={{base: "h-4", content: "text-[10px] px-1"}}>警告 {warningCount}</Chip>}
+                      {snoozedCount > 0 && <Chip size="sm" variant="flat" color="default" classNames={{base: "h-4", content: "text-[10px] px-1"}}>已忽略 {snoozedCount}</Chip>}
+                      <span className="ml-auto text-[11px] text-primary font-medium">查看详情 →</span>
                     </button>
                   );
                 })()}
 
-
-                {/* Remarks */}
+                {/* ── 备注 ── */}
                 {selectedAsset.remark && (
-                  <div className="rounded-lg border border-divider/60 bg-default-50/60 px-3 py-2 text-xs">
-                    <span className="text-default-400 mr-2">备注:</span>{selectedAsset.remark}
+                  <div className="border-t border-divider/40 pt-2 mt-3 text-xs">
+                    <span className="text-default-400">备注：</span><span className="text-default-600">{selectedAsset.remark}</span>
                   </div>
                 )}
 
-                {/* Probe Monitor Metrics */}
+                {/* ── 转发/X-UI 明细 ── */}
+                {((detail?.forwards?.length ?? 0) > 0 || (detail?.xuiInstances?.length ?? 0) > 0) && (
+                  <div className="border-t border-divider/40 pt-3 mt-3 space-y-1">
+                    <p className="text-xs font-semibold text-default-500 mb-1">端点明细</p>
+                    {detail?.forwards?.map((fwd) => (
+                      <div key={fwd.id} className="flex items-center gap-2 text-xs">
+                        <Chip size="sm" variant="flat" color={fwd.status === 1 ? 'success' : fwd.status === 0 ? 'warning' : 'danger'} classNames={{base: "h-4", content: "text-[10px] px-1"}}>
+                          {fwd.status === 1 ? '转发' : fwd.status === 0 ? '暂停' : '异常'}
+                        </Chip>
+                        <span className="font-mono text-default-500">{selectedAsset.primaryIp}</span>
+                        <span className="text-default-300">→</span>
+                        <span className="font-mono text-default-400 truncate max-w-40">{fwd.remoteAddr || '?'}</span>
+                        {fwd.name && <span className="text-default-400 truncate max-w-24">{fwd.name}</span>}
+                      </div>
+                    ))}
+                    {detail?.xuiInstances?.map((inst) => {
+                      const syncChip = getStatusChip(inst.lastSyncStatus);
+                      const instUrl = buildInstanceAddress(inst);
+                      return (
+                        <div key={inst.id} className="flex items-center gap-2 text-xs">
+                          <Chip size="sm" color={syncChip.color} variant="flat" classNames={{base: "h-4", content: "text-[10px] px-1"}}>{syncChip.text}</Chip>
+                          <span className="font-mono text-default-500 truncate max-w-32">{inst.name}</span>
+                          <span className="text-default-400 font-mono">{inst.inboundCount || 0}入/{inst.clientCount || 0}客</span>
+                          <a href={instUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-primary font-medium hover:underline no-underline">后台</a>
+                        </div>
+                      );
+                    })}
+                    {detail?.protocolSummaries?.map((p) => (
+                      <div key={p.protocol} className="flex items-center gap-2 text-xs">
+                        <Chip size="sm" variant="flat" color="secondary" classNames={{base: "h-4", content: "text-[10px] px-1"}}>{p.protocol.toUpperCase()}</Chip>
+                        <span className="font-mono text-default-400">{p.inboundCount}入站/{p.clientCount}客户端({p.onlineClientCount}在线)</span>
+                        {p.allTime ? <span className="font-mono text-default-400">{formatFlow(p.allTime)}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── 探针指标 ── */}
                 {detail?.monitorNodes && detail.monitorNodes.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold tracking-widest text-default-400 uppercase mb-2">探针指标 ({detail.monitorNodes.length} 个探针节点)</p>
-                    <div className="grid gap-3 md:grid-cols-2">
+                  <div className="border-t border-divider/40 pt-3 mt-3">
+                    <p className="text-xs font-semibold text-default-500 mb-2">探针指标</p>
+                    <div className="grid gap-2 md:grid-cols-2">
                       {detail.monitorNodes.map((node: MonitorNodeSnapshot) => {
                         const m = node.latestMetric;
                         const memPct = m?.memTotal ? ((m.memUsed || 0) / m.memTotal * 100) : 0;
                         const diskPct = m?.diskTotal ? ((m.diskUsed || 0) / m.diskTotal * 100) : 0;
                         const swapPct = m?.swapTotal ? ((m.swapUsed || 0) / m.swapTotal * 100) : 0;
                         return (
-                          <div key={node.id} className={`rounded-xl border p-3 ${
-                            node.online === 1 ? 'border-divider/60 bg-content1' : 'border-danger/20 bg-danger-50/20'
-                          }`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className={`inline-block h-2 w-2 rounded-full ${node.online === 1 ? 'bg-success animate-pulse' : 'bg-danger'}`} />
-                                <span className="truncate font-semibold text-sm">{node.name || node.remoteNodeUuid.slice(0, 8)}</span>
-                                <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} className="h-4 text-[9px]">
-                                  {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
-                                </Chip>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-mono text-default-400">v{node.version || '?'}</span>
-                                <button
-                                  className="text-[10px] text-danger hover:text-danger-600 cursor-pointer"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    if (!confirm(`删除探针节点「${node.name || node.remoteNodeUuid.slice(0, 8)}」？`)) return;
-                                    try {
-                                      const res = await deleteMonitorNode(node.id);
-                                      if (res.code === 0) {
-                                        toast.success('已删除');
-                                        if (expandedAssetId) void loadAssetDetail(expandedAssetId);
-                                        void loadAssets();
-                                      } else toast.error(res.msg || '删除失败');
-                                    } catch { toast.error('删除失败'); }
-                                  }}
-                                  title="删除此探针节点">
-                                  &times;
-                                </button>
-                              </div>
-                            </div>
-                            {/* Sync timestamps */}
-                            <div className="flex items-center justify-between mb-1.5 text-[10px] text-default-400 font-mono">
-                              <span>采样: {m?.sampledAt ? new Date(m.sampledAt).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
-                              <span>同步: {node.lastSyncAt ? new Date(node.lastSyncAt).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
+                          <div key={node.id} className={`rounded-lg border p-2.5 ${node.online === 1 ? 'border-divider/50' : 'border-danger/20 bg-danger-50/10'}`}>
+                            {/* Header: name + type + version + delete */}
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${node.online === 1 ? 'bg-success' : 'bg-danger'}`} />
+                              <span className="truncate text-xs font-semibold">{node.name || node.remoteNodeUuid.slice(0, 8)}</span>
+                              <Chip size="sm" variant="flat" color={node.instanceType === 'pika' ? 'secondary' : 'primary'} classNames={{base: "h-4", content: "text-[10px] px-1"}}>
+                                {node.instanceType === 'pika' ? 'Pika' : 'Komari'}
+                              </Chip>
+                              <span className="text-[11px] font-mono text-default-400 ml-auto">v{node.version || '?'}</span>
+                              <button className="text-[11px] text-danger hover:text-danger-600 cursor-pointer ml-1" title="删除此探针节点"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (!confirm(`删除探针节点「${node.name || node.remoteNodeUuid.slice(0, 8)}」？`)) return;
+                                  try {
+                                    const res = await deleteMonitorNode(node.id);
+                                    if (res.code === 0) { toast.success('已删除'); if (expandedAssetId) void loadAssetDetail(expandedAssetId); void loadAssets(); }
+                                    else toast.error(res.msg || '删除失败');
+                                  } catch { toast.error('删除失败'); }
+                                }}>&times;</button>
                             </div>
 
                             {m && node.online === 1 ? (
-                              <div className="space-y-1">
-                                {/* Resource bars */}
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">CPU</span>
-                                  <Progress size="sm" value={m.cpuUsage || 0} color={barColorHero(m.cpuUsage || 0)} className="flex-1" aria-label="CPU" />
-                                  <span className="w-10 text-right text-[11px] font-mono">{(m.cpuUsage || 0).toFixed(1)}%</span>
+                              <>
+                                {/* Resource bars — 2 per row */}
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                  <div className="flex items-center gap-1">
+                                    <span className="w-7 text-[11px] text-default-400">CPU</span>
+                                    <Progress size="sm" value={m.cpuUsage || 0} color={barColorHero(m.cpuUsage || 0)} className="flex-1" aria-label="CPU" />
+                                    <span className="w-8 text-right text-[11px] font-mono">{(m.cpuUsage || 0).toFixed(0)}%</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="w-7 text-[11px] text-default-400">MEM</span>
+                                    <Progress size="sm" value={memPct} color={barColorHero(memPct)} className="flex-1" aria-label="MEM" />
+                                    <span className="w-8 text-right text-[11px] font-mono">{memPct.toFixed(0)}%</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="w-7 text-[11px] text-default-400">DISK</span>
+                                    <Progress size="sm" value={diskPct} color={barColorHero(diskPct)} className="flex-1" aria-label="DISK" />
+                                    <span className="w-8 text-right text-[11px] font-mono">{diskPct.toFixed(0)}%</span>
+                                  </div>
+                                  {m.swapTotal && m.swapTotal > 0 ? (
+                                    <div className="flex items-center gap-1">
+                                      <span className="w-7 text-[11px] text-default-400">SWAP</span>
+                                      <Progress size="sm" value={swapPct} color={barColorHero(swapPct)} className="flex-1" aria-label="SWAP" />
+                                      <span className="w-8 text-right text-[11px] font-mono">{swapPct.toFixed(0)}%</span>
+                                    </div>
+                                  ) : (m.gpuUsage != null && m.gpuUsage > 0) ? (
+                                    <div className="flex items-center gap-1">
+                                      <span className="w-7 text-[11px] text-default-400">GPU</span>
+                                      <Progress size="sm" value={m.gpuUsage} color={barColorHero(m.gpuUsage)} className="flex-1" aria-label="GPU" />
+                                      <span className="w-8 text-right text-[11px] font-mono">{m.gpuUsage.toFixed(0)}%</span>
+                                    </div>
+                                  ) : null}
                                 </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">MEM</span>
-                                  <Progress size="sm" value={memPct} color={barColorHero(memPct)} className="flex-1" aria-label="MEM" />
-                                  <span className="w-10 text-right text-[11px] font-mono">{memPct.toFixed(0)}%</span>
+                                {/* One-line stats */}
+                                <div className="flex flex-wrap gap-x-3 mt-1 text-[11px] text-default-400 font-mono">
+                                  <span>↓{formatSpeed(m.netIn)}</span>
+                                  <span>↑{formatSpeed(m.netOut)}</span>
+                                  <span>UP {formatUptime(m.uptime)}</span>
+                                  <span>LOAD {m.load1?.toFixed(2) || '-'}</span>
+                                  {(m.connections || 0) > 0 && <span>TCP {m.connections}</span>}
+                                  {((m.netTotalDown && m.netTotalDown > 0) || (m.netTotalUp && m.netTotalUp > 0)) && (
+                                    <span>总量 ↓{formatFlow(m.netTotalDown)} ↑{formatFlow(m.netTotalUp)}</span>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">DISK</span>
-                                  <Progress size="sm" value={diskPct} color={barColorHero(diskPct)} className="flex-1" aria-label="DISK" />
-                                  <span className="w-10 text-right text-[11px] font-mono">{diskPct.toFixed(0)}%</span>
-                                </div>
-                                {m.swapTotal && m.swapTotal > 0 && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">SWAP</span>
-                                    <Progress size="sm" value={swapPct} color={barColorHero(swapPct)} className="flex-1" aria-label="SWAP" />
-                                    <span className="w-10 text-right text-[11px] font-mono">{swapPct.toFixed(0)}%</span>
-                                  </div>
-                                )}
-                                {m.gpuUsage != null && m.gpuUsage > 0 && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="w-8 text-[10px] font-bold text-default-400 tracking-wider">GPU</span>
-                                    <Progress size="sm" value={m.gpuUsage} color={barColorHero(m.gpuUsage)} className="flex-1" aria-label="GPU" />
-                                    <span className="w-10 text-right text-[11px] font-mono">{m.gpuUsage.toFixed(1)}%</span>
-                                  </div>
-                                )}
-
-                                {/* Compact stats */}
-                                <div className="grid grid-cols-3 gap-1.5 pt-1">
-                                  <div className="rounded-lg bg-default-100/60 px-2 py-1 text-center">
-                                    <p className="text-[9px] text-default-400">NET IN</p>
-                                    <p className="text-[11px] font-semibold font-mono">{formatSpeed(m.netIn)}</p>
-                                  </div>
-                                  <div className="rounded-lg bg-default-100/60 px-2 py-1 text-center">
-                                    <p className="text-[9px] text-default-400">NET OUT</p>
-                                    <p className="text-[11px] font-semibold font-mono">{formatSpeed(m.netOut)}</p>
-                                  </div>
-                                  <div className="rounded-lg bg-default-100/60 px-2 py-1 text-center">
-                                    <p className="text-[9px] text-default-400">UPTIME</p>
-                                    <p className="text-[11px] font-semibold font-mono">{formatUptime(m.uptime)}</p>
-                                  </div>
-                                </div>
-                                <div className="flex flex-wrap gap-x-3 text-[10px] text-default-400 font-mono">
-                                  <span>LOAD {m.load1?.toFixed(2) || '-'} / {m.load5?.toFixed(2) || '-'} / {m.load15?.toFixed(2) || '-'}</span>
-                                  {(m.connections || 0) > 0 && <span>TCP {m.connections}{m.connectionsUdp ? ` UDP ${m.connectionsUdp}` : ''}</span>}
-                                  {(m.processCount || 0) > 0 && <span>PROC {m.processCount}</span>}
-                                </div>
-                                {/* Traffic totals */}
-                                {((m.netTotalDown && m.netTotalDown > 0) || (m.netTotalUp && m.netTotalUp > 0)) && (
-                                  <div className="flex gap-3 text-[10px] text-default-400 font-mono">
-                                    <span>&#x2193; {formatFlow(m.netTotalDown)}</span>
-                                    <span>&#x2191; {formatFlow(m.netTotalUp)}</span>
-                                  </div>
-                                )}
                                 {/* Traffic quota (Pika) */}
                                 {node.trafficLimit && node.trafficLimit > 0 && (
-                                  <div className="flex items-center gap-1.5 pt-0.5">
-                                    <span className="text-[10px] text-default-400 font-mono">
-                                      流量配额: {formatFlow(node.trafficUsed)} / {formatFlow(node.trafficLimit)}
-                                      {node.trafficResetDay ? ` (每月${node.trafficResetDay}日重置)` : ''}
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-[11px] text-default-400 font-mono">
+                                      配额 {formatFlow(node.trafficUsed)}/{formatFlow(node.trafficLimit)}
                                     </span>
                                     <Progress size="sm" value={node.trafficLimit > 0 ? ((node.trafficUsed || 0) / node.trafficLimit * 100) : 0}
                                       color={node.trafficLimit > 0 && (node.trafficUsed || 0) / node.trafficLimit > 0.9 ? 'danger' : 'primary'}
-                                      className="flex-1 max-w-20" aria-label="Traffic" />
+                                      className="flex-1 max-w-16" aria-label="Traffic" />
                                   </div>
                                 )}
-                              </div>
+                              </>
                             ) : (
-                              <div className="text-[11px] text-danger font-mono py-2">连接断开</div>
+                              <p className="text-xs text-danger font-mono py-1">连接断开</p>
                             )}
-
-                            {/* Probe-specific extra info (tags, expiry) - no hardware duplication */}
+                            {/* Probe extra: tags / expiry */}
                             {((node.tags) || (node.expiredAt && node.expiredAt > 0)) && (
-                              <div className="mt-1.5 pt-1.5 border-t border-divider/40 text-[10px] text-default-400 font-mono space-y-0.5">
+                              <div className="mt-1 pt-1 border-t border-divider/30 text-[11px] text-default-400 font-mono">
                                 {node.expiredAt && node.expiredAt > 0 && (
-                                  <p className={`${node.expiredAt < Date.now() ? 'text-danger' : ''}`}>
-                                    到期: {new Date(node.expiredAt).toLocaleDateString('zh-CN')}
-                                    {node.expiredAt < Date.now() ? ' (已过期)' : ` (剩余${Math.ceil((node.expiredAt - Date.now()) / 86400000)}天)`}
-                                  </p>
+                                  <span className={node.expiredAt < Date.now() ? 'text-danger' : ''}>
+                                    到期 {new Date(node.expiredAt).toLocaleDateString('zh-CN')}
+                                    {node.expiredAt < Date.now() ? ' (已过期)' : ` (${Math.ceil((node.expiredAt - Date.now()) / 86400000)}天)`}
+                                  </span>
                                 )}
-                                {node.tags && <p className="truncate">标签: {(() => { try { return JSON.parse(node.tags).join(', '); } catch { return node.tags; } })()}</p>}
+                                {node.tags && <span className="ml-2 truncate">标签: {(() => { try { return JSON.parse(node.tags).join(', '); } catch { return node.tags; } })()}</span>}
                               </div>
                             )}
                           </div>

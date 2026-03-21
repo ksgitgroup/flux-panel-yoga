@@ -60,7 +60,7 @@ git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 - `MonitorServiceImpl.java`（~1600行，同步核心）
 - `AssetHostServiceImpl.java`
 - `DatabaseInitService.java`（Auto-DDL，Codex 也会加表）
-- `assets.tsx`（~2800行）
+- `assets.tsx`（~4600行，含 Provision/Detail/Edit/QuickForward/1PanelQuick 弹窗）
 - `server-dashboard.tsx`
 - `pom.xml` / `package.json`（依赖变更需协调）
 
@@ -77,9 +77,40 @@ git worktree add ../flux-panel-yoga-claude-<topic> -b claude/<topic> origin/dev
 
 - Komari / Pika → `monitor_instance.type` 区分
 - 3x-ui → `xui_instance` 家族
-- 1Panel → `asset_host.panelUrl` 深度链接
-- JumpServer → 堡垒机映射（规划中）
+- 1Panel → `asset_host.panelUrl` 深度链接 + `onepanel_instance` 摘要实例
+- JumpServer → `asset_host.jumpserverAssetId` 堡垒机资产绑定
+- GOST → `node` 表，通过 `asset_host.gostNodeId` 关联
 - OpenClaw → AI 自动化（规划中）
+
+## 资产详情架构
+
+资产详情弹窗（`assets.tsx`）以资产为中心聚合 7 个子系统：
+
+| 子系统 | 数据来源 | 关联方式 |
+|--------|---------|---------|
+| Komari 探针 | `monitor_node_snapshot` | `asset_host.monitorNodeUuid` |
+| Pika 探针 | `monitor_node_snapshot` | `asset_host.pikaNodeId` |
+| GOST 代理 | `node` 表 | `asset_host.gostNodeId` ↔ `node.assetId` |
+| 隧道 | `tunnel` 表 | `tunnel.sourceAssetId` / `targetAssetId`（通过 GOST nodeId 自动填充） |
+| 转发 | `forward` 表 | `forward.remoteSourceAssetId`（精确绑定）+ IP 自动匹配 |
+| X-UI | `xui_instance` | `xui_instance.assetId` |
+| 1Panel | `onepanel_instance` | `onepanel_instance.assetId` |
+
+### GOST REST API Client
+
+`GostApiClient.java` 封装 GOST v3 HTTP API（通过 `node.apiUrl`），支持：
+- `ping()` / `getStatus()` — 检查节点可达性
+- `listServices()` / `listChains()` — 查询配置
+- `createService()` / `deleteService()` — 远程配置下发
+
+### 服务器初始化脚本
+
+`POST /api/v1/asset/init-scripts` 返回 5 类安装脚本：
+- 3X-UI 面板、1Panel 面板、基础工具、开发环境、安装后清理
+
+### 1Panel 快速配置
+
+`POST /api/v1/onepanel/quick-setup` 一步到位：保存 panelUrl + 创建实例 + 返回 Token
 
 ## 探针安装命令矩阵
 

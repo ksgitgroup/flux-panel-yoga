@@ -12,6 +12,8 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.*;
+
 @RestController
 @CrossOrigin
 @RequestMapping("/api/v1/asset")
@@ -32,6 +34,45 @@ public class AssetHostController extends BaseController {
     @PostMapping("/detail")
     public R detail(@Validated @RequestBody AssetHostIdDto dto) {
         return assetHostService.getAssetDetail(dto.getId());
+    }
+
+    /**
+     * 获取服务器初始化安装脚本（3X-UI / 1Panel / 基础工具 / 开发环境 / 清理）
+     */
+    @RequireRole
+    @PostMapping("/init-scripts")
+    public R initScripts(@RequestBody Map<String, Object> params) {
+        String osPlatform = (String) params.getOrDefault("osPlatform", "linux");
+        List<Map<String, Object>> scripts = new ArrayList<>();
+
+        if ("linux".equals(osPlatform)) {
+            scripts.add(buildScript("3xui", "3X-UI 面板",
+                    "apt update && apt install -y curl && bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)",
+                    "安装 3X-UI 代理面板，支持 V2Ray/Xray 多协议管理"));
+            scripts.add(buildScript("1panel", "1Panel 面板",
+                    "bash -c \"$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)\"",
+                    "安装 1Panel 服务器运维面板，支持 Docker/网站/数据库管理"));
+            scripts.add(buildScript("base_tools", "基础工具",
+                    "apt update && apt install -y dnsutils iperf3 jq tmux",
+                    "轻量级瑞士军刀组件：DNS 诊断/带宽测试/JSON 处理/终端复用（<20MB）"));
+            scripts.add(buildScript("dev_env", "开发环境",
+                    "apt update && apt install -y python3-pip python3-venv build-essential git unzip zip tree && curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs",
+                    "Node.js 22 + Python3 + GCC 编译工具链 + Git"));
+            scripts.add(buildScript("cleanup", "安装后清理",
+                    "apt autoremove -y && apt clean && rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists/* && journalctl --vacuum-time=1s && truncate -s 0 /var/log/syslog /var/log/auth.log",
+                    "清理安装缓存、日志、临时文件，回收磁盘空间"));
+        }
+
+        return R.ok(scripts);
+    }
+
+    private Map<String, Object> buildScript(String key, String label, String command, String description) {
+        Map<String, Object> script = new LinkedHashMap<>();
+        script.put("key", key);
+        script.put("label", label);
+        script.put("command", command);
+        script.put("description", description);
+        return script;
     }
 
     @LogAnnotation

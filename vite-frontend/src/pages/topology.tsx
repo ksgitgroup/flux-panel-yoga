@@ -12,7 +12,15 @@ import {
 import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell
 } from "@heroui/table";
+import {
+  ReactFlow, Background, Controls, MiniMap,
+  useNodesState, useEdgesState,
+  Position, MarkerType,
+  type Node as RFNode, type Edge as RFEdge,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 import {
   getServerGroups, createServerGroup, updateServerGroup, deleteServerGroup,
@@ -35,15 +43,13 @@ const NODE_LABELS: Record<string, string> = {
   landing: '落地',
 };
 
-const NODE_W = 160;
-const NODE_H = 56;
-const SVG_PADDING = 40;
+// ─── Topology React Flow ─────────────────────────────────────────────
 
-// ─── Topology SVG ────────────────────────────────────────────────────
+function TopologyFlow({ data }: { data: TopologyData | null }) {
+  const navigate = useNavigate();
 
-function TopologySvg({ data }: { data: TopologyData | null }) {
-  const layout = useMemo(() => {
-    if (!data || !data.nodes?.length) return null;
+  const { initialNodes, initialEdges } = useMemo(() => {
+    if (!data || !data.nodes?.length) return { initialNodes: [] as RFNode[], initialEdges: [] as RFEdge[] };
 
     const columns: Record<string, typeof data.nodes> = { entry: [], relay: [], landing: [] };
     for (const n of data.nodes) {
@@ -52,119 +58,81 @@ function TopologySvg({ data }: { data: TopologyData | null }) {
     }
 
     const colOrder = ['entry', 'relay', 'landing'];
-    const maxRows = Math.max(1, ...colOrder.map(k => columns[k].length));
-    const colGap = 260;
-    const rowGap = 80;
-    const svgW = colOrder.length * (NODE_W + colGap) - colGap + SVG_PADDING * 2;
-    const svgH = maxRows * (NODE_H + rowGap) - rowGap + SVG_PADDING * 2;
+    const COL_GAP = 320, ROW_GAP = 100;
 
-    const positions: Record<string, { x: number; y: number }> = {};
+    const rfNodes: RFNode[] = [];
     colOrder.forEach((col, ci) => {
-      const nodes = columns[col];
-      const totalH = nodes.length * (NODE_H + rowGap) - rowGap;
-      const offsetY = (svgH - totalH) / 2;
-      nodes.forEach((n, ri) => {
-        positions[n.id] = {
-          x: SVG_PADDING + ci * (NODE_W + colGap),
-          y: offsetY + ri * (NODE_H + rowGap),
-        };
+      const list = columns[col] || [];
+      list.forEach((n, ri) => {
+        const color = NODE_COLORS[n.type] ?? NODE_COLORS.landing;
+        rfNodes.push({
+          id: n.id,
+          position: { x: ci * COL_GAP, y: ri * ROW_GAP },
+          data: { label: n.name, ip: n.ip, type: n.type },
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
+          style: {
+            background: 'white',
+            border: `2px solid ${color}`,
+            borderRadius: '12px',
+            padding: '8px 14px',
+            fontSize: '12px',
+            minWidth: '170px',
+            cursor: 'pointer',
+          },
+        });
       });
     });
 
-    return { svgW, svgH, positions, columns, colOrder };
+    const rfEdges: RFEdge[] = (data.edges || []).map((edge, i) => ({
+      id: `e-${i}`,
+      source: edge.from,
+      target: edge.to,
+      label: edge.label || undefined,
+      style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#a1a1aa' },
+      animated: true,
+      labelStyle: { fontSize: 10, fill: '#71717a' },
+    }));
+
+    return { initialNodes: rfNodes, initialEdges: rfEdges };
   }, [data]);
 
-  if (!data || !layout) {
+  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+
+  if (!data || !data.nodes?.length) {
     return (
       <div className="flex items-center justify-center h-64 text-default-400">
-        暂无拓扑数据
+        暂无拓扑数据。请确保资产已配置角色（入口/中转/落地）并创建了隧道。
       </div>
     );
   }
 
-  const { svgW, svgH, positions, colOrder, columns } = layout;
-
   return (
-    <div className="overflow-auto border rounded-lg border-default-200 bg-default-50">
-      <svg
-        width={svgW}
-        height={svgH}
-        viewBox={`0 0 ${svgW} ${svgH}`}
-        className="min-w-full"
+    <div className="rounded-xl border border-divider/60 overflow-hidden" style={{ height: '65vh' }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={(_, node) => {
+          const d = node.data as { ip?: string };
+          if (d.ip) navigate(`/assets?search=${encodeURIComponent(d.ip)}`);
+        }}
+        fitView
+        attributionPosition="bottom-left"
       >
-        <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6 Z" fill="#a1a1aa" />
-          </marker>
-        </defs>
-
-        {/* Column headers */}
-        {colOrder.map((col, ci) => {
-          const x = SVG_PADDING + ci * (NODE_W + 260) + NODE_W / 2;
-          return (
-            <text key={col} x={x} y={20} textAnchor="middle" fontSize={13} fill="#71717a" fontWeight={600}>
-              {NODE_LABELS[col] ?? col}
-            </text>
-          );
-        })}
-
-        {/* Edges */}
-        {data.edges?.map((edge, i) => {
-          const from = positions[edge.from];
-          const to = positions[edge.to];
-          if (!from || !to) return null;
-          const x1 = from.x + NODE_W;
-          const y1 = from.y + NODE_H / 2;
-          const x2 = to.x;
-          const y2 = to.y + NODE_H / 2;
-          const mx = (x1 + x2) / 2;
-          const my = (y1 + y2) / 2;
-          return (
-            <g key={`edge-${i}`}>
-              <line
-                x1={x1} y1={y1} x2={x2} y2={y2}
-                stroke="#a1a1aa" strokeWidth={1.5}
-                markerEnd="url(#arrow)"
-              />
-              {edge.label && (
-                <text x={mx} y={my - 6} textAnchor="middle" fontSize={11} fill="#71717a">
-                  {edge.label}
-                </text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Nodes */}
-        {colOrder.flatMap(col => columns[col]).map(node => {
-          const pos = positions[node.id];
-          if (!pos) return null;
-          const fill = NODE_COLORS[node.type] ?? NODE_COLORS.landing;
-          return (
-            <g key={node.id}>
-              <rect
-                x={pos.x} y={pos.y}
-                width={NODE_W} height={NODE_H}
-                rx={10} ry={10}
-                fill={fill} opacity={0.15}
-                stroke={fill} strokeWidth={1.5}
-              />
-              <text
-                x={pos.x + NODE_W / 2} y={pos.y + 22}
-                textAnchor="middle" fontSize={13} fontWeight={600} fill={fill}
-              >
-                {node.name}
-              </text>
-              <text
-                x={pos.x + NODE_W / 2} y={pos.y + 40}
-                textAnchor="middle" fontSize={11} fill="#71717a"
-              >
-                {node.ip || ''}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+        <Background gap={20} size={1} />
+        <Controls />
+        <MiniMap
+          nodeColor={(node) => {
+            const d = node.data as { type?: string };
+            return NODE_COLORS[d.type || 'landing'] || '#94a3b8';
+          }}
+          maskColor="rgb(240, 240, 240, 0.6)"
+        />
+      </ReactFlow>
     </div>
   );
 }
@@ -475,7 +443,7 @@ export default function TopologyPage() {
                       </div>
                     ))}
                   </div>
-                  <TopologySvg data={topoData} />
+                  <TopologyFlow data={topoData} />
                 </>
               )}
             </CardBody>
